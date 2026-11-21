@@ -14,8 +14,9 @@
 //      (closing a timer under the global lock waits in Disarm for a callback in progress), and
 //      drops requests once the relay stopped;
 //  (d) the relay: a kernel thread with a guest context, waiting on its own condition, finding the
-//      thread by handle and skipping one that ended, created once after the dispatch thread and
-//      stopped and waited for in ~KernelState; kernel_state.h declares it.
+//      thread by handle and skipping one that ended, started once by the first timer with an APC
+//      routine (EnsureApcRelay, on the guest thread, before the timer is armed; not at boot: the
+//      c37 smoke run had it in every game), stopped and waited for in ~KernelState.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -61,6 +62,10 @@ void CheckTimer() {
   Expect(Has(set, "kernel->QueueApcFromHost(cb_thread_handle, cb_routine, cb_routine_arg,\n"
                   "                               time_low, time_high);"),
          "the timer callback queues through the kernel's relay");
+  const size_t ensure = set.find("    auto* kernel = kernel_state();\n    kernel->EnsureApcRelay();");
+  const size_t armed = set.find("result = timer_->SetOnceAt(");
+  Expect(ensure != std::string::npos && armed != std::string::npos && ensure < armed,
+         "a timer with an APC routine starts the relay on the guest thread, before it is armed");
   Expect(!Has(set, "cb_thread->") && !Has(set, "auto cb_thread = callback_thread_;"),
          "no raw thread pointer in the timer callback");
 }
@@ -94,18 +99,24 @@ void CheckKernel() {
   Expect(Has(queue, "std::lock_guard<std::mutex> lock(host_apc_mutex_);") && !Has(queue, "global_critical_region") &&
              !Has(queue, "global_lock"),
          "QueueApcFromHost takes the relay's lock, never the global one");
-  const size_t stopped = queue.find("    if (!host_apc_running_) {\n      return;\n    }");
+  const size_t stopped = queue.find("      return;\n    }\n    host_apcs_.push_back(", queue.find("    if (!host_apc_running_) {"));
   const size_t push = queue.find("host_apcs_.push_back({thread_handle, routine, routine_context, arg1, arg2});");
   Expect(stopped != std::string::npos && push != std::string::npos && stopped < push &&
              queue.find("host_apc_cond_.notify_one();", push) != std::string::npos,
          "requests are dropped once the relay stopped, otherwise queued and the relay woken");
 
-  const size_t dispatch = kernel.find("    dispatch_thread_->set_name(\"Kernel Dispatch\");");
-  const size_t relay = kernel.find("  if (!host_apc_thread_) {", dispatch);
+  const std::string start = Body(kernel, "void KernelState::EnsureApcRelay() {");
+  const size_t relay = kernel.find("  if (!host_apc_thread_) {", kernel.find("void KernelState::EnsureApcRelay() {"));
   const size_t named = kernel.find("    host_apc_thread_->set_name(\"Kernel APC relay\");", relay);
-  Expect(dispatch != std::string::npos && relay != std::string::npos && named != std::string::npos &&
-             kernel.find("    host_apc_thread_->Create();", named) != std::string::npos,
-         "the relay is created once, after the dispatch thread");
+  Expect(Has(start, "  std::lock_guard<std::mutex> start(host_apc_start_mutex_);\n  if (!host_apc_thread_) {") &&
+             Has(start, "    host_apc_thread_->Create();") && named != std::string::npos,
+         "the relay is started once, by EnsureApcRelay, under its own lock");
+  Expect(!Has(kernel.substr(0, kernel.find("void KernelState::EnsureApcRelay() {")), "host_apc_thread_ = object_ref<XHostThread>"),
+         "not at boot: a game with no APC timer has no relay thread");
+  Expect(Has(header, "  void EnsureApcRelay();") && Has(header, "  std::mutex host_apc_start_mutex_;   // EnsureApcRelay") &&
+             Has(queue, "Timer APC (fix 97): routine {:08X} for thread {:08X} asked for \"") &&
+             queue.find("host_apcs_unrelayed_++ == 0") < queue.find("host_apcs_.push_back("),
+         "before the relay starts, a host thread's APC is dropped and logged once");
   const std::string loop = relay == std::string::npos ? "" : kernel.substr(relay, named - relay);
   Expect(Has(loop, "new XHostThread(") && Has(loop, "GetSystemProcess()));"), "the relay has a guest context (XHostThread)");
   Expect(Has(loop, "host_apc_cond_.wait(lock, [this] {\n                return !host_apcs_.empty() || !host_apc_running_;") &&

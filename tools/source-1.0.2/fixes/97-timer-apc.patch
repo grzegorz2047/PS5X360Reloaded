@@ -9,7 +9,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-ca
  #include <vector>
  
  #include "xenia/base/bit_map.h"
-@@ -333,6 +334,16 @@ class KernelState {
+@@ -333,6 +334,19 @@ class KernelState {
        uint32_t overlapped_ptr, std::function<void()> pre_callback = nullptr,
        std::function<void()> post_callback = nullptr);
  
@@ -22,11 +22,14 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-ca
 +  void QueueApcFromHost(uint32_t thread_handle, uint32_t routine,
 +                        uint32_t routine_context, uint32_t arg1,
 +                        uint32_t arg2);
++  // Fix 97: starts the APC relay once, on the first timer with an APC routine
++  // (a guest thread); a game that sets none never has it.
++  void EnsureApcRelay();
 +
    bool CancelOverlapped(uint32_t overlapped_ptr, bool wait);
  
    bool Save(ByteStream* stream);
-@@ -415,6 +426,17 @@ class KernelState {
+@@ -415,6 +429,19 @@ class KernelState {
    std::condition_variable_any dispatch_cond_;
    std::list<std::function<void()>> dispatch_queue_;
  
@@ -38,6 +41,8 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-ca
 +  std::condition_variable host_apc_cond_;
 +  std::vector<HostApc> host_apcs_;  // guarded by host_apc_mutex_
 +  bool host_apc_running_ = false;   // guarded by host_apc_mutex_
++  uint64_t host_apcs_unrelayed_ = 0;  // guarded by host_apc_mutex_
++  std::mutex host_apc_start_mutex_;   // EnsureApcRelay
 +  object_ref<XHostThread> host_apc_thread_;
 +  uint64_t host_apcs_relayed_ = 0, host_apcs_skipped_ = 0;  // the relay's own
 +
@@ -62,17 +67,24 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-c
  
    executable_module_.reset();
    user_modules_.clear();
-@@ -620,6 +628,64 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
+@@ -620,6 +628,71 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
      dispatch_thread_->set_name("Kernel Dispatch");
      dispatch_thread_->Create();
    }
 +
-+  // Fix 97: the APC relay. A guest timer's APC routine fires on the POSIX
-+  // TimerQueue thread, a host thread without a guest context; queueing the APC
-+  // there read through the missing context (Brian Lara International Cricket
-+  // 2007, issue 16: a read fault at 0x20 in XThread::EnqueueApc five seconds
-+  // after the start). This thread has a guest context and waits on its own
-+  // lock, never on the global one.
++}
++
++// Fix 97: the APC relay. A guest timer's APC routine fires on the POSIX
++// TimerQueue thread, a host thread without a guest context; queueing the APC
++// there read through the missing context (Brian Lara International Cricket
++// 2007, issue 16: a read fault at 0x20 in XThread::EnqueueApc five seconds
++// after the start). This thread has a guest context and waits on its own
++// lock, never on the global one. It is started by the first timer with an APC
++// routine (XTimer::SetTimer, on the guest thread that sets it, before the
++// timer is armed), not at boot: a game that sets none runs without it, with
++// the threads, IDs and guest stacks it had before fix 97.
++void KernelState::EnsureApcRelay() {
++  std::lock_guard<std::mutex> start(host_apc_start_mutex_);
 +  if (!host_apc_thread_) {
 +    {
 +      std::lock_guard<std::mutex> lock(host_apc_mutex_);
@@ -127,7 +139,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-c
  }
  
  void KernelState::LoadKernelModule(object_ref<KernelModule> kernel_module) {
-@@ -1310,6 +1376,20 @@ void KernelState::CompleteOverlappedDeferred(
+@@ -1310,6 +1383,28 @@ void KernelState::CompleteOverlappedDeferred(
        overlapped_ptr, pre_callback, post_callback);
  }
  
@@ -138,6 +150,14 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-c
 +  {
 +    std::lock_guard<std::mutex> lock(host_apc_mutex_);
 +    if (!host_apc_running_) {
++      // No timer with an APC routine yet: the relay is not running (a host
++      // thread's other callers; before fix 97 they read through no context).
++      if (host_apcs_unrelayed_++ == 0) {
++        XELOGW("Timer APC (fix 97): routine {:08X} for thread {:08X} asked for "
++               "on a host thread before the relay started; dropped (later "
++               "ones not logged)",
++               routine, thread_handle);
++      }
 +      return;
 +    }
 +    host_apcs_.push_back({thread_handle, routine, routine_context, arg1, arg2});
@@ -182,14 +202,16 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xtimer.cc b/.deps/xenia-canary/
  #include "xenia/kernel/xthread.h"
  
  namespace xe {
-@@ -64,10 +65,14 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
+@@ -64,10 +65,16 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
    // Capture values by value to avoid racing with a future SetTimer() call.
    std::function<void()> callback = nullptr;
    if (callback_routine_) {
 -    auto cb_thread = callback_thread_;
 +    // Fix 97: the thread by its handle (it may end before the timer fires),
-+    // and the APC queued through the kernel: this runs on a host thread.
++    // and the APC queued through the kernel: this runs on a host thread. The
++    // relay is started here, on the guest thread, before the timer is armed.
 +    auto* kernel = kernel_state();
++    kernel->EnsureApcRelay();
 +    const uint32_t cb_thread_handle =
 +        callback_thread_ ? callback_thread_->handle() : 0;
      auto cb_routine = callback_routine_;
@@ -199,7 +221,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xtimer.cc b/.deps/xenia-canary/
        // Queue APC to call back routine with (arg, low, high).
        // It'll be executed on the thread that requested the timer.
        uint64_t time = xe::Clock::QueryGuestSystemTime();
-@@ -76,7 +81,8 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
+@@ -76,7 +83,8 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
        XELOGI(
            "XTimer enqueuing timer callback to {:08X}({:08X}, {:08X}, {:08X})",
            cb_routine, cb_routine_arg, time_low, time_high);
