@@ -82,6 +82,7 @@ checks=(
   check-enumerator-release.cpp     # fix 80
   check-enumerator-buffers.cpp     # fix 82
   check-default-app-relaunch.cpp   # fix 85
+  check-timer-apc.cpp              # fix 97
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -128,6 +129,7 @@ declare -A fix_of=(
   [check-enumerator-release.cpp]=80
   [check-enumerator-buffers.cpp]=82
   [check-default-app-relaunch.cpp]=85
+  [check-timer-apc.cpp]=97
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

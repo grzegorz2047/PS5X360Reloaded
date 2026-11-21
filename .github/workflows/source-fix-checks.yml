@@ -83,6 +83,7 @@ on:
       - 'tools/check-console-image-tools.py'
       - 'tools/stage-reloaded-candidate.py'
       - 'tools/upload-console-image.sh'
+      - 'tools/check-timer-apc.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

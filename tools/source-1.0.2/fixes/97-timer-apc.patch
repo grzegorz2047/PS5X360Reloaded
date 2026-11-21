@@ -1,0 +1,233 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
+@@ -14,6 +14,7 @@
+ #include <condition_variable>
+ #include <functional>
+ #include <list>
++#include <mutex>  // fix 97
+ #include <vector>
+ 
+ #include "xenia/base/bit_map.h"
+@@ -333,6 +334,19 @@ class KernelState {
+       uint32_t overlapped_ptr, std::function<void()> pre_callback = nullptr,
+       std::function<void()> post_callback = nullptr);
+ 
++  // Fix 97: a user APC for the guest thread `thread_handle`, asked for on a
++  // host thread with no guest context (a guest timer's routine, fired on the
++  // POSIX TimerQueue thread). The kernel's APC relay, a thread with a guest
++  // context, queues it; a thread that has ended by then is skipped. Takes no
++  // global lock: the timer queue's Disarm, which closing a timer reaches under
++  // that lock, waits for a callback in progress.
++  void QueueApcFromHost(uint32_t thread_handle, uint32_t routine,
++                        uint32_t routine_context, uint32_t arg1,
++                        uint32_t arg2);
++  // Fix 97: starts the APC relay once, on the first timer with an APC routine
++  // (a guest thread); a game that sets none never has it.
++  void EnsureApcRelay();
++
+   bool CancelOverlapped(uint32_t overlapped_ptr, bool wait);
+ 
+   bool Save(ByteStream* stream);
+@@ -415,6 +429,19 @@ class KernelState {
+   std::condition_variable_any dispatch_cond_;
+   std::list<std::function<void()>> dispatch_queue_;
+ 
++  // Fix 97: the APC relay (QueueApcFromHost).
++  struct HostApc {
++    uint32_t thread_handle, routine, routine_context, arg1, arg2;
++  };
++  std::mutex host_apc_mutex_;
++  std::condition_variable host_apc_cond_;
++  std::vector<HostApc> host_apcs_;  // guarded by host_apc_mutex_
++  bool host_apc_running_ = false;   // guarded by host_apc_mutex_
++  uint64_t host_apcs_unrelayed_ = 0;  // guarded by host_apc_mutex_
++  std::mutex host_apc_start_mutex_;   // EnsureApcRelay
++  object_ref<XHostThread> host_apc_thread_;
++  uint64_t host_apcs_relayed_ = 0, host_apcs_skipped_ = 0;  // the relay's own
++
+   struct DeferredOverlappedRequest {
+     uint64_t id;
+     bool running;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+@@ -98,6 +98,14 @@ KernelState::~KernelState() {
+     dispatch_cond_.notify_all();
+     dispatch_thread_->Wait(0, 0, 0, nullptr);
+   }
++  if (host_apc_thread_) {  // fix 97
++    {
++      std::lock_guard<std::mutex> lock(host_apc_mutex_);
++      host_apc_running_ = false;
++    }
++    host_apc_cond_.notify_all();
++    host_apc_thread_->Wait(0, 0, 0, nullptr);
++  }
+ 
+   executable_module_.reset();
+   user_modules_.clear();
+@@ -620,6 +628,71 @@ void KernelState::SetExecutableModule(object_ref<UserModule> module) {
+     dispatch_thread_->set_name("Kernel Dispatch");
+     dispatch_thread_->Create();
+   }
++
++}
++
++// Fix 97: the APC relay. A guest timer's APC routine fires on the POSIX
++// TimerQueue thread, a host thread without a guest context; queueing the APC
++// there read through the missing context (Brian Lara International Cricket
++// 2007, issue 16: a read fault at 0x20 in XThread::EnqueueApc five seconds
++// after the start). This thread has a guest context and waits on its own
++// lock, never on the global one. It is started by the first timer with an APC
++// routine (XTimer::SetTimer, on the guest thread that sets it, before the
++// timer is armed), not at boot: a game that sets none runs without it, with
++// the threads, IDs and guest stacks it had before fix 97.
++void KernelState::EnsureApcRelay() {
++  std::lock_guard<std::mutex> start(host_apc_start_mutex_);
++  if (!host_apc_thread_) {
++    {
++      std::lock_guard<std::mutex> lock(host_apc_mutex_);
++      host_apc_running_ = true;
++    }
++    host_apc_thread_ = object_ref<XHostThread>(new XHostThread(
++        this, 64 * 1024, 0,
++        [this]() {
++          std::vector<HostApc> batch;
++          while (true) {
++            {
++              std::unique_lock<std::mutex> lock(host_apc_mutex_);
++              host_apc_cond_.wait(lock, [this] {
++                return !host_apcs_.empty() || !host_apc_running_;
++              });
++              if (!host_apc_running_) {
++                break;
++              }
++              batch.swap(host_apcs_);
++            }
++            for (const HostApc& apc : batch) {
++              auto thread =
++                  object_table()->LookupObject<XThread>(apc.thread_handle);
++              if (!thread) {
++                if (host_apcs_skipped_++ == 0) {
++                  XELOGW(
++                      "Timer APC (fix 97): thread {:08X} ended before its "
++                      "routine {:08X} was queued; skipped (later ones not "
++                      "logged)",
++                      apc.thread_handle, apc.routine);
++                }
++                continue;
++              }
++              if (host_apcs_relayed_++ == 0) {
++                XELOGW(
++                    "Timer APC (fix 97): routine {:08X} for thread {:08X} "
++                    "queued through the kernel's relay (first; later ones not "
++                    "logged)",
++                    apc.routine, apc.thread_handle);
++              }
++              thread->EnqueueApc(apc.routine, apc.routine_context, apc.arg1,
++                                 apc.arg2);
++            }
++            batch.clear();
++          }
++          return 0;
++        },
++        GetSystemProcess()));
++    host_apc_thread_->set_name("Kernel APC relay");
++    host_apc_thread_->Create();
++  }
+ }
+ 
+ void KernelState::LoadKernelModule(object_ref<KernelModule> kernel_module) {
+@@ -1310,6 +1383,28 @@ void KernelState::CompleteOverlappedDeferred(
+       overlapped_ptr, pre_callback, post_callback);
+ }
+ 
++void KernelState::QueueApcFromHost(uint32_t thread_handle, uint32_t routine,
++                                   uint32_t routine_context, uint32_t arg1,
++                                   uint32_t arg2) {
++  // Fix 97: no global lock here (see kernel_state.h).
++  {
++    std::lock_guard<std::mutex> lock(host_apc_mutex_);
++    if (!host_apc_running_) {
++      // No timer with an APC routine yet: the relay is not running (a host
++      // thread's other callers; before fix 97 they read through no context).
++      if (host_apcs_unrelayed_++ == 0) {
++        XELOGW("Timer APC (fix 97): routine {:08X} for thread {:08X} asked for "
++               "on a host thread before the relay started; dropped (later "
++               "ones not logged)",
++               routine, thread_handle);
++      }
++      return;
++    }
++    host_apcs_.push_back({thread_handle, routine, routine_context, arg1, arg2});
++  }
++  host_apc_cond_.notify_one();
++}
++
+ void KernelState::CompleteOverlappedDeferredEx(
+     std::function<X_RESULT(uint32_t&, uint32_t&)> completion_callback,
+     uint32_t overlapped_ptr, std::function<void()> pre_callback,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -818,9 +818,18 @@ void XThread::EnqueueApc(uint32_t normal_routine, uint32_t normal_context,
+                          uint32_t arg1, uint32_t arg2) {
+   // don't use thread_state_ -> context() ! we're not running on the thread
+   // we're enqueuing to
++  // Fix 97: a host thread (a guest timer's routine fired on the POSIX
++  // TimerQueue thread) has no guest context to queue with: the kernel's APC
++  // relay queues it (issue 16, a read fault at 0x20 here).
++  auto* current_state = cpu::ThreadState::Get();
++  if (!current_state) {
++    kernel_state()->QueueApcFromHost(this->handle(), normal_routine,
++                                     normal_context, arg1, arg2);
++    return;
++  }
+   uint32_t success = xboxkrnl::xeNtQueueApcThread(
+       this->handle(), normal_routine, normal_context, arg1, arg2,
+-      cpu::ThreadState::Get()->context());
++      current_state->context());
+ 
+   xenia_assert(success == X_STATUS_SUCCESS);
+ }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xtimer.cc b/.deps/xenia-canary/src/xenia/kernel/xtimer.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xtimer.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xtimer.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/kernel/xtimer.h"
+ 
+ #include "xenia/base/logging.h"
++#include "xenia/kernel/kernel_state.h"  // fix 97: QueueApcFromHost
+ #include "xenia/kernel/xthread.h"
+ 
+ namespace xe {
+@@ -64,10 +65,16 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
+   // Capture values by value to avoid racing with a future SetTimer() call.
+   std::function<void()> callback = nullptr;
+   if (callback_routine_) {
+-    auto cb_thread = callback_thread_;
++    // Fix 97: the thread by its handle (it may end before the timer fires),
++    // and the APC queued through the kernel: this runs on a host thread. The
++    // relay is started here, on the guest thread, before the timer is armed.
++    auto* kernel = kernel_state();
++    kernel->EnsureApcRelay();
++    const uint32_t cb_thread_handle =
++        callback_thread_ ? callback_thread_->handle() : 0;
+     auto cb_routine = callback_routine_;
+     auto cb_routine_arg = callback_routine_arg_;
+-    callback = [cb_thread, cb_routine, cb_routine_arg]() {
++    callback = [kernel, cb_thread_handle, cb_routine, cb_routine_arg]() {
+       // Queue APC to call back routine with (arg, low, high).
+       // It'll be executed on the thread that requested the timer.
+       uint64_t time = xe::Clock::QueryGuestSystemTime();
+@@ -76,7 +83,8 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
+       XELOGI(
+           "XTimer enqueuing timer callback to {:08X}({:08X}, {:08X}, {:08X})",
+           cb_routine, cb_routine_arg, time_low, time_high);
+-      cb_thread->EnqueueApc(cb_routine, cb_routine_arg, time_low, time_high);
++      kernel->QueueApcFromHost(cb_thread_handle, cb_routine, cb_routine_arg,
++                               time_low, time_high);
+     };
+   }
+ 
