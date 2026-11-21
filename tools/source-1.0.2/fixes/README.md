@@ -6,7 +6,7 @@ was reverted). Each `.patch` here is one of those groups written as a source cha
 eboot rebuilt from the published sources behaves like the release and later fixes can be made
 in C++ instead of machine code.
 
-`assemble.py` applies them last, in name order, with `git apply` at the root of the assembled
+`assemble.py` applies them last, in number order (08, 08b, ..., 99, 100: `fix_order`), with `git apply` at the root of the assembled
 tree: title paths as they are (`src/`, `include/`, `platform/`, `port/`), core paths under
 `.deps/xenia-canary/`. `SOURCES.json` lists them under `fixes` and adds each to the `edits` of
 the title files it changes. Some drop files have CRLF line endings; the patches keep them byte

@@ -30,7 +30,11 @@ def main():
     parser.add_argument('--tree', type=Path)
     args = parser.parse_args()
 
-    patches = sorted(assemble.FIXES.glob('*.patch'))
+    patches = sorted(assemble.FIXES.glob('*.patch'), key=assemble.fix_order)
+    # Fixes apply by number, then letter: 100 after 99, not before 11.
+    order = sorted((Path(n) for n in ('100-z.patch', '11-a.patch', '08b-b.patch', '08-c.patch', '99-d.patch')),
+                   key=assemble.fix_order)
+    assert [p.name for p in order] == ['08-c.patch', '08b-b.patch', '11-a.patch', '99-d.patch', '100-z.patch'], order
     names = [p.name for p in patches]
     assert '01-jit-reserved-barriers.patch' in names, names
 
