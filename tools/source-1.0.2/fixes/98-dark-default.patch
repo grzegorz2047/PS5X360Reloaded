@@ -1,0 +1,70 @@
+diff --git a/reconstructed/dark_theme.hpp b/reconstructed/dark_theme.hpp
+--- a/reconstructed/dark_theme.hpp
++++ b/reconstructed/dark_theme.hpp
+@@ -10,6 +10,11 @@
+ //    "Restart emulator") saves the
+ //    settings and restarts without a message.
+ // The texts are the official ones, keyed by English (fix 25) and translated by the language files.
++// Fix 98: the dark theme is the default. The player's choice of the light theme has a marker of
++// its own, ui-light.on (1.0.2's missing ui-dark.on meant "light chosen" and "never chosen" alike):
++// without it the theme is dark, with or without ui-dark.on. Switching to light writes ui-light.on
++// and removes ui-dark.on; switching to dark removes ui-light.on and writes ui-dark.on, so a build
++// before fix 98 shows the same theme.
+ #pragma once
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include <filesystem>
+@@ -20,12 +25,35 @@
+ 
+ namespace xbox360ps5::dark_theme {
+ inline constexpr const char* kMarker = XBOX360PS5_DATA_ROOT "/ui-dark.on";
++inline constexpr const char* kLightMarker = XBOX360PS5_DATA_ROOT "/ui-light.on";  // fix 98
+ inline constexpr const char* kSkin = "/app0/assets/skin-dark";
+ 
+-inline bool Present() {
++// Fix 98: in a title folder, the theme is dark unless the player chose light there.
++inline bool DarkAt(const std::filesystem::path& folder) {
+   std::error_code error;
+-  return std::filesystem::exists(kMarker, error);
++  return !std::filesystem::exists(folder / "ui-light.on", error);
+ }
++// Fix 98: switches the theme in a title folder from what it is now (dark_now). False when the
++// light choice could not be written or removed; ui-dark.on only follows it for older builds.
++inline bool ToggleAt(const std::filesystem::path& folder, bool dark_now) {
++  std::error_code error;
++  const auto light = folder / "ui-light.on", dark = folder / "ui-dark.on";
++  if (dark_now) {
++    {
++      std::ofstream marker(light, std::ios::trunc | std::ios::binary);
++      marker.write("1\n", 2);
++      if (!marker) return false;
++    }
++    std::filesystem::remove(dark, error);
++    return true;
++  }
++  std::filesystem::remove(light, error);
++  if (error || std::filesystem::exists(light, error)) return false;
++  std::ofstream marker(dark, std::ios::trunc | std::ios::binary);
++  marker.write("1\n", 2);
++  return true;
++}
++inline bool Present() { return DarkAt(XBOX360PS5_DATA_ROOT); }  // fix 98: dark unless light was chosen
+ // The theme this run of the emulator draws with (a change takes effect after the restart).
+ inline bool AtStart() {
+   static const bool on = Present();
+@@ -38,15 +66,7 @@ inline std::vector<std::filesystem::path> SkinFolders(const char* user, const ch
+   return folders;
+ }
+ // Turns the theme the other way. False when the marker could not be changed.
+-inline bool Toggle() {
+-  if (AtStart()) {
+-    std::error_code error;
+-    return std::filesystem::remove(kMarker, error) && !error;
+-  }
+-  std::ofstream marker(kMarker, std::ios::trunc);
+-  marker.write("1\n", 2);
+-  return bool(marker);
+-}
++inline bool Toggle() { return ToggleAt(XBOX360PS5_DATA_ROOT, AtStart()); }  // fix 98
+ // The home slot's message after Toggle (English keys, for Tr).
+ inline const char* ToggleMessage(bool done) {
+   if (!done) return "Could not change the theme.";

@@ -226,6 +226,7 @@ also listed here.
 | 95 (`95-boost-presets`) | a 1.0.5 performance preset: "Optimized video memory" on by default for Modern Warfare 2 and Red Dead Redemption (MW2 26.5 to 30.9-33.5 frames a second with fix 87; RDR 22-28 to 24-30) | host-checked (`tools/check-boost-presets.cpp`); console: both games with the general setting off and no own choice |
 | 96 (`96-event-writes`) | a 1.0.5 diagnostic: the summary splits EVENT_WRITE* by opcode and event type, with each opcode's own time (Red Dead Redemption: 233,490 a second, 64.5 ms/s) | host-checked (`tools/check-event-writes.cpp`); console: Red Dead Redemption, the events line |
 | 97 (`97-timer-apc`) | a crash fix: a guest timer's APC routine queued from the host TimerQueue thread read through a missing guest context (Brian Lara International Cricket 2007, issue 16: a read fault at 0x20 five seconds after the start); the kernel's APC relay queues it now | host-checked (`tools/check-timer-apc.cpp`); console: Brian Lara International Cricket 2007 past its start, the `Timer APC (fix 97)` line |
+| 98 (`98-dark-default`) | the dark theme is the default (a new install, or no choice saved, starts dark); a player's light choice is kept in `ui-light.on`; the web settings and phone camera pages were dark already | host-checked (`tools/check-dark-default.cpp`) |
 
 ## Comparison with the official executable
 
