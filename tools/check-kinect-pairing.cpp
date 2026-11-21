@@ -48,7 +48,9 @@ void CheckStatus() {
   std::printf("   %s\n", status.c_str());
   Expect(status.rfind("{\"enabled\":false,\"game_running\":false,\"waiting_for\":\"game\",\"tracked\":false,", 0) == 0,
          "before a game: waiting for the game");
-  Expect(Has(status, "\"guest_camera_open\":false") && Has(status, "\"guest_skeleton_bodies\":0}"),
+  // Fix 99b (1.0.5-work-fix99b2) adds fields after guest_skeleton_bodies.
+  Expect(Has(status, "\"guest_camera_open\":false") &&
+             (Has(status, "\"guest_skeleton_bodies\":0}") || Has(status, "\"guest_skeleton_bodies\":0,")),
          "the earlier fields are still there");
   motion::game_running = true;
   Expect(Has(motion::Status(), "\"game_running\":true,\"waiting_for\":\"setting\""), "a game with the camera off: the setting");
