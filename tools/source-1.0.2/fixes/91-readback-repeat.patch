@@ -146,7 +146,7 @@ index b4ac0ad..7d85106 100644
  }  // namespace vulkan
  }  // namespace gpu
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 2ebc99a..135b050 100644
+index 2ebc99a..c208f9c 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -12,6 +12,13 @@
@@ -347,7 +347,7 @@ index 2ebc99a..135b050 100644
    const bool show_resolve = ShowResolve(written_length);
    const DrawsSinceResolve draws = draws_since_resolve_;
    draws_since_resolve_ = DrawsSinceResolve();
-@@ -4138,8 +4296,50 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4138,8 +4296,52 @@ bool VulkanCommandProcessor::IssueCopy() {
  
      uint64_t resolve_key =
          MakeReadbackResolveKey(written_address, written_length);
@@ -382,10 +382,12 @@ index 2ebc99a..135b050 100644
 +      if (now - watch_summary >= std::chrono::seconds(30)) {
 +        watch_summary = now;
 +        XELOGW(
-+            "Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}), keys the CPU "
-+            "reads {}, fast copies kept out of guest memory {} (fix 91g/h)",
++            "Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}, {} of them a "
++            "write first), keys the CPU reads {}, fast copies kept out of guest memory {} "
++            "(fix 91g/h/i)",
 +            readback_watches_armed_, readback_read_fires_.exchange(0), readback_read_drops_.exchange(0),
-+            readback_keys_flagged_, readback_copies_left_out_);
++            xbox360ps5::read_watch_writes.exchange(0), readback_keys_flagged_,
++            readback_copies_left_out_);
 +        readback_watches_armed_ = 0;
 +        readback_copies_left_out_ = 0;
 +      }
@@ -398,7 +400,7 @@ index 2ebc99a..135b050 100644
  
      // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
      // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
-@@ -4147,9 +4347,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4147,9 +4349,28 @@ bool VulkanCommandProcessor::IssueCopy() {
      const uint64_t readback_completed =
          auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
                        : GetCompletedSubmission();
@@ -429,7 +431,7 @@ index 2ebc99a..135b050 100644
      uint32_t size = AlignReadbackBufferSize(readback_length);
  
      // Allocate/resize write buffer if needed
-@@ -4236,6 +4455,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4236,6 +4457,8 @@ bool VulkanCommandProcessor::IssueCopy() {
        rb.sizes[write_index] = size;
        rb.valid_sizes[write_index] = 0;
        rb.submissions[write_index] = 0;
@@ -438,7 +440,7 @@ index 2ebc99a..135b050 100644
        rb.host_coherent[write_index] =
            (vulkan_device->memory_types().host_coherent &
             (uint32_t(1) << memory_type_index)) != 0;
-@@ -4246,8 +4467,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4246,8 +4469,10 @@ bool VulkanCommandProcessor::IssueCopy() {
      const int newest_copy =
          readback_mode == ReadbackResolveMode::kFast
              ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
@@ -449,7 +451,7 @@ index 2ebc99a..135b050 100644
                                           readback_completed, auto_readback)
              : -1;
      uint32_t read_index =
-@@ -4255,6 +4478,14 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4255,6 +4480,14 @@ bool VulkanCommandProcessor::IssueCopy() {
      bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
                             (newest_copy < 0 ||
                              rb.buffers[read_index] == VK_NULL_HANDLE);
@@ -464,7 +466,7 @@ index 2ebc99a..135b050 100644
  
      if (is_scaled) {
        // Scaled path: downscale on the GPU, then copy the 1x data to the
-@@ -4484,6 +4715,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4484,6 +4717,8 @@ bool VulkanCommandProcessor::IssueCopy() {
      // Stamp after the copy: scaled-buffer growth may end a submission above.
      rb.submissions[write_index] = GetCurrentSubmission();
      rb.valid_sizes[write_index] = readback_length;
@@ -473,7 +475,7 @@ index 2ebc99a..135b050 100644
  
      if (readback_mode != ReadbackResolveMode::kFast) {
        // Wait for GPU to finish (accurate but slow)
-@@ -4548,8 +4781,40 @@ bool VulkanCommandProcessor::IssueCopy() {
+@@ -4548,8 +4783,40 @@ bool VulkanCommandProcessor::IssueCopy() {
        if (MapReadbackMemory(rb.memories[read_index],
                              rb.host_coherent[read_index], &mapped_data)) {
          // Memory accessibility already checked at the start of this function.
@@ -549,12 +551,58 @@ index d393ff6..c3b0334 100644
    // Map: (written_address << 32 | written_length) -> ReadbackBuffer
    std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
  
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+index 1f717d8..5ff7ad7 100644
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -27,6 +27,7 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 74: watch arming by view
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by caller
++#include "xbox360ps5/readback_keys.hpp"  // fix 91i: a write to a read-watched page
+ #endif
+ 
+ // TODO(benvanik): move xbox.h out
+@@ -66,6 +67,9 @@ namespace xbox360ps5 {
+ // the game wrote from their neighbours (gpu/shared_memory.cc).
+ uint32_t fault_write_first = UINT32_MAX;
+ uint32_t fault_write_last = 0;
++// Fix 91i: read-watched pages whose first access was a write (reported to the read
++// callbacks all the same), for the command processor's 30 s line.
++std::atomic<uint32_t> read_watch_writes{0};
+ }  // namespace xbox360ps5
+ #endif
+ 
+@@ -2466,6 +2470,23 @@ bool PhysicalHeap::TriggerCallbacks(
+                   host_address_offset()) +
+           physical_address_offset - physical_address_start,
+       heap_size_ - (physical_address_start - physical_address_offset));
++#if XE_PLATFORM_PS5
++  // Fix 91i (issue 14): a read-watched page whose first access is a write. The write path
++  // clears the read watch with the write watch (below), so the read callbacks never heard of
++  // the CPU using that memory: 1.0.5-work-fix91g's watch on Tekken Tag Tournament 2's costume
++  // target 0F05C000 saw nothing, yet the game turns that resolve's guest-memory bytes into
++  // its costume textures (black with the copy left out, blue with the fast mode's late copy).
++  // A write is the CPU using the copy as much as a read.
++  if (!memory_->physical_memory_read_callbacks_.empty() &&
++      xbox360ps5::readback_keys::AnyPage(
++          [&](uint32_t block) { return system_page_flags_[block].notify_on_read; },
++          system_page_first, system_page_last)) {
++    xbox360ps5::read_watch_writes.fetch_add(1, std::memory_order_relaxed);
++    for (auto read_callback : memory_->physical_memory_read_callbacks_) {
++      read_callback->first(read_callback->second, physical_address_start, physical_length);
++    }
++  }
++#endif
+ #if XE_PLATFORM_PS5
+   // Xbox360PS5 (fix 37): an exact request invalidates its exact range, not the
+   // whole 16 KiB host pages around it (exact_unwatch.h); 1.0.2 dropped the GPU
 diff --git a/include/xbox360ps5/readback_keys.hpp b/include/xbox360ps5/readback_keys.hpp
 new file mode 100644
-index 0000000..aaaf158
+index 0000000..347d833
 --- /dev/null
 +++ b/include/xbox360ps5/readback_keys.hpp
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,180 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 91 diagnostic (issue 14, 1.0.5-work-fix91e): the resolve readback mode per key, from a file
 +// the user writes over FTP between runs, for finding which resolve Tekken Tag Tournament 2's
@@ -568,6 +616,7 @@ index 0000000..aaaf158
 +// A key's line with a length wins over its address-only line, which wins over the default. Only
 +// the fast and full settings are changed (readback off, and its automatic copy, stay as they are).
 +#pragma once
++#include <atomic>
 +#include <cstdint>
 +#include <cstdlib>
 +#include <sstream>
@@ -710,8 +759,27 @@ index 0000000..aaaf158
 +  return rules.nocopy_unread && !cpu_reads;
 +}
 +
++// Fix 91i: whether any page of first..last has its bit set, the bits held 64 pages to a block
++// (the memory's notify_on_read flags); bits(block) gives block number `block`'s bits.
++template <typename Bits>
++inline bool AnyPage(Bits bits, uint32_t first, uint32_t last) {
++  if (first > last) return false;
++  for (uint32_t block = first >> 6; block <= (last >> 6); ++block) {
++    uint64_t set = bits(block);
++    if (block == (first >> 6)) set &= ~((uint64_t(1) << (first & 63)) - 1);
++    if (block == (last >> 6) && (last & 63) != 63) set &= (uint64_t(1) << ((last & 63) + 1)) - 1;
++    if (set) return true;
++  }
++  return false;
++}
++
 +inline const char* Name(Mode mode) {
 +  return mode == Mode::kFull ? "full" : mode == Mode::kFast ? "fast" : "as set";
 +}
 +
 +}  // namespace xbox360ps5::readback_keys
++
++namespace xbox360ps5 {
++// Fix 91i (memory.cc): read-watched pages whose first access was a write.
++extern std::atomic<uint32_t> read_watch_writes;
++}  // namespace xbox360ps5

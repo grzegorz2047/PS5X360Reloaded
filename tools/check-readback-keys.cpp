@@ -131,8 +131,45 @@ int main() {
     CHECK(cp.find("readback_mode == ReadbackResolveMode::kFast && !auto_readback &&\n"
                   "            xbox360ps5::readback_keys::NoCopy(") != std::string::npos);
     CHECK(cp.find("++readback_copies_left_out_;") != std::string::npos);
-    CHECK(cp.find("fast copies kept out of guest memory {} (fix 91g/h)") != std::string::npos);
+    CHECK(cp.find("fast copies kept out of guest memory {} \"\n            \"(fix 91g/h/i)\"") !=
+          std::string::npos);
+    // Fix 91i: the reads that were a write first, in the 30 s line.
+    CHECK(cp.find("xbox360ps5::read_watch_writes.exchange(0), readback_keys_flagged_,") != std::string::npos);
     std::printf("tree: the readback mode per key from readback-keys.txt, and the keys logged\n");
+  }
+  // Fix 91i: a write to a read-watched page reaches the read callbacks before the write path
+  // clears the read watch (1.0.5-work-fix91g's watch never saw Tekken's costume target).
+  const std::string mem = ReadText(".deps/xenia-canary/src/xenia/memory.cc");
+  if (mem.empty()) {
+    std::printf("no assembled tree here; the memory's write path not checked\n");
+  } else {
+    const size_t write_path = mem.find("  // Check if watching any page, whether need to call the callback at all.");
+    const size_t told = mem.find("xbox360ps5::read_watch_writes.fetch_add(1, std::memory_order_relaxed);");
+    const size_t invalidation = mem.find("       memory_->physical_memory_invalidation_callbacks_) {", told);
+    const size_t cleared = mem.find("    system_page_flags_[i].notify_on_read &= mask;\n  }\n\n  return true;");
+    CHECK(write_path != std::string::npos && told != std::string::npos && write_path < told);
+    CHECK(invalidation != std::string::npos && told < invalidation && invalidation < cleared &&
+          cleared != std::string::npos);
+    CHECK(mem.find("[&](uint32_t block) { return system_page_flags_[block].notify_on_read; },\n"
+                   "          system_page_first, system_page_last)) {") != std::string::npos);
+    CHECK(mem.find("std::atomic<uint32_t> read_watch_writes{0};") != std::string::npos);
+    std::printf("tree: a write to a read-watched page reaches the read callbacks\n");
+  }
+  // Fix 91i: AnyPage over 64-page blocks, its first and last block masked.
+  {
+    uint64_t blocks[3] = {0, 0, 0};
+    auto bits = [&](uint32_t block) { return blocks[block]; };
+    CHECK(!rk::AnyPage(bits, 0, 191));
+    blocks[1] = uint64_t(1) << 5;  // page 69
+    CHECK(rk::AnyPage(bits, 69, 69) && rk::AnyPage(bits, 0, 191) && rk::AnyPage(bits, 60, 70));
+    CHECK(!rk::AnyPage(bits, 70, 191) && !rk::AnyPage(bits, 0, 68) && !rk::AnyPage(bits, 64, 68));
+    blocks[1] = 0;
+    blocks[2] = uint64_t(1) << 63;  // page 191, the last bit of a block
+    CHECK(rk::AnyPage(bits, 191, 191) && rk::AnyPage(bits, 128, 191) && !rk::AnyPage(bits, 128, 190));
+    blocks[2] = 0;
+    blocks[0] = 1;  // page 0
+    CHECK(rk::AnyPage(bits, 0, 0) && !rk::AnyPage(bits, 1, 191));
+    CHECK(!rk::AnyPage(bits, 5, 4));  // an empty range
   }
   if (failures) {
     std::printf("%d failure(s)\n", failures);

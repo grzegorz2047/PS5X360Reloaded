@@ -224,7 +224,7 @@ int main() {
     CHECK(cp.find("if (!self->readback_reads_.Push(physical_address, length)) {") != std::string::npos);
     CHECK(cp.find("++readback_watches_armed_;") != std::string::npos && cp.find("++readback_keys_flagged_;") !=
           std::string::npos);
-    CHECK(cp.find("\"Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}), keys the CPU \"") !=
+    CHECK(cp.find("\"Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}, {} of them a \"") !=
           std::string::npos);
     CHECK(cp.find("\"Readback read watch: the CPU read {:08X} ({} bytes) (fix 91g)\"") != std::string::npos);
     const std::string h = ReadText(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h");
