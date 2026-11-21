@@ -13,8 +13,9 @@
 //      for every draw a set whose descriptors are exactly the draw's, and writes far fewer sets;
 //      without the epoch the same model would bind a stale set;
 //  (b) include/xbox360ps5/frame_cost.hpp: the sets reused and written, and the summary line;
-//  (c) the assembled tree: the texture cache's epoch changes with every bindings reset (a texture
-//      destroyed, a new frame, the cache cleared) and every sampler destroyed; UpdateBindings
+//  (c) the assembled tree: the texture cache's epoch changes whenever textures are destroyed (for
+//      memory, or all of them) and whenever a sampler is destroyed, not when a texture is only
+//      outdated (Grand Theft Auto IV has some every frame; their views stay); UpdateBindings
 //      fills both stages' image infos, reuses or writes each stage (a reused set rebound only when
 //      another was bound), remembers each set it writes, and the pools' clearing forgets them;
 //      the summary gives the line after fix 81's.
@@ -142,7 +143,6 @@ void RunFrames(Model& m) {
       }
     }
     ++m.frame;
-    ++m.epoch;  // BeginFrame resets the bindings
   }
 }
 
@@ -181,15 +181,25 @@ void CheckTree() {
              th.find("uint64_t binding_epoch_ = 1;  // fix 104") != std::string::npos,
          "the texture cache keeps an epoch of the handles its bindings give out");
   const std::string tc = Read(G + "texture_cache.cc");
+  const size_t completed = tc.find("void TextureCache::CompletedSubmissionUpdated(");
+  const size_t first_destroy = tc.find("if (!destroyed_any) {\n      destroyed_any = true;\n#if XE_PLATFORM_PS5", completed);
+  const size_t bump = tc.find("NoteBindingObjectsDestroyed();", first_destroy);
+  const size_t erase = tc.find("textures_.erase(found_texture_it);", bump);
+  Expect(completed != std::string::npos && first_destroy != std::string::npos && bump != std::string::npos &&
+             erase != std::string::npos && bump - first_destroy < 200,
+         "textures destroyed for memory change it before the first is erased");
+  Expect(tc.find("void TextureCache::DestroyAllTextures(bool from_destructor) {\n#if XE_PLATFORM_PS5\n"
+                 "  NoteBindingObjectsDestroyed();  // fix 104\n#endif\n  ResetTextureBindings(from_destructor);\n"
+                 "  textures_.clear();") != std::string::npos,
+         "destroying all textures changes it");
   const size_t reset = tc.find("void TextureCache::ResetTextureBindings(bool from_destructor) {");
-  const size_t bump = tc.find("NoteBindingObjectsDestroyed();", reset);
-  Expect(reset != std::string::npos && bump != std::string::npos && bump - reset < 160,
-         "every bindings reset changes it (a texture destroyed, BeginFrame, DestroyAllTextures)");
-  Expect(tc.find("      ResetTextureBindings();\n    }\n    // Remove the texture from the map and destroy it") != std::string::npos &&
-             tc.find("void TextureCache::DestroyAllTextures(bool from_destructor) {\n  ResetTextureBindings(from_destructor);") !=
-                 std::string::npos &&
-             tc.find("void TextureCache::BeginFrame() {") != std::string::npos,
-         "textures are destroyed only after a bindings reset");
+  const size_t reset_end = tc.find("\n}\n", reset);
+  Expect(reset != std::string::npos && reset_end != std::string::npos &&
+             tc.substr(reset, reset_end - reset).find("NoteBindingObjectsDestroyed") == std::string::npos,
+         "an outdated texture (a bindings reset alone) keeps the sets reusable");
+  size_t erases = 0;
+  for (size_t at = tc.find("textures_.erase("); at != std::string::npos; at = tc.find("textures_.erase(", at + 1)) ++erases;
+  Expect(erases == 1 && tc.find("textures_.clear();") != std::string::npos, "no other place destroys textures");
   const std::string vt = Read(G + "vulkan/vulkan_texture_cache.cc");
   const size_t destroy = vt.find("dfn.vkDestroySampler(device, sampler_used_first_->second.sampler, nullptr);");
   const size_t sampler_bump = vt.find("NoteBindingObjectsDestroyed();  // fix 104", destroy);
