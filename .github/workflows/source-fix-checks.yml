@@ -98,6 +98,7 @@ on:
       - 'tools/check-timer-apc.cpp'
       - 'tools/check-dark-default.cpp'
       - 'tools/check-content-folders.cpp'
+      - 'tools/check-texture-set-reuse.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
