@@ -1,0 +1,82 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc
+index f8a6a94..0a1a74e 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc
+@@ -9,6 +9,10 @@
+ 
+ #include "xenia/vfs/devices/disc_image_file.h"
+ 
++#include <atomic>
++#include <cstring>
++
++#include "xbox360ps5/disc_sector_pad.hpp"  // fix 92
+ #include "xenia/base/logging.h"
+ #include "xenia/vfs/devices/disc_image_entry.h"
+ namespace xe {
+@@ -39,6 +43,26 @@ X_STATUS DiscImageFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+   if (!entry_->mmap()->ReadAt(real_offset, buffer.data(), real_length)) {
+     return X_STATUS_END_OF_FILE;
+   }
++  // Xbox360PS5 fix 92: a read that stops at the file's end inside a 2 KiB disc sector also gets
++  // the rest of that sector, as a console's sector read (xbox360ps5/disc_sector_pad.hpp): the
++  // disc's own bytes, zeros where the image ends. The bytes read stay the file's.
++  const size_t pad = xbox360ps5::disc::SectorPadLength(entry_->data_size(), byte_offset,
++                                                       real_length, buffer.size());
++  if (pad) {
++    uint8_t* tail = buffer.data() + real_length;
++    const bool from_disc = entry_->mmap()->ReadAt(real_offset + real_length, tail, pad);
++    if (!from_disc) {
++      std::memset(tail, 0, pad);
++    }
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1, std::memory_order_relaxed) < 16) {
++      XELOGW(
++          "Disc read: {} read up to its end ({} bytes at {}); the {} bytes after it in its "
++          "2 KiB sector come {} (fix 92)",
++          entry_->path(), real_length, byte_offset, pad,
++          from_disc ? "from the disc, as on a console" : "as zeros (the image ends there)");
++    }
++  }
+   *out_bytes_read = real_length;
+   return X_STATUS_SUCCESS;
+ }
+diff --git a/include/xbox360ps5/disc_sector_pad.hpp b/include/xbox360ps5/disc_sector_pad.hpp
+new file mode 100644
+index 0000000..9d01690
+--- /dev/null
++++ b/include/xbox360ps5/disc_sector_pad.hpp
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: MIT
++// Fix 92 (1.0.5): a read from a disc image that reaches the file's end fills the rest of the
++// buffer up to the end of that 2 KiB disc sector with the disc's own bytes (zeros where the image
++// ends), never past the length asked for; the bytes read reported stay the file's.
++//
++// A console reads a disc in whole 2 KiB sectors, so a buffer whose read ends inside the file's
++// last sector holds that sector's rest (the disc's padding, normally zeros). The emulator copied
++// only the file's bytes and left the rest of the guest's buffer as it was. Kinect Sports
++// (4D5308C9) reads its only one-segment XCTD bundle, \AM\AMBundle\bundle\4F45161E (2258 bytes,
++// one LZX frame), asking for 0x20000 bytes, decompresses it in its own code and then opened a
++// file with an empty name and crashed in its allocator (1.0.5_candidate_5, 8 and 10); its
++// larger bundles, whose reads end on full segments, loaded. The decoder reads a little past its
++// input; what it finds there is now what a console has there.
++#pragma once
++#include <cstddef>
++#include <cstdint>
++
++namespace xbox360ps5::disc {
++
++constexpr size_t kSectorBytes = 2048;
++
++// How many bytes after the `copied` ones (read at `offset` of a file of `file_size` bytes, for a
++// request of `requested` bytes) belong to the same disc sector: 0 unless the read stopped at the
++// file's end inside a sector. File data starts on a sector boundary (GDF).
++inline size_t SectorPadLength(size_t file_size, size_t offset, size_t copied, size_t requested) {
++  if (copied >= requested || offset + copied != file_size) return 0;
++  const size_t end = offset + copied;
++  const size_t sector_end = (end + kSectorBytes - 1) / kSectorBytes * kSectorBytes;
++  const size_t pad = sector_end - end;
++  const size_t room = requested - copied;
++  return pad < room ? pad : room;
++}
++
++}  // namespace xbox360ps5::disc

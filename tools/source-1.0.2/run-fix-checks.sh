@@ -81,6 +81,7 @@ checks=(
   check-avatar-assets.cpp          # fix 99 (1.0.5)
   check-kinect-identity.cpp        # fix 99b (1.0.5)
   check-kinect-tracker.cpp         # fix 102
+  check-disc-sector-pad.cpp        # fix 92 (1.0.5)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -126,6 +127,7 @@ declare -A fix_of=(
   [check-avatar-assets.cpp]=99
   [check-kinect-identity.cpp]=99b
   [check-kinect-tracker.cpp]=102
+  [check-disc-sector-pad.cpp]=92
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
