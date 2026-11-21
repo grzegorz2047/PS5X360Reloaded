@@ -156,6 +156,26 @@ int main() {
     for (uint64_t frame = 35; !rs::Occasional(frame - 25, frame, burst); frame += 25) ++resolves;
     CHECK(resolves <= 1);
   }
+  // 1.0.5-work-fix91j: steady keys. A run of a resolve a frame (Tekken's costume parts at a
+  // match's load) is not steady until kSteadyFrames frames; repeats within a frame keep the run;
+  // a skipped frame restarts it. A key resolved every frame for long (HDR luminance) is steady.
+  {
+    CHECK(rs::Streak(0, 100, 0) == 1);
+    uint32_t streak = rs::Streak(0, 1, 0);
+    for (uint64_t frame = 2; frame <= 40; ++frame) streak = rs::Streak(frame - 1, frame, streak);
+    CHECK(streak == 40 && !rs::Steady(streak));  // a 40-frame run at load: its own copies
+    CHECK(rs::Streak(40, 40, streak) == 40);      // a second pass in frame 40
+    CHECK(rs::Streak(40, 42, streak) == 1);       // frame 41 had none
+    uint32_t every = rs::Streak(0, 1, 0);
+    for (uint64_t frame = 2; frame <= 200; ++frame) {
+      every = rs::Streak(frame - 1, frame, every);
+      every = rs::Streak(frame, frame, every);  // two passes a frame (MW2's multi-pass keys)
+    }
+    CHECK(rs::Steady(every) && every == 200);
+    CHECK(rs::Streak(25, 50, 7) == 1 && !rs::Steady(1));  // every 25 frames: never steady
+    CHECK(rs::Streak(50, 49, 9) == 1);                    // a frame counter that went back
+    CHECK(rs::Steady(rs::kSteadyFrames) && !rs::Steady(rs::kSteadyFrames - 1));
+  }
   CHECK(rs::Overlaps(0x0F05C000, 4194304, 0x0F05D000, 4096) && !rs::Overlaps(0x0F05C000, 4096, 0x0F05D000, 4096) &&
         !rs::Overlaps(0x0F05C000, 0, 0x0F05C000, 4096));
   // The fault handler's ring: reads in order, a full ring drops the newest until taken.
@@ -210,8 +230,18 @@ int main() {
     const size_t take = cp.find("readback_reads_.Take(");
     const size_t gap = cp.find("readback_slots::Occasional(previous_use_frame, frame_current_, rb.gap_average);");
     CHECK(take != std::string::npos && take < gap && gap != std::string::npos);
-    CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&\n"
-                  "        (rb.cpu_reads || g_readback_rules.occasional_own) && occasional && newest_copy >= 0) {") !=
+    // 1.0.5-work-fix91j: "occasional own" takes every key that is not steady, read or not; without
+    // it, a key the CPU is seen reading that is occasional. Counted and logged.
+    CHECK(cp.find("const bool own_copy = g_readback_rules.occasional_own ? !readback_slots::Steady(rb.streak)\n"
+                  "                                                          : rb.cpu_reads && occasional;") !=
+          std::string::npos);
+    CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && own_copy &&\n"
+                  "        newest_copy >= 0) {\n      read_cache_miss = true;") != std::string::npos);
+    const size_t streak = cp.find("rb.streak = readback_slots::Streak(previous_use_frame, frame_current_, rb.streak);");
+    CHECK(gap != std::string::npos && gap < streak && streak != std::string::npos &&
+          streak < cp.find("const bool own_copy ="));
+    CHECK(cp.find("\"Readback own copies, last 30 s: {} ({}) (fix 91j)\"") != std::string::npos);
+    CHECK(cp.find("\"Readback: the key {:08X} ({} bytes) gets its own copy: {} frame(s) in a row, about \"") !=
           std::string::npos);
     const size_t copy = cp.find("memory::vastcpy(memory_->TranslatePhysical(written_address),");
     const size_t arm = cp.find("memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,");

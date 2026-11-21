@@ -121,7 +121,8 @@ int main() {
     CHECK(cp.find("xbox360ps5::readback_keys::Rules g_readback_rules;") != std::string::npos);
     CHECK(cp.find("xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g") !=
           std::string::npos);
-    CHECK(cp.find("(rb.cpu_reads || g_readback_rules.occasional_own)") != std::string::npos);
+    CHECK(cp.find("const bool own_copy = g_readback_rules.occasional_own ? !readback_slots::Steady(rb.streak)") !=
+          std::string::npos);  // fix 91j
     // Fix 91h: the copy left out only in the fast mode (never the automatic copy), counted, and
     // the read watch still armed after it.
     const size_t leave = cp.find("xbox360ps5::readback_keys::NoCopy(g_readback_rules, written_address, rb.cpu_reads);");
