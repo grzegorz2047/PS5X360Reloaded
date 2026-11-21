@@ -1,5 +1,5 @@
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 7d3377f..0f3e85e 100644
+index 7d3377f..8ae19d7 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -505,12 +505,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
@@ -49,32 +49,39 @@ index 7d3377f..0f3e85e 100644
      if (state_.page == 1) {
        char position[24];
        std::snprintf(position, sizeof(position), "%d / %d", state_.row + 1, int(items.size()));
-@@ -766,6 +779,24 @@ class Guide final : public xe::ui::ImGuiDialog {
+@@ -766,6 +779,31 @@ class Guide final : public xe::ui::ImGuiDialog {
                        lit ? fade(255, 255, 255, a) : fade(90, 96, 104, a), items[size_t(n)].value.c_str());
        }
      }
 +    if (button) {
-+      // Fix 93d: centred below the list, quiet but available: a light grey fill, dark text and a
-+      // round "!" mark, none of the list's green (grey text on a thin outline read as disabled);
-+      // focused, a dark, thicker outline as well.
++      // Fix 93d: centred below the list, a raised button the player sees can be pressed (the
++      // user's choice after the mock-ups): a soft shadow below it, a light-to-grey gradient with a
++      // highlight along its top, rounded corners, dark text centred, none of the list's green;
++      // focused, a dark, thicker outline as well (none otherwise).
 +      const bool focused = state_.row == listed;
 +      const int a = int(255 * content);
 +      const char* label = items.back().label.c_str();
 +      const ImVec2 size = medium->CalcTextSizeA(26 * scale, 4096.0f, 0.0f, label);
-+      const float width = size.x / scale + 46 + 48, height = 52;
++      const float width = size.x / scale + 2 * 48, height = 54, round = 14;
 +      const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;
 +      const float y = top + std::min(listed - first_row, kGuideRows) * 63.0f + 24;
-+      const ImU32 ink = fade(44, 48, 54, a);
-+      list->AddRectFilled(at(x, y), at(x + width, y + height), fade(226, 228, 231, a), 12 * scale);
-+      if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), 12 * scale, 0, 3.0f * scale);
-+      list->AddCircle(at(x + 37, y + 26), 13 * scale, ink, 20, 2.0f * scale);
-+      list->AddText(medium, 22 * scale, at(x + 33, y + 14), ink, "!");
-+      list->AddText(medium, 26 * scale, at(x + 70, y + 12), ink, label);
++      // The shadow: rounded rectangles a little lower and wider each, faint, as a blur.
++      for (int n = 4; n >= 1; --n)
++        list->AddRectFilled(at(x + 2 - n, y + 3 + n), at(x + width + 2 + n, y + height + 3 + n), fade(40, 44, 52, a * 7 / 100),
++                            (round + n) * scale);
++      // The face: the lower grey under all of it, the light top cap, the gradient between them.
++      list->AddRectFilled(at(x, y), at(x + width, y + height), fade(214, 217, 221, a), round * scale);
++      list->AddRectFilled(at(x, y), at(x + width, y + round), fade(246, 247, 249, a), round * scale, ImDrawFlags_RoundCornersTop);
++      list->AddRectFilledMultiColor(at(x, y + round), at(x + width, y + height - round), fade(246, 247, 249, a),
++                                    fade(246, 247, 249, a), fade(214, 217, 221, a), fade(214, 217, 221, a));
++      list->AddLine(at(x + round, y + 2), at(x + width - round, y + 2), fade(255, 255, 255, a * 86 / 100), 2.0f * scale);
++      if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), round * scale, 0, 3.0f * scale);
++      list->AddText(medium, 26 * scale, ImVec2(at(x, y).x + (width * scale - size.x) / 2, at(x, y + 13).y), fade(44, 48, 54, a), label);
 +    }
      list->PopClipRect();
      if (!game_.empty()) {
        const std::string running = Tr("Playing: ") + game_;
-@@ -3009,9 +3040,14 @@ int main(int argc, char** argv) {
+@@ -3009,9 +3047,14 @@ int main(int argc, char** argv) {
          }
          // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
          // the next start is an ordinary one. A title switch of the session goes on with it.
@@ -92,7 +99,7 @@ index 7d3377f..0f3e85e 100644
            bug_report_state = xbox360ps5::bug_report::Begin(chosen.name, log_id, int64_t(std::time(nullptr)));
            xbox360ps5::bug_report::active.store(true);
          }
-@@ -3138,6 +3174,7 @@ int main(int argc, char** argv) {
+@@ -3138,6 +3181,7 @@ int main(int argc, char** argv) {
          publish_web(settings_title, game_name);
          ApplyPicture(settings, emulator.graphics_system()->presenter());
          bool trigger_was = true, swallow = false, quit = false;
@@ -100,7 +107,7 @@ index 7d3377f..0f3e85e 100644
          // The library over the running game ("Go to the library (the game stays open)" in the guide).
          bool library_open = false, close_library = false, create_seen = false;
          XELOGW("Controller: asked for the system's buttons (Create as BACK), answer {:08X}", unsigned(ps5x360_pad_privilege_answer));
-@@ -3396,6 +3433,25 @@ int main(int argc, char** argv) {
+@@ -3396,6 +3440,25 @@ int main(int argc, char** argv) {
                    changed = false;
                    measure_at = std::chrono::steady_clock::now() + std::chrono::seconds(4);
                    break;
@@ -126,7 +133,7 @@ index 7d3377f..0f3e85e 100644
                  case GuideAction::network: {
                    // Fix 22: Offline, System Link, Online, switched on a thread of its own.
                    namespace net = xbox360ps5::guide_network;
-@@ -3687,7 +3743,8 @@ int main(int argc, char** argv) {
+@@ -3687,7 +3750,8 @@ int main(int argc, char** argv) {
          // Fix 93b: from here to the restart the screen says what happens, and keeps moving while
          // the steps below run (leaving_notice.hpp); the last frame stays through the restart.
          namespace leaving = xbox360ps5::leaving_notice;

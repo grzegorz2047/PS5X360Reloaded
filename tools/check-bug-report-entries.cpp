@@ -9,8 +9,8 @@
 //  (b) the general settings sheet: a 15th row after the others, toggled and saved, drawn apart;
 //  (c) a game's Settings tab: a row after its subjects for an identified game, toggling the
 //      game's own value (saved in its file), drawn apart, with its explanation;
-//  (d) the guide: below System's options a quiet button (a light fill, dark text, a "!" mark,
-//      centred, not a row of the list; a dark outline when focused), Cross only,
+//  (d) the guide: below System's options a raised button (shadow, gradient, top highlight, dark text,
+//      centred, not a row of the list; a dark outline only when focused), Cross only,
 //      writing this game's own value (the general one without a title ID) and launch-once.txt,
 //      then restarting with "Restarting the game...";
 //  (e) a game's start takes the game's own value or the general one, and clears both;
@@ -106,12 +106,20 @@ void CheckGame() {
              Has(draw, "const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;") &&
              Has(draw, "top + std::min(listed - first_row, kGuideRows) * 63.0f + 24"),
          "(d) a button centred below the list");
-  Expect(Has(draw, "list->AddRect(") && Has(draw, "list->AddCircle(") && Has(draw, "\"!\"") &&
-             Has(draw, "list->AddRectFilled(at(x, y), at(x + width, y + height), fade(226, 228, 231, a), 12 * scale);") &&
-             Has(draw, "const ImU32 ink = fade(44, 48, 54, a);") &&
-             Has(draw, "if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), 12 * scale, 0, 3.0f * scale);") &&
-             !Has(draw, "fade(118, 188, 62") && !Has(draw, "fade(200, 120, 40"),
-         "(d) always a light fill with dark text and a \"!\" mark (never greyed out), a dark outline when focused, none of the green or orange");
+  // The approved mock-up (bug-report-guide-raised), without the "!" mark: a raised button.
+  Expect(Has(draw, "for (int n = 4; n >= 1; --n)") && Has(draw, "fade(40, 44, 52, a * 7 / 100)"),
+         "(d) a soft shadow below it");
+  Expect(Has(draw, "list->AddRectFilled(at(x, y), at(x + width, y + height), fade(214, 217, 221, a), round * scale);") &&
+             Has(draw, "ImDrawFlags_RoundCornersTop") &&
+             Has(draw, "list->AddRectFilledMultiColor(at(x, y + round), at(x + width, y + height - round), fade(246, 247, 249, a),"),
+         "(d) a light-to-grey gradient face with rounded corners");
+  Expect(Has(draw, "list->AddLine(at(x + round, y + 2), at(x + width - round, y + 2), fade(255, 255, 255,"),
+         "(d) a highlight along its top");
+  Expect(Has(draw, "if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), round * scale, 0, 3.0f * scale);") &&
+             Has(draw, "(width * scale - size.x) / 2") && Has(draw, "fade(44, 48, 54, a), label);"),
+         "(d) dark text centred (never greyed out); the dark outline only when focused");
+  Expect(!Has(draw, "\"!\"") && !Has(draw, "AddCircle(") && !Has(draw, "fade(118, 188, 62") && !Has(draw, "fade(200, 120, 40"),
+         "(d) no mark, none of the green or orange");
   const std::string action = Between(main, "case GuideAction::bug_report_restart:", "case GuideAction::network: {");
   Expect(Has(action, "if (!(pressed & 0x4000)) break;"), "(d) Cross only");
   Expect(Has(action, "overrides[\"bug_report\"] = 1;") && Has(action, "xbox360ps5::SaveGameOverrides(settings_title, overrides);") &&

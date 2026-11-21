@@ -306,7 +306,7 @@ index 954471b..c595c55 100644
      const std::string name = Unescaped(target.substr(6));
      std::ifstream file(log_folder / name, std::ios::binary);
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index daa2e66..edec1e0 100644
+index 264e9be..8eccedd 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -616,13 +616,16 @@ class LeavingNoticeOverlay final : public xe::ui::ImGuiDialog {
@@ -327,7 +327,7 @@ index daa2e66..edec1e0 100644
  }
  class Guide final : public xe::ui::ImGuiDialog {
   public:
-@@ -2094,8 +2097,11 @@ int main(int argc, char** argv) {
+@@ -2101,8 +2104,11 @@ int main(int argc, char** argv) {
    Stage("BOOT version " XBOX360PS5_VERSION);
    // Relative paths must resolve to "no such file" rather than a sandbox error.
    if (chdir("/download0/xbox360ps5")) Stage("BOOT chdir refused");
@@ -339,7 +339,7 @@ index daa2e66..edec1e0 100644
    // Fix 46: the first start copies the official PS5X360's saves and small settings files into
    // this title's folder, once (official_import.hpp); its own folder is only read.
    const auto imported = xbox360ps5::official_import::Run(xbox360ps5::app_identity::kOfficialDataRoot,
-@@ -2311,6 +2317,7 @@ int main(int argc, char** argv) {
+@@ -2318,6 +2324,7 @@ int main(int argc, char** argv) {
    NativeWindow window(context);
    if (!window.Open()) return 3;
    Stage("BOOT imgui");
@@ -347,7 +347,7 @@ index daa2e66..edec1e0 100644
    xe::ui::ImGuiDrawer drawer(&window, 1);
    drawer.GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
    xe::ui::controller_keyboard::SetAvailable(true);
-@@ -2318,7 +2325,9 @@ int main(int argc, char** argv) {
+@@ -2325,7 +2332,9 @@ int main(int argc, char** argv) {
    const auto fonts = xbox360ps5::Launcher::LoadFonts(drawer.GetIO());
    if (fonts.f28) drawer.GetIO().FontDefault = fonts.f28;
    else { drawer.GetIO().FontGlobalScale = 2.5f; Stage("BOOT launcher font missing, using the built-in one"); }
@@ -357,7 +357,7 @@ index daa2e66..edec1e0 100644
    launcher.SetStarted(started);
    std::string web_hint;
    const auto show_web_address = [&launcher, &web_hint] {
-@@ -2362,12 +2371,24 @@ int main(int argc, char** argv) {
+@@ -2369,12 +2378,24 @@ int main(int argc, char** argv) {
        std::filesystem::remove(storage / "notice.txt", notice_error);
      }
    }
@@ -382,7 +382,7 @@ index daa2e66..edec1e0 100644
      shown.folder = bug_report_state.logs.empty() ? log_root
                                                   : std::filesystem::path(bug_report_state.logs.front()).parent_path();
      shown.files = report::Files(bug_report_state, {"/app0/logs/boot.log", storage / "boot.log"});
-@@ -2391,6 +2412,7 @@ int main(int argc, char** argv) {
+@@ -2398,6 +2419,7 @@ int main(int argc, char** argv) {
    }
    Stage("BOOT pad");
    NativePad pad;
@@ -390,7 +390,7 @@ index daa2e66..edec1e0 100644
    int result = 0;
    bool restart = false;
    auto recover_gl_initialization = [&] {
-@@ -2448,6 +2470,7 @@ int main(int argc, char** argv) {
+@@ -2455,6 +2477,7 @@ int main(int argc, char** argv) {
          if (entry->is_regular_file(size_error)) { const auto size = entry->file_size(size_error); if (!size_error) used += size; }
        }
        XELOGW("Storage: caches in {}; save storage {} holds {} KiB", bulk.string(), storage.string(), used / 1024);
@@ -398,7 +398,7 @@ index daa2e66..edec1e0 100644
      }
      Stage("BOOT emulator constructor");
      Stage("BOOT preparing homebrew saves (original content retained)");
-@@ -2457,12 +2480,14 @@ int main(int argc, char** argv) {
+@@ -2464,12 +2487,14 @@ int main(int argc, char** argv) {
        saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/app0/saves");
      }
      XELOGW("Saves: {}; {}", saves.root.string(), saves.notice);
@@ -413,7 +413,7 @@ index daa2e66..edec1e0 100644
      Stage("BOOT emulator setup");
      BootTiming("emulator setup");  // fix 93c
      xbox360ps5::DualSenseInput* input = nullptr;
-@@ -2494,8 +2519,10 @@ int main(int argc, char** argv) {
+@@ -2501,8 +2526,10 @@ int main(int argc, char** argv) {
      Stage("BOOT emulator setup returned");
      BootTiming("emulator setup returned");  // fix 93c
      xbox360ps5::ReportPlatformMemory();
@@ -424,7 +424,7 @@ index daa2e66..edec1e0 100644
        if (!xbox360ps5::MountUtilityCache(*emulator.file_system(), bulk)) {
          XELOGE("Required utility cache is unavailable; launch cancelled");
          return 7;
-@@ -2524,7 +2551,9 @@ int main(int argc, char** argv) {
+@@ -2531,7 +2558,9 @@ int main(int argc, char** argv) {
        exit_cache->processor = static_cast<xe::gpu::vulkan::VulkanCommandProcessor*>(
              emulator.graphics_system()->command_processor());
        ExitCacheScope exit_cache_scope{exit_cache};
@@ -434,7 +434,7 @@ index daa2e66..edec1e0 100644
        if (!immediate || !emulator.graphics_system()->presenter()) {
          XELOGE("Native {} presentation/UI initialization failed", xbox360ps5::RendererName(started.renderer));
          recover_gl_initialization();
-@@ -3745,6 +3774,11 @@ int main(int argc, char** argv) {
+@@ -3752,6 +3781,11 @@ int main(int argc, char** argv) {
          namespace leaving = xbox360ps5::leaving_notice;
          leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)  // fix 93d
                                : leaving::Kind::closing);
