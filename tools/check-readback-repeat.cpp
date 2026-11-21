@@ -176,6 +176,51 @@ int main() {
     CHECK(rs::Streak(50, 49, 9) == 1);                    // a frame counter that went back
     CHECK(rs::Steady(rs::kSteadyFrames) && !rs::Steady(rs::kSteadyFrames - 1));
   }
+  // 1.0.5-work-fix91k: steady as a share of recent frames. FIFA Street's frame-size targets,
+  // resolved in about 3 of 4 frames (35/s at 48 fps on 91j), become steady within some 10 s; a key
+  // every other frame too; a run of costume parts at load stays unsteady for 200 frames in a row;
+  // a key every 25 frames never; repeats within a frame count once.
+  {
+    float p = rs::Presence(0, 1, 0);
+    uint64_t last = 1;
+    CHECK(p == rs::kPresenceRate && !rs::SteadyPresence(p));
+    for (uint64_t frame = 2; frame <= 200; ++frame) {
+      p = rs::Presence(last, frame, p);
+      p = rs::Presence(frame, frame, p);  // a second resolve in the frame: counted once
+      last = frame;
+    }
+    CHECK(!rs::SteadyPresence(p) && p > 0.3f);  // 200 frames in a row: still its own copies
+    for (uint64_t frame = 201; frame <= 600; ++frame) {
+      p = rs::Presence(last, frame, p);
+      last = frame;
+    }
+    CHECK(rs::SteadyPresence(p) && p > 0.65f);  // a key every frame for 10 s: steady
+    float three_of_four = rs::Presence(0, 1, 0);
+    last = 1;
+    for (uint64_t frame = 2; frame <= 600; ++frame) {
+      if (frame % 4 == 0) continue;
+      three_of_four = rs::Presence(last, frame, three_of_four);
+      last = frame;
+    }
+    CHECK(rs::SteadyPresence(three_of_four));
+    float other = rs::Presence(0, 2, 0);
+    last = 2;
+    for (uint64_t frame = 4; frame <= 4000; frame += 2) {
+      other = rs::Presence(last, frame, other);
+      last = frame;
+    }
+    CHECK(rs::SteadyPresence(other) && other > 0.45f && other < 0.55f);  // every other frame: ~0.5
+    float rare = rs::Presence(0, 25, 0);
+    last = 25;
+    for (uint64_t frame = 50; frame <= 25000; frame += 25) {
+      rare = rs::Presence(last, frame, rare);
+      last = frame;
+    }
+    CHECK(!rs::SteadyPresence(rare) && rare < 0.06f);  // every 25 frames: never steady
+    // After a steady key stops for 10 s it is unsteady again (a new run at the next load).
+    CHECK(!rs::SteadyPresence(rs::Presence(1000, 1600, 0.9f)));
+    CHECK(rs::Presence(50, 40, 0.7f) == rs::kPresenceRate);  // a frame counter that went back
+  }
   CHECK(rs::Overlaps(0x0F05C000, 4194304, 0x0F05D000, 4096) && !rs::Overlaps(0x0F05C000, 4096, 0x0F05D000, 4096) &&
         !rs::Overlaps(0x0F05C000, 0, 0x0F05C000, 4096));
   // The fault handler's ring: reads in order, a full ring drops the newest until taken.
@@ -232,15 +277,17 @@ int main() {
     CHECK(take != std::string::npos && take < gap && gap != std::string::npos);
     // 1.0.5-work-fix91j: "occasional own" takes every key that is not steady, read or not; without
     // it, a key the CPU is seen reading that is occasional. Counted and logged.
-    CHECK(cp.find("const bool own_copy = g_readback_rules.occasional_own ? !readback_slots::Steady(rb.streak)\n"
-                  "                                                          : rb.cpu_reads && occasional;") !=
-          std::string::npos);
+    CHECK(cp.find("const bool own_copy = g_readback_rules.occasional_own\n"
+                  "                              ? !readback_slots::SteadyPresence(rb.presence)\n"
+                  "                              : rb.cpu_reads && occasional;") != std::string::npos);
+    const size_t presence = cp.find("rb.presence = readback_slots::Presence(previous_use_frame, frame_current_, rb.presence);");
+    CHECK(presence != std::string::npos && presence < cp.find("const bool own_copy ="));
     CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && own_copy &&\n"
                   "        newest_copy >= 0) {\n      read_cache_miss = true;") != std::string::npos);
     const size_t streak = cp.find("rb.streak = readback_slots::Streak(previous_use_frame, frame_current_, rb.streak);");
     CHECK(gap != std::string::npos && gap < streak && streak != std::string::npos &&
           streak < cp.find("const bool own_copy ="));
-    CHECK(cp.find("\"Readback own copies, last 30 s: {} ({}) (fix 91j)\"") != std::string::npos);
+    CHECK(cp.find("\"Readback own copies, last 30 s: {} ({}) (fix 91j/k)\"") != std::string::npos);
     CHECK(cp.find("\"Readback: the key {:08X} ({} bytes) gets its own copy: {} frame(s) in a row, about \"") !=
           std::string::npos);
     const size_t copy = cp.find("memory::vastcpy(memory_->TranslatePhysical(written_address),");

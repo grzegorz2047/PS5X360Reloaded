@@ -79,9 +79,11 @@ int main() {
     CHECK(rules.not_understood == 0 && rules.watch.size() == 2 && rules.occasional_own &&
           rules.default_mode == rk::Mode::kFast && rules.keys.empty());
     CHECK(rk::Watched(rules, 0x0F05C000) && rk::Watched(rules, 0x0E338000) && !rk::Watched(rules, 0x10020000));
-    CHECK(!rk::Parse("occasional off\n").occasional_own && !rk::Parse("").occasional_own);
+    // 1.0.5-work-fix91k: the rule is the default; "occasional off" goes back to fix 91i's.
+    CHECK(!rk::Parse("occasional off\n").occasional_own && rk::Parse("").occasional_own &&
+          rk::Rules().occasional_own);
     const rk::Rules bad = rk::Parse("watch\nwatch zz\nwatch 0F05C000 full\noccasional\noccasional maybe\n");
-    CHECK(bad.not_understood == 5 && bad.watch.empty() && !bad.occasional_own);
+    CHECK(bad.not_understood == 5 && bad.watch.empty() && bad.occasional_own);  // left as default
   }
   // 1.0.5-work-fix91h: fast copies kept out of guest memory, for one key or for every key the
   // CPU is not seen reading.
@@ -121,8 +123,8 @@ int main() {
     CHECK(cp.find("xbox360ps5::readback_keys::Rules g_readback_rules;") != std::string::npos);
     CHECK(cp.find("xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g") !=
           std::string::npos);
-    CHECK(cp.find("const bool own_copy = g_readback_rules.occasional_own ? !readback_slots::Steady(rb.streak)") !=
-          std::string::npos);  // fix 91j
+    CHECK(cp.find("? !readback_slots::SteadyPresence(rb.presence)") !=
+          std::string::npos);  // fix 91j/k
     // Fix 91h: the copy left out only in the fast mode (never the automatic copy), counted, and
     // the read watch still armed after it.
     const size_t leave = cp.find("xbox360ps5::readback_keys::NoCopy(g_readback_rules, written_address, rb.cpu_reads);");
