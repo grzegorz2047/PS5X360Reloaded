@@ -98,6 +98,8 @@ on:
       - 'tools/check-timer-apc.cpp'
       - 'tools/check-readback-repeat.cpp'
       - 'tools/check-readback-keys.cpp'
+      - 'tools/check-dark-default.cpp'
+      - 'tools/check-content-folders.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
