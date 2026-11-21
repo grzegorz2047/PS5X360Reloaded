@@ -99,6 +99,7 @@ checks=(
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
   check-dark-default.cpp           # fix 98
+  check-content-folders.cpp        # fix 101
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -163,6 +164,7 @@ declare -A fix_of=(
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
   [check-dark-default.cpp]=98
+  [check-content-folders.cpp]=101
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
