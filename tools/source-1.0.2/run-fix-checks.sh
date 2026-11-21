@@ -100,6 +100,7 @@ checks=(
   check-report-session.cpp         # fix 93f
   check-flush-before-restart.cpp   # fix 93g
   check-leaving-steps.cpp          # fix 93h
+  check-bounded-leave.cpp          # fix 93i
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -169,6 +170,7 @@ declare -A fix_of=(
   [check-report-session.cpp]=93f
   [check-flush-before-restart.cpp]=93g
   [check-leaving-steps.cpp]=93h
+  [check-bounded-leave.cpp]=93i
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

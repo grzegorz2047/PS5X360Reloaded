@@ -135,9 +135,11 @@ void CheckPaintUntil() {
 void CheckTree() {
   const std::string header = Read(".deps/xenia-canary/src/xenia/base/logging.h");
   const std::string core = Read(".deps/xenia-canary/src/xenia/base/logging.cc");
-  Expect(Has(header, "std::string TakeRecentLines();"), "(d) the core declares TakeRecentLines");
-  const std::string take = Between(core, "std::string logging::TakeRecentLines() {", "\n}\n");
-  Expect(Has(take, "std::lock_guard<std::mutex> lock(recent_mutex_);") && Has(take, "keep_recent_lines_ = false;") &&
+  // Fix 93i adds `keep_on` (a STALL report keeps them on); the way out's call still stops them.
+  Expect(Has(header, "std::string TakeRecentLines();") || Has(header, "std::string TakeRecentLines(bool keep_on = false);"),
+         "(d) the core declares TakeRecentLines");
+  const std::string take = Between(core, "std::string logging::TakeRecentLines(", "\n}\n");
+  Expect(Has(take, "std::lock_guard<std::mutex> lock(recent_mutex_);") && (Has(take, "keep_recent_lines_ = false;") || Has(take, "keep_recent_lines_ = keep_on;")) &&
              Has(take, "xe::threading::SuspensionDeferral deferral;") && Has(take, "if (cut) {") &&
              !Has(take, "logger_"),
          "(d) one copy under the lock, no more kept, a cut first line dropped, nothing through the log");

@@ -74,7 +74,9 @@ void CheckSaves(const fs::path& base) {
 void CheckTree() {
   const std::string main = Read("src/canary_game_main.cpp");
   const std::string flush = Between(main, "void FlushWritesBeforeRestart(const char* why) {", "\n}");
-  Expect(Has(flush, "::sync();") && Has(flush, "XELOGW(\"Leaving: pending disk writes flushed in {} ms ({})\""),
+  // Fix 93i bounds it (3 s, the sync on its own thread); either form.
+  Expect(Has(flush, "::sync();") && (Has(flush, "XELOGW(\"Leaving: pending disk writes flushed in {} ms ({})\"") ||
+                                     Has(flush, "XELOGW(\"Leaving: pending disk writes {} in {} ms ({})\"")),
          "(b) FlushWritesBeforeRestart syncs and logs how long");
   const std::string back = Between(main, "if (restart && xbox360ps5::leaving_notice::Current() != xbox360ps5::leaving_notice::Kind::none) {",
                                    "} else if (restart) {");

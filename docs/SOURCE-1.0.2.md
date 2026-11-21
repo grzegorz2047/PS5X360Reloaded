@@ -228,6 +228,7 @@ also listed here.
 | 93f (`93f-report-session`) | for players: the bug report lists only its session's files, says when a session did not end normally, links the archive by a download code of its own (not the settings key), and the start after a game is no longer slowed by syncing the boot log for every line | host-checked (`tools/check-report-session.cpp`); console: not yet tried |
 | 93g (`93g-flush-before-restart`) | for players: the black screen between "Returning to the menu..." and the menu is shorter; the game's caches are written out while the notice is still on screen | host-checked (`tools/check-flush-before-restart.cpp`); console: not yet tried |
 | 93h (`93h-leaving-steps`) | for players: the "Returning to the menu..." notice says what it is doing (saving shaders, writing to the drive, signing out of online play, starting the menu), and Exit emulator says it keeps the shaders, unlike the PS button | host-checked (`tools/check-leaving-steps.cpp`); console: not yet tried |
+| 93i (`93i-bounded-leave`) | for players: leaving a game with logs for a bug report no longer hangs while the game is still writing to the drive (GTA IV copying its data); every wait of the way out is bounded | host-checked (`tools/check-bounded-leave.cpp`); console: not yet tried |
 
 ## Comparison with the official executable
 

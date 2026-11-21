@@ -789,8 +789,9 @@ void TreeSuspensionDeferral() {
   // Fix 93e adds a fourth, TakeRecentLines, deferred the same way.
   std::vector<const char*> holders = {"void RememberLine(", "void logging::KeepRecentLines(bool keep) {",
                                       "void logging::WriteRecentLines() {"};
-  if (log.find("std::string logging::TakeRecentLines() {") != std::string::npos)
-    holders.push_back("std::string logging::TakeRecentLines() {");
+  // (Fix 93i gives it a parameter.)
+  if (log.find("std::string logging::TakeRecentLines(") != std::string::npos)
+    holders.push_back("std::string logging::TakeRecentLines(");
   assert(Count(log, "std::lock_guard<std::mutex> lock(recent_mutex_);") == holders.size());
   for (const char* function : holders) {
     assert(InOrder(Body(log, function),
