@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = 此游戏的文件夹：\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = 这个游戏下次启动时会记录更多细节。之后会有一个画面列出需要附加到错误报告中的文件。
 This\sgame's\ssettings = 此游戏的设置
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = 此会话未正常结束：游戏停止了，或模拟器被关闭。开始于
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = 此更新适用于游戏的其他版本（媒体\s%08X；你的是\s%08X）。模拟器很可能不会应用。
 Title\sID\s\s = 标题\sID\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = 要下载到手机或电脑，请打开手机设置页面选项（设置，系统）。

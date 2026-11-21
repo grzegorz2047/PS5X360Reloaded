@@ -95,6 +95,7 @@ on:
       - 'tools/check-boot-notice.cpp'
       - 'tools/check-bug-report-entries.cpp'
       - 'tools/check-recent-calls.cpp'
+      - 'tools/check-report-session.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

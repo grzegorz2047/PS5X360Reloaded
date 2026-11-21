@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = Folder\stej\sgry:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = Następne\suruchomienie\stej\sgry\szapisze\swięcej\sszczegółów.\sPotem\sekran\spokaże\spliki\sdo\sdołączenia\sdo\szgłoszenia\sbłędu.
 This\sgame's\ssettings = Ustawienia\stej\sgry
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = Ta\ssesja\snie\szakończyła\ssię\snormalnie:\sgra\ssię\szatrzymała\salbo\semulator\szostał\szamknięty.\sPoczątek:
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = Ta\saktualizacja\sjest\sdla\sinnej\sedycji\sgry\s(nośnik\s%08X;\stwój\sto\s%08X).\sEmulator\sprawdopodobnie\sjej\snie\szastosuje.
 Title\sID\s\s = ID\stytułu\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = Aby\spobrać\sje\sna\stelefon\slub\skomputer,\swłącz\sopcję\sStrona\sustawień\sdla\stelefonu\s(Ustawienia,\sSystem).

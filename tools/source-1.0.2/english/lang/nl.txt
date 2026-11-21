@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = Map\svan\sdeze\sgame:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = De\svolgende\sstart\svan\sdit\sspel\sschrijft\smeer\sdetails\sop.\sDaarna\stoont\seen\sscherm\sde\sbestanden\svoor\sje\sfoutmelding.
 This\sgame's\ssettings = Instellingen\svan\sdeze\sgame
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = Deze\ssessie\sis\sniet\snormaal\sbeëindigd:\shet\sspel\sstopte\sof\sde\semulator\swerd\sgesloten.\sBegonnen\sop
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = Deze\supdate\sis\svoor\seen\sandere\seditie\svan\sde\sgame\s(medium\s%08X;\sde\sjouwe\sis\s%08X).\sDe\semulator\szal\shem\swaarschijnlijk\sniet\stoepassen.
 Title\sID\s\s = Titel-ID\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = Zet\sde\soptie\sInstellingenpagina\svoor\sde\stelefoon\saan\s(Instellingen,\sSysteem)\som\sze\sop\seen\stelefoon\sof\scomputer\ste\sdownloaden.

@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = Bu\soyunun\sklasörü:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = Bu\soyunun\sbir\ssonraki\sbaşlatılması\sdaha\sfazla\sayrıntı\skaydeder.\sArdından\sbir\sekran,\shata\sbildiriminize\sekleyeceğiniz\sdosyaları\slisteler.
 This\sgame's\ssettings = Bu\soyunun\sayarları
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = Bu\soturum\snormal\sşekilde\sbitmedi:\soyun\sdurdu\sya\sda\semülatör\skapatıldı.\sBaşlangıç:
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = Bu\sgüncelleme\soyunun\sbaşka\sbir\ssürümü\siçin\s(ortam\s%08X;\ssizinki\s%08X).\sEmülatör\sbüyük\solasılıkla\suygulamayacak.
 Title\sID\s\s = Başlık\skimliği\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = Bunları\sbir\stelefona\sveya\sbilgisayara\sindirmek\siçin\sTelefon\siçin\sayarlar\ssayfası\sseçeneğini\saçın\s(Ayarlar,\sSistem).

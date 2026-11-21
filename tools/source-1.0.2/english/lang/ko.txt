@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = 이\s게임의\s폴더:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = 이\s게임의\s다음\s시작에서\s더\s자세히\s기록합니다.\s그\s후\s버그\s신고에\s첨부할\s파일\s목록이\s화면에\s표시됩니다.
 This\sgame's\ssettings = 이\s게임의\s설정
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = 이\s세션은\s정상적으로\s끝나지\s않았습니다.\s게임이\s멈췄거나\s에뮬레이터가\s닫혔습니다.\s시작:
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = 이\s업데이트는\s다른\s에디션용입니다(미디어\s%08X,\s사용자\s것은\s%08X).\s에뮬레이터가\s적용하지\s않을\s가능성이\s큽니다.
 Title\sID\s\s = 타이틀\sID\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = 휴대폰이나\s컴퓨터로\s내려받으려면\s휴대폰용\s설정\s페이지\s옵션을\s켜세요\s(설정,\s시스템).

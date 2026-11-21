@@ -458,6 +458,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = Carpeta\sde\seste\sjuego:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = El\spróximo\sinicio\sde\seste\sjuego\sanota\smás\sdetalles.\sDespués,\suna\spantalla\smuestra\slos\sarchivos\sque\sdebes\sadjuntar\sa\stu\sinforme\sde\serror.
 This\sgame's\ssettings = Ajustes\sde\seste\sjuego
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = Esta\ssesión\sno\sterminó\scon\snormalidad:\sel\sjuego\sse\sdetuvo\so\sse\scerró\sel\semulador.\sEmpezó\sel
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = Esta\sactualización\ses\sde\sotra\sedición\sdel\sjuego\s(medio\s%08X;\sel\stuyo\ses\s%08X).\sEl\semulador\sprobablemente\sno\sla\saplicará.
 Title\sID\s\s = ID\sdel\stítulo\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = Para\sdescargarlos\sen\sun\smóvil\su\sordenador,\sactiva\sla\sopción\sPágina\sde\sconfiguración\spara\sel\smóvil\s(Configuración,\sSistema).

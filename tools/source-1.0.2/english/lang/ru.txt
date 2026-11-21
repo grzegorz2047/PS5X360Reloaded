@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = Папка\sэтой\sигры:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = Следующий\sзапуск\sэтой\sигры\sзапишет\sбольше\sподробностей.\sЗатем\sна\sэкране\sпоявится\sсписок\sфайлов\sдля\sотчёта\sоб\sошибке.
 This\sgame's\ssettings = Настройки\sэтой\sигры
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = Эта\sсессия\sзавершилась\sненормально:\sигра\sостановилась\sили\sэмулятор\sбыл\sзакрыт.\sНачало:
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = Это\sобновление\sдля\sдругого\sиздания\sигры\s(носитель\s%08X;\sваш\s%08X).\sЭмулятор,\sскорее\sвсего,\sего\sне\sприменит.
 Title\sID\s\s = ID\sигры\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = Чтобы\sскачать\sих\sна\sтелефон\sили\sкомпьютер,\sвключите\sпараметр\sСтраница\sнастроек\sдля\sтелефона\s(Настройки,\sСистема).

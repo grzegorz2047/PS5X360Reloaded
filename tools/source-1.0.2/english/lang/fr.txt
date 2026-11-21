@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = Dossier\sde\sce\sjeu\s:\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = Le\sprochain\slancement\sde\sce\sjeu\snote\splus\sde\sdétails.\sEnsuite,\sun\sécran\sliste\sles\sfichiers\sà\sjoindre\sà\svotre\srapport\sde\sbug.
 This\sgame's\ssettings = Paramètres\sde\sce\sjeu
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = Cette\ssession\sne\ss'est\spas\sterminée\snormalement\s:\sle\sjeu\ss'est\sarrêté\sou\sl'émulateur\sa\sété\sfermé.\sDébut\s:
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = Cette\smise\sà\sjour\sest\spour\sune\sautre\sédition\sdu\sjeu\s(média\s%08X\s;\sla\svôtre\sest\s%08X).\sL'émulateur\sne\sl'appliquera\sprobablement\spas.
 Title\sID\s\s = ID\sdu\stitre\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = Pour\sles\stélécharger\ssur\sun\stéléphone\sou\sun\sordinateur,\sactivez\sl'option\sPage\sde\sparamètres\spour\stéléphone\s(Paramètres,\sSystème).

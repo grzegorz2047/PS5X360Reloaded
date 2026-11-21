@@ -1,0 +1,482 @@
+diff --git a/include/xbox360ps5/bug_report.hpp b/include/xbox360ps5/bug_report.hpp
+index 1256185..4f445a1 100644
+--- a/include/xbox360ps5/bug_report.hpp
++++ b/include/xbox360ps5/bug_report.hpp
+@@ -26,6 +26,9 @@
+ #include <mutex>
+ #include <sstream>
+ #include <string>
++#include <cctype>
++#include <cstdlib>
++#include <random>
+ #include <system_error>
+ #include <thread>
+ #include <vector>
+@@ -43,7 +46,10 @@ struct State {
+   std::string game, title;
+   int64_t started = 0;
+   std::vector<std::string> logs;
++  bool ended = false;  // Fix 93f: the game loop ended (its way out ran); false after a crash or a kill.
+ };
++// Fix 93f: a session that ended over a week ago is not shown any more (its files may be gone).
++inline constexpr int64_t kStaleSeconds = 7 * 24 * 3600;
+ inline const char* PhaseName(Phase phase) {
+   switch (phase) {
+     case Phase::running: return "running";
+@@ -60,6 +66,7 @@ inline std::string Format(const State& state) {
+   std::string text = std::string("phase=") + PhaseName(state.phase) + "\ngame=" + OneLine(state.game) +
+                      "\ntitle=" + OneLine(state.title) + "\nstarted=" + std::to_string(state.started) + "\n";
+   for (const auto& log : state.logs) text += "log=" + OneLine(log) + "\n";
++  if (state.ended) text += "ended=1\n";  // fix 93f
+   return text;
+ }
+ inline State Parse(const std::string& text) {
+@@ -77,6 +84,7 @@ inline State Parse(const std::string& text) {
+     else if (key == "title") state.title = value;
+     else if (key == "started") state.started = std::strtoll(value.c_str(), nullptr, 10);
+     else if (key == "log" && !value.empty() && state.logs.size() < 64) state.logs.push_back(value);
++    else if (key == "ended") state.ended = value == "1";  // fix 93f
+   }
+   return state;
+ }
+@@ -131,6 +139,36 @@ inline int64_t ModifiedAt(const fs::path& path) {
+   struct stat info{};
+   return ::stat(path.string().c_str(), &info) == 0 ? int64_t(info.st_mtime) : -1;
+ }
++// Fix 93f: seconds since 1970 of a UTC date and time (days from the civil calendar; no timegm
++// on every host).
++inline int64_t UtcSeconds(int year, int month, int day, int hour, int minute, int second) {
++  year -= month <= 2;
++  const int64_t era = (year >= 0 ? year : year - 399) / 400;
++  const int64_t yoe = year - era * 400;
++  const int64_t doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
++  const int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
++  return (era * 146097 + doe - 719468) * 86400 + hour * 3600 + minute * 60 + second;
++}
++// Fix 93f: "<prefix><8 hex digits>-<YYYYMMDD>-<HHMMSS>-UTC.txt" (hang-watch-, recent-calls-): the
++// title ID and the time in the name.
++inline bool StampOf(const std::string& name, const std::string& prefix, std::string* title, int64_t* utc) {
++  if (name.rfind(prefix, 0) != 0 || name.size() != prefix.size() + 8 + 1 + 15 + 8) return false;
++  const std::string rest = name.substr(prefix.size());
++  if (rest.compare(8, 1, "-") || rest.compare(17, 1, "-") || rest.compare(24, 8, "-UTC.txt")) return false;
++  for (size_t n = 0; n < 8; ++n) if (!std::isxdigit(static_cast<unsigned char>(rest[n]))) return false;
++  for (size_t n : {9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22, 23})
++    if (!std::isdigit(static_cast<unsigned char>(rest[n]))) return false;
++  const auto number = [&rest](size_t at, size_t count) { return std::atoi(rest.substr(at, count).c_str()); };
++  *title = rest.substr(0, 8);
++  *utc = UtcSeconds(number(9, 4), number(13, 2), number(15, 2), number(18, 2), number(20, 2), number(22, 2));
++  return true;
++}
++inline bool SameTitle(const std::string& a, const std::string& b) {
++  if (a.size() != b.size()) return false;
++  for (size_t n = 0; n < a.size(); ++n)
++    if (std::toupper(static_cast<unsigned char>(a[n])) != std::toupper(static_cast<unsigned char>(b[n]))) return false;
++  return true;
++}
+ // The files of a session: its game logs with their rotated parts (session_log.hpp: <log>.part1
+ // to .part3), the hang watch's file and the shader dumps of a hang written in the logs folder
+ // since the session started (canary_game_main.cpp: hang-watch-<title>-<UTC>.txt,
+@@ -158,16 +196,31 @@ inline std::vector<File> Files(const State& state, const std::vector<fs::path>&
+   }
+   if (!state.logs.empty()) {
+     const fs::path folder = fs::path(state.logs.front()).parent_path();
++    // Fix 93f: the session lasted from its start to its game logs' last change. A file written
++    // outside that time is another session's (the console showed other games' hang-watch files
++    // with a session that had hung and was reported later). A hang watch's or system calls' file
++    // is the session's by its name: the same title ID, named while the session ran.
++    int64_t last = 0;
++    for (const auto& file : files) last = std::max(last, ModifiedAt(file.path));
++    if (last <= 0) last = state.started + 3600;
++    const bool titled = state.title.size() == 8;
+     std::vector<fs::path> found;
+     for (fs::directory_iterator it(folder, error), end; !error && it != end; it.increment(error)) {
+       const std::string name = it->path().filename().string();
+       const bool text = name.size() > 4 && name.compare(name.size() - 4, 4, ".txt") == 0;
+       const bool ucode = name.size() > 6 && name.compare(name.size() - 6, 6, ".ucode") == 0;
+-      // A second's slack: the hang watch names its file in the same second the log starts.
+-      // Fix 93e: the game's last system calls (recent-calls-<title>-<UTC>.txt) too.
+-      const bool recent = name.rfind("recent-calls-", 0) == 0 && text;
+-      if (((name.rfind("hang-", 0) == 0 && (text || ucode)) || recent) && ModifiedAt(it->path()) >= state.started - 1)
+-        found.push_back(it->path());
++      std::string title;
++      int64_t named = 0;
++      if (StampOf(name, "hang-watch-", &title, &named) || StampOf(name, "recent-calls-", &title, &named)) {
++        // A few seconds' slack: the hang watch names its file as the game starts, the calls'
++        // file is named as it ends.
++        if (named >= state.started - 5 && named <= last + 5 && (!titled || SameTitle(title, state.title)))
++          found.push_back(it->path());
++      } else if (name.rfind("hang-", 0) == 0 && name.rfind("hang-watch", 0) != 0 && (text || ucode)) {
++        // A hang's shader dumps (hang-<hash>-vs|ps.ucode and .txt): by when they were written.
++        const int64_t changed = ModifiedAt(it->path());
++        if (changed >= state.started - 1 && changed <= last + 10) found.push_back(it->path());
++      }
+     }
+     std::sort(found.begin(), found.end());
+     for (const auto& path : found) add(path, false);
+@@ -270,6 +323,45 @@ inline bool WriteArchive(const fs::path& archive, const std::vector<File>& files
+   for (size_t n = kArchivesKept; n < archives.size(); ++n) fs::remove(archive.parent_path() / archives[n], error);
+   return true;
+ }
++// Fix 93f: the archive's own download code. The report screen's QR code and address carry it
++// instead of the settings page's key (which changes settings): the settings page serves
++// /bug-report.zip?t=<code> without the key, and nothing else for it. A new code each time the
++// report is shown; none (no download without the key) until then.
++inline std::mutex token_mutex;
++inline std::string download_token;
++inline std::string NewToken() {
++  std::random_device random;
++  static const char* const hex = "0123456789abcdef";
++  std::string token;
++  for (int n = 0; n < 16; ++n) token += hex[random() & 15];
++  return token;
++}
++inline void SetDownloadToken(const std::string& token) {
++  std::lock_guard<std::mutex> lock(token_mutex);
++  download_token = token;
++}
++// Compared in a time that does not depend on where they differ; an empty code never matches.
++inline bool TokenMatches(const std::string& given) {
++  std::lock_guard<std::mutex> lock(token_mutex);
++  if (download_token.empty() || given.size() != download_token.size()) return false;
++  unsigned char differ = 0;
++  for (size_t n = 0; n < given.size(); ++n) differ |= static_cast<unsigned char>(given[n] ^ download_token[n]);
++  return differ == 0;
++}
++// "http://<console>:<port>/" and the code: the archive's address for the screen.
++inline std::string TokenLink(const std::string& plain_address, const std::string& token) {
++  if (plain_address.empty() || token.empty()) return {};
++  return plain_address + (plain_address.back() == '/' ? "" : "/") + "bug-report.zip?t=" + token;
++}
++// "2026-11-21 20:11 UTC": when a session began, for the screen.
++inline std::string StartText(int64_t started) {
++  std::tm utc{};
++  char text[32] = "";
++  if (log_zip::UtcTime(std::time_t(started), &utc))
++    std::snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d UTC", utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
++                  utc.tm_hour, utc.tm_min);
++  return text;
++}
+ // The settings page's direct link to the newest archive: "http://<console>:<port>/?k=<key>"
+ // becomes "http://<console>:<port>/bug-report.zip?k=<key>". Empty when the page is off.
+ inline std::string ZipLink(const std::string& address) {
+@@ -325,5 +417,8 @@ struct Report {
+   std::vector<File> files;
+   fs::path folder;  // The logs folder, for the FTP line.
+   std::shared_ptr<Archive> archive;
++  std::string token;   // Fix 93f: the archive's download code (TokenLink).
++  bool ended = true;   // Fix 93f: false: the session did not end normally (said on the screen).
++  int64_t started = 0;
+ };
+ }  // namespace xbox360ps5::bug_report
+diff --git a/include/xbox360ps5/crash_report.hpp b/include/xbox360ps5/crash_report.hpp
+index fb71624..dcfcb6d 100644
+--- a/include/xbox360ps5/crash_report.hpp
++++ b/include/xbox360ps5/crash_report.hpp
+@@ -56,6 +56,11 @@ bool SampleThread(void* thread, ThreadSample* out);
+ bool HostReadable(const void* address, size_t bytes);
+ // One synchronous line in the kernel log and in the report file.
+ void Stage(const char* text);
++// Fix 93f: lines (each without "[X360] " and the line break; they are added) as Stage writes them,
++// in one write to the boot log, and fsync only when `sync`. Stage's fsync per line cost about
++// 60 ms a line right after a game's caches were written: the 160 memory map lines of a start
++// after a game took 9.7 s, with nothing on the screen.
++void StageBlock(const char* const* lines, size_t count, bool sync);
+ // Logs the process address-space layout and memory budgets through Stage.
+ void ReportPlatformMemory();
+ }
+diff --git a/platform/ps5/crash_report.cpp b/platform/ps5/crash_report.cpp
+index a403138..2549dc1 100644
+--- a/platform/ps5/crash_report.cpp
++++ b/platform/ps5/crash_report.cpp
+@@ -20,6 +20,8 @@
+ #include <sys/mman.h>
+ #include <sched.h>
+ #include <unistd.h>
++#include <string>  // fix 93f: StageBlock
++#include <vector>  // fix 93f
+ extern "C" {
+ int sceKernelGetCurrentCpu(void);
+ int sceKernelDebugOutText(int, const char*);
+@@ -525,7 +527,31 @@ void Stage(const char* text) {
+   if (report_file >= 0) { (void)!write(report_file, buffer, size); fsync(report_file); }
+   Mirror(buffer, size);
+ }
++void StageBlock(const char* const* lines, size_t count, bool sync) {
++  std::string block;
++  for (size_t n = 0; n < count; ++n) {
++    const size_t start = block.size();
++    block += "[X360] ";
++    block += lines[n];
++    block += '\n';
++    sceKernelDebugOutText(0, block.c_str() + start);
++  }
++  if (block.empty()) return;
++  NetLog(block.data(), block.size());
++  const int fd = report_file.load();
++  if (fd >= 0) {
++    (void)!write(fd, block.data(), block.size());
++    if (sync) fsync(fd);
++  }
++  const int mirror = mirror_file.load(std::memory_order_relaxed);
++  if (mirror >= 0) {
++    (void)!write(mirror, block.data(), block.size());
++    if (sync) fsync(mirror);
++  }
++}
+ void ReportPlatformMemory() {
++  // Fix 93f: the lines in one block, written and synced once (StageBlock).
++  std::vector<std::string> lines;
+   char text[180];
+   size_t flexible = 0, configured = 0, direct_free = 0;
+   int64_t direct_at = 0;
+@@ -536,10 +562,10 @@ void ReportPlatformMemory() {
+   std::snprintf(text, sizeof(text), "MEM page=%ld direct=%llx free=%llx(rc %x) flexible=%llx(rc %x) configured=%llx(rc %x)",
+       sysconf(_SC_PAGESIZE), (unsigned long long)direct, (unsigned long long)direct_free, unsigned(rc_free),
+       (unsigned long long)flexible, unsigned(rc_flexible), (unsigned long long)configured, unsigned(rc_configured));
+-  Stage(text);
++  lines.push_back(text);
+   std::snprintf(text, sizeof(text), "MEM code=%llx-%llx stack=%p", (unsigned long long)CodeStart(),
+       (unsigned long long)CodeEnd(), static_cast<void*>(text));
+-  Stage(text);
++  lines.push_back(text);
+   // The address-space layout decides where guest memory and the JIT tables can go.
+   struct Info { void* start; void* end; int64_t offset; int protection; int type; unsigned flags; char name[32]; } info;
+   uintptr_t at = 0;
+@@ -550,9 +576,12 @@ void ReportPlatformMemory() {
+     std::snprintf(text, sizeof(text), "MAP %012llx-%012llx prot=%x type=%x flags=%x %s",
+         (unsigned long long)uintptr_t(info.start), (unsigned long long)uintptr_t(info.end),
+         unsigned(info.protection), unsigned(info.type), info.flags & 0x1f, info.name);
+-    Stage(text);
++    lines.push_back(text);
+     if (uintptr_t(info.end) <= at) break;
+     at = uintptr_t(info.end);
+   }
++  std::vector<const char*> pointers;
++  for (const auto& line : lines) pointers.push_back(line.c_str());
++  StageBlock(pointers.data(), pointers.size(), true);
+ }
+ }
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+index 954471b..c595c55 100644
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -285,6 +285,15 @@ void SendLogsZip(int client, const std::string& game) {
+   le(directory, uint32_t(entries.size()), 2); le(directory, directory_size, 4); le(directory, uint32_t(offset), 4); le(directory, 0, 2);
+   SendAll(client, directory);
+ }
++// Fix 93: the newest bug report archive (bug_report.hpp), as it is on the console.
++void SendBugReport(int client) {
++  const fs::path report = bug_report::NewestArchive(log_folder);
++  std::ifstream file(report, std::ios::binary);
++  if (report.empty() || !file) { Send(client, "404 Not Found", "text/plain", "no bug report yet"); return; }
++  const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++  const std::string disposition = "Content-Disposition: attachment; filename=\"" + report.filename().string() + "\"\r\n";
++  Send(client, "200 OK", "application/zip", data, disposition.c_str());
++}
+ void Answer(int client) {
+   timeval limit{5, 0};
+   setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
+@@ -321,6 +330,13 @@ void Answer(int client) {
+     return;
+   }
+   if (target == "/favicon.ico") { Send(client, "404 Not Found", "text/plain", ""); return; }
++  // Fix 93f: the bug report's archive by its own download code (the report screen's QR code and
++  // address), so the screen never shows the key that changes settings. That code opens this and
++  // nothing else.
++  if (target == "/bug-report.zip" && method == "GET" && bug_report::TokenMatches(Parameter(query, "t"))) {
++    SendBugReport(client);
++    return;
++  }
+   // Everything else needs the key shown on the television.
+   std::string given = Header(request, "X-Key");
+   if (given.empty()) given = Parameter(query, "k");
+@@ -426,13 +442,7 @@ void Answer(int client) {
+     if (!known) { Send(client, "400 Bad Request", "text/plain", "which game"); return; }
+     SendLogsZip(client, game);
+   } else if (target == "/bug-report.zip" && method == "GET") {
+-    // Fix 93: the newest bug report archive (bug_report.hpp), as it is on the console.
+-    const fs::path report = bug_report::NewestArchive(log_folder);
+-    std::ifstream file(report, std::ios::binary);
+-    if (report.empty() || !file) { Send(client, "404 Not Found", "text/plain", "no bug report yet"); return; }
+-    const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+-    const std::string disposition = "Content-Disposition: attachment; filename=\"" + report.filename().string() + "\"\r\n";
+-    Send(client, "200 OK", "application/zip", data, disposition.c_str());
++    SendBugReport(client);  // fix 93
+   } else if (!target.compare(0, 6, "/logs/") && method == "GET") {
+     const std::string name = Unescaped(target.substr(6));
+     std::ifstream file(log_folder / name, std::ios::binary);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index daa2e66..edec1e0 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -616,13 +616,16 @@ class LeavingNoticeOverlay final : public xe::ui::ImGuiDialog {
+   }
+ };
+ // Fix 93c: a start's stages with the time since main() began, to see where a black screen goes.
++// Fix 93f: without a sync of the boot log each (StageBlock): a start right after a game found the
++// disk busy with that game's caches, and every synced line cost tens of milliseconds.
+ void BootTiming(const char* step) {
+   static const auto start = std::chrono::steady_clock::now();
+   char text[160];
+   std::snprintf(text, sizeof(text), "BOOT timing: %s at +%lld ms", step,
+                 (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start)
+                     .count());
+-  xbox360ps5::Stage(text);
++  const char* const lines[] = {text};
++  xbox360ps5::StageBlock(lines, 1, false);
+ }
+ class Guide final : public xe::ui::ImGuiDialog {
+  public:
+@@ -2094,8 +2097,11 @@ int main(int argc, char** argv) {
+   Stage("BOOT version " XBOX360PS5_VERSION);
+   // Relative paths must resolve to "no such file" rather than a sandbox error.
+   if (chdir("/download0/xbox360ps5")) Stage("BOOT chdir refused");
++  BootTiming("platform memory");  // fix 93f
+   xbox360ps5::ReportPlatformMemory();
++  BootTiming("platform memory reported");  // fix 93f
+   Stage(xbox360ps5::StartNetLog(9100) ? "BOOT log stream on TCP 9100" : "BOOT log stream unavailable");
++  BootTiming("log stream");  // fix 93f
+   // Fix 46: the first start copies the official PS5X360's saves and small settings files into
+   // this title's folder, once (official_import.hpp); its own folder is only read.
+   const auto imported = xbox360ps5::official_import::Run(xbox360ps5::app_identity::kOfficialDataRoot,
+@@ -2311,6 +2317,7 @@ int main(int argc, char** argv) {
+   NativeWindow window(context);
+   if (!window.Open()) return 3;
+   Stage("BOOT imgui");
++  BootTiming("imgui");  // fix 93f
+   xe::ui::ImGuiDrawer drawer(&window, 1);
+   drawer.GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+   xe::ui::controller_keyboard::SetAvailable(true);
+@@ -2318,7 +2325,9 @@ int main(int argc, char** argv) {
+   const auto fonts = xbox360ps5::Launcher::LoadFonts(drawer.GetIO());
+   if (fonts.f28) drawer.GetIO().FontDefault = fonts.f28;
+   else { drawer.GetIO().FontGlobalScale = 2.5f; Stage("BOOT launcher font missing, using the built-in one"); }
++  BootTiming("fonts loaded");  // fix 93f
+   xbox360ps5::Launcher launcher(fonts, global);
++  BootTiming("launcher made");  // fix 93f
+   launcher.SetStarted(started);
+   std::string web_hint;
+   const auto show_web_address = [&launcher, &web_hint] {
+@@ -2362,12 +2371,24 @@ int main(int argc, char** argv) {
+       std::filesystem::remove(storage / "notice.txt", notice_error);
+     }
+   }
++  // Fix 93f: a session that ended over a week ago is not shown any more.
++  if (bug_report_state.phase == xbox360ps5::bug_report::Phase::ready &&
++      int64_t(std::time(nullptr)) - bug_report_state.started > xbox360ps5::bug_report::kStaleSeconds) {
++    XELOGW("Bug report: the session of {} began over a week ago; not shown", bug_report_state.game);
++    bug_report_state.phase = xbox360ps5::bug_report::Phase::shown;
++    xbox360ps5::bug_report::Write(bug_report_file, bug_report_state);
++  }
+   // Fix 93: a session with logs for a bug report has ended: its files, with one .zip of them made
+   // beside them in the background, are shown once, when the launcher is what this start shows.
+   if (bug_report_state.phase == xbox360ps5::bug_report::Phase::ready && game.empty()) {
+     namespace report = xbox360ps5::bug_report;
+     report::Report shown;
+     shown.game = bug_report_state.game;
++    // Fix 93f: said when it did not end normally; the archive by a download code of its own.
++    shown.ended = bug_report_state.ended;
++    shown.started = bug_report_state.started;
++    shown.token = report::NewToken();
++    report::SetDownloadToken(shown.token);
+     shown.folder = bug_report_state.logs.empty() ? log_root
+                                                  : std::filesystem::path(bug_report_state.logs.front()).parent_path();
+     shown.files = report::Files(bug_report_state, {"/app0/logs/boot.log", storage / "boot.log"});
+@@ -2391,6 +2412,7 @@ int main(int argc, char** argv) {
+   }
+   Stage("BOOT pad");
+   NativePad pad;
++  BootTiming("pad");  // fix 93f
+   int result = 0;
+   bool restart = false;
+   auto recover_gl_initialization = [&] {
+@@ -2448,6 +2470,7 @@ int main(int argc, char** argv) {
+         if (entry->is_regular_file(size_error)) { const auto size = entry->file_size(size_error); if (!size_error) used += size; }
+       }
+       XELOGW("Storage: caches in {}; save storage {} holds {} KiB", bulk.string(), storage.string(), used / 1024);
++      BootTiming("storage measured");  // fix 93f
+     }
+     Stage("BOOT emulator constructor");
+     Stage("BOOT preparing homebrew saves (original content retained)");
+@@ -2457,12 +2480,14 @@ int main(int argc, char** argv) {
+       saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/app0/saves");
+     }
+     XELOGW("Saves: {}; {}", saves.root.string(), saves.notice);
++    BootTiming("saves ready");  // fix 93f
+     launcher.SetSaveRoot(saves.root);
+     auto core_cache = bulk / (bulk == storage ? "cache" : "core");
+     if (started.renderer == int(xbox360ps5::Renderer::kOpenGL))
+       core_cache /= "opengl";
+     ApplyNetworkConf();
+     xe::Emulator emulator("", storage, saves.root, core_cache);
++    BootTiming("emulator made");  // fix 93f
+     Stage("BOOT emulator setup");
+     BootTiming("emulator setup");  // fix 93c
+     xbox360ps5::DualSenseInput* input = nullptr;
+@@ -2494,8 +2519,10 @@ int main(int argc, char** argv) {
+     Stage("BOOT emulator setup returned");
+     BootTiming("emulator setup returned");  // fix 93c
+     xbox360ps5::ReportPlatformMemory();
++    BootTiming("platform memory reported after the setup");  // fix 93f
+     if (status) { recover_gl_initialization(); result = 4; }
+     else {
++      BootTiming("utility cache");  // fix 93f
+       if (!xbox360ps5::MountUtilityCache(*emulator.file_system(), bulk)) {
+         XELOGE("Required utility cache is unavailable; launch cancelled");
+         return 7;
+@@ -2524,7 +2551,9 @@ int main(int argc, char** argv) {
+       exit_cache->processor = static_cast<xe::gpu::vulkan::VulkanCommandProcessor*>(
+             emulator.graphics_system()->command_processor());
+       ExitCacheScope exit_cache_scope{exit_cache};
++      BootTiming("immediate drawer");  // fix 93f
+       auto immediate = emulator.graphics_system()->provider()->CreateImmediateDrawer();
++      BootTiming("immediate drawer made");  // fix 93f
+       if (!immediate || !emulator.graphics_system()->presenter()) {
+         XELOGE("Native {} presentation/UI initialization failed", xbox360ps5::RendererName(started.renderer));
+         recover_gl_initialization();
+@@ -3745,6 +3774,11 @@ int main(int argc, char** argv) {
+         namespace leaving = xbox360ps5::leaving_notice;
+         leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)  // fix 93d
+                               : leaving::Kind::closing);
++        if (xbox360ps5::bug_report::Active()) {
++          // Fix 93f: the session ended through its way out (a crash or a kill leaves this unset).
++          bug_report_state.ended = true;
++          xbox360ps5::bug_report::Write(bug_report_file, bug_report_state);
++        }
+         const auto paint_notice = [&context, &window] { context.Tick(); window.Paint(); };
+         // Fix 93e: the game's sound stops with the notice (as under the library), while the cache
+         // checkpoint below still needs the game's threads running (the GPU waits on them).
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index ece761e..0a67aac 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -2660,9 +2660,17 @@ void Launcher::Draw(ImGuiIO& io) {
+     c.Text(Tr("Detailed logs of your last game session are ready.") + std::string("  ") + g_report.game, left, y + 86,
+            24, kBody, 1.0f, 0, width);
+     float line = y + 136;
++    if (!g_report.ended) {
++      // Fix 93f: from a session that stopped (a crash, the app closed from the system), and when.
++      c.Text(std::string(Tr("This session did not end normally: the game stopped or the emulator was closed. It began on")) +
++                 " " + bug_report::StartText(g_report.started),
++             left, line - 8, 20, kWarning, 1.0f, 0, width);
++      line += 26;
++    }
+     c.Text(Tr("Files on the console:"), left, line, 20, kMuted);
+     line += 32;
+-    const size_t shown_files = std::min<size_t>(g_report.files.size(), 8);
++    // Fix 93f: five rows at most, so the lines below never reach the hint at the bottom.
++    const size_t shown_files = std::min<size_t>(g_report.files.size(), 5);
+     for (size_t n = 0; n < shown_files; ++n, line += 30) {
+       const auto& file = g_report.files[n];
+       c.Text(file.path.string(), left + 16, line, 20, kText, 1.0f, 0, width - 160);
+@@ -2683,7 +2691,9 @@ void Launcher::Draw(ImGuiIO& io) {
+     }
+     line += 80;
+     // A phone opens the archive's link from the code; a computer types the address.
+-    const std::string link = status == bug_report::Archive::done ? bug_report::ZipLink(web_url_) : std::string();
++    // Fix 93f: the archive's own download code, not the settings page's key.
++    const std::string link =
++        status == bug_report::Archive::done && !web_url_.empty() ? bug_report::TokenLink(web_plain_, g_report.token) : std::string();
+     static std::string qr_text;
+     static QrCode qr;
+     if (link != qr_text) { qr_text = link; qr = link.empty() ? QrCode() : MakeQrCode(link); }

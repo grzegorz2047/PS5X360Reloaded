@@ -259,6 +259,7 @@ Problem with this game? Logs for a bug report = Problema com este jogo? Registro
 Next start = Próximo início
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo início deste jogo anota mais detalhes. Depois, uma tela lista os arquivos para anexar ao seu relatório de erro.
 Restart this game with logs for a bug report = Reiniciar este jogo com registros para relatório de erro
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sessão não terminou normalmente: o jogo parou ou o emulador foi fechado. Ela começou em
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -330,6 +331,7 @@ Problem with this game? Logs for a bug report = Problema com este jogo? Registos
 Next start = Próximo arranque
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo arranque deste jogo regista mais detalhes. Depois, um ecrã mostra os ficheiros a anexar ao seu relatório de erro.
 Restart this game with logs for a bug report = Reiniciar este jogo com registos para relatório de erro
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sessão não terminou normalmente: o jogo parou ou o emulador foi fechado. Começou em
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -401,6 +403,7 @@ Problem with this game? Logs for a bug report = ¿Problemas con este juego? Regi
 Next start = Próximo inicio
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo inicio de este juego anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
 Restart this game with logs for a bug report = Reiniciar este juego con registros para un informe de error
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sesión no terminó con normalidad: el juego se detuvo o se cerró el emulador. Empezó el
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -472,6 +475,7 @@ Problem with this game? Logs for a bug report = ¿Problemas con este juego? Regi
 Next start = Próximo inicio
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo inicio de este juego anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
 Restart this game with logs for a bug report = Reiniciar este juego con registros para un informe de error
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sesión no terminó con normalidad: el juego se detuvo o se cerró el emulador. Empezó el
 
 [added de]
 Console storage = Konsolenspeicher
@@ -543,6 +547,7 @@ Problem with this game? Logs for a bug report = Problem mit diesem Spiel? Protok
 Next start = Nächster Start
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Der nächste Start dieses Spiels schreibt mehr Details mit. Danach zeigt ein Bildschirm die Dateien für deinen Fehlerbericht.
 Restart this game with logs for a bug report = Dieses Spiel mit Protokollen für einen Fehlerbericht neu starten
+This session did not end normally: the game stopped or the emulator was closed. It began on = Diese Sitzung wurde nicht normal beendet: Das Spiel blieb stehen oder der Emulator wurde geschlossen. Beginn:
 
 [added fr]
 Console storage = Stockage de la console
@@ -614,6 +619,7 @@ Problem with this game? Logs for a bug report = Un problème avec ce jeu ? Journ
 Next start = Prochain lancement
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Le prochain lancement de ce jeu note plus de détails. Ensuite, un écran liste les fichiers à joindre à votre rapport de bug.
 Restart this game with logs for a bug report = Relancer ce jeu avec des journaux pour un rapport de bug
+This session did not end normally: the game stopped or the emulator was closed. It began on = Cette session ne s'est pas terminée normalement : le jeu s'est arrêté ou l'émulateur a été fermé. Début :
 
 [added it]
 Console storage = Memoria della console
@@ -685,6 +691,7 @@ Problem with this game? Logs for a bug report = Problemi con questo gioco? Log p
 Next start = Prossimo avvio
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Il prossimo avvio di questo gioco annota più dettagli. Poi una schermata elenca i file da allegare alla tua segnalazione di bug.
 Restart this game with logs for a bug report = Riavvia questo gioco con i log per una segnalazione di bug
+This session did not end normally: the game stopped or the emulator was closed. It began on = Questa sessione non è terminata normalmente: il gioco si è fermato o l'emulatore è stato chiuso. Iniziata il
 
 [added ja]
 Console storage = 本体ストレージ
@@ -756,6 +763,7 @@ Problem with this game? Logs for a bug report = このゲームに問題があ�
 Next start = 次回の起動
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = このゲームの次回の起動で、より詳しい記録を取ります。その後、不具合報告に添付するファイルが画面に表示されます。
 Restart this game with logs for a bug report = 不具合報告用のログを取ってこのゲームを再起動
+This session did not end normally: the game stopped or the emulator was closed. It began on = このセッションは正常に終了しませんでした（ゲームが止まったか、エミュレーターが閉じられました）。開始：
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -827,6 +835,7 @@ Problem with this game? Logs for a bug report = 이 게임에 문제가 있나�
 Next start = 다음 시작
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 이 게임의 다음 시작에서 더 자세히 기록합니다. 그 후 버그 신고에 첨부할 파일 목록이 화면에 표시됩니다.
 Restart this game with logs for a bug report = 버그 신고용 로그와 함께 이 게임 다시 시작
+This session did not end normally: the game stopped or the emulator was closed. It began on = 이 세션은 정상적으로 끝나지 않았습니다. 게임이 멈췄거나 에뮬레이터가 닫혔습니다. 시작:
 
 [added nl]
 Console storage = Consoleopslag
@@ -898,6 +907,7 @@ Problem with this game? Logs for a bug report = Probleem met dit spel? Logs voor
 Next start = Volgende start
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = De volgende start van dit spel schrijft meer details op. Daarna toont een scherm de bestanden voor je foutmelding.
 Restart this game with logs for a bug report = Dit spel opnieuw starten met logs voor een foutmelding
+This session did not end normally: the game stopped or the emulator was closed. It began on = Deze sessie is niet normaal beëindigd: het spel stopte of de emulator werd gesloten. Begonnen op
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -969,6 +979,7 @@ Problem with this game? Logs for a bug report = Problem z tą grą? Dzienniki do
 Next start = Następne uruchomienie
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Następne uruchomienie tej gry zapisze więcej szczegółów. Potem ekran pokaże pliki do dołączenia do zgłoszenia błędu.
 Restart this game with logs for a bug report = Uruchom tę grę ponownie z dziennikami do zgłoszenia błędu
+This session did not end normally: the game stopped or the emulator was closed. It began on = Ta sesja nie zakończyła się normalnie: gra się zatrzymała albo emulator został zamknięty. Początek:
 
 [added ru]
 Console storage = Память консоли
@@ -1040,6 +1051,7 @@ Problem with this game? Logs for a bug report = Проблема с этой и�
 Next start = Следующий запуск
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Следующий запуск этой игры запишет больше подробностей. Затем на экране появится список файлов для отчёта об ошибке.
 Restart this game with logs for a bug report = Перезапустить эту игру с журналами для отчёта об ошибке
+This session did not end normally: the game stopped or the emulator was closed. It began on = Эта сессия завершилась ненормально: игра остановилась или эмулятор был закрыт. Начало:
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1111,6 +1123,7 @@ Problem with this game? Logs for a bug report = Bu oyunla sorun mu var? Hata bil
 Next start = Sonraki başlatma
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Bu oyunun bir sonraki başlatılması daha fazla ayrıntı kaydeder. Ardından bir ekran, hata bildiriminize ekleyeceğiniz dosyaları listeler.
 Restart this game with logs for a bug report = Bu oyunu hata bildirimi günlükleriyle yeniden başlat
+This session did not end normally: the game stopped or the emulator was closed. It began on = Bu oturum normal şekilde bitmedi: oyun durdu ya da emülatör kapatıldı. Başlangıç:
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1182,6 +1195,7 @@ Problem with this game? Logs for a bug report = 这个游戏有问题？用于�
 Next start = 下次启动
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 这个游戏下次启动时会记录更多细节。之后会有一个画面列出需要附加到错误报告中的文件。
 Restart this game with logs for a bug report = 带错误报告日志重新启动此游戏
+This session did not end normally: the game stopped or the emulator was closed. It began on = 此会话未正常结束：游戏停止了，或模拟器被关闭。开始于
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1253,3 +1267,4 @@ Problem with this game? Logs for a bug report = 這個遊戲有問題？用於�
 Next start = 下次啟動
 This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 這個遊戲下次啟動時會記錄更多細節。之後會有一個畫面列出要附加到錯誤回報中的檔案。
 Restart this game with logs for a bug report = 以錯誤回報記錄重新啟動此遊戲
+This session did not end normally: the game stopped or the emulator was closed. It began on = 此工作階段未正常結束：遊戲停止了，或模擬器被關閉。開始於

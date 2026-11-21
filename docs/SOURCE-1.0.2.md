@@ -225,6 +225,7 @@ also listed here.
 | 93c (`93c-boot-notice`) | for players: the leaving notice stays on screen through the restart (from the new process's first frame to the menu's), instead of a black gap; the start's stages are logged with their times | host-checked (`tools/check-boot-notice.cpp`); console: not yet tried |
 | 93d (`93d-bug-report-entries`) | for players: "Logs for a bug report" as a row of its own, set apart, at the bottom of the general settings and of a game's settings, and a quiet "Restart this game with logs for a bug report" button below the in-game guide's System list | host-checked (`tools/check-bug-report-entries.cpp`); console: not yet tried |
 | 93e (`93e-recent-calls-file`) | for players: leaving a game with logs for a bug report no longer hangs on "Returning to the menu..." (GTA IV); the game's last system calls go to a file of their own, and the game's sound stops with the notice | host-checked (`tools/check-recent-calls.cpp`); console: not yet tried |
+| 93f (`93f-report-session`) | for players: the bug report lists only its session's files, says when a session did not end normally, links the archive by a download code of its own (not the settings key), and the start after a game is no longer slowed by syncing the boot log for every line | host-checked (`tools/check-report-session.cpp`); console: not yet tried |
 
 ## Comparison with the official executable
 

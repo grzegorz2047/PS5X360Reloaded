@@ -9,8 +9,8 @@
 //  (b) the general settings sheet: a 15th row after the others, toggled and saved, drawn apart;
 //  (c) a game's Settings tab: a row after its subjects for an identified game, toggling the
 //      game's own value (saved in its file), drawn apart, with its explanation;
-//  (d) the guide: below System's options a quiet button (grey outline, a "!" mark, centred, not a
-//      row of the list; a stronger outline when focused), Cross only,
+//  (d) the guide: below System's options a quiet button (a light fill, dark text, a "!" mark,
+//      centred, not a row of the list; a dark outline when focused), Cross only,
 //      writing this game's own value (the general one without a title ID) and launch-once.txt,
 //      then restarting with "Restarting the game...";
 //  (e) a game's start takes the game's own value or the general one, and clears both;
@@ -107,9 +107,11 @@ void CheckGame() {
              Has(draw, "top + std::min(listed - first_row, kGuideRows) * 63.0f + 24"),
          "(d) a button centred below the list");
   Expect(Has(draw, "list->AddRect(") && Has(draw, "list->AddCircle(") && Has(draw, "\"!\"") &&
-             Has(draw, "focused ? fade(70, 76, 84, a) : fade(150, 155, 162, a)") &&
+             Has(draw, "list->AddRectFilled(at(x, y), at(x + width, y + height), fade(226, 228, 231, a), 12 * scale);") &&
+             Has(draw, "const ImU32 ink = fade(44, 48, 54, a);") &&
+             Has(draw, "if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), 12 * scale, 0, 3.0f * scale);") &&
              !Has(draw, "fade(118, 188, 62") && !Has(draw, "fade(200, 120, 40"),
-         "(d) grey outline and a \"!\" mark, stronger when focused, none of the green or orange");
+         "(d) always a light fill with dark text and a \"!\" mark (never greyed out), a dark outline when focused, none of the green or orange");
   const std::string action = Between(main, "case GuideAction::bug_report_restart:", "case GuideAction::network: {");
   Expect(Has(action, "if (!(pressed & 0x4000)) break;"), "(d) Cross only");
   Expect(Has(action, "overrides[\"bug_report\"] = 1;") && Has(action, "xbox360ps5::SaveGameOverrides(settings_title, overrides);") &&

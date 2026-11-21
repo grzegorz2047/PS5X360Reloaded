@@ -1,5 +1,5 @@
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 7d3377f..1367e37 100644
+index 7d3377f..0f3e85e 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -505,12 +505,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
@@ -54,8 +54,9 @@ index 7d3377f..1367e37 100644
        }
      }
 +    if (button) {
-+      // Fix 93d: centred below the list, quiet: a grey outline, a round "!" mark, no fill and none
-+      // of the list's green; focused, a stronger outline, a light fill and dark text.
++      // Fix 93d: centred below the list, quiet but available: a light grey fill, dark text and a
++      // round "!" mark, none of the list's green (grey text on a thin outline read as disabled);
++      // focused, a dark, thicker outline as well.
 +      const bool focused = state_.row == listed;
 +      const int a = int(255 * content);
 +      const char* label = items.back().label.c_str();
@@ -63,10 +64,9 @@ index 7d3377f..1367e37 100644
 +      const float width = size.x / scale + 46 + 48, height = 52;
 +      const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;
 +      const float y = top + std::min(listed - first_row, kGuideRows) * 63.0f + 24;
-+      const ImU32 ink = focused ? fade(44, 48, 54, a) : fade(120, 126, 134, a);
-+      if (focused) list->AddRectFilled(at(x, y), at(x + width, y + height), fade(226, 228, 231, a), 12 * scale);
-+      list->AddRect(at(x, y), at(x + width, y + height), focused ? fade(70, 76, 84, a) : fade(150, 155, 162, a), 12 * scale, 0,
-+                    (focused ? 3.0f : 2.0f) * scale);
++      const ImU32 ink = fade(44, 48, 54, a);
++      list->AddRectFilled(at(x, y), at(x + width, y + height), fade(226, 228, 231, a), 12 * scale);
++      if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), 12 * scale, 0, 3.0f * scale);
 +      list->AddCircle(at(x + 37, y + 26), 13 * scale, ink, 20, 2.0f * scale);
 +      list->AddText(medium, 22 * scale, at(x + 33, y + 14), ink, "!");
 +      list->AddText(medium, 26 * scale, at(x + 70, y + 12), ink, label);

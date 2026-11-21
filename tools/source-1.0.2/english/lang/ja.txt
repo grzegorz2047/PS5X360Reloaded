@@ -479,6 +479,7 @@ This\sgame\srequires\sonline\sservices.\sXbox\sLive/EA\sauthentication\sis\sunav
 This\sgame's\sfolder:\s = このゲームのフォルダー：\s
 This\sgame's\snext\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slists\sthe\sfiles\sto\sattach\sto\syour\sbug\sreport. = このゲームの次回の起動で、より詳しい記録を取ります。その後、不具合報告に添付するファイルが画面に表示されます。
 This\sgame's\ssettings = このゲームの設定
+This\ssession\sdid\snot\send\snormally:\sthe\sgame\sstopped\sor\sthe\semulator\swas\sclosed.\sIt\sbegan\son = このセッションは正常に終了しませんでした（ゲームが止まったか、エミュレーターが閉じられました）。開始：
 This\supdate\sis\sfor\sanother\sedition\sof\sthe\sgame\s(media\s%08X;\syours\sis\s%08X).\sThe\semulator\swill\sprobably\snot\sapply\sit. = このアップデートはゲームの別のエディション用です（メディア\s%08X、お使いのものは\s%08X）。エミュレーターはおそらく適用しません。
 Title\sID\s\s = タイトル\sID\s\s
 To\sdownload\sthem\sfrom\sa\sphone\sor\scomputer,\sturn\son\sthe\soption\sSettings\spage\sfor\sa\sphone\s(Settings,\sSystem). = スマホやパソコンにダウンロードするには、スマホ用設定ページ（設定、システム）をオンにしてください。

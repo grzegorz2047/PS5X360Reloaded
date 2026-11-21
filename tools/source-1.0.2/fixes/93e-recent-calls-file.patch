@@ -136,7 +136,7 @@ index 2013602..723b4c1 100644
  // process draws (console: "Returning to the menu...", black, then the menu). What was shown is
  // written before LoadExec ("kind=<n>\nat=<ms since 1970>\n", leaving-notice.txt in the title's
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 1367e37..ceb9eec 100644
+index 0f3e85e..daa2e66 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -3746,13 +3746,27 @@ int main(int argc, char** argv) {
