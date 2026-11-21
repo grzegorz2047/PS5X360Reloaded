@@ -12,7 +12,9 @@
 //      option, as before;
 //  (c) the restart gives the log's writer 3 s on a thread of its own, then restarts anyway (no
 //      unbounded ShutdownLogging before LoadExec);
-//  (d) the flush (fix 93g) runs on a thread of its own and is waited for 3 s at most.
+//  (d) the flush (fix 93g) runs on a thread of its own and is waited for 3 s at most; its line goes
+//      to the boot log too (written at once: the game log's writer may be behind);
+//  (e) one STALL calls file a session (each is a megabyte, written while the game may fill the drive).
 // The guest's threads are not suspended before the flush: the restart destroys the emulator with
 // its title open (no TerminateTitle), and suspended guest threads could hold that teardown.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
@@ -96,6 +98,13 @@ int main() {
   Expect(InOrder(flush, {"std::thread([done] {", "::sync();", "}).detach();", "std::chrono::seconds(3)"}),
          "(d) the flush on a thread of its own, 3 s at most");
   Expect(Has(flush, "\"still being flushed; going on\""), "(d) and the log says when it went on without it");
+  Expect(InOrder(flush, {"std::snprintf(line, sizeof(line), \"Leaving: pending disk writes %s in %lld ms (%s)\"",
+                         "XELOGW(\"{}\", line);", "xbox360ps5::StageBlock(lines, 1, false);"}),
+         "(d) the line in the game log and in the boot log");
+  // (e)
+  Expect(InOrder(save, {"static bool saved = false;", "if (saved) {", "return;", "saved = true;",
+                        "xe::logging::TakeRecentLines(true)"}),
+         "(e) one STALL calls file a session");
   if (failures) {
     std::printf("%d failure(s)\n", failures);
     return 1;
