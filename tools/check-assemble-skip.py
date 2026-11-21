@@ -43,7 +43,7 @@ def main():
         selected, left_out = assemble.select_fixes(patches, skip)
         assert [p.name for p in left_out] == ['01-jit-reserved-barriers.patch'], (skip, left_out)
         assert len(selected) == len(patches) - 1 and all(p not in selected for p in left_out)
-        assert [p.name for p in selected] == sorted(p.name for p in selected)  # order kept
+        assert selected == sorted(selected, key=assemble.fix_order)  # order kept (by number: 102 after 99)
     # Nothing skipped: everything applied, in order.
     selected, left_out = assemble.select_fixes(patches, [])
     assert selected == patches and not left_out

@@ -96,6 +96,7 @@ on:
       - 'tools/check-boost-presets.cpp'
       - 'tools/check-event-writes.cpp'
       - 'tools/check-timer-apc.cpp'
+      - 'tools/check-index-unwatched.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
