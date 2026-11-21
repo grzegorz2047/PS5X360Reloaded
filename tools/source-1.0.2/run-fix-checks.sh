@@ -99,6 +99,7 @@ checks=(
   check-recent-calls.cpp           # fix 93e
   check-report-session.cpp         # fix 93f
   check-flush-before-restart.cpp   # fix 93g
+  check-leaving-steps.cpp          # fix 93h
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -114,6 +115,7 @@ declare -A arguments=(
   [check-leaving-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-bug-report-entries.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-report-session.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -166,6 +168,7 @@ declare -A fix_of=(
   [check-recent-calls.cpp]=93e
   [check-report-session.cpp]=93f
   [check-flush-before-restart.cpp]=93g
+  [check-leaving-steps.cpp]=93h
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
