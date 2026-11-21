@@ -1,0 +1,671 @@
+diff --git a/include/xbox360ps5/phone_latency.hpp b/include/xbox360ps5/phone_latency.hpp
+index 0938a66..01ba62d 100644
+--- a/include/xbox360ps5/phone_latency.hpp
++++ b/include/xbox360ps5/phone_latency.hpp
+@@ -73,6 +73,46 @@ inline std::optional<std::string> Line(const std::string& json) {
+   return line;
+ }
+ 
++// Fix 102 (Kinect Sports): the page's frames without a body by reason, the ones that kept a body
++// with inferred hips, and the tracker's calibration restarts, from the same report:
++//   "reasons":{"no_landmarks":0,"stale":0,"no_body":40,...},"restarts":"recentre 640x480"
++// "Motion: phone frames without a body, last 2 s: no_body 40; kept with hips inferred 120;
++// calibration restarted: recentre 640x480"; nothing when there was none of them.
++inline constexpr const char* kReasons[] = {"no_landmarks", "stale", "no_body", "out_of_range", "out_of_order",
++                                           "hips_inferred", "hips_hidden"};
++inline std::optional<std::string> ReasonsLine(const std::string& json) {
++  if (json.empty() || json.size() > kMaxBody || json.front() != '{') return std::nullopt;
++  const size_t open = json.find("\"reasons\":{");
++  std::string lost, kept;
++  if (open != std::string::npos) {
++    const size_t close = json.find('}', open);
++    if (close == std::string::npos) return std::nullopt;
++    const std::string reasons = json.substr(open, close - open + 1);
++    for (size_t n = 0; n < 7; ++n) {
++      double v = 0;
++      if (!Numbers(reasons, kReasons[n], &v, 1) || v < 1) continue;
++      std::string& to = n < 5 ? lost : kept;
++      char part[48];
++      std::snprintf(part, sizeof(part), "%s%s %.0f", to.empty() ? "" : ", ",
++                    n == 5 ? "hips inferred" : n == 6 ? "hips hidden" : kReasons[n], v);
++      to += part;
++    }
++  }
++  std::string restarts;
++  const std::string key = "\"restarts\":\"";
++  if (const size_t at = json.find(key); at != std::string::npos) {
++    for (size_t p = at + key.size(); p < json.size() && json[p] != '"' && restarts.size() < 120; ++p) {
++      const char c = json[p];
++      if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == ' ' || c == ',') restarts += c;
++    }
++  }
++  if (lost.empty() && kept.empty() && restarts.empty()) return std::nullopt;
++  std::string line = "Motion: phone frames without a body, last 2 s: " + (lost.empty() ? std::string("none") : lost);
++  if (!kept.empty()) line += "; kept with " + kept;
++  if (!restarts.empty()) line += "; calibration restarted: " + restarts;
++  return line;
++}
++
+ // At most one line every 1.5 s, whatever the phone sends (now_ms: a steady clock).
+ inline bool Due(uint64_t now_ms) {
+   static std::atomic<uint64_t> last{0};
+diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
+index 280ac83..2504365 100644
+--- a/port/phone_camera_page.hpp
++++ b/port/phone_camera_page.hpp
+@@ -10,7 +10,8 @@
+ // portrait and landscape; Polish is added to English, Portuguese and Spanish.
+ // Fix 66: the page's delay by stage (latency.mjs), shown under the banner and posted to the
+ // console every 2 s (/api/motion/latency, logged as "Motion: phone stages").
+-// pose.mjs, kinect_tracker.mjs and demo_body.mjs still come from the package's assets/kinect/.
++// pose.mjs and demo_body.mjs still come from the package's assets/kinect/; kinect_tracker.mjs is
++// the title's since fix 102 (phone_camera_tracker.hpp).
+ #pragma once
+ 
+ namespace xbox360ps5::phone_camera {
+@@ -86,9 +87,9 @@ body.focus #exit-focus{display:block}
+ 
+ <script type="module">
+ import {skeleton} from './pose.mjs?v=kinect5';
+-import {KinectTracker, GestureMonitor, BODY_DISTANCE, MIRRORED, mirrorLandmarks} from './kinect_tracker.mjs?v=kinect6';
++import {KinectTracker, GestureMonitor, BODY_DISTANCE, MIRRORED, mirrorLandmarks} from './kinect_tracker.mjs?v=kinect102';
+ import {afterStatus, afterFrame, shouldPoll, shouldAutoStart, afterCameraError, view, POLL_MS} from './pairing.mjs?v=56';
+-import {StageWindow, smoothingLagMs, summaryValues, REPORT_MS} from './latency.mjs?v=66';
++import {StageWindow, smoothingLagMs, summaryValues, REPORT_MS, frameReason} from './latency.mjs?v=102';
+ 
+ const TEXT = {"en":{"intro":"Your phone camera as a Kinect sensor for PS5X360. The phone works out your body position and sends only the skeleton to the PS5; no video leaves the phone. Experimental.","ps5":"PS5","key_label":"Pairing key (shown on the PS5)","connect":"Connect PS5","disconnect":"Disconnect","camera":"Camera","camera_label":"Camera","front":"Front","back":"Back","quality_label":"Tracking quality","q_lite":"Fast (older phones)","q_full":"Balanced (recommended)","q_heavy":"Precise (fast phones)","start":"Start camera","stop":"Stop","focus":"Full screen","focus_exit":"Exit","motion":"Movement","mode_label":"Mode","mode_kinect":"Kinect: position and depth","mode_original":"Original: hips only","distance_label":"Your distance at start (m)","reach_label":"Punch reach (fast punches only)","reach_normal":"Normal","reach_more":"Longer","reach_max":"Longest","recenter":"Re-centre here","diag":"Pose diagnostics","export":"Export pose","sides_label":"Left and right","sides_normal":"Normal","sides_mirror":"Swapped (mirror)","banner_unpaired":"PS5 not connected","banner_expired":"PS5 key changed: exit full screen and type the new key","banner_hint":"The key changes every time the emulator or a game restarts.","sending":"PS5 {0}/s","slow":"Slow tracking: choose Fast quality","reconnecting":"Reconnecting to the PS5...","reconnect_hint":"The emulator is probably restarting (for example opening a game). This page reconnects by itself.","banner_wrong_key":"Wrong PS5 key: scan the QR code on the PS5 again","motion_off":"Camera motion is off for this game on the PS5.","how":"Stand facing the camera, whole body in view, about 2–3 m away. Keep still for a second: that place becomes the centre. Steps forward, back and sideways, jumps and crouches then move your skeleton; punches towards the camera reach forward. The labels on the picture (punch, push, kick, jump...) only show what your skeleton is doing; the game decides the move, as with a real Kinect. If the game takes your left hand for the right one, set Left and right to Swapped. All of it is estimated from one camera, not measured like a Kinect.","privacy":"Pose processing stays in this browser. The pose model downloads from Google and jsDelivr. Only joint positions go to your PS5 on your network.","disconnected":"PS5 not connected.","paired":"Connected. Start the camera to send your movement.","receiving":"PS5 receiving your skeleton.","receiving_lost":"PS5 receiving: no body.","pairing_expired":"Pairing expired. Enter the key shown on the PS5 now and connect again.","ps5_lost":"PS5 connection lost. Reopen the emulator and check the settings-page port.","rejected":"PS5 refused the frame ({0}).","enable_motion":"Turn on Camera motion in the Kinect game's settings on the PS5 first.","renew":"Reconnect the PS5 to renew the session.","console_disconnected":"PS5 disconnected; the pose expires within half a second.","camera_off":"Camera off.","loading_model":"Loading the pose model…","need_https":"The camera needs HTTPS (or localhost on a computer).","body":"Tracking your body.","no_body":"Step back until your whole body is in the picture.","frame_old":"The phone is too slow for this quality; choose Fast.","calibrating":"Stand still facing the camera… {0}%","tracking":"Kinect mode: {0} m from the camera.","hips_hidden":"Hips out of view: position held. Step back a little.","original":"Original mode: movement relative to your hips only.","demo":"Demo: synthetic body, no camera.","game_bound":"Game: taking the skeleton ({0} frames, {1} with a body).","game_no_skeleton":"Game: camera open, but its skeleton function was not found.","game_no_camera":"Game: no Kinect game has opened the camera yet.","left_punch":"Left punch","right_punch":"Right punch","two_hand_push":"Two-hand push","left_uppercut":"Left uppercut","right_uppercut":"Right uppercut","left_swipe":"Left swipe","right_swipe":"Right swipe","left_kick":"Left kick","right_kick":"Right kick","jump":"Jump","step_back":"Step back","step_forward":"Step forward","step_side":"Side step","guard":"Guard","hands_up":"Hands up","crouch":"Crouch","lean_forward":"Leaning forward","lean_back":"Leaning back","lean_side":"Leaning sideways","top_view":"Top view","engine":"{0} · {1} fps","step_key":"Type the key shown on the PS5 (Settings → Camera motion), then tap Connect.","step_connecting":"Connecting to the PS5…","wait_game":"Key accepted. Start the Kinect game on the PS5 — waiting…","wait_setting":"The game on the PS5 has Camera motion off. Turn it on in the guide or the game's settings — waiting…","step_start":"Connected to the PS5. Tap Start camera.","step_tap":"Connected. Tap Start camera: the browser opens the camera only after a tap.","step_sending":"Camera on · sending {0} frames/s to the PS5","step_no_body":"Camera on · step back until your whole body is in the picture","step_camera_error":"The camera did not start: {0}","step_disconnected":"Disconnected from the PS5. Tap Connect to pair again.","options":"Camera and movement settings","latency":"Delay (ms): camera {0} · detection {1} · sending {2} · network {3} · hand smoothing {4}"},"pt":{"intro":"A câmera do celular como sensor Kinect do PS5X360. O celular calcula a posição do seu corpo e manda só o esqueleto para o PS5; nenhum vídeo sai do celular. Experimental.","ps5":"PS5","key_label":"Chave de pareamento (aparece no PS5)","connect":"Conectar ao PS5","disconnect":"Desconectar","camera":"Câmera","camera_label":"Câmera","front":"Frontal","back":"Traseira","quality_label":"Qualidade do rastreamento","q_lite":"Rápida (celulares antigos)","q_full":"Equilibrada (recomendada)","q_heavy":"Precisa (celulares rápidos)","start":"Iniciar câmera","stop":"Parar","focus":"Tela cheia","focus_exit":"Sair","motion":"Movimento","mode_label":"Modo","mode_kinect":"Kinect: posição e profundidade","mode_original":"Original: só o quadril","distance_label":"Sua distância no início (m)","reach_label":"Alcance dos socos (só socos rápidos)","reach_normal":"Normal","reach_more":"Maior","reach_max":"Máximo","recenter":"Centralizar aqui","diag":"Diagnóstico da pose","export":"Exportar pose","sides_label":"Esquerda e direita","sides_normal":"Normal","sides_mirror":"Trocadas (espelho)","banner_unpaired":"PS5 não conectado","banner_expired":"A chave do PS5 mudou: saia da tela cheia e digite a chave nova","banner_hint":"A chave muda sempre que o emulador ou um jogo reinicia.","sending":"PS5 {0}/s","slow":"Rastreamento lento: escolha a qualidade Rápida","reconnecting":"Reconectando ao PS5...","reconnect_hint":"O emulador provavelmente está reiniciando (por exemplo, abrindo um jogo). Esta página reconecta sozinha.","banner_wrong_key":"Chave do PS5 errada: leia de novo o QR code do PS5","motion_off":"O Movimento por câmera está desligado neste jogo no PS5.","how":"Fique de frente para a câmera, com o corpo inteiro aparecendo, a uns 2–3 m. Fique parado por um segundo: esse lugar vira o centro. Depois, passos para frente, para trás e para os lados, pulos e agachamentos movem o seu esqueleto, e socos na direção da câmera vão para frente. Os nomes que aparecem na imagem (soco, empurrão, chute, pulo...) só mostram o que o seu esqueleto está fazendo; quem decide o golpe é o jogo, como no Kinect de verdade. Se o jogo confundir sua mão esquerda com a direita, mude Esquerda e direita para Trocadas. Tudo é estimado por uma câmera só, não medido como no Kinect.","privacy":"O processamento da pose fica neste navegador. O modelo de pose é baixado do Google e do jsDelivr. Só as posições das juntas vão para o seu PS5, na sua rede.","disconnected":"PS5 não conectado.","paired":"Conectado. Inicie a câmera para enviar seus movimentos.","receiving":"PS5 recebendo seu esqueleto.","receiving_lost":"PS5 recebendo: nenhum corpo.","pairing_expired":"O pareamento expirou. Digite a chave que aparece agora no PS5 e conecte de novo.","ps5_lost":"Conexão com o PS5 perdida. Abra o emulador de novo e confira a porta da página de configurações.","rejected":"O PS5 recusou o quadro ({0}).","enable_motion":"Primeiro ligue Movimento pela câmera nas configurações do jogo de Kinect no PS5.","renew":"Conecte o PS5 de novo para renovar a sessão.","console_disconnected":"PS5 desconectado; a pose expira em meio segundo.","camera_off":"Câmera desligada.","loading_model":"Baixando o modelo de pose…","need_https":"A câmera precisa de HTTPS (ou localhost num computador).","body":"Rastreando seu corpo.","no_body":"Afaste-se até o corpo inteiro aparecer na imagem.","frame_old":"O celular está lento para esta qualidade; escolha Rápida.","calibrating":"Fique parado de frente para a câmera… {0}%","tracking":"Modo Kinect: {0} m da câmera.","hips_hidden":"Quadril fora da imagem: posição mantida. Afaste-se um pouco.","original":"Modo original: movimento só em relação ao quadril.","demo":"Demonstração: corpo sintético, sem câmera.","game_bound":"Jogo: recebendo o esqueleto ({0} quadros, {1} com corpo).","game_no_skeleton":"Jogo: câmera aberta, mas a função de esqueleto não foi encontrada.","game_no_camera":"Jogo: nenhum jogo de Kinect abriu a câmera ainda.","left_punch":"Soco esquerdo","right_punch":"Soco direito","two_hand_push":"Empurrão com as duas mãos","left_uppercut":"Gancho esquerdo","right_uppercut":"Gancho direito","left_swipe":"Golpe lateral esquerdo","right_swipe":"Golpe lateral direito","left_kick":"Chute esquerdo","right_kick":"Chute direito","jump":"Pulo","step_back":"Passo para trás","step_forward":"Passo à frente","step_side":"Passo para o lado","guard":"Guarda","hands_up":"Braços para cima","crouch":"Agachado","lean_forward":"Inclinado para frente","lean_back":"Inclinado para trás","lean_side":"Inclinado para o lado","top_view":"Vista de cima","engine":"{0} · {1} qps","step_key":"Digite a chave mostrada no PS5 (Configurações → Movimento pela câmera) e toque em Conectar.","step_connecting":"Conectando ao PS5…","wait_game":"Chave aceita. Inicie o jogo de Kinect no PS5 — aguardando…","wait_setting":"O jogo no PS5 está com o Movimento pela câmera desligado. Ligue no guia ou nas configurações do jogo — aguardando…","step_start":"Conectado ao PS5. Toque em Ligar câmera.","step_tap":"Conectado. Toque em Ligar câmera: o navegador só abre a câmera depois de um toque.","step_sending":"Câmera ligada · enviando {0} quadros/s ao PS5","step_no_body":"Câmera ligada · afaste-se até o corpo inteiro aparecer na imagem","step_camera_error":"A câmera não ligou: {0}","step_disconnected":"Desconectado do PS5. Toque em Conectar para parear de novo.","options":"Ajustes da câmera e do movimento","latency":"Atraso (ms): câmera {0} · detecção {1} · envio {2} · rede {3} · suavização das mãos {4}"},"es":{"intro":"La cámara del móvil como sensor Kinect de PS5X360. El móvil calcula la posición de tu cuerpo y envía solo el esqueleto a la PS5; ningún vídeo sale del móvil. Experimental.","ps5":"PS5","key_label":"Clave de emparejamiento (en la PS5)","connect":"Conectar PS5","disconnect":"Desconectar","camera":"Cámara","camera_label":"Cámara","front":"Frontal","back":"Trasera","quality_label":"Calidad del seguimiento","q_lite":"Rápida (móviles antiguos)","q_full":"Equilibrada (recomendada)","q_heavy":"Precisa (móviles rápidos)","start":"Iniciar cámara","stop":"Parar","focus":"Pantalla completa","focus_exit":"Salir","motion":"Movimiento","mode_label":"Modo","mode_kinect":"Kinect: posición y profundidad","mode_original":"Original: solo la cadera","distance_label":"Tu distancia al empezar (m)","reach_label":"Alcance de los golpes (solo golpes rápidos)","reach_normal":"Normal","reach_more":"Mayor","reach_max":"Máximo","recenter":"Centrar aquí","diag":"Diagnóstico de la pose","export":"Exportar pose","sides_label":"Izquierda y derecha","sides_normal":"Normal","sides_mirror":"Cambiadas (espejo)","banner_unpaired":"PS5 no conectada","banner_expired":"La clave de la PS5 cambió: sal de pantalla completa y escribe la nueva","banner_hint":"La clave cambia cada vez que el emulador o un juego se reinicia.","sending":"PS5 {0}/s","slow":"Seguimiento lento: elige la calidad Rápida","reconnecting":"Reconectando con la PS5...","reconnect_hint":"El emulador probablemente se está reiniciando (por ejemplo, al abrir un juego). Esta página se reconecta sola.","banner_wrong_key":"Clave de la PS5 incorrecta: escanea de nuevo el código QR de la PS5","motion_off":"El Movimiento por cámara está desactivado en este juego en la PS5.","how":"Ponte de frente a la cámara, con el cuerpo entero a la vista, a unos 2–3 m. Quédate quieto un segundo: ese lugar será el centro. Después, los pasos adelante, atrás y a los lados, los saltos y las sentadillas mueven tu esqueleto, y los golpes hacia la cámara van hacia delante. Los nombres en la imagen (golpe, empuje, patada, salto...) solo muestran lo que hace tu esqueleto; el juego decide el movimiento, como con un Kinect de verdad. Si el juego confunde tu mano izquierda con la derecha, cambia Izquierda y derecha a Cambiadas. Todo se estima con una sola cámara; no se mide como en Kinect.","privacy":"El procesamiento de la pose se queda en este navegador. El modelo se descarga de Google y jsDelivr. Solo las posiciones de las articulaciones van a tu PS5, en tu red.","disconnected":"PS5 no conectada.","paired":"Conectada. Inicia la cámara para enviar tus movimientos.","receiving":"La PS5 recibe tu esqueleto.","receiving_lost":"La PS5 recibe: ningún cuerpo.","pairing_expired":"El emparejamiento caducó. Escribe la clave que muestra ahora la PS5 y conecta de nuevo.","ps5_lost":"Se perdió la conexión con la PS5. Abre el emulador y revisa el puerto de la página de ajustes.","rejected":"La PS5 rechazó el cuadro ({0}).","enable_motion":"Activa primero Movimiento por cámara en los ajustes del juego de Kinect en la PS5.","renew":"Conecta la PS5 de nuevo para renovar la sesión.","console_disconnected":"PS5 desconectada; la pose caduca en medio segundo.","camera_off":"Cámara apagada.","loading_model":"Descargando el modelo de pose…","need_https":"La cámara necesita HTTPS (o localhost en un ordenador).","body":"Siguiendo tu cuerpo.","no_body":"Aléjate hasta que tu cuerpo entero salga en la imagen.","frame_old":"El móvil va lento con esta calidad; elige Rápida.","calibrating":"Quédate quieto de frente a la cámara… {0}%","tracking":"Modo Kinect: a {0} m de la cámara.","hips_hidden":"Cadera fuera de la imagen: posición mantenida. Aléjate un poco.","original":"Modo original: movimiento solo respecto a la cadera.","demo":"Demostración: cuerpo sintético, sin cámara.","game_bound":"Juego: recibe el esqueleto ({0} cuadros, {1} con cuerpo).","game_no_skeleton":"Juego: cámara abierta, pero no se encontró su función de esqueleto.","game_no_camera":"Juego: ningún juego de Kinect abrió la cámara todavía.","left_punch":"Golpe izquierdo","right_punch":"Golpe derecho","two_hand_push":"Empuje con las dos manos","left_uppercut":"Gancho izquierdo","right_uppercut":"Gancho derecho","left_swipe":"Barrido izquierdo","right_swipe":"Barrido derecho","left_kick":"Patada izquierda","right_kick":"Patada derecha","jump":"Salto","step_back":"Paso atrás","step_forward":"Paso adelante","step_side":"Paso lateral","guard":"Guardia","hands_up":"Brazos arriba","crouch":"Agachado","lean_forward":"Inclinado adelante","lean_back":"Inclinado atrás","lean_side":"Inclinado de lado","top_view":"Vista superior","engine":"{0} · {1} fps","step_key":"Escribe la clave que muestra la PS5 (Ajustes → Movimiento por cámara) y toca Conectar.","step_connecting":"Conectando con la PS5…","wait_game":"Clave aceptada. Inicia el juego de Kinect en la PS5 — esperando…","wait_setting":"El juego de la PS5 tiene el Movimiento por cámara desactivado. Actívalo en la guía o en los ajustes del juego — esperando…","step_start":"Conectado a la PS5. Toca Iniciar cámara.","step_tap":"Conectado. Toca Iniciar cámara: el navegador solo abre la cámara después de un toque.","step_sending":"Cámara encendida · enviando {0} cuadros/s a la PS5","step_no_body":"Cámara encendida · aléjate hasta que se vea todo tu cuerpo","step_camera_error":"La cámara no se inició: {0}","step_disconnected":"Desconectado de la PS5. Toca Conectar para emparejar de nuevo.","options":"Ajustes de cámara y movimiento","latency":"Retraso (ms): cámara {0} · detección {1} · envío {2} · red {3} · suavizado de manos {4}"},"pl":{"intro":"Aparat telefonu jako czujnik Kinect dla PS5X360. Telefon wylicza pozycję Twojego ciała i wysyła do PS5 tylko szkielet; żadne wideo nie opuszcza telefonu. Eksperymentalne.","ps5":"PS5","key_label":"Klucz parowania (widoczny na PS5)","connect":"Połącz z PS5","disconnect":"Rozłącz","camera":"Kamera","camera_label":"Kamera","front":"Przednia","back":"Tylna","quality_label":"Jakość śledzenia","q_lite":"Szybka (starsze telefony)","q_full":"Zrównoważona (zalecana)","q_heavy":"Dokładna (szybkie telefony)","start":"Włącz kamerę","stop":"Zatrzymaj","focus":"Pełny ekran","focus_exit":"Wyjdź","motion":"Ruch","mode_label":"Tryb","mode_kinect":"Kinect: pozycja i głębia","mode_original":"Oryginalny: tylko biodra","distance_label":"Twoja odległość na starcie (m)","reach_label":"Zasięg ciosu (tylko szybkie ciosy)","reach_normal":"Normalny","reach_more":"Dłuższy","reach_max":"Najdłuższy","recenter":"Wyśrodkuj tutaj","diag":"Diagnostyka pozy","export":"Eksportuj pozę","sides_label":"Lewa i prawa strona","sides_normal":"Normalnie","sides_mirror":"Zamienione (lustro)","banner_unpaired":"PS5 niepołączone","banner_expired":"Klucz PS5 się zmienił: wyjdź z pełnego ekranu i wpisz nowy klucz","banner_hint":"Klucz zmienia się przy każdym ponownym uruchomieniu emulatora lub gry.","sending":"PS5 {0}/s","slow":"Wolne śledzenie: wybierz jakość Szybka","reconnecting":"Ponowne łączenie z PS5…","reconnect_hint":"Emulator prawdopodobnie uruchamia się ponownie (na przykład otwiera grę). Ta strona połączy się sama.","banner_wrong_key":"Zły klucz PS5: zeskanuj ponownie kod QR na PS5","motion_off":"Ruch z kamery jest wyłączony dla tej gry na PS5.","how":"Stań przodem do kamery, cała sylwetka w kadrze, około 2–3 m od niej. Postój chwilę bez ruchu: to miejsce staje się środkiem. Kroki do przodu, do tyłu i na boki, skoki i przysiady poruszają wtedy Twoim szkieletem; ciosy w stronę kamery sięgają do przodu. Napisy na obrazie (cios, pchnięcie, kopnięcie, skok…) pokazują tylko, co robi Twój szkielet; ruch rozpoznaje gra, jak przy prawdziwym Kinekcie. Jeśli gra myli lewą rękę z prawą, ustaw Lewa i prawa strona na Zamienione. Wszystko jest szacowane z jednej kamery, a nie mierzone jak w Kinekcie.","privacy":"Przetwarzanie pozy odbywa się w tej przeglądarce. Model pozy pobiera się z Google i jsDelivr. Do PS5 w Twojej sieci trafiają tylko pozycje stawów.","disconnected":"PS5 niepołączone.","paired":"Połączono. Włącz kamerę, aby wysyłać ruch.","receiving":"PS5 odbiera Twój szkielet.","receiving_lost":"PS5 odbiera: brak sylwetki.","pairing_expired":"Parowanie wygasło. Wpisz klucz widoczny teraz na PS5 i połącz ponownie.","ps5_lost":"Utracono połączenie z PS5. Uruchom ponownie emulator i sprawdź port strony ustawień.","rejected":"PS5 odrzuciło klatkę ({0}).","enable_motion":"Najpierw włącz Ruch z kamery w ustawieniach gry na Kinect na PS5.","renew":"Połącz ponownie z PS5, aby odnowić sesję.","console_disconnected":"Rozłączono z PS5; poza wygasa w ciągu pół sekundy.","camera_off":"Kamera wyłączona.","loading_model":"Wczytywanie modelu pozy…","need_https":"Kamera wymaga HTTPS (lub localhost na komputerze).","body":"Śledzenie Twojego ciała.","no_body":"Cofnij się, aż cała sylwetka będzie w kadrze.","frame_old":"Telefon jest za wolny dla tej jakości; wybierz Szybka.","calibrating":"Stój nieruchomo przodem do kamery… {0}%","tracking":"Tryb Kinect: {0} m od kamery.","hips_hidden":"Biodra poza kadrem: pozycja zatrzymana. Cofnij się trochę.","original":"Tryb oryginalny: ruch tylko względem bioder.","demo":"Demo: sztuczna sylwetka, bez kamery.","game_bound":"Gra: pobiera szkielet ({0} klatek, {1} z sylwetką).","game_no_skeleton":"Gra: kamera otwarta, ale nie znaleziono jej funkcji szkieletu.","game_no_camera":"Gra: żadna gra na Kinect nie otworzyła jeszcze kamery.","left_punch":"Lewy cios","right_punch":"Prawy cios","two_hand_push":"Pchnięcie oburącz","left_uppercut":"Lewy podbródkowy","right_uppercut":"Prawy podbródkowy","left_swipe":"Machnięcie w lewo","right_swipe":"Machnięcie w prawo","left_kick":"Lewe kopnięcie","right_kick":"Prawe kopnięcie","jump":"Skok","step_back":"Krok w tył","step_forward":"Krok w przód","step_side":"Krok w bok","guard":"Garda","hands_up":"Ręce w górze","crouch":"Przysiad","lean_forward":"Pochylenie do przodu","lean_back":"Pochylenie do tyłu","lean_side":"Pochylenie w bok","top_view":"Widok z góry","engine":"{0} · {1} kl./s","step_key":"Wpisz klucz widoczny na PS5 (Ustawienia → Ruch z kamery) i dotknij Połącz.","step_connecting":"Łączenie z PS5…","wait_game":"Klucz przyjęty. Uruchom grę na Kinect na PS5 — czekam…","wait_setting":"Gra na PS5 ma wyłączony Ruch z kamery. Włącz go w przewodniku lub w ustawieniach gry — czekam…","step_start":"Połączono z PS5. Dotknij Włącz kamerę.","step_tap":"Połączono. Dotknij Włącz kamerę: przeglądarka otwiera kamerę dopiero po dotknięciu.","step_sending":"Kamera włączona · do PS5: {0} kl./s","step_no_body":"Kamera włączona · cofnij się, aż cała sylwetka będzie w kadrze","step_camera_error":"Kamera się nie włączyła: {0}","step_disconnected":"Rozłączono z PS5. Dotknij Połącz, aby sparować ponownie.","options":"Ustawienia kamery i ruchu","latency":"Opóźnienie (ms): kamera {0} · wykrywanie {1} · wysyłanie {2} · sieć {3} · wygładzanie dłoni {4}"}};
+ const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
+@@ -127,8 +128,8 @@ const applyMotionSettings = () => {
+ applyMotionSettings();
+ distance.onchange = applyMotionSettings;
+ reach.onchange = () => { try { tracker.setReach(Number(reach.value)); } catch {} remember(); };
+-mode.onchange = () => { tracker.resetCalibration(); gestures.reset(); remember(); };
+-recenter.onclick = () => { tracker.resetCalibration(); gestures.reset(); };
++mode.onchange = () => { tracker.resetCalibration('mode'); gestures.reset(); remember(); };
++recenter.onclick = () => { tracker.resetCalibration('recentre'); gestures.reset(); };
+ cameraChoice.onchange = quality.onchange = remember;
+ sides.onchange = () => { tracker.setMirror(sides.value === 'mirror'); gestures.reset(); remember(); };
+ 
+@@ -346,7 +347,7 @@ async function startCamera(fromTap) {
+       video.srcObject = stream; await video.play();
+       if (document.hidden) { busy = false; finish(); return; }
+     } else engine = 'demo';
+-    tracker.resetCalibration(); gestures.reset(); active = true; lastVideoTime = -1;
++    tracker.resetCalibration('camera'); gestures.reset(); active = true; lastVideoTime = -1;
+     state.camera = 'on'; state.userStopped = false; status.textContent = T('no_body');
+     keepAwake(); loop();
+   } catch (e) {
+@@ -407,6 +408,10 @@ async function loop() {
+         sendPose(latest || kept);
+       }
+       if (mode.value === 'kinect' && latest) latencyWindow.add('smoothing', smoothingLagMs(tracker.filters));
++      // Fix 102: why a frame had no body (or kept one with inferred hips), and the tracker's
++      // calibration restarts, for the console's log.
++      latencyWindow.reason(frameReason(stale, seen, latest, tracked));
++      for (const event of tracker.takeEvents()) latencyWindow.calibration(event);
+       reportLatency(capturedAt);
+       draw(seen, stale ? null : latest, tracked);
+     }
+@@ -421,7 +426,7 @@ function showStatus(stale, tracked) {
+   if (mode.value !== 'kinect') { calibrationText.textContent = T('original'); progress.value = 0; return; }
+   const s = tracked?.status;
+   progress.value = s?.progress ?? 0;
+-  calibrationText.textContent = !s ? '' : s.reason === 'hips_hidden' ? T('hips_hidden') : s.calibrated && s.root ?
++  calibrationText.textContent = !s ? '' : s.reason === 'hips_hidden' || s.reason === 'hips_inferred' ? T('hips_hidden') : s.calibrated && s.root ?
+     T('tracking', s.root.distance.toFixed(2).replace('.', lang === 'en' ? '.' : ',')) : T('calibrating', Math.round(progress.value * 100));
+ }
+ 
+@@ -687,12 +692,33 @@ export function smoothingLagMs(filters, joints = HAND_JOINTS) {
+   return lag;
+ }
+ 
++// Fix 102: the reasons a frame went without a body (or kept one with its hips inferred).
++export const REASONS = ['no_landmarks', 'stale', 'no_body', 'out_of_range', 'out_of_order', 'hips_inferred', 'hips_hidden'];
++// The reason for one frame: null for a body the tracker placed normally.
++export function frameReason(stale, seen, pose, tracked) {
++  if (stale) return 'stale';
++  if (!seen?.world || !seen?.image) return 'no_landmarks';
++  const reason = tracked?.status?.reason;
++  if (!pose) return REASONS.includes(reason) ? reason : 'no_body';
++  return reason === 'hips_inferred' || reason === 'hips_hidden' ? reason : null;
++}
++
+ export class StageWindow {
+   constructor() { this.reset(NaN); }
+   reset(now) {
+     this.samples = Object.fromEntries(STAGES.map(name => [name, []]));
+     this.frames = 0;
+     this.since = now;
++    this.reasons = Object.fromEntries(REASONS.map(name => [name, 0]));  // fix 102
++    this.restarts = [];
++  }
++  reason(name) { if (name && name in this.reasons) this.reasons[name]++; }
++  // A calibration restart or a new picture size: {cause, width, height}; the first 4 a window.
++  calibration(event) {
++    if (!event || this.restarts.length >= 4) return;
++    const cause = String(event.cause || '').replace(/[^a-z_]/g, '').slice(0, 16) || 'unknown';
++    const size = event.width > 0 && event.height > 0 ? ' ' + Math.round(event.width) + 'x' + Math.round(event.height) : '';
++    this.restarts.push(cause + size);
+   }
+   add(stage, ms) {
+     const list = this.samples[stage];
+@@ -713,7 +739,8 @@ export class StageWindow {
+       const list = this.samples[name];
+       stages[name] = [round(percentile(list, 50)), round(percentile(list, 95)), list.length];
+     }
+-    const out = {fps: seconds ? round(this.frames / seconds) : 0, frames: this.frames, queue, stages};
++    const out = {fps: seconds ? round(this.frames / seconds) : 0, frames: this.frames, queue, stages,
++      reasons: {...this.reasons}, restarts: this.restarts.join(', ')};  // fix 102
+     this.reset(now);
+     return out;
+   }
+diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
+index 5fbb3a2..8c1d214 100644
+--- a/port/phone_camera_tls.cpp
++++ b/port/phone_camera_tls.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include "xbox360ps5/motion_input.hpp"
+ #include "phone_camera_page.hpp"  // fix 56: the camera page and its pairing state
++#include "phone_camera_tracker.hpp"  // fix 102: the title's kinect_tracker.mjs
+ #include "xbox360ps5/phone_latency.hpp"  // fix 66: the page's delay by stage
+ #include "xenia/base/logging.h"        // fix 66: its line in the game log
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the certificates' names
+@@ -292,6 +293,8 @@ std::string Route(const std::string& method, std::string target, const std::stri
+     return Response("200 OK", "text/javascript; charset=utf-8", phone_camera::kPairingModule);
+   if (method == "GET" && target == "/latency.mjs")  // fix 66
+     return Response("200 OK", "text/javascript; charset=utf-8", phone_camera::kLatencyModule);
++  if (method == "GET" && target == "/kinect_tracker.mjs")  // fix 102: the title's tracker
++    return Response("200 OK", "text/javascript; charset=utf-8", phone_camera::kTrackerModule);
+   if (method == "GET" && (target == "/pose.mjs" || target == "/kinect_tracker.mjs" || target == "/demo_body.mjs")) {
+     const std::string code = ReadFile(std::string(kAssets) + target.substr(1));
+     return code.empty() ? Response("404 Not Found", "text/plain", "missing")
+@@ -308,6 +311,7 @@ std::string Route(const std::string& method, std::string target, const std::stri
+     // Fix 66: the page's delay by stage, every 2 s while paired; one game log line at most every 1.5 s.
+     if (phone_latency::Due(phone_latency::NowMs()))
+       if (const auto line = phone_latency::Line(body)) XELOGW("{}", *line);
++      if (const auto reasons = phone_latency::ReasonsLine(body)) XELOGW("{}", *reasons);  // fix 102
+     return Response("204 No Content", "text/plain", "");
+   }
+   if (method == "POST" && target == "/api/motion/frame") {
+diff --git a/port/phone_camera_tracker.hpp b/port/phone_camera_tracker.hpp
+new file mode 100644
+index 0000000..347ffb1
+--- /dev/null
++++ b/port/phone_camera_tracker.hpp
+@@ -0,0 +1,475 @@
++// SPDX-License-Identifier: MIT
++// Fix 102 (tools/source-1.0.2/fixes/102-kinect-tracker.patch): the phone's Kinect tracker, served by
++// the console at /kinect_tracker.mjs (port/phone_camera_tls.cpp) instead of the package's
++// assets/kinect/kinect_tracker.mjs, from which it is made (MIT, Copyright (c) 2026 Xbox360PS5
++// contributors; the changes are marked "fix 102"). Checked with node by tools/check-kinect-tracker.mjs.
++#pragma once
++
++namespace phone_camera {
++
++inline constexpr char kTrackerModule[] = R"KINECTTRACKER(// Kinect-style body tracking from one camera (MediaPipe Pose) for the PS5X360 motion bridge.
++//
++// Kinect reports where a body stands in front of the sensor and how far each hand reaches
++// towards it. A phone camera gives a flat picture plus the model's depth guess, which is weak
++// exactly where Kinect games need it: punches straight at the camera and steps towards or away
++// from it. This tracker adds three estimates on top of the model:
++// - body position: distance from the torso's size in the picture, calibrated against the
++//   starting distance; sideways and up/down from where the hips sit in the picture;
++// - limb depth: arm and leg bones keep their length, so a bone that looks short in the picture
++//   points at (or away from) the camera by the missing amount;
++// - adaptive smoothing (One Euro): a still body stops shaking, a fast punch keeps its speed.
++// Output: the bridge's 20 joints (pose.mjs order) in metres, X picture-right, Y up, Z towards
++// the camera, with the console's 2.5 m body distance as Z = 0. The console's NUI conversion
++// already places every joint by these values, so no native change is needed.
++// All of it is estimated from a single camera; none of it is a Kinect depth measurement.
++//
++// PS5X360Reloaded fix 102 (Kinect Sports, issue 15): the player was lost while standing in the
++// picture. The body is kept while both shoulders are seen (hips and legs below the picture or
++// unsure are sent as inferred, confidence 0.49, and the body keeps its last place); calibration
++// goes on through a new frame size (the focal length follows the picture) and a re-centre starts
++// from the distance the body was at; the distance may go down to 0.5 m instead of stopping at
++// 1 m; the reasons for frames without a body and the calibration restarts are kept for the page
++// to report (takeEvents, status reasons hips_inferred and hips_hidden).
++import {skeleton} from './pose.mjs?v=kinect2';
++
++export const BODY_DISTANCE = 2.5;  // xbox360ps5::motion::kBodyDistance on the console
++const TORSO_SEGMENTS = [[11, 12], [23, 24], [11, 23], [12, 24]];
++// Chains whose depth is rebuilt from bone length; followers move with the chain's end.
++const LIMBS = [
++  {chain: [11, 13, 15], followers: [17, 19, 21], weight: .8, arm: true},
++  {chain: [12, 14, 16], followers: [18, 20, 22], weight: .8, arm: true},
++  {chain: [23, 25, 27], followers: [29, 31], weight: .55},
++  {chain: [24, 26, 28], followers: [30, 32], weight: .55},
++];
++// One Euro settings per bridge joint: [minimum cutoff Hz, speed coefficient].
++const SMOOTHING = [
++  [1, .6], [1, .6], [1, .6], [1.1, .7],           // hip centre, spine, shoulder centre, head
++  [1, .7], [1.3, 1.2], [1.5, 1.6], [1.5, 1.6],    // left shoulder, elbow, wrist, hand
++  [1, .7], [1.3, 1.2], [1.5, 1.6], [1.5, 1.6],    // right arm
++  [1, .6], [1.2, 1], [1.2, 1.2], [1.2, 1.2],      // left leg
++  [1, .6], [1.2, 1], [1.2, 1.2], [1.2, 1.2],      // right leg
++];
++const HOLD_MS = 400;          // keep a briefly hidden joint where it was, as the sensor infers it
++const ROOT_HOLD_MS = 600;     // keep the body position through short torso dropouts
++const CALIBRATION_FRAMES = 15, CALIBRATION_MS = 900;
++const MIN_DISTANCE = .5, MAX_DISTANCE = 3.8;  // fix 102: was 1 m at the near end
++const INFERRED = .49;  // fix 102: below every .5 gate and the .6 bone training
++
++const finite = v => Number.isFinite(v);
++const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
++const score = v => finite(v) ? clamp(v, 0, 1) : 0;
++const vis = p => p ? Math.min(score(p.visibility), p.presence === undefined ? 1 : score(p.presence)) : 0;
++const median = a => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
++
++// Left/right landmark pairs of MediaPipe Pose.
++const PAIRS = [[1, 4], [2, 5], [3, 6], [7, 8], [9, 10], [11, 12], [13, 14], [15, 16], [17, 18], [19, 20],
++  [21, 22], [23, 24], [25, 26], [27, 28], [29, 30], [31, 32]];
++export const MIRRORED = Array.from({length: 33}, (_, n) => n);
++for (const [a, b] of PAIRS) { MIRRORED[a] = b; MIRRORED[b] = a; }
++// The pose as a mirror shows it: the picture flips and the sides swap, so the body still faces
++// the camera and the physical left hand is reported as the right one. For cameras or setups
++// where the game sees left and right the wrong way round.
++export function mirrorLandmarks(points, picture) {
++  if (!Array.isArray(points) || points.length !== 33) return points;
++  return MIRRORED.map(n => ({...points[n], x: picture ? 1 - points[n].x : -points[n].x}));
++}
++
++export class OneEuro {
++  constructor(minCutoff = 1, beta = .5, dCutoff = 1) { Object.assign(this, {minCutoff, beta, dCutoff}); }
++  reset() { this.t = undefined; }
++  next(x, t) {
++    if (this.t === undefined || !(t > this.t)) {
++      if (this.t === undefined) { this.t = t; this.x = x; this.dx = 0; }
++      return this.x;
++    }
++    const dt = (t - this.t) / 1000;
++    const a = cutoff => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
++    this.dx += a(this.dCutoff) * ((x - this.x) / dt - this.dx);
++    this.x += a(this.minCutoff + this.beta * Math.abs(this.dx)) * (x - this.x);
++    this.t = t;
++    return this.x;
++  }
++}
++
++class BoneLength {
++  constructor() { this.samples = []; }
++  push(length) { this.samples.push(length); if (this.samples.length > 480) this.samples.shift(); }
++  // Picture-plane lengths over about 16 s: a bone turned towards the camera only ever looks
++  // shorter, so a high percentile is its length while it lay across the picture.
++  value() {
++    if (this.samples.length < 15) return null;
++    const s = [...this.samples].sort((x, y) => x - y);
++    return s[Math.floor(s.length * .9)];
++  }
++}
++
++export class KinectTracker {
++  constructor({startDistance = BODY_DISTANCE, reach = 1, mirror = false} = {}) {
++    this.startDistance = startDistance;
++    this.reach = reach;
++    this.mirror = mirror;
++    this.bones = new Map();
++    this.signs = new Map();
++    this.events = [];
++    this.resetCalibration(null);
++  }
++  setStartDistance(metres) {
++    if (!finite(metres) || metres < 1 || metres > 3.8) throw new RangeError('Start distance must be 1–3.8 m');
++    this.startDistance = metres;
++    this.resetCalibration('start_distance');
++    this.calibrateFrom = null;  // the distance the player typed, not where the body was
++  }
++  setMirror(enabled) {
++    if (Boolean(enabled) === this.mirror) return;
++    this.mirror = Boolean(enabled);
++    this.bones = new Map();
++    this.signs = new Map();
++    this.resetCalibration('mirror');
++  }
++  setReach(factor) {
++    if (!finite(factor) || factor < 1 || factor > 1.6) throw new RangeError('Reach must be 1–1.6');
++    this.reach = factor;
++  }
++  // Stand still facing the camera again: the current place becomes the centre. Fix 102: the new
++  // calibration starts from the distance the body was at (not the start distance), so the
++  // body's depth does not jump while it is taken; `cause` is reported (takeEvents).
++  resetCalibration(cause = 'recentre') {
++    const from = this.root?.distance;
++    this.calibrateFrom = finite(from) ? clamp(from, 1, MAX_DISTANCE) : (this.calibrateFrom ?? null);
++    if (cause) this.note(cause, this.calibration?.width, this.calibration?.height);
++    this.calibration = null;
++    this.samples = [];
++    this.root = null;
++    this.rootTime = -Infinity;
++    this.resetMotion();
++  }
++  // Fix 102: calibration restarts and picture changes, for the page's report.
++  note(cause, width, height) {
++    this.events.push({cause, width: finite(width) ? width : 0, height: finite(height) ? height : 0});
++    if (this.events.length > 8) this.events.shift();
++  }
++  takeEvents() { const events = this.events; this.events = []; return events; }
++  // After a pause in the frames: restart the filters, but keep where the body was, so it
++  // does not jump back to the centre for a frame (a game takes such a jump as a new player).
++  resetMotion() {
++    this.filters = new Map();
++    this.rootFilters = [new OneEuro(1, 1.2), new OneEuro(1, 1.2), new OneEuro(.8, 1)];
++    this.held = new Map();
++    this.strikes = new Map();
++    this.lastTime = null;
++  }
++
++  // Torso size in pixels per model metre, measured on picture-plane lengths so that turning
++  // or leaning shortens both sides alike.
++  static torsoScale(world, image, width, height) {
++    let pixels = 0, metres = 0, used = 0;
++    for (const [a, b] of TORSO_SEGMENTS) {
++      if (vis(image[a]) < .5 || vis(image[b]) < .5 ||
++          ![image[a].x, image[a].y, image[b].x, image[b].y].every(finite)) continue;
++      const m = Math.hypot(world[a].x - world[b].x, world[a].y - world[b].y);
++      if (m < .06) continue;
++      pixels += Math.hypot((image[a].x - image[b].x) * width, (image[a].y - image[b].y) * height);
++      metres += m;
++      used++;
++    }
++    return used >= 3 && metres >= .3 ? pixels / metres : null;
++  }
++
++  // Bone-length depth. `p` is the model's world pose in bridge axes (Y up, Z towards camera).
++  rebuildLimbs(p) {
++    for (const limb of LIMBS) {
++      const {chain} = limb;
++      const before = p[chain.at(-1)].z;
++      const modelZ = chain.map(n => p[n].z);  // model depths, before this chain is rebuilt
++      let previousZ = modelZ[0];
++      for (let i = 1; i < chain.length; i++) {
++        const a = p[chain[i - 1]], b = p[chain[i]], key = chain[i - 1] + '-' + chain[i];
++        const dx = b.x - a.x, dy = b.y - a.y, modelDz = modelZ[i] - modelZ[i - 1];
++        const flat = Math.hypot(dx, dy);
++        if (!this.bones.has(key)) this.bones.set(key, new BoneLength());
++        const bone = this.bones.get(key);
++        if (a.confidence >= .6 && b.confidence >= .6 && flat > .05) bone.push(flat);
++        const length = bone.value();
++        let dz = modelDz;
++        if (length) {
++          const hidden = flat < length ? Math.sqrt(length * length - flat * flat) : 0;
++          // The model usually knows which way a bone points even when it misjudges how far.
++          let sign = this.signs.get(key) ?? 1;
++          if (Math.abs(modelDz) > .03) sign = Math.sign(modelDz);
++          this.signs.set(key, sign);
++          // Near full picture length the square root turns small noise into large depth:
++          // trust the model there, the rebuilt depth once the bone is clearly shortened.
++          const k = clamp((.95 - flat / length) / .15, 0, 1);
++          dz = modelDz + limb.weight * k * k * (3 - 2 * k) * (sign * hidden - modelDz);
++        }
++        previousZ += dz;
++        b.z = previousZ;
++      }
++      const shift = p[chain.at(-1)].z - before;
++      for (const n of limb.followers) p[n].z += shift;
++    }
++  }
++
++  // "Punch reach" lengthens an arm only while it strikes forward fast. A slow reach, a push
++  // held in front or a guard keeps its real depth, so the game can still tell them apart.
++  extendStrikes(p, t) {
++    for (const limb of LIMBS.filter(l => l.arm)) {
++      const shoulder = p[limb.chain[0]].z, forward = p[limb.chain.at(-1)].z - shoulder;
++      const key = limb.chain[0], last = this.strikes.get(key);
++      let speed = 0, envelope = 0;
++      if (last && t > last.t && t - last.t < 250) {
++        const dt = (t - last.t) / 1000;
++        speed = last.speed + .5 * ((forward - last.forward) / dt - last.speed);
++        // Full strength from 1.8 m/s forward; fades within about a third of a second.
++        envelope = Math.max(last.envelope * Math.exp(-dt / .3), clamp((speed - .8) / 1, 0, 1));
++      }
++      this.strikes.set(key, {t, forward, speed, envelope});
++      if (this.reach === 1 || envelope <= 0) continue;
++      const factor = 1 + (this.reach - 1) * envelope;
++      for (const n of [...limb.chain.slice(1), ...limb.followers])
++        if (p[n].z > shoulder) p[n].z = shoulder + (p[n].z - shoulder) * factor;
++    }
++  }
++
++  // Where the hips are: distance from torso size, sideways/height from the picture position.
++  locate(scale, image, width, height, t) {
++    const hipsSeen = [23,24].every(n => vis(image[n]) >= .5 &&
++      [image[n].x,image[n].y].every(finite) && image[n].x >= 0 && image[n].x <= 1 &&
++      image[n].y >= 0 && image[n].y <= 1);
++    if (!finite(scale) || scale <= 0 || !hipsSeen) {
++      if (!this.calibration) this.samples = [];
++      return null;
++    }
++    const u = ((image[23].x + image[24].x) / 2 - .5) * width;
++    const v = (.5 - (image[23].y + image[24].y) / 2) * height;
++    if (!this.calibration) {
++      this.samples.push({t, scale, u, v});
++      while (this.samples.length && t - this.samples[0].t > 2500) this.samples.shift();
++      const scales = this.samples.map(s => s.scale), mid = median(scales);
++      if (Math.max(...scales) / Math.min(...scales) > 1.12) this.samples = [this.samples.at(-1)];
++      else if (this.samples.length >= CALIBRATION_FRAMES && t - this.samples[0].t >= CALIBRATION_MS) {
++        const start = this.calibrateFrom ?? this.startDistance;  // fix 102
++        const focal = mid * start;
++        this.calibration = {focal, scale: mid, width, height,
++          x: median(this.samples.map(s => s.u)) * start / focal,
++          y: median(this.samples.map(s => s.v)) * start / focal};
++        this.samples = [];
++      }
++      return null;
++    }
++    const c = this.calibration;
++    if (width !== c.width || height !== c.height) {
++      // Fix 102: the same camera at another size or turned: the focal length in pixels follows
++      // the picture's longer side, instead of a new calibration (which threw the body to the
++      // start distance, Kinect Sports' "distance jumped to 2.50 m").
++      const k = Math.max(width, height) / Math.max(c.width, c.height);
++      if (!(k > 0) || !finite(k)) { this.resetCalibration('frame'); return null; }
++      c.focal *= k; c.scale *= k; c.width = width; c.height = height;
++      this.note('frame', width, height);
++    }
++    const distance = clamp(c.focal / scale, MIN_DISTANCE, MAX_DISTANCE);
++    return {
++      x: clamp(u * distance / c.focal - c.x, -1.6, 1.6),
++      y: clamp(v * distance / c.focal - c.y, -1.2, 1.2),
++      distance,
++    };
++  }
++
++  // world/image: MediaPipe worldLandmarks[0] and landmarks[0]; t: capture time in ms.
++  update(world, image, t, width, height) {
++    if (!Array.isArray(world) || world.length !== 33 || !Array.isArray(image) || image.length !== 33 ||
++        !finite(t) || !(width >= 64) || !(height >= 64)) return {pose: null, status: this.status('no_body')};
++    if (this.lastTime !== null && t <= this.lastTime) return {pose: null, status: this.status('out_of_order')};
++    if (this.lastTime !== null && t - this.lastTime > 250) this.resetMotion();
++    this.lastTime = t;
++    if (this.mirror) { world = mirrorLandmarks(world, false); image = mirrorLandmarks(image, true); }
++
++    // Model world pose in bridge axes, then bone-length depth on the limbs.
++    // Fix 102: the shoulders decide whether there is a body. Hips below the picture or unsure
++    // (a player close to the phone) are the model's guess, sent as inferred with the legs,
++    // instead of dropping the whole body (Kinect Sports lost its player at "Pick main player").
++    if ([11,12].some(n => vis(world[n]) < .5)) {
++      this.resetMotion(); this.samples = [];
++      return {pose: null, status: this.status('no_body')};
++    }
++    const hipsInferred = [23,24].some(n => vis(world[n]) < .5);
++    // Picture occlusion must also reach the guest: a confident model-world guess
++    // alone must not authorize the hand cursor or train limb lengths.
++    const p = world.map((q,n) => ({x: q?.x, y: -q?.y, z: -q?.z,
++      confidence: hipsInferred && n >= 23 ? Math.min(INFERRED, vis(q), vis(image[n])) : Math.min(vis(q), vis(image[n]))}));
++    if (p.some(q => ![q.x, q.y, q.z].every(finite))) return {pose: null, status: this.status('no_body')};
++    this.rebuildLimbs(p);
++    this.extendStrikes(p, t);
++    let pose;
++    try {
++      pose = skeleton(p.map(q => ({x: q.x, y: -q.y, z: -q.z, visibility: q.confidence})), t);
++    } catch { return {pose: null, status: this.status('no_body')}; }
++
++    // Hidden joints stay where they were for a moment; then they follow the model as inferred.
++    pose.joints.forEach((joint, n) => {
++      const held = this.held.get(n);
++      if (joint.confidence >= .5) this.held.set(n, {x: joint.x, y: joint.y, z: joint.z, t});
++      else if (held && t - held.t < HOLD_MS) Object.assign(joint, {x: held.x, y: held.y, z: held.z});
++    });
++
++    // Smooth the body shape (hip-relative), then place it.
++    pose.joints.forEach((joint, n) => {
++      const [minCutoff, beta] = SMOOTHING[n];
++      for (const axis of ['x', 'y', 'z']) {
++        const key = n + axis;
++        if (!this.filters.has(key)) this.filters.set(key, new OneEuro(axis === 'z' ? minCutoff * .8 : minCutoff, beta));
++        joint[axis] = this.filters.get(key).next(joint[axis], t);
++      }
++    });
++
++    const scale = KinectTracker.torsoScale(world, image, width, height);
++    const place = this.locate(scale, image, width, height, t);
++    let reason = hipsInferred ? 'hips_inferred' : this.calibration ? 'tracking' : 'calibrating';
++    if (place) {
++      this.root = {
++        x: this.rootFilters[0].next(place.x, t),
++        y: this.rootFilters[1].next(place.y, t),
++        distance: this.rootFilters[2].next(place.distance, t),
++      };
++      this.rootTime = t;
++    } else if (this.calibration && t - this.rootTime > ROOT_HOLD_MS) {
++      // Fix 102: the body keeps its last place while the hips cannot be placed (it was dropped
++      // here after ROOT_HOLD_MS); the page warns the player to step back.
++      reason = 'hips_hidden';
++    }
++    const root = this.calibration && this.root ? this.root :
++      {x: 0, y: 0, distance: this.calibrateFrom ?? BODY_DISTANCE};  // fix 102: no jump to 2.5 m
++    for (const joint of pose.joints) {
++      joint.x += root.x;
++      joint.y += root.y;
++      joint.z += BODY_DISTANCE - root.distance;
++    }
++    if (pose.joints.some(j => ![j.x, j.y, j.z].every(finite) || Math.abs(j.x) > 4 || Math.abs(j.y) > 4 || Math.abs(j.z) > 4))
++      return {pose: null, status: this.status('out_of_range')};
++    pose.space = 'camera-estimated-metres';
++    return {pose, status: this.status(reason, root)};
++  }
++
++  status(reason, root = null) {
++    const progress = this.calibration ? 1 : this.samples.length >= 2 ?
++      clamp(Math.min(this.samples.length / CALIBRATION_FRAMES, (this.samples.at(-1).t - this.samples[0].t) / CALIBRATION_MS), 0, 1) : 0;
++    return {reason, calibrated: !!this.calibration, progress, root};
++  }
++}
++
++// Display-only reading of what the skeleton shows. As with a real Kinect, the game recognises
++// moves itself from the skeleton; these labels only tell the player what the skeleton carries.
++// Each move is told apart by direction, speed, arm shape and height, not by "forward" alone.
++const SIDES = [
++  {name: 'left', hand: 7, wrist: 6, elbow: 5, shoulder: 4, ankle: 14, foot: 15},
++  {name: 'right', hand: 11, wrist: 10, elbow: 9, shoulder: 8, ankle: 18, foot: 19},
++];
++const minus = (a, b) => ({x: a.x - b.x, y: a.y - b.y, z: a.z - b.z});
++const length = v => Math.hypot(v.x, v.y, v.z);
++const angleAt = (a, b, c) => {
++  const u = minus(a, b), v = minus(c, b), d = length(u) * length(v);
++  return d ? Math.acos(clamp((u.x * v.x + u.y * v.y + u.z * v.z) / d, -1, 1)) * 180 / Math.PI : 180;
++};
++
++export class GestureMonitor {
++  constructor() { this.reset(); }
++  reset() {
++    this.previous = null; this.velocities = new Map(); this.base = null; this.stepping = {x: false, z: false};
++    this.cooldown = new Map(); this.events = []; this.states = new Set();
++  }
++  fire(name, t, gap = 450) {
++    if (t - (this.cooldown.get(name) ?? -Infinity) < gap) return false;
++    this.cooldown.set(name, t);
++    this.events.push({name, t});
++    return true;
++  }
++  // Smoothed velocity (m/s) of a point; limbs are measured relative to the hips.
++  velocity(key, point, t, points) {
++    const last = this.previous?.points.get(key);
++    let v = this.velocities.get(key) ?? {x: 0, y: 0, z: 0};
++    const dt = this.previous ? (t - this.previous.t) / 1000 : 0;
++    if (last && dt > 0 && dt < .25) {
++      for (const axis of ['x', 'y', 'z']) v = {...v, [axis]: v[axis] + .6 * ((point[axis] - last[axis]) / dt - v[axis])};
++    } else v = {x: 0, y: 0, z: 0};
++    this.velocities.set(key, v);
++    points.set(key, point);
++    return v;
++  }
++  update(pose, t) {
++    this.events = this.events.filter(e => t - e.t < 1200);
++    this.states.clear();
++    if (!pose) { this.previous = null; this.velocities.clear(); return; }
++    const j = pose.joints, hip = j[0], head = j[3], points = new Map();
++    const body = n => minus(j[n], hip);
++    if (!this.base) this.base = {x: hip.x, y: hip.y, z: hip.z, left: j[14].y, right: j[18].y};
++    const base = this.base;
++    const root = this.velocity('root', hip, t, points);
++    const raised = side => j[side.ankle].y - base[side.name];
++
++    const arms = SIDES.map(side => {
++      const v = this.velocity(side.name + '.hand', body(side.hand), t, points);
++      const forward = j[side.hand].z - j[side.shoulder].z;
++      return {side, v, forward, straight: angleAt(j[side.shoulder], j[side.elbow], j[side.wrist]),
++        chest: j[side.hand].y > hip.y + .15 && j[side.hand].y < head.y + .25};
++    });
++    const legs = SIDES.map(side => ({side, v: this.velocity(side.name + '.foot', body(side.foot), t, points)}));
++
++    // Two hands forward together with straightening arms below the face: a push (a ki blast in
++    // many games), not two punches. Hands rising to the face with bent elbows are a guard.
++    const together = length(minus(j[7], j[11])) < .4;
++    const pushing = together && arms.every(a => a.forward > .22 && a.v.z > .8 && a.straight > 120 && a.chest &&
++      j[a.side.hand].y < head.y - .08);
++    if (pushing && this.fire('two_hand_push', t, 700)) for (const a of arms) this.cooldown.set(a.side.name + '_punch', t);
++    for (const a of arms) {
++      const {v, side} = a;
++      // Punch: fast towards the camera (it may rise on the way, as from a lowered arm), arm
++      // straightening, hand at chest/face height.
++      if (!pushing && v.z > 1.3 && v.z >= .6 * Math.abs(v.y) && v.z >= 1.2 * Math.abs(v.x) && a.forward > .25 && a.straight > 120 && a.chest)
++        this.fire(side.name + '_punch', t);
++      // Uppercut: fast upwards, ending at shoulder height or above, in front of the body.
++      else if (v.y > 1.8 && v.y > 1.3 * Math.abs(v.z) && j[side.hand].y > j[side.shoulder].y - .05 && a.forward > .05)
++        this.fire(side.name + '_uppercut', t, 600);
++      // Swipe: fast sideways across the front of the body.
++      else if (Math.abs(v.x) > 1.8 && Math.abs(v.x) > 1.4 * Math.max(Math.abs(v.y), Math.abs(v.z)) && a.chest && a.forward > .1)
++        this.fire(side.name + '_swipe', t, 600);
++    }
++    // Kick: one foot fast forward or up while the other stays down (both up is a jump).
++    for (const [n, leg] of legs.entries()) {
++      const other = SIDES[1 - n], footForward = j[leg.side.foot].z - hip.z;
++      if ((footForward > .3 || raised(leg.side) > .25) && Math.hypot(leg.v.y, leg.v.z) > 1.2 && raised(other) < .08)
++        this.fire(leg.side.name + '_kick', t, 700);
++    }
++    if (root.y > .8 && SIDES.every(side => raised(side) > .06)) this.fire('jump', t, 800);
++
++    // Steps are measured from where the player stood. One step is one label: after it fires,
++    // the reference follows the body until it stops moving that way.
++    const away = hip.z - base.z, aside = hip.x - base.x;
++    if (this.stepping.z && Math.abs(root.z) < .25) this.stepping.z = false;
++    if (this.stepping.x && Math.abs(root.x) < .25) this.stepping.x = false;
++    if (this.stepping.z) base.z = hip.z;
++    else if (Math.abs(away) > .2 && this.fire(away < 0 ? 'step_back' : 'step_forward', t, 300)) { base.z = hip.z; this.stepping.z = true; }
++    if (this.stepping.x) base.x = hip.x;
++    else if (Math.abs(aside) > .25 && this.fire('step_side', t, 300)) { base.x = hip.x; this.stepping.x = true; }
++    const dt = this.previous ? Math.max(0, (t - this.previous.t) / 1000) : 0, follow = k => 1 - Math.exp(-dt / k);
++    base.x += follow(3) * (hip.x - base.x);
++    base.z += follow(3) * (hip.z - base.z);
++    // Height and feet references follow only while standing calmly on the floor.
++    if (Math.abs(root.y) < .3 && hip.y - base.y > -.1 && hip.y - base.y < .1) {
++      base.y += follow(4) * (hip.y - base.y);
++      for (const side of SIDES) base[side.name] += follow(4) * (j[side.ankle].y - base[side.name]);
++    }
++
++    if (arms.every(a => j[a.side.hand].y > j[2].y - .05 && Math.abs(j[a.side.hand].x - head.x) < .3 &&
++        a.forward > .1 && j[a.side.elbow].y < j[a.side.hand].y)) this.states.add('guard');
++    else if (arms.every(a => j[a.side.hand].y > head.y + .05)) this.states.add('hands_up');
++    if (hip.y - base.y < -.22) this.states.add('crouch');
++    const lean = minus(j[2], hip);
++    if (lean.z > .15) this.states.add('lean_forward');
++    else if (lean.z < -.12) this.states.add('lean_back');
++    if (Math.abs(lean.x) > .14) this.states.add('lean_side');
++    this.previous = {t, points};
++  }
++}
++)KINECTTRACKER";
++
++}  // namespace phone_camera
