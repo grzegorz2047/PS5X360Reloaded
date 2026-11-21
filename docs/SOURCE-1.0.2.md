@@ -226,6 +226,7 @@ also listed here.
 | 93d (`93d-bug-report-entries`) | for players: "Logs for a bug report" as a row of its own, set apart, at the bottom of the general settings and of a game's settings, and a quiet "Restart this game with logs for a bug report" button below the in-game guide's System list | host-checked (`tools/check-bug-report-entries.cpp`); console: not yet tried |
 | 93e (`93e-recent-calls-file`) | for players: leaving a game with logs for a bug report no longer hangs on "Returning to the menu..." (GTA IV); the game's last system calls go to a file of their own, and the game's sound stops with the notice | host-checked (`tools/check-recent-calls.cpp`); console: not yet tried |
 | 93f (`93f-report-session`) | for players: the bug report lists only its session's files, says when a session did not end normally, links the archive by a download code of its own (not the settings key), and the start after a game is no longer slowed by syncing the boot log for every line | host-checked (`tools/check-report-session.cpp`); console: not yet tried |
+| 93g (`93g-flush-before-restart`) | for players: the black screen between "Returning to the menu..." and the menu is shorter; the game's caches are written out while the notice is still on screen | host-checked (`tools/check-flush-before-restart.cpp`); console: not yet tried |
 
 ## Comparison with the official executable
 

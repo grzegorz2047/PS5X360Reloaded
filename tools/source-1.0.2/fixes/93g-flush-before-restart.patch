@@ -1,0 +1,78 @@
+diff --git a/include/xbox360ps5/save_storage.hpp b/include/xbox360ps5/save_storage.hpp
+index dc46f2d..78e62f0 100644
+--- a/include/xbox360ps5/save_storage.hpp
++++ b/include/xbox360ps5/save_storage.hpp
+@@ -8,10 +8,17 @@ namespace xbox360ps5 {
+ struct SaveStorage { std::filesystem::path root; std::string notice; };
+ // The entire content tree includes profiles, achievements and saved packages.
+ // Publish an initial copy atomically; never merge an old snapshot into live saves.
++// Fix 93g: `checked_moments_ago`: the start before this one used the folder (a restart from a game):
++// an existing folder is taken without the write probes, which, right after the game's caches were
++// written, took 2.9 s of a black screen.
+ inline SaveStorage PrepareSaveStorage(const std::filesystem::path& legacy,
+-                                     const std::filesystem::path& destination) {
++                                     const std::filesystem::path& destination,
++                                     bool checked_moments_ago = false) {
+   namespace fs = std::filesystem;
+   std::error_code ec;
++  if (checked_moments_ago && fs::is_directory(destination, ec) && !ec)
++    return SaveStorage{destination, "Homebrew save storage ready (checked by the start before this one)"};
++  ec.clear();
+   const auto fallback = [&](const std::string& reason) {
+     return SaveStorage{legacy, "Homebrew saves unavailable: " + reason + "; using " + legacy.string()};
+   };
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index edec1e0..e93aa63 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -615,6 +615,16 @@ class LeavingNoticeOverlay final : public xe::ui::ImGuiDialog {
+                   IM_COL32(160, 168, 182, 255), wait);
+   }
+ };
++// Fix 93g: the writes the system still holds (the game's caches just saved: about 30 MB) go to the
++// disk before the title restarts, while the notice is drawn. Left to the next start, they made its
++// first steps slow (the saves' check 2.9 s, the emulator's setup 1.9 s instead of 0.3 s) with
++// nothing on the screen.
++void FlushWritesBeforeRestart(const char* why) {
++  const auto start = std::chrono::steady_clock::now();
++  ::sync();
++  XELOGW("Leaving: pending disk writes flushed in {} ms ({})",
++         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(), why);
++}
+ // Fix 93c: a start's stages with the time since main() began, to see where a black screen goes.
+ // Fix 93f: without a sync of the boot log each (StageBlock): a start right after a game found the
+ // disk busy with that game's caches, and every synced line cost tens of milliseconds.
+@@ -2474,7 +2484,9 @@ int main(int argc, char** argv) {
+     }
+     Stage("BOOT emulator constructor");
+     Stage("BOOT preparing homebrew saves (original content retained)");
+-    auto saves = xbox360ps5::PrepareSaveStorage(storage / "content", XBOX360PS5_DATA_ROOT "/saves");
++    // Fix 93g: after a restart from a game (its notice remembered) the folder was used moments ago.
++    auto saves = xbox360ps5::PrepareSaveStorage(storage / "content", XBOX360PS5_DATA_ROOT "/saves",
++                                                boot_notice.kind != xbox360ps5::leaving_notice::Kind::none);
+     if (saves.root == storage / "content") {
+       XELOGW("Saves: {}; trying installation mount /app0/saves", saves.notice);
+       saves = xbox360ps5::PrepareSaveStorage(storage / "content", "/app0/saves");
+@@ -2852,6 +2864,7 @@ int main(int argc, char** argv) {
+         CheckpointExitCache(exit_cache);
+         xbox360ps5::hang_watch::Raw(fmt::format("Title switch: checkpoint done after {} ms; restarting the title",
+             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - checkpoint_start).count()));
++        FlushWritesBeforeRestart("title switch");  // fix 93g: the game's frames still drawn meanwhile
+         XELOGW("Title switch: restarting the title");
+         // Fix 93c: the next process shows the notice again.
+         xbox360ps5::leaving_notice::Remember(storage / "leaving-notice.txt", xbox360ps5::leaving_notice::Current(),
+@@ -3856,8 +3869,12 @@ int main(int argc, char** argv) {
+       }
+       if (restart && xbox360ps5::leaving_notice::Current() != xbox360ps5::leaving_notice::Kind::none) {
+         // Fix 93b: back from a game, the notice keeps moving while the cache is saved.
+-        xbox360ps5::leaving_notice::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); },
+-                                                  [&context, &window] { context.Tick(); window.Paint(); });
++        xbox360ps5::leaving_notice::WhilePainting(
++            [&exit_cache] {
++              CheckpointExitCache(exit_cache);
++              FlushWritesBeforeRestart("back to the menu");  // fix 93g
++            },
++            [&context, &window] { context.Tick(); window.Paint(); });
+       } else if (restart) {
+         CheckpointExitCache(exit_cache);
+       }
