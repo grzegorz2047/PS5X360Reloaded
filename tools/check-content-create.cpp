@@ -21,6 +21,12 @@
 
 using namespace xe;  // X_STATUS
 
+// The console's crash report (platform/ps5/crash_report.cpp) records stages the host file code
+// names; this check runs without it.
+namespace xbox360ps5 {
+void Stage(const char*) {}
+}  // namespace xbox360ps5
+
 namespace {
 
 int failures = 0;
