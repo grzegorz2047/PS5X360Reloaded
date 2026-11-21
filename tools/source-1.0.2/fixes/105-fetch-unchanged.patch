@@ -1,0 +1,87 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/register_run.h b/.deps/xenia-canary/src/xenia/gpu/register_run.h
+--- a/.deps/xenia-canary/src/xenia/gpu/register_run.h
++++ b/.deps/xenia-canary/src/xenia/gpu/register_run.h
+@@ -12,10 +12,18 @@
+  * constants (float, fetch, bool/loop) itself, with exactly the effects
+  * VulkanCommandProcessor::WriteRegister has for each of those registers: the
+  * same values in the register file, the same constant buffers marked
+- * outdated, the same texture bindings out of sync (once for the run's fetch
+- * constants). Any other register goes to `other` (WriteRegister), one at a
+- * time and in order. tools/check-register-writes.cpp compares it with the
+- * register-by-register path.
++ * outdated, the same texture bindings out of sync (once for each run of the
++ * fetch constants written). Any other register goes to `other`
++ * (WriteRegister), one at a time and in order.
++ * tools/check-register-writes.cpp compares it with the register-by-register
++ * path.
++ *
++ * Fix 105: with vulkan_skip_redundant_constants (the default), a fetch
++ * constant written with the bits it has is not written at all, as a float
++ * constant: its texture binding stays in sync and the fetch constant buffer
++ * up to date. Grand Theft Auto IV rewrites its fetch constants for each draw,
++ * mostly unchanged; every rewrite made the next draw derive those bindings
++ * again ("textures" 79 ms/s) and upload the fetch constants again.
+  ******************************************************************************
+  */
+ 
+@@ -94,14 +102,32 @@ inline void Write(const State& state, uint32_t start_index,
+       }
+       *state.up_to_date &= ~outdated;
+     } else if (index >= kFetchFirst && index <= kFetchLast) {
+-      // Every fetch constant write marks them outdated, changed or not.
++      // Fix 105: only the fetch constants whose bits change (all of them with
++      // the option off) mark the buffer outdated and their bindings out of
++      // sync.
+       const uint32_t end = std::min(count, i + (kFetchLast + 1 - index));
++      uint32_t written = 0;  // a bit per fetch constant (32)
+       for (; i < end; ++i) {
+-        regs[start_index + i] = LoadSwapped(source + i);
++        const uint32_t fetch = start_index + i;
++        const uint32_t value = LoadSwapped(source + i);
++        if (state.skip_redundant && regs[fetch] == value) {
++          continue;
++        }
++        regs[fetch] = value;
++        written |= UINT32_C(1) << ((fetch - kFetchFirst) / 6);
++      }
++      if (written) {
++        *state.up_to_date &= ~state.buffers.fetch;
++        while (written) {
++          const uint32_t first = uint32_t(__builtin_ctz(written));
++          uint32_t last = first;
++          while (last < 31 && (written & (UINT32_C(1) << (last + 1)))) {
++            ++last;
++          }
++          fetch_written(first, last);
++          written &= last == 31 ? 0 : ~((UINT32_C(2) << last) - 1);
++        }
+       }
+-      *state.up_to_date &= ~state.buffers.fetch;
+-      fetch_written((index - kFetchFirst) / 6,
+-                    (start_index + end - 1 - kFetchFirst) / 6);
+     } else if (index >= kBoolLoopFirst && index <= kBoolLoopLast) {
+       const uint32_t end = std::min(count, i + (kBoolLoopLast + 1 - index));
+       bool changed = !state.skip_redundant;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1549,6 +1549,19 @@ void VulkanCommandProcessor::ShutdownContext() {
+ }
+ 
+ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
++#if XE_PLATFORM_PS5
++  // Fix 105: a fetch constant written with the bits it has changes nothing
++  // the texture cache or the fetch constant buffer hold (a binding is derived
++  // from the fetch constant's bits alone; a texture outdated, destroyed or a
++  // new frame resets the bindings itself), so it is skipped as a float
++  // constant is (xenia/gpu/register_run.h, the same for runs).
++  if (cvars::vulkan_skip_redundant_constants &&
++      index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++      index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 &&
++      register_file_->values[index] == value) {
++    return;
++  }
++#endif
+   // Only plain shader constants are eligible. Fetch writes may notify the
+   // texture cache even when their bits match; scratch, coherence and gamma
+   // registers also have write side effects and must always reach the base.
