@@ -190,18 +190,19 @@ def check_script(bash):
         assert calls[1].startswith('mkpfs -m mkpfs pack folder ') and \
             calls[1].endswith('/PPSA50011.ffpfsc --version PS5 --verify'), calls
 
-        # The source release: PPSA83600, with param.json as package.py writes it (CRLF) for 1.0.4.1:
-        # contentVersion 01.004.001, above the 00.001.000 of the official package and of v1.0.3 and the 01.004.000 of v1.0.4.
-        reloaded = package.param_json(official_param, '1.0.4.1')
+        # The source release: PPSA83600, with param.json as package.py writes it (CRLF) for 1.0.4.2:
+        # contentVersion 01.004.002, above the 00.001.000 of the official package and of v1.0.3, the 01.004.000 of v1.0.4 and the 01.004.001 of v1.0.4.1.
+        reloaded = package.param_json(official_param, '1.0.4.2')
         assert b'"titleId": "PPSA83600"' in reloaded and b'\r\n' in reloaded
-        assert b'"contentVersion": "01.004.001",\r\n' in reloaded and b'"masterVersion": "00.01"' in reloaded
-        assert package.SHIPPED_CONTENT_VERSIONS['1.0.3'] == '00.001.000' < package.content_version('1.0.4.1')
-        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4'] == '01.004.000' < package.content_version('1.0.4.1')
+        assert b'"contentVersion": "01.004.002",\r\n' in reloaded and b'"masterVersion": "00.01"' in reloaded
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.3'] == '00.001.000' < package.content_version('1.0.4.2')
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4'] == '01.004.000' < package.content_version('1.0.4.2')
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4.1'] == '01.004.001' < package.content_version('1.0.4.2')
         for base, version, message in (
-                (official_param.replace(b'"00.001.000"', b'"01.004.001"'), '1.0.4.1',
-                 'contentVersion 01.004.001 is not higher than 01.004.001 of the base package'),
-                (official_param.replace(b'"00.001.000"', b'"02.000.000"'), '1.0.4.1',
-                 'contentVersion 01.004.001 is not higher than 02.000.000 of the base package'),
+                (official_param.replace(b'"00.001.000"', b'"01.004.002"'), '1.0.4.2',
+                 'contentVersion 01.004.002 is not higher than 01.004.002 of the base package'),
+                (official_param.replace(b'"00.001.000"', b'"02.000.000"'), '1.0.4.2',
+                 'contentVersion 01.004.002 is not higher than 02.000.000 of the base package'),
                 (official_param, '1.0.4', 'contentVersion 01.004.000 is not higher than 01.004.000 of v1.0.4'),
                 (official_param, '1.0.100', 'does not fit contentVersion')):
             try:
@@ -242,7 +243,7 @@ def check_script(bash):
             assert result.returncode != 0 and message in result.stderr, (extra, result.returncode, result.stderr)
             assert calls == [] and made(out) == [], (extra, calls, made(out))
     print('  make_images.sh: id names the images and the volume label, PPSA50011 by default, '
-          'bad ids and a param.json of another title refused; contentVersion 01.004.001 for 1.0.4.1')
+          'bad ids and a param.json of another title refused; contentVersion 01.004.002 for 1.0.4.2')
 
 
 def main():

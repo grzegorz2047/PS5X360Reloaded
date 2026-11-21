@@ -91,7 +91,7 @@ VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:\.[1-9][0-9]{0,2})?')  # X.Y.
 CONTENT_VERSION_RE = re.compile(r'[0-9]{2}\.[0-9]{3}\.[0-9]{3}')
 # contentVersion of every PS5X360Reloaded release already published: v1.0.3 kept the official
 # package's value. A new release's contentVersion must be higher than all of them.
-SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000', '1.0.4': '01.004.000'}
+SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000', '1.0.4': '01.004.000', '1.0.4.1': '01.004.001'}
 # A test build's label (BUILD_VERSION 1.0.3_candidate_N). A bare "candidate_" is not enough:
 # Mesa's own strings contain it (intersection_candidate_aabb_opaque, candidate_infos).
 CANDIDATE_LABEL_RE = re.compile(rb'[0-9]+\.[0-9]+\.[0-9]+_candidate')
