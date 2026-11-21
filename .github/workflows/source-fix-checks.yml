@@ -98,6 +98,7 @@ on:
       - 'tools/check-timer-apc.cpp'
       - 'tools/check-dark-default.cpp'
       - 'tools/check-content-folders.cpp'
+      - 'tools/check-register-writes.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
