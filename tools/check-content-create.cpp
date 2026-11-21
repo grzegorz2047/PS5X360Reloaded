@@ -47,7 +47,7 @@ void Create(xe::vfs::VirtualFileSystem& vfs, const std::string& mount, const std
            std::string(round == 0 ? "created" : "overwritten") + " through " + mount + " (status " + Hex(status) +
                ", action " + std::to_string(int(action)) + ")");
     if (!file) return;
-    const uint8_t data[4] = {'C', 'O', 'N', '\0' + uint8_t(round)};
+    const uint8_t data[4] = {'C', 'O', 'N', static_cast<uint8_t>(round)};
     size_t written = 0;
     Expect(file->WriteSync(std::span<const uint8_t>(data, sizeof(data)), 0, &written) == X_STATUS_SUCCESS &&
                written == sizeof(data),
