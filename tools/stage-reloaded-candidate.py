@@ -1,0 +1,114 @@
+"""Stages a PS5X360Reloaded (PPSA83600) console test package from a build-source-1.0.2.yml artifact.
+
+    python -I tools/stage-reloaded-candidate.py --base <work-dir>/base/PPSA50011 \
+        --artifact <work-dir>/art-<label> --label <label> \
+        --package-repo <checkout of a release/source-* branch> --out <work-dir>/stage-<label>
+
+--base      the unpacked official v1.0.2 package folder (PPSA50011), the user's own copy; never
+            modified, never committed. A base that already has the English-keyed language files
+            works the same (they are replaced anyway).
+--artifact  the downloaded artifact folder (contains src102-out/eboot.bin, eboot.elf, lang/*.txt)
+--label     the label BUILD_VERSION had (1.0.5-work-fix91e, 1.0.5_candidate_62, ...); the ELF must
+            carry "PS5X360Reloaded v<label>"
+--package-repo  a checkout with tools/source-1.0.2/package.py (the release branches have it);
+            it supplies PPSA83600's param.json, art and the doc renames
+--out       an empty or disposable folder; <out>/PPSA83600 is written
+
+Then build the image (volume label and file name PPSA83600):
+    DOTNET_ROLL_FORWARD=Major dotnet <UFS2Tool>/.build/UFS2Tool.dll newfs -O 2 -b 65536 -f 8192 \
+        -D <out>/PPSA83600 <work-dir>/PPSA83600-<label>.ffpkg PPSA83600
+"""
+import argparse
+import inspect
+import re
+import shutil
+import sys
+from pathlib import Path
+
+OFFICIAL, TITLE_ID = 'PPSA50011', 'PPSA83600'
+LANG_FILES = 16
+
+
+def version_of(label):
+    """The release version a label belongs to: 1.0.5 for 1.0.5-work-fix91e or 1.0.5_candidate_62."""
+    found = re.match(r'\d+\.\d+\.\d+(?:\.\d+)?', label)
+    if not found:
+        sys.exit(f'cannot read a version from label {label!r}; pass --content-version X.Y.Z')
+    return found.group(0)
+
+
+def folder_size(folder):
+    files = [f for f in folder.rglob('*') if f.is_file()]
+    return sum(f.stat().st_size for f in files), len(files)
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    p.add_argument('--base', type=Path, required=True)
+    p.add_argument('--artifact', type=Path, required=True)
+    p.add_argument('--label', required=True)
+    p.add_argument('--package-repo', type=Path, required=True)
+    p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--content-version', help='X.Y.Z[.W] for param.json (default: from --label); '
+                   'must be above every shipped version, e.g. 1.0.4.2 for a 1.0.4.1 hotfix test')
+    a = p.parse_args()
+
+    package_dir = (a.package_repo / 'tools/source-1.0.2').resolve()
+    if not (package_dir / 'package.py').is_file():
+        sys.exit(f'{package_dir}/package.py not found: use a checkout of a release/source-* branch')
+    sys.path.insert(0, str(package_dir))
+    import package  # noqa: E402
+    if package.TITLE_ID != TITLE_ID:
+        sys.exit(f'package.py makes {package.TITLE_ID}, expected {TITLE_ID}')
+
+    out_dir = a.artifact / 'src102-out'
+    elf = (out_dir / 'eboot.elf').read_bytes()
+    want = f'PS5X360Reloaded v{a.label}'.encode() + b'\0'
+    if want not in elf:
+        sys.exit(f'eboot.elf does not carry {want!r}: wrong artifact or wrong label')
+    if package.OFFICIAL_LABEL_RE.search(elf):
+        sys.exit('eboot.elf carries the official "PS5X360 v<digit>" label')
+    langs = sorted((out_dir / 'lang').glob('*.txt'))
+    if len(langs) != LANG_FILES:
+        sys.exit(f'{len(langs)} language files in the artifact, expected {LANG_FILES}')
+
+    free = shutil.disk_usage(a.out.parent if a.out.parent.exists() else Path('.')).free
+    base_size, base_count = folder_size(a.base)
+    if free < 2 * base_size:
+        sys.exit(f'only {free >> 20} MiB free next to {a.out}; need about {2 * base_size >> 20} MiB '
+                 '(stage + image). Free space first: a full disk once made a broken image.')
+
+    app = a.out / TITLE_ID
+    if a.out.exists():
+        shutil.rmtree(a.out)
+    shutil.copytree(a.base, app)
+    shutil.copy2(out_dir / 'eboot.bin', app / 'eboot.bin')
+    for f in langs:
+        shutil.copy2(f, app / 'assets/lang' / f.name)
+    param = app / 'sce_sys/param.json'
+    if len(inspect.signature(package.param_json).parameters) >= 2:
+        # Release-branch package.py: contentVersion from a release version X.Y.Z[.W].
+        version = a.content_version or version_of(a.label)
+        param.write_bytes(package.param_json(param.read_bytes(), version))
+    else:
+        param.write_bytes(package.param_json(param.read_bytes()))
+    for target, data in package.art_files().items():
+        (app / target).write_bytes(data)
+    for name, count in package.DOC_RENAMES:
+        f = app / name
+        data = f.read_bytes()
+        if data.count(OFFICIAL.encode()) != count:
+            sys.exit(f'{name} names {OFFICIAL} {data.count(OFFICIAL.encode())} times, not {count}')
+        f.write_bytes(data.replace(OFFICIAL.encode(), TITLE_ID.encode()))
+    for name in package.DOCS_LEFT_OUT:
+        (app / name).unlink(missing_ok=True)
+
+    size, count = folder_size(app)
+    print(f'staged {app}: {size} bytes in {count} files (base {base_size} bytes in {base_count} files)')
+    # The eboot differs and a few docs are left out; anything far off means a broken copy.
+    if abs(size - base_size) > 64 << 20 or count < base_count - len(package.DOCS_LEFT_OUT) - 2:
+        sys.exit('stage size or file count is far from the base: check the copy before building an image')
+
+
+if __name__ == '__main__':
+    main()

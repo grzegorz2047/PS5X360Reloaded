@@ -103,6 +103,10 @@ on:
       - 'tools/check-enumerator-release.cpp'
       - 'tools/check-enumerator-buffers.cpp'
       - 'tools/check-default-app-relaunch.cpp'
+      - 'tools/check-console-image-tools.py'
+      - 'tools/stage-reloaded-candidate.py'
+      - 'tools/upload-console-image.sh'
+      - 'tools/check-timer-apc.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
@@ -116,6 +120,11 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      # The console test image tools (staging from a build artifact, the FTP upload to the
+      # pendrive) against a fake package, artifact and FTP; no tree needed.
+      - name: Console image tool checks
+        run: python3 -I tools/check-console-image-tools.py
 
       - name: Restore the source drops
         uses: actions/cache@v4
