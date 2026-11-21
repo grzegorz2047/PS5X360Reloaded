@@ -303,4 +303,14 @@ else
   echo "FAIL check-gdfx-names.sh"
   status=1
 fi
+# Fix 101: a file created through a package folder mounted at \Device\... (left out with the fix).
+echo "=== check-content-create.sh"
+if ! grep -q 'fix 101' "$tree/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc"; then
+  echo "skip check-content-create.sh (fix 101 left out)"
+elif bash "$repo/tools/check-content-create.sh" "$tree"; then
+  echo "pass check-content-create.sh"
+else
+  echo "FAIL check-content-create.sh"
+  status=1
+fi
 exit $status

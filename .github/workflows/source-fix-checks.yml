@@ -97,6 +97,7 @@ on:
       - 'tools/check-event-writes.cpp'
       - 'tools/check-timer-apc.cpp'
       - 'tools/check-content-folders.cpp'
+      - 'tools/check-content-create.*'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

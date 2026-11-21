@@ -27,6 +27,26 @@ diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc b/.deps/xen
  bool VirtualFileSystem::UnregisterDevice(const std::string_view path) {
    auto global_lock = global_critical_region_.Acquire();
    for (auto it = devices_.begin(); it != devices_.end(); ++it) {
+@@ -361,8 +366,17 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry,
+   }
+   if (!entry) {
+     // Create if needed (either new or as a replacement).
+-    entry = CreatePath(
+-        path, !is_directory ? kFileAttributeNormal : kFileAttributeDirectory);
++    // Xbox360PS5 (fix 101): in the parent resolved above. CreatePath walks the
++    // path again from its first part, which is no device for a mount such as
++    // \Device\PS5X360Content4\... ("ResolvePath(Device) failed - device not
++    // found"), and ignores root_entry; the create then failed with
++    // ACCESS_DENIED (Battlefield 3's HD content, 11 times).
++    const uint32_t attributes =
++        !is_directory ? kFileAttributeNormal : kFileAttributeDirectory;
++    entry = parent_entry
++                ? parent_entry->CreateEntry(
++                      xe::utf8::find_name_from_guest_path(path), attributes)
++                : CreatePath(path, attributes);
+     if (!entry) {
+       return X_STATUS_ACCESS_DENIED;
+     }
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
