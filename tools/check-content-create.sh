@@ -26,7 +26,7 @@ build() {
        $src/src/xenia/vfs/devices/host_path_file.cc $src/src/xenia/vfs/devices/null_device.cc
        $src/src/xenia/vfs/devices/null_entry.cc $src/src/xenia/vfs/devices/null_file.cc"
   "$CXX" -std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY \
-    -I"$src/src" -I"$tree/include" -I"$tree/reconstructed" -I"$core/src" -I"$core" \
+    -I"$src/src" -I"$tree/include" -I"$tree/reconstructed" -I"$tree/port" -I"$core/src" -I"$core" \
     -I"$core/third_party/fmt/include" -I"$core/third_party/utfcpp/source" -I"$core/third_party" \
     "$repo/tools/check-content-create.cpp" $base $vfs -ldl -o "$exe"
 }
