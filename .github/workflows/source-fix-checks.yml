@@ -111,6 +111,7 @@ on:
       - 'tools/check-content-folders.cpp'
       - 'tools/check-content-create.*'
       - 'tools/check-register-writes.cpp'
+      - 'tools/check-fetch-unchanged.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

@@ -11,7 +11,8 @@
 //      with repeated values, vulkan_skip_redundant_constants on and off, a frame open or not and
 //      random constant maps: the same register file, the same constant buffers outdated, the same
 //      texture bindings out of sync, the same other registers written in the same order; a run
-//      split where the ring wraps gives the same as the whole run;
+//      split where the ring wraps gives the same as the whole run (with fix 105, an unchanged
+//      fetch constant skipped as an unchanged float constant is);
 //  (b) include/xbox360ps5/frame_cost.hpp: the type 0 packets counted by register group and first
 //      register, and the summary line naming the registers written most;
 //  (c) the assembled tree: VulkanCommandProcessor's WriteRegister still has the effects the model
@@ -36,6 +37,9 @@
 namespace {
 
 int failures = 0;
+// Fix 105 (on top of this one, unless a build leaves it out): an unchanged fetch constant is
+// skipped. Set from the tree before the runs are compared.
+bool fix105 = false;
 void Expect(bool condition, const std::string& what) {
   if (!condition) {
     std::printf("FAIL: %s\n", what.c_str());
@@ -82,6 +86,7 @@ struct Processor {
       others.emplace_back(index, value);
       return;
     }
+    if (fix105 && skip && index >= 0x4800 && index <= 0x48BF && regs[index] == value) return;
     if (skip && index >= 0x4000 && index <= 0x47FF && regs[index] == value) return;
     const bool constant_bits_changed = index < kRegisterCount && regs[index] != value;
     regs[index] = value;  // CommandProcessor::WriteRegister: nothing special in these ranges
@@ -158,12 +163,24 @@ void CheckRuns() {
                               std::to_string(mismatches) + " differ)");
   Expect(split_mismatches == 0, "a run split where the ring wraps gives the same");
 
-  // A whole fetch constant rewritten with the same bits still puts its texture out of sync.
+  // Fix 105: a whole fetch constant rewritten with the same bits changes nothing with the option
+  // on, and puts its texture out of sync with it off (as before fix 105).
   Processor p;
   p.texture_in_sync = ~0u;
   std::vector<uint32_t> same(6, 0);
   p.Fast(0x4800 + 6 * 5, same.data(), 6);
-  Expect(p.texture_in_sync == ~(1u << 5) && !(p.up_to_date & kFetch), "fetch constants rewritten unchanged: out of sync");
+  if (fix105) {
+    Expect(p.texture_in_sync == ~0u && (p.up_to_date & kFetch), "fetch constants rewritten unchanged: still in sync");
+  } else {
+    Expect(p.texture_in_sync == ~(1u << 5) && !(p.up_to_date & kFetch),
+           "fetch constants rewritten unchanged: out of sync (without fix 105)");
+  }
+  p.texture_in_sync = ~0u;
+  p.up_to_date = ~0u;
+  p.skip = false;
+  p.Fast(0x4800 + 6 * 5, same.data(), 6);
+  Expect(p.texture_in_sync == ~(1u << 5) && !(p.up_to_date & kFetch),
+         "fetch constants rewritten unchanged with the option off: out of sync");
   // Unchanged float constants with the option on mark nothing.
   Processor q;
   q.map_vertex[0] = ~0ull;
@@ -270,6 +287,17 @@ void CheckTree() {
 }  // namespace
 
 int main() {
+  {
+    const std::string vk = Read(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc");
+    const std::string run = Read(".deps/xenia-canary/src/xenia/gpu/register_run.h");
+    const bool in_write_register =
+        vk.find("#if XE_PLATFORM_PS5\n  // Fix 105: a fetch constant written with the bits it has changes nothing") !=
+        std::string::npos;
+    const bool in_runs = run.find("if (state.skip_redundant && regs[fetch] == value) {") != std::string::npos;
+    Expect(in_write_register == in_runs, "fix 105 is in both WriteRegister and register_run.h, or in neither");
+    fix105 = in_write_register && in_runs;
+    std::printf("   fix 105 %s\n", fix105 ? "applied: unchanged fetch constants skipped" : "not applied");
+  }
   CheckRuns();
   CheckCounting();
   CheckTree();
