@@ -76,8 +76,11 @@ class Lexer:
                 i += raw.end()
                 continue
             if c in '"\'':
-                # A digit separator (1'000'000) is not a character literal.
-                if c == "'" and i and text[i - 1].isalnum() and i + 1 < n and text[i + 1].isalnum():
+                # A digit separator (1'000'000) is not a character literal; an encoding prefix
+                # (u'a', U'a', L'a', u8'a': fix 114's old keyboard header) is.
+                prefix = re.search(r'(?:^|[^A-Za-z0-9_])(u8|u|U|L)$', text[:i])
+                if (c == "'" and not prefix and i and text[i - 1].isalnum() and i + 1 < n and
+                        text[i + 1].isalnum()):
                     i += 1
                     continue
                 end = self.closing(text, i + 1, c)
@@ -152,6 +155,8 @@ def self_test(scratch):
         ['size_t end = text.find(' + q + bs + 'n' + q + ', start);'],  # an escaped character
         ['const char* s = "a ' + bs + '" quote, a ' + q + ' and // not a comment";'],
         ['int n = 1' + q + '000' + q + '000;  // digit separators'],
+        ['if (c >= u' + q + 'a' + q + ' && c <= u' + q + 'z' + q + ') c -= 32;'],  # prefixed characters
+        ['auto w = L' + q + 'x' + q + ' + U' + q + 'y' + q + ' + u8' + q + 'z' + q + ';'],
         ['auto r = R"x(a ) " ' + q + ' { unbalanced inside)x";'],
         ['auto r = R"(', 'still raw ( {', ')";'],  # a raw string over lines
         ['/* a comment with ' + q + ' and { */ int a;'],

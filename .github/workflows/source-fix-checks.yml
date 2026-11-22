@@ -124,6 +124,8 @@ on:
       - 'tools/check-content-folders.cpp'
       - 'tools/check-extent-count.cpp'
       - 'tools/check-unwatched-lock-free.cpp'
+      - 'tools/check-osk-keyboard.cpp'
+      - 'tools/check-osk-modes.cpp'
       - 'tools/check-content-create.*'
       - 'tools/check-index-unwatched.cpp'
       - 'tools/check-register-writes.cpp'
