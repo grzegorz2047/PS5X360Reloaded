@@ -1,0 +1,350 @@
+// SPDX-License-Identifier: MIT
+// Fix 107 (tools/source-1.0.2/fixes/107-dlc-remove.patch): the game sheet's DLCs tab looks at every
+// save device and can remove an installed package. Battlefield 3 (45410950) installs its HD
+// textures itself, as a package file in <saves>/0000000000000000/45410950/00000002 of the game's
+// save drive; with the save drive on the extended storage (fix 101) that is
+// /mnt/ext1/xbox360/PS5X360Reloaded/saves, which the tab did not look at (only the internal folder),
+// and nothing could remove them.
+//  (a) dlc2::FindAll lists the installed packages of every root (each with its root, drive name and
+//      size) and the dlc folders' packages installed on none of them; RootsOf takes the storage
+//      scan's devices (each root once, empty ones left out);
+//  (b) on a temporary folder laid out as the console (internal folder, ext1 whose top is not
+//      writable but its xbox360 folder is, an empty usb0), storage::Scan's devices through RootsOf
+//      find the package on ext1 (POSIX hosts: the scan's header needs them);
+//  (c) dlc2::Remove refuses while a game is running and leaves the file; it deletes only the chosen
+//      package (not its disabled twin, not the same file on another drive, not the dlc folder's
+//      copy, not a neighbour), keeps the folders, and never removes a dlc folder's package or a
+//      path outside the item's own folder; Move works on the package's own drive;
+//  (d) launcher.cpp: the tab and the start of a game use the scan's roots, Triangle opens the
+//      "Remove DLC?" window only while no game runs, the window says the name, size and drive and
+//      that it cannot be undone, with the raised buttons;
+//  (e) the language files (argument: tools/source-1.0.2/english/lang) have every text it shows.
+// Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
+#undef NDEBUG
+#include "../port/dlc_manager.hpp"
+
+#if __has_include(<sys/statvfs.h>)
+#include "xenia/kernel/xam/storage_devices.h"
+#define CHECK_DLC_SCAN 1
+#endif
+
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace {
+namespace dlc2 = xbox360ps5::dlc2;
+namespace stdfs = std::filesystem;
+
+int failures = 0;
+void Expect(bool condition, const std::string& what) {
+  if (!condition) {
+    std::printf("FAIL: %s\n", what.c_str());
+    ++failures;
+  }
+}
+std::string Read(const stdfs::path& path) {
+  std::ifstream file(path, std::ios::binary);
+  std::stringstream text;
+  text << file.rdbuf();
+  std::string out;
+  for (char c : text.str())
+    if (c != '\r') out += c;
+  return out;
+}
+bool Has(const std::string& text, const std::string& what) { return text.find(what) != std::string::npos; }
+std::string Body(const std::string& text, const std::string& start) {
+  const size_t at = text.find(start);
+  if (at == std::string::npos) return "";
+  const size_t end = text.find("\n}\n", at);
+  return text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+}
+
+constexpr uint32_t kBf3 = 0x45410950;
+void Put32(std::string& data, size_t at, uint32_t value) {
+  for (int i = 0; i < 4; ++i) data[at + size_t(i)] = char(value >> (24 - 8 * i) & 0xFF);
+}
+// An Xbox 360 package header (magic, content type 0x344, title 0x360, English name 0x411) padded
+// to `bytes`.
+void Package(const stdfs::path& path, uint32_t title, uint32_t type, const std::string& name, size_t bytes) {
+  std::error_code ec;
+  stdfs::create_directories(path.parent_path(), ec);
+  std::string data(std::max<size_t>(bytes, 0x600), '\0');
+  data.replace(0, 4, "LIVE");
+  Put32(data, 0x344, type);
+  Put32(data, 0x360, title);
+  for (size_t i = 0; i < name.size(); ++i) data[0x412 + 2 * i] = name[i];
+  std::ofstream(path, std::ios::binary).write(data.data(), std::streamsize(data.size()));
+}
+const dlc2::Item* Named(const dlc2::Found& found, const std::string& name, const std::string& device) {
+  for (const auto& item : found.items)
+    if (item.name == name && item.device == device) return &item;
+  return nullptr;
+}
+int Count(const dlc2::Found& found, const std::string& name) {
+  int n = 0;
+  for (const auto& item : found.items) n += item.name == name;
+  return n;
+}
+
+struct Layout {
+  stdfs::path base, internal, ext1, dlc;
+};
+// A console's saves: the internal folder (BF3's map pack On, a pack Off) and ext1's (the HD
+// textures, the game's own file name, and a copy of the map pack); a dlc folder with that map
+// pack again, a new pack and another game's.
+Layout MakeLayout(const stdfs::path& base) {
+  Layout l{base, base / "internal" / "saves", base / "mnt" / "ext1" / "xbox360" / "PS5X360Reloaded" / "saves",
+           base / "dlc"};
+  std::error_code ec;
+  stdfs::remove_all(base, ec);
+  Package(dlc2::ActiveFolder(l.internal, kBf3) / "map_pack_1", kBf3, 0x00000002, "Back to Karkand", 300000);
+  Package(dlc2::DisabledFolder(l.internal, kBf3) / "premium_pack", kBf3, 0x00000002, "Premium", 120000);
+  Package(dlc2::ActiveFolder(l.ext1, kBf3) / "4541095000000000", kBf3, 0x00000002, "HD Content", 1500000);
+  Package(dlc2::ActiveFolder(l.ext1, kBf3) / "map_pack_1", kBf3, 0x00000002, "Back to Karkand", 300000);
+  Package(l.dlc / "map_pack_1", kBf3, 0x00000002, "Back to Karkand", 300000);
+  Package(l.dlc / "close_quarters", kBf3, 0x00000002, "Close Quarters", 80000);
+  Package(l.dlc / "other_game", 0x4D530A87, 0x00000002, "Not this game", 2000);
+  return l;
+}
+std::vector<dlc2::Root> Roots(const Layout& l) {
+  return {{l.internal, "Internal storage"}, {l.ext1, "M.2 SSD / extended storage (ext1)"}};
+}
+
+void CheckListing(const stdfs::path& base) {
+  const Layout l = MakeLayout(base);
+  const dlc2::Found found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  const auto* hd = Named(found, "HD Content", "M.2 SSD / extended storage (ext1)");
+  Expect(hd && hd->state == dlc2::State::active && hd->root == l.ext1 && hd->bytes == 1500000 &&
+             hd->path == dlc2::ActiveFolder(l.ext1, kBf3) / "4541095000000000",
+         "the HD textures on ext1 are listed On, with ext1's root, name and size");
+  const auto* off = Named(found, "Premium", "Internal storage");
+  Expect(off && off->state == dlc2::State::disabled && off->root == l.internal, "an Off package of the internal folder");
+  Expect(Named(found, "Back to Karkand", "Internal storage") && Named(found, "Back to Karkand", "M.2 SSD / extended storage (ext1)") &&
+             Count(found, "Back to Karkand") == 2,
+         "the same file on two drives is listed once for each, the dlc folder's copy not at all");
+  const auto* fresh = Named(found, "Close Quarters", "");
+  Expect(fresh && fresh->state == dlc2::State::available && fresh->root.empty(), "a dlc folder's new package: Not installed, no drive");
+  Expect(found.items.size() == 5 && found.other_game == 1, "five packages; another game's counted, not listed");
+  Expect(found.items.front().state == dlc2::State::active && found.items.back().state == dlc2::State::available,
+         "On first, Not installed last");
+  // The one-root Find (the internal folder only) as before: ext1 is not looked at.
+  const dlc2::Found internal_only = dlc2::Find(kBf3, l.internal, {l.dlc});
+  Expect(!Named(internal_only, "HD Content", "M.2 SSD / extended storage (ext1)") && Count(internal_only, "HD Content") == 0,
+         "Find with one root does not see ext1");
+  // RootsOf: each root once, empty ones left out, in the scan's order.
+  struct FakeDevice { stdfs::path root; std::string name; };
+  const std::vector<FakeDevice> devices = {{l.internal, "a"}, {"", "b"}, {l.ext1, "c"}, {l.ext1, "d"}};
+  const auto roots = dlc2::RootsOf(devices, [](const FakeDevice& d) { return d.name; });
+  Expect(roots.size() == 2 && roots[0].path == l.internal && roots[0].device == "a" && roots[1].path == l.ext1 &&
+             roots[1].device == "c",
+         "RootsOf: each device's root once, in order, empty roots left out");
+  Expect(dlc2::SizeText(1500000000) == "1.5 GB" && dlc2::SizeText(15400000000ull) == "15 GB" &&
+             dlc2::SizeText(812300000) == "812 MB" && dlc2::SizeText(640000) == "640 KB" && dlc2::SizeText(10) == "1 KB",
+         "sizes in decimal units");
+}
+
+void CheckRemove(const stdfs::path& base) {
+  const Layout l = MakeLayout(base);
+  dlc2::Found found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  const dlc2::Item hd = *Named(found, "HD Content", "M.2 SSD / extended storage (ext1)");
+  // A running game: refused, the file stays.
+  Expect(dlc2::Remove(hd, kBf3, true) == dlc2::Removal::game_running, "refused while a game is running");
+  Expect(stdfs::exists(hd.path), "the package is still there after the refusal");
+  // Not a dlc folder's package, never a path outside the item's folder.
+  const dlc2::Item fresh = *Named(found, "Close Quarters", "");
+  Expect(dlc2::Remove(fresh, kBf3, false) == dlc2::Removal::not_installed && stdfs::exists(fresh.path),
+         "a dlc folder's package is never removed");
+  dlc2::Item outside = hd;
+  outside.path = l.dlc / "map_pack_1";
+  outside.file = "map_pack_1";
+  Expect(dlc2::Remove(outside, kBf3, false) == dlc2::Removal::not_installed && stdfs::exists(outside.path),
+         "a path outside the item's own folder is never removed");
+  dlc2::Item folder = hd;
+  folder.path = dlc2::ActiveFolder(l.ext1, kBf3);
+  folder.file.clear();
+  Expect(dlc2::Remove(folder, kBf3, false) == dlc2::Removal::not_installed && stdfs::is_directory(folder.path),
+         "the folder itself is never removed");
+  Expect(dlc2::Remove(hd, 0x4D530A87, false) == dlc2::Removal::not_installed && stdfs::exists(hd.path),
+         "another title's folder is not this package's");
+  // The chosen package only.
+  Expect(dlc2::Remove(hd, kBf3, false) == dlc2::Removal::removed, "removed when no game runs");
+  Expect(!stdfs::exists(hd.path), "the package file is gone");
+  Expect(stdfs::is_directory(dlc2::ActiveFolder(l.ext1, kBf3)), "its folder stays");
+  Expect(stdfs::exists(dlc2::ActiveFolder(l.ext1, kBf3) / "map_pack_1") &&
+             stdfs::exists(dlc2::ActiveFolder(l.internal, kBf3) / "map_pack_1") &&
+             stdfs::exists(dlc2::DisabledFolder(l.internal, kBf3) / "premium_pack") && stdfs::exists(l.dlc / "map_pack_1"),
+         "every other package stays (its neighbour, the other drive's, the Off one, the dlc folder's)");
+  Expect(dlc2::Remove(hd, kBf3, false) == dlc2::Removal::missing, "a second Remove finds nothing to remove");
+  // Removing the internal copy of a package that ext1 also has leaves ext1's, and the dlc folder's
+  // copy stays Not installed only while no drive has it.
+  found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  const dlc2::Item karkand = *Named(found, "Back to Karkand", "Internal storage");
+  Expect(dlc2::Remove(karkand, kBf3, false) == dlc2::Removal::removed && !stdfs::exists(karkand.path) &&
+             stdfs::exists(dlc2::ActiveFolder(l.ext1, kBf3) / "map_pack_1"),
+         "the internal copy goes, ext1's stays");
+  found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  Expect(Count(found, "Back to Karkand") == 1 && Named(found, "Back to Karkand", "M.2 SSD / extended storage (ext1)"),
+         "after it, the map pack is listed once, on ext1");
+  // An Off package is removed from the Off folder.
+  const dlc2::Item premium = *Named(found, "Premium", "Internal storage");
+  Expect(dlc2::Remove(premium, kBf3, false) == dlc2::Removal::removed && !stdfs::exists(premium.path) &&
+             stdfs::is_directory(dlc2::DisabledFolder(l.internal, kBf3)),
+         "an Off package is removed, its folder stays");
+  // Turning off a package on ext1 keeps it on ext1 (a rename on its own drive).
+  const dlc2::Item ext_pack = *Named(found, "Back to Karkand", "M.2 SSD / extended storage (ext1)");
+  Expect(dlc2::Move(ext_pack, l.internal, kBf3, false) && stdfs::exists(dlc2::DisabledFolder(l.ext1, kBf3) / "map_pack_1") &&
+             !stdfs::exists(dlc2::DisabledFolder(l.internal, kBf3) / "map_pack_1"),
+         "Off moves an ext1 package within ext1");
+}
+
+#ifdef CHECK_DLC_SCAN
+namespace storage = xe::kernel::xam::storage;
+// The real folders under a temporary /mnt; mount points and filesystems as the console's.
+struct TempFs {
+  std::set<std::string> mounts, read_only;
+  bool IsMountPoint(const stdfs::path& path) { return mounts.count(path.string()) != 0; }
+  bool IsDirectory(const stdfs::path& path) { return stdfs::is_directory(path); }
+  bool ProbeWritable(const stdfs::path& path) { return !read_only.count(path.string()) && stdfs::is_directory(path); }
+  storage::FsInfo Info(const stdfs::path& path) {
+    storage::FsInfo info;
+    info.ok = stdfs::exists(path);
+    info.dev = std::hash<std::string>()(path.string());
+    return info;
+  }
+  bool Exists(const stdfs::path& path) { return stdfs::exists(path); }
+  std::vector<std::string> ListDirectories(const stdfs::path& path) {
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (stdfs::directory_iterator it(path, ec), end; !ec && it != end; it.increment(ec))
+      if (it->is_directory(ec)) names.push_back(it->path().filename().string());
+    return names;
+  }
+  bool ListNames(const stdfs::path& path, std::vector<std::string>& names) {
+    std::error_code ec;
+    stdfs::directory_iterator it(path, ec), end;
+    if (ec) return false;
+    for (; !ec && it != end; it.increment(ec)) names.push_back(it->path().filename().string());
+    return true;
+  }
+};
+
+void CheckScan(const stdfs::path& base) {
+  const Layout l = MakeLayout(base);
+  std::error_code ec;
+  stdfs::create_directories(base / "mnt" / "usb0" / "music", ec);
+  TempFs fs;
+  fs.mounts = {(base / "mnt" / "ext1").string(), (base / "mnt" / "usb0").string()};
+  fs.read_only = {(base / "mnt" / "ext1").string(), (base / "mnt" / "usb0").string()};
+  const auto devices = storage::Scan(fs, l.internal, base / "mnt");
+  const auto roots = dlc2::RootsOf(devices, [](const storage::Device& device) {
+    storage::Device shown = device;
+    shown.space_known = false;
+    return storage::Label(shown, true, [](const char* english) { return english; });
+  });
+  Expect(roots.size() == 2 && roots[0].path == l.internal && roots[0].device == "Internal storage" &&
+             roots[1].path == l.ext1 && roots[1].device == "M.2 SSD / extended storage (ext1)",
+         "the scan's roots: the internal folder, then ext1's xbox360/PS5X360Reloaded/saves (usb0 not writable)");
+  const dlc2::Found found = dlc2::FindAll(kBf3, roots, {l.dlc});
+  Expect(Named(found, "HD Content", "M.2 SSD / extended storage (ext1)") != nullptr,
+         "through the scan, the HD textures on ext1 are listed with their drive");
+}
+#endif
+
+void CheckLauncher() {
+  const std::string launcher = Read("src/launcher.cpp");
+  const std::string roots = Body(launcher, "std::vector<dlc2::Root> DlcRoots(const fs::path& internal) {");
+  Expect(Has(roots, "devices = storage::Scan(posix, internal, \"/mnt\");") && Has(roots, "dlc2::RootsOf(devices,") &&
+             Has(roots, "shown.space_known = false;") && Has(roots, "storage::Label(shown, true,"),
+         "DlcRoots: the storage scan's devices under /mnt, named as the where-to-save window names them");
+  const std::string refresh = Body(launcher, "void Launcher::RefreshDlcs() {");
+  Expect(Has(refresh, "DlcPage() = dlc2::FindAll(title, DlcRoots(save_root_), inboxes);"), "the tab lists every save device");
+  const std::string take = Body(launcher, "bool Launcher::TakeLaunch(GameEntry& game) {");
+  Expect(Has(take, "dlc2::FindAll(title, DlcRoots(save_root_), inboxes).items"),
+         "Play does not install again what a drive already has");
+  Expect(Has(launcher, "if (!busy && key == Key::triangle && rows) {") &&
+             Has(launcher, "if (item.state != dlc2::State::available && !item.root.empty()) {\n"
+                           "            if (!g_running_path.empty()) {\n"
+                           "              dlc_result_ = \"remove-running\";\n"
+                           "            } else {\n"
+                           "              g_dlc_remove_open = true;"),
+         "Triangle on an installed package opens the window only while no game is running");
+  const std::string press = Body(launcher, "void Launcher::Press(Key key) {");
+  Expect(Has(press, "if (g_dlc_remove_open) {") &&
+             Has(press, "dlc2::Remove(item, g_dlc_remove_title, !g_running_path.empty() || dlc2::copier().Busy());"),
+         "X in the window removes, refused while a game runs or a copy is going on");
+  Expect(press.find("if (g_dlc_remove_open) {") < press.find("if (g_confirm_open) {"), "the window takes the pad first");
+  const std::string draw = Body(launcher, "void Launcher::Draw(ImGuiIO& io) {");
+  Expect(Has(draw, "Tr(\"Remove DLC?\")") && Has(draw, "c.Text(item.name,") && Has(draw, "Tr(\"Size: %s\")") &&
+             Has(draw, "Tr(\"Drive: %s\")") &&
+             Has(draw, "Tr(\"The package file is deleted from this drive. This can't be undone.\")"),
+         "the window says the name, size and drive, and that it cannot be undone");
+  Expect(Has(draw, "c.Raised('x', Tr(\"Remove\"), x + 48, y + h - 96, true);") && Has(draw, "c.Raised('o', Tr(\"Cancel\"), button,"),
+         "the window's raised buttons: X Remove (red), O Cancel");
+  Expect(Has(launcher, "float Raised(char button, const std::string& label, float x, float y, bool danger = false) const {"),
+         "the canvas draws raised buttons");
+  const std::string tab = Body(launcher, "void Launcher::DrawDlcs(Canvas& c, float x) {");
+  Expect(Has(tab, "dlc2::SizeText(item.bytes) + (item.device.empty() ? std::string() : \"  \\u00b7  \" + item.device)"),
+         "each row shows its size and drive");
+  Expect(Has(tab, "if (state != dlc2::State::available) hint = c.Hint('t', Tr(\"Remove\"), hint, 1004);"),
+         "the Triangle hint for an installed package");
+  Expect(Has(tab, "Tr(\"DLC removed.\")") && Has(tab, "Tr(\"Could not remove the DLC file.\")") &&
+             Has(tab, "Tr(\"Close the game first: DLC can be removed only while no game is running.\")"),
+         "the results are said");
+}
+
+std::string Escaped(const std::string& text) {
+  std::string out;
+  for (char c : text) out += c == ' ' ? std::string("\\s") : std::string(1, c);
+  return out;
+}
+void CheckLanguages(const stdfs::path& folder) {
+  const char* const codes[] = {"en", "pt-BR", "pt", "es", "es-419", "de", "fr", "it",
+                               "ja", "ko", "nl", "pl", "ru", "tr", "zh-Hans", "zh-Hant"};
+  const char* const keys[] = {"Remove DLC?", "Size: %s", "Drive: %s",
+                              "The package file is deleted from this drive. This can't be undone.",
+                              "DLC removed.", "Could not remove the DLC file.",
+                              "Close the game first: DLC can be removed only while no game is running.",
+                              "Remove", "Cancel", "Internal storage", "M.2 SSD / extended storage", "USB %s"};
+  for (const char* code : codes) {
+    const std::string text = "\n" + Read(folder / (std::string(code) + ".txt"));
+    Expect(text.size() > 1000, std::string(code) + ".txt is there");
+    for (const char* key : keys) {
+      const std::string line = "\n" + Escaped(key) + " = ";
+      const size_t at = text.find(line);
+      Expect(at != std::string::npos, std::string(code) + ".txt translates \"" + key + "\"");
+      if (at == std::string::npos) continue;
+      const std::string value = text.substr(at + line.size(), text.find('\n', at + line.size()) - at - line.size());
+      if (Has(key, "%s")) Expect(Has(value, "%s"), std::string(code) + ".txt keeps %s in \"" + key + "\"");
+      if (std::string(code) != "en" && std::string(key) == "Remove DLC?")
+        Expect(value != Escaped(key), std::string(code) + ".txt: \"Remove DLC?\" is translated");
+    }
+  }
+}
+}  // namespace
+
+int main(int argc, char** argv) {
+  const stdfs::path base = stdfs::temp_directory_path() / "check-dlc-remove";
+  CheckListing(base);
+  CheckRemove(base);
+#ifdef CHECK_DLC_SCAN
+  CheckScan(base);
+#else
+  std::printf("skip: the storage scan part (no POSIX headers on this host)\n");
+#endif
+  if (stdfs::exists("src/launcher.cpp")) CheckLauncher();
+  else std::printf("skip: launcher.cpp (not run from an assembled tree)\n");
+  if (argc > 1) CheckLanguages(argv[1]);
+  std::error_code ec;
+  stdfs::remove_all(base, ec);
+  if (failures) {
+    std::printf("check-dlc-remove: %d failure(s)\n", failures);
+    return 1;
+  }
+  std::printf("check-dlc-remove: ok\n");
+  return 0;
+}

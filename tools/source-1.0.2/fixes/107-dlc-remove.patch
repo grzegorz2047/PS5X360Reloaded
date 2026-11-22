@@ -1,0 +1,388 @@
+diff --git a/port/dlc_manager.hpp b/port/dlc_manager.hpp
+index ccc8791..cbba958 100644
+--- a/port/dlc_manager.hpp
++++ b/port/dlc_manager.hpp
+@@ -7,6 +7,10 @@
+ //   available: a dlc folder (PPSA83600/dlc, the game's dlc folder, each library root's dlc)
+ // Enabling and disabling move the file between the first two; installing copies an available
+ // package into the first (staged in 00000002-installing, checked, then renamed).
++// Fix 107: the first two are looked at on every save device (FindAll: the internal folder and each
++// drive the storage scan offers), so content a game put on another drive (Battlefield 3's HD
++// textures on ext1) is listed with its drive and size; Remove deletes one installed package file
++// (never a dlc folder's, never a folder) while no game is running.
+ #pragma once
+ #include <algorithm>
+ #include <atomic>
+@@ -29,6 +33,15 @@ struct Item {
+   fs::path path;
+   uint64_t bytes = 0;
+   State state = State::available;
++  // Fix 107: an installed package's save device: its saves root and its name on the page (empty
++  // for a package in a dlc folder).
++  fs::path root;
++  std::string device;
++};
++// Fix 107: a save device's saves root (<root>/0000000000000000/<TITLE>/00000002) and its name.
++struct Root {
++  fs::path path;
++  std::string device;
+ };
+ struct Found {
+   std::vector<Item> items;
+@@ -83,10 +96,28 @@ inline fs::path Folder(const fs::path& root, uint32_t title, const char* leaf) {
+ inline fs::path ActiveFolder(const fs::path& root, uint32_t title) { return Folder(root, title, "00000002"); }
+ inline fs::path DisabledFolder(const fs::path& root, uint32_t title) { return Folder(root, title, "00000002-off"); }
+ 
+-inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::path>& inboxes) {
++// Fix 107: every save device's root (the storage scan's devices: anything with a .root), each
++// once, in the scan's order (the internal folder first), named by name(device).
++template <class Devices, class Name>
++std::vector<Root> RootsOf(const Devices& devices, Name name) {
++  std::vector<Root> roots;
++  for (const auto& device : devices) {
++    const fs::path path = device.root;
++    if (path.empty()) continue;
++    bool seen = false;
++    for (const auto& root : roots) seen = seen || root.path == path;
++    if (!seen) roots.push_back({path, name(device)});
++  }
++  return roots;
++}
++
++// Fix 107: the installed packages of every root, then the dlc folders' packages installed on none
++// of them. A file name is listed once per root (the active copy wins over a disabled one), and a
++// dlc-folder copy only when no root has that file.
++inline Found FindAll(uint32_t title, const std::vector<Root>& roots, const std::vector<fs::path>& inboxes) {
+   Found out;
+-  std::map<std::string, bool> listed;
+-  const auto add = [&](const fs::path& p, State state) {
++  std::map<std::string, bool> listed, installed;
++  const auto add = [&](const fs::path& p, State state, const Root* where) {
+     std::error_code ec;
+     const uint64_t size = fs::file_size(p, ec);
+     if (ec) return;
+@@ -96,16 +127,27 @@ inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::pa
+     if (h.title != title) { if (inbox) ++out.other_game; return; }
+     if (h.type != 0x00000002) { if (inbox) ++out.not_dlc; return; }
+     const std::string file = p.filename().string();
+-    if (listed.count(file)) return;  // the active or disabled copy wins over a dlc-folder copy
+-    listed[file] = true;
+-    out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state});
++    if (inbox) {
++      if (installed.count(file) || listed.count(file)) return;  // installed on a device already
++      listed[file] = true;
++      out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, {}, {}});
++      return;
++    }
++    const std::string key = where->path.string() + '\n' + file;
++    if (listed.count(key)) return;
++    listed[key] = true;
++    installed[file] = true;
++    out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, where->path, where->device});
+   };
+-  if (!root.empty() && title) {
+-    for (const auto& [folder, state] : {std::pair{ActiveFolder(root, title), State::active},
+-                                        std::pair{DisabledFolder(root, title), State::disabled}}) {
+-      std::error_code ec;
+-      for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+-        if (it->is_regular_file(ec)) add(it->path(), state);
++  if (title) {
++    for (const auto& root : roots) {
++      if (root.path.empty()) continue;
++      for (const auto& [folder, state] : {std::pair{ActiveFolder(root.path, title), State::active},
++                                          std::pair{DisabledFolder(root.path, title), State::disabled}}) {
++        std::error_code ec;
++        for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
++          if (it->is_regular_file(ec)) add(it->path(), state, &root);
++      }
+     }
+   }
+   for (const auto& inbox : inboxes) {
+@@ -118,7 +160,7 @@ inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::pa
+       const bool directory = !link && it->is_directory(ec);
+       if (hidden || link) { if (directory || link) it.disable_recursion_pending(); continue; }
+       if (directory) { if (it.depth() >= 3) it.disable_recursion_pending(); continue; }
+-      if (it->is_regular_file(ec)) add(it->path(), State::available);
++      if (it->is_regular_file(ec)) add(it->path(), State::available, nullptr);
+     }
+   }
+   std::stable_sort(out.items.begin(), out.items.end(), [](const Item& a, const Item& b) {
+@@ -126,9 +168,17 @@ inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::pa
+   });
+   return out;
+ }
++// One root (the internal folder), as before fix 107.
++inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::path>& inboxes) {
++  std::vector<Root> roots;
++  if (!root.empty()) roots.push_back({root, {}});
++  return FindAll(title, roots, inboxes);
++}
+ 
+ // Enable (to the active folder) or disable (to the disabled folder): a rename, nothing copied.
+-inline bool Move(const Item& item, const fs::path& root, uint32_t title, bool enable) {
++// Fix 107: on the package's own device (internal_root for an item without one).
++inline bool Move(const Item& item, const fs::path& internal_root, uint32_t title, bool enable) {
++  const fs::path& root = item.root.empty() ? internal_root : item.root;
+   const fs::path folder = enable ? ActiveFolder(root, title) : DisabledFolder(root, title);
+   std::error_code ec;
+   fs::create_directories(folder, ec);
+@@ -138,6 +188,34 @@ inline bool Move(const Item& item, const fs::path& root, uint32_t title, bool en
+   return !ec;
+ }
+ 
++// Fix 107: removing an installed package. Only the listed file in its device's active or disabled
++// folder is deleted, and only while no game is running; the folders stay.
++enum class Removal { removed, game_running, not_installed, missing, failed };
++inline Removal Remove(const Item& item, uint32_t title, bool game_running) {
++  if (game_running) return Removal::game_running;
++  if (item.state == State::available || item.root.empty() || item.file.empty() || !title)
++    return Removal::not_installed;
++  const fs::path folder =
++      item.state == State::active ? ActiveFolder(item.root, title) : DisabledFolder(item.root, title);
++  if (item.path != folder / item.file) return Removal::not_installed;
++  std::error_code ec;
++  const fs::file_status status = fs::symlink_status(item.path, ec);
++  if (ec || !fs::is_regular_file(status)) return Removal::missing;
++  if (!fs::remove(item.path, ec) || ec) return Removal::failed;
++  return Removal::removed;
++}
++// Fix 107: a package's size in decimal units, as the PS5's storage screens give it: "640 KB",
++// "812 MB", "1.2 GB", "15 GB".
++inline std::string SizeText(uint64_t bytes) {
++  char text[32];
++  const double kb = double(bytes) / 1e3, mb = double(bytes) / 1e6, gb = double(bytes) / 1e9;
++  if (gb >= 10) std::snprintf(text, sizeof(text), "%.0f GB", gb);
++  else if (gb >= 1) std::snprintf(text, sizeof(text), "%.1f GB", gb);
++  else if (mb >= 1) std::snprintf(text, sizeof(text), "%.0f MB", mb);
++  else std::snprintf(text, sizeof(text), "%.0f KB", std::max(1.0, kb));
++  return text;
++}
++
+ // Installing copies on a worker thread, with progress.
+ class Copier {
+  public:
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 511d5c2..c2f966c 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -201,6 +201,34 @@ std::string g_running_path, g_running_name;
+ bool g_confirm_open = false;
+ GameEntry g_confirm_game;
+ float g_confirm_shown = 0.0f;  // 0..1, the dialog's entrance.
++// Fix 107: the DLCs tab's "Remove DLC?" window, for one installed package of the selected game.
++bool g_dlc_remove_open = false;
++float g_dlc_remove_shown = 0.0f;
++dlc2::Item g_dlc_remove_item;
++uint32_t g_dlc_remove_title = 0;
++// Fix 107: the save devices the DLCs tab looks at: the storage scan's (the internal folder, then
++// each writable drive under /mnt, as the "where to save" window offers them), each named as that
++// window names it, without its free space.
++std::vector<dlc2::Root> DlcRoots(const fs::path& internal) {
++  namespace storage = xe::kernel::xam::storage;
++  std::vector<storage::Device> devices;
++  try {
++    storage::PosixFs posix;
++    devices = storage::Scan(posix, internal, "/mnt");
++  } catch (...) {
++    devices.clear();
++  }
++  if (devices.empty()) {
++    storage::Device own;
++    own.root = internal;
++    devices.push_back(own);
++  }
++  return dlc2::RootsOf(devices, [](const storage::Device& device) {
++    storage::Device shown = device;
++    shown.space_known = false;
++    return storage::Label(shown, true, [](const char* english) { return Tr(english); });
++  });
++}
+ // Fix 57: a game whose executable requires Kinect, started with "Camera motion" off:
+ // asked once per start whether to turn it on for this game (the phone as its camera).
+ bool g_kinect_open = false;
+@@ -1479,7 +1507,7 @@ bool Launcher::TakeLaunch(GameEntry& game) {
+     if (launch_.title_id.size() == 8 && title && !save_root_.empty()) {
+       std::vector<std::filesystem::path> inboxes = {fs::path("/app0/assets/dlc") / GameFolderName(launch_.name), "/app0/assets/dlc", "/app0/dlc", launch_.path.parent_path() / "dlc"};
+       for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
+-      for (const auto& item : dlc2::Find(title, save_root_, inboxes).items)
++      for (const auto& item : dlc2::FindAll(title, DlcRoots(save_root_), inboxes).items)  // fix 107
+         if (item.state == dlc2::State::available) waiting.push_back(item);
+       found = waiting.size();
+       const tu::Found updates = tu::Find(title, save_root_, UpdateInboxes(launch_.path, settings_.game_paths, launch_.name));
+@@ -1684,6 +1712,23 @@ void Launcher::Press(Key key) {
+   }
+   if (!loading_.empty()) return;
+   message_.clear();
++  if (g_dlc_remove_open) {
++    // Fix 107: "Remove DLC?": X removes the package file, Circle keeps it.
++    if (key == Key::cross) {
++      g_dlc_remove_open = false;
++      const dlc2::Item item = g_dlc_remove_item;
++      const auto removal = dlc2::Remove(item, g_dlc_remove_title, !g_running_path.empty() || dlc2::copier().Busy());
++      XELOGW("LAUNCHER DLC {} ({}, {}) on {} at {}: {}", item.name, item.file, dlc2::SizeText(item.bytes), item.device,
++             item.path.string(), removal == dlc2::Removal::removed ? "removed"
++             : removal == dlc2::Removal::game_running ? "not removed, a game is running" : "not removed");
++      RefreshDlcs();
++      dlc_result_ = removal == dlc2::Removal::removed ? "removed"
++                  : removal == dlc2::Removal::game_running ? "remove-running" : "remove-failed";
++    } else if (key == Key::circle) {
++      g_dlc_remove_open = false;
++    }
++    return;
++  }
+   if (g_confirm_open) {
+     // "X is running: close it to open Y?"
+     if (key == Key::cross) {
+@@ -1802,6 +1847,20 @@ void Launcher::Press(Key key) {
+         if (key == Key::up && rows) dlc_row_ = (dlc_row_ + rows - 1) % rows;
+         if (key == Key::down && rows) dlc_row_ = (dlc_row_ + 1) % rows;
+         if (!busy && key == Key::square) RefreshDlcs();
++        if (!busy && key == Key::triangle && rows) {
++          // Fix 107: Remove, for a package on a save device (On or Off), after the window.
++          const dlc2::Item item = DlcPage().items[size_t(dlc_row_)];
++          if (item.state != dlc2::State::available && !item.root.empty()) {
++            if (!g_running_path.empty()) {
++              dlc_result_ = "remove-running";
++            } else {
++              g_dlc_remove_open = true;
++              g_dlc_remove_shown = 0.0f;
++              g_dlc_remove_item = item;
++              g_dlc_remove_title = SelectedTitleId();
++            }
++          }
++        }
+         if (!busy && key == Key::cross && rows && !save_root_.empty()) {
+           const dlc2::Item item = DlcPage().items[size_t(dlc_row_)];
+           const uint32_t title = SelectedTitleId();
+@@ -2197,6 +2256,42 @@ struct Launcher::Canvas {
+     Text(label, x + 38, y + 2, 20, kMuted);
+     return x + 38 + Width(label, 20) + 44;
+   }
++  // Fix 107: a raised button, as the guide draws its pad buttons: the button filled in the pad's
++  // colour with its shape in white, then what it does, on a key that stands off the sheet (a
++  // darker lip under its face, a soft shadow). danger: a red face, for what cannot be undone.
++  // Returns where the next one goes.
++  float Raised(char button, const std::string& label, float x, float y, bool danger = false) const {
++    const float w = Width(label, 24) + 92, h = 60, lip = 6, face_h = h - lip;
++    const auto shade = [](uint32_t rgb, float k) {
++      const auto part = [&](int shift) { return uint32_t(float(rgb >> shift & 255) * k) << shift; };
++      return part(16) | part(8) | part(0);
++    };
++    const uint32_t face = danger ? 0xc8443a : kSurfaceHigh;
++    for (int n = 3; n >= 1; --n) Fill(x - n, y + 2.0f * n, w + 2.0f * n, h, 0x000000, 0.10f, 14);
++    Fill(x, y, w, h, shade(face, 0.62f), 1.0f, 14);
++    Fill(x, y, w, face_h, face, 1.0f, 14);
++    Fill(x + 14, y + 3, w - 28, 2, kWhite, danger ? 0.22f : 0.12f, 1);
++    const kinect_ui::FaceButton pad = button == 'x' ? kinect_ui::FaceButton::cross
++                                    : button == 'o' ? kinect_ui::FaceButton::circle
++                                    : button == 's' ? kinect_ui::FaceButton::square : kinect_ui::FaceButton::triangle;
++    const ImVec2 centre = At(x + 34, y + face_h / 2);
++    const float g = 6 * scale, t = 2.4f * scale;
++    list->AddCircleFilled(centre, 16 * scale, Color(kinect_ui::HintRgb(pad)), 32);
++    const ImU32 ink = Color(kWhite);
++    if (button == 'x') {
++      list->AddLine(ImVec2(centre.x - g, centre.y - g), ImVec2(centre.x + g, centre.y + g), ink, t);
++      list->AddLine(ImVec2(centre.x + g, centre.y - g), ImVec2(centre.x - g, centre.y + g), ink, t);
++    } else if (button == 'o') {
++      list->AddCircle(centre, g * 1.1f, ink, 24, t);
++    } else if (button == 's') {
++      list->AddRect(ImVec2(centre.x - g, centre.y - g), ImVec2(centre.x + g, centre.y + g), ink, 0, 0, t);
++    } else {
++      list->AddTriangle(ImVec2(centre.x, centre.y - g - scale), ImVec2(centre.x + g, centre.y + g * 0.8f),
++                        ImVec2(centre.x - g, centre.y + g * 0.8f), ink, t);
++    }
++    Text(label, x + 62, y + face_h / 2 - 14, 24, danger ? kWhite : kText);
++    return x + w + 24;
++  }
+ };
+ 
+ namespace {
+@@ -2697,6 +2792,34 @@ void Launcher::Draw(ImGuiIO& io) {
+     c.Hint('o', Tr("Cancel"), hint, y + h - 56);
+     c.alpha = 1.0f;
+   }
++  // Fix 107: "Remove DLC?", the same kind of window, standing off the screen with the guide's
++  // shadow and raised buttons: what is removed (name, size, drive) and that it is for good.
++  g_dlc_remove_shown = Smooth(g_dlc_remove_shown, g_dlc_remove_open ? 1.0f : 0.0f, dt, 18);
++  if (g_dlc_remove_shown > 0.01f) {
++    const float t = g_dlc_remove_shown;
++    const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
++    c.alpha = 1.0f;
++    c.Fill(0, 0, 1920, 1080, 0x000000, 0.6f * ease);
++    c.alpha = ease;
++    const float w = 1040 * (0.92f + 0.08f * ease), h = 420 * (0.92f + 0.08f * ease);
++    const float x = 960 - w / 2, y = 540 - h / 2;
++    for (int n = 3; n >= 1; --n)
++      c.Fill(x - 6.0f * n, y - 2.0f * n + 10, w + 12.0f * n, h + 8.0f * n, 0x000000, 0.13f, 22 + 10.0f * n);
++    c.Fill(x, y, w, h, kSheet, 0.99f, 22);
++    c.Edge(x, y, w, h, kWarning, 0.7f, 22, 2.0f);
++    const dlc2::Item& item = g_dlc_remove_item;
++    c.Text(Tr("Remove DLC?"), x + 48, y + 36, 34, kText);
++    c.Text(item.name, x + 48, y + 98, 28, kBody, 1.0f, 0, w - 96);
++    char size[160], drive[320];
++    std::snprintf(size, sizeof(size), Tr("Size: %s"), dlc2::SizeText(item.bytes).c_str());
++    std::snprintf(drive, sizeof(drive), Tr("Drive: %s"), item.device.c_str());
++    c.Text(size, x + 48, y + 148, 22, kMuted, 1.0f, 0, w - 96);
++    c.Text(drive, x + 48, y + 180, 22, kMuted, 1.0f, 0, w - 96);
++    c.Wrapped(Tr("The package file is deleted from this drive. This can't be undone."), x + 48, y + 230, 22, kWarning, w - 96);
++    const float button = c.Raised('x', Tr("Remove"), x + 48, y + h - 96, true);
++    c.Raised('o', Tr("Cancel"), button, y + h - 96);
++    c.alpha = 1.0f;
++  }
+   // Fix 57: "<game> requires Kinect", the same kind of window.
+   g_kinect_shown = Smooth(g_kinect_shown, g_kinect_open ? 1.0f : 0.0f, dt, 18);
+   if (g_kinect_shown > 0.01f) {
+@@ -3337,7 +3460,7 @@ void Launcher::RefreshDlcs() {
+     const fs::path own = fs::path("/app0/assets/dlc") / GameFolderName(game->name);
+     std::vector<std::filesystem::path> inboxes = {own, "/app0/assets/dlc", "/app0/dlc", game->path.parent_path() / "dlc"};
+     for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
+-    DlcPage() = dlc2::Find(title, save_root_, inboxes);
++    DlcPage() = dlc2::FindAll(title, DlcRoots(save_root_), inboxes);  // fix 107: every save device
+     // What is "ignored" is counted in the game's own folder only: the folders above hold the
+     // other games' packages too.
+     const dlc2::Found mine = dlc2::Find(title, {}, {own});
+@@ -3389,17 +3512,20 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+     x + 56, 330, 21, kMuted, 740);
+   const auto& page = DlcPage();
+   const int rows = int(page.items.size());
+-  const int first = std::clamp(dlc_row_ - 3, 0, std::max(0, rows - 6));
+-  for (int n = first; n < std::min(rows, first + 6); ++n) {
++  // Fix 107: five rows, each with a second line: the package's size and the drive it is on.
++  const int first = std::clamp(dlc_row_ - 2, 0, std::max(0, rows - 5));
++  for (int n = first; n < std::min(rows, first + 5); ++n) {
+     const auto& item = page.items[size_t(n)];
+-    const float y = 440 + (n - first) * 56.0f;
++    const float y = 436 + (n - first) * 66.0f;
+     const bool selected = n == dlc_row_;
+-    if (selected) c.Fill(x + 48, y, 768, 50, kSurfaceHigh, 1, 8);
+-    c.Text(item.name, x + 64, y + 10, 22, selected ? kText : kBody, 1, 0, 560);
++    if (selected) c.Fill(x + 48, y, 768, 60, kSurfaceHigh, 1, 8);
++    c.Text(item.name, x + 64, y + 6, 22, selected ? kText : kBody, 1, 0, 560);
++    c.Text(dlc2::SizeText(item.bytes) + (item.device.empty() ? std::string() : "  \u00b7  " + item.device),
++           x + 64, y + 34, 18, selected ? kBody : kMuted, 1, 0, 600);
+     const bool on = item.state == dlc2::State::active, off = item.state == dlc2::State::disabled;
+     c.Text(on ? Tr("On||DLC") : off ? Tr("Off||DLC")
+                                                           : Tr("Not installed"),
+-           x + 796, y + 12, 20, on ? kAccent : off ? kMuted : kBody, 1, 2);
++           x + 796, y + 18, 20, on ? kAccent : off ? kMuted : kBody, 1, 2);
+   }
+   if (!rows)
+     c.Wrapped(SelectedTitleId() ? Tr("No DLC for this game found.")
+@@ -3422,6 +3548,9 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+       : dlc_result_ == "disabled" ? Tr("DLC off: the game does not see it; the file is kept.")
+       : dlc_result_ == "installed" ? Tr("DLC installed and on.")
+       : dlc_result_ == "move-failed" ? Tr("Could not move the DLC file.")
++      : dlc_result_ == "removed" ? Tr("DLC removed.")  // fix 107
++      : dlc_result_ == "remove-running" ? Tr("Close the game first: DLC can be removed only while no game is running.")
++      : dlc_result_ == "remove-failed" ? Tr("Could not remove the DLC file.")
+       : Tr("Installing failed: check free space and the file.");
+     c.Wrapped(std::string(text) + (dlc_result_.rfind("copy-failed", 0) == 0 ? " (" + dlc_result_.substr(12) + ")" : ""),
+               x + 56, 840, 22, kBody, 740);
+@@ -3434,6 +3563,7 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+     const auto state = page.items[size_t(std::clamp(dlc_row_, 0, rows - 1))].state;
+     hint = c.Hint('x', state == dlc2::State::active ? Tr("Turn off")
+                      : state == dlc2::State::disabled ? Tr("Turn on") : Tr("Install"), hint, 1004);
++    if (state != dlc2::State::available) hint = c.Hint('t', Tr("Remove"), hint, 1004);  // fix 107
+   }
+   if (!busy) hint = c.Hint('s', Tr("Reload list"), hint, 1004);
+   c.Hint('o', Tr("Back"), hint, 1004);
