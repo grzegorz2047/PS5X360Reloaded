@@ -1,0 +1,312 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+index d7f31f4..baf2fdb 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+@@ -16,6 +16,7 @@
+ #include <set>
+ #include "xbox360ps5/motion_input.hpp"
+ #endif
++#include "xbox360ps5/xctd.hpp"  // fix 90
+ 
+ #include "xenia/kernel/info/file.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -193,7 +194,8 @@ dword_result_t NtReadFile_entry(dword_t file_handle, dword_t event_handle,
+                                 lpvoid_t apc_routine_ptr, lpvoid_t apc_context,
+                                 pointer_t<X_IO_STATUS_BLOCK> io_status_block,
+                                 lpvoid_t buffer, dword_t buffer_length,
+-                                lpqword_t byte_offset_ptr) {
++                                lpqword_t byte_offset_ptr,
++                                const ppc_context_t& ctx) {
+   X_STATUS result = X_STATUS_SUCCESS;
+ 
+   bool signal_event = false;
+@@ -235,6 +237,17 @@ dword_result_t NtReadFile_entry(dword_t file_handle, dword_t event_handle,
+         io_status_block->status = result;
+         io_status_block->information = bytes_read;
+       }
++      // Fix 90 (1.0.5_candidate_9): reads of a file answered "XCTD compressed".
++      if (xbox360ps5::xctd::tracer.Take(uint32_t(file_handle))) {
++        XELOGW("XCTD trace: handle {:08X} read at {:X} of {:X} into {:08X}: {:X} read, {:08X}{}, "
++               "event {:08X}, apc {:08X}/{:08X}, caller {:08X}, data {}",
++               uint32_t(file_handle),
++               byte_offset_ptr ? uint64_t(*byte_offset_ptr) : uint64_t(file->position()),
++               uint32_t(buffer_length), buffer.guest_address(), bytes_read, uint32_t(result),
++               pending ? " pending" : "", uint32_t(event_handle), uint32_t(apc_routine_ptr),
++               apc_context.guest_address(), uint32_t(ctx->lr),
++               xbox360ps5::xctd::Hex(buffer.as<uint8_t*>(), bytes_read, 16));
++      }
+ 
+       // Queue the APC callback. It must be delivered via the APC mechanism even
+       // though were are completing immediately.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+index 4bea73e..215f416 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+@@ -16,6 +16,7 @@
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
++#include "xbox360ps5/xctd.hpp"  // fix 90
+ #include "xenia/kernel/xfile.h"
+ #include "xenia/vfs/device.h"
+ #include "xenia/xbox.h"
+@@ -119,14 +120,41 @@ dword_result_t NtQueryInformationFile_entry(
+           xbox360ps5::Stage(text);
+         }
+       }
+-      XELOGE(
+-          "NtQueryInformationFile(XFileXctdCompressionInformation) "
+-          "unimplemented");
+-      // Files that are XCTD compressed begin with the magic 0x0FF512ED but we
+-      // shouldn't detect this that way. There's probably a flag somewhere
+-      // (attributes?) that defines if it's compressed or not.
+-      status = X_STATUS_INVALID_PARAMETER;
+-      out_length = 0;
++      // Xbox360PS5 fix 90: the title's XCTD runtime asks whether the file is compressed and
++      // decompresses it itself; XCTD files begin with 0x0FF512ED (xbox360ps5/xctd.hpp).
++      uint8_t head[4] = {};
++      size_t head_read = 0;
++      const bool readable =
++          file->file() && file->file()->ReadSync(std::span<uint8_t>(head, sizeof(head)), 0, &head_read) ==
++                              X_STATUS_SUCCESS;
++      if (!readable) {
++        XELOGE("NtQueryInformationFile(XFileXctdCompressionInformation): {} cannot be read",
++               path);
++        status = X_STATUS_INVALID_PARAMETER;
++        out_length = 0;
++        break;
++      }
++      const uint32_t answer = xbox360ps5::xctd::Answer(head, head_read);
++      xe::store_and_swap<uint32_t>(info_ptr.as<uint8_t*>(), answer);
++      out_length = sizeof(uint32_t);
++      if (answer) {
++        // 1.0.5_candidate_9: what the title then does with the file (xctd.hpp, Tracer).
++        xbox360ps5::xctd::tracer.Add(uint32_t(file_handle), path);
++        XELOGW("XCTD trace: handle {:08X} compressed, {} bytes (allocation {}), caller {:08X}: {}",
++               uint32_t(file_handle), file->entry()->size(), file->entry()->allocation_size(),
++               uint32_t(ctx->lr), path);
++      }
++      {
++        // Which titles use XCTD, and their first compressed file (fix 90).
++        static std::atomic<uint32_t> said_title{0};
++        static std::atomic<bool> said_compressed{false};
++        const uint32_t title = kernel_state()->title_id();
++        if (said_title.exchange(title) != title)
++          XELOGW("XCTD: title {:08X} asks whether its files are compressed (first: {}, {})", title,
++                 path, answer ? "compressed" : "not compressed");
++        if (answer && !said_compressed.exchange(true))
++          XELOGW("XCTD: first compressed file {}; the title decompresses it", path);
++      }
+       break;
+     };
+     case XFileNetworkOpenInformation: {
+@@ -155,6 +183,12 @@ dword_result_t NtQueryInformationFile_entry(
+     }
+   }
+ 
++  if (info_class != XFileXctdCompressionInformation &&
++      xbox360ps5::xctd::tracer.Take(uint32_t(file_handle))) {
++    XELOGW("XCTD trace: handle {:08X} query class {} -> {:08X}, {} bytes {}, caller {:08X}",
++           uint32_t(file_handle), uint32_t(info_class), status, out_length,
++           xbox360ps5::xctd::Hex(info_ptr.as<uint8_t*>(), out_length, 40), uint32_t(ctx->lr));
++  }
+   if (io_status_block_ptr) {
+     io_status_block_ptr->status = status;
+     io_status_block_ptr->information = out_length;
+@@ -195,7 +229,13 @@ uint32_t GetSetFileInfoMinimumLength(uint32_t info_class) {
+ 
+ dword_result_t NtSetInformationFile_entry(
+     dword_t file_handle, pointer_t<X_IO_STATUS_BLOCK> io_status_block,
+-    lpvoid_t info_ptr, dword_t info_length, dword_t info_class) {
++    lpvoid_t info_ptr, dword_t info_length, dword_t info_class,
++    const ppc_context_t& ctx) {
++  if (xbox360ps5::xctd::tracer.Take(uint32_t(file_handle))) {
++    XELOGW("XCTD trace: handle {:08X} set class {}, {} bytes {}, caller {:08X}", uint32_t(file_handle),
++           uint32_t(info_class), uint32_t(info_length),
++           xbox360ps5::xctd::Hex(info_ptr.as<uint8_t*>(), info_length, 24), uint32_t(ctx->lr));
++  }
+   uint32_t minimum_length = GetSetFileInfoMinimumLength(info_class);
+   if (!minimum_length) {
+     return X_STATUS_INVALID_INFO_CLASS;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ldi.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ldi.cc
+index a343417..0f6acff 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ldi.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ldi.cc
+@@ -7,6 +7,7 @@
+  ******************************************************************************
+  */
+ 
++#include <atomic>
+ #include <memory>
+ #include <mutex>
+ #include <unordered_map>
+@@ -16,6 +17,7 @@
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/xctd.hpp"  // fix 90: Hex
+ 
+ namespace xe {
+ namespace kernel {
+@@ -31,6 +33,10 @@ std::unordered_map<uint32_t, std::unique_ptr<util::LdiDecompressor>>
+     g_ldi_contexts;
+ uint32_t g_ldi_next_handle = 1;
+ 
++// Fix 90 (1.0.5_candidate_9): the first LDI calls, for the XCTD trace.
++std::atomic<int> g_ldi_lines{0};
++bool LdiLine() { return g_ldi_lines.fetch_add(1, std::memory_order_relaxed) < 64; }
++
+ // Checks that the first and last byte of a guest range are mapped.
+ bool IsGuestRangeValid(uint32_t address, uint32_t size,
+                        uint32_t access = kMemoryProtectRead) {
+@@ -58,7 +64,10 @@ bool IsGuestRangeValid(uint32_t address, uint32_t size,
+ dword_result_t LDICreateDecompression_entry(
+     lpdword_t max_block_size_ptr, lpdword_t config_ptr, dword_t alloc_callback,
+     dword_t free_callback, lpvoid_t unknown_ptr, lpdword_t max_source_size_ptr,
+-    lpdword_t handle_ptr) {
++    lpdword_t handle_ptr, const ppc_context_t& ctx) {
++  if (max_block_size_ptr && config_ptr && LdiLine())
++    XELOGW("LDI trace: create, block {:X}, window {:X}, caller {:08X}", uint32_t(*max_block_size_ptr),
++           uint32_t(config_ptr[0]), uint32_t(ctx->lr));
+   if (!max_block_size_ptr || !config_ptr || !handle_ptr) {
+     XELOGE(
+         "LDICreateDecompression: null pointer (max_block_size_ptr {:08X}, "
+@@ -103,7 +112,8 @@ DECLARE_XBOXKRNL_EXPORT1(LDICreateDecompression, kNone, kSketchy);
+ dword_result_t LDIDecompress_entry(dword_t handle, lpvoid_t source_ptr,
+                                    dword_t source_size,
+                                    lpvoid_t destination_ptr,
+-                                   lpdword_t destination_size_ptr) {
++                                   lpdword_t destination_size_ptr,
++                                   const ppc_context_t& ctx) {
+   if (!source_ptr || !destination_ptr || !destination_size_ptr) {
+     XELOGE(
+         "LDIDecompress: null pointer (source_ptr {:08X}, destination_ptr "
+@@ -140,6 +150,11 @@ dword_result_t LDIDecompress_entry(dword_t handle, lpvoid_t source_ptr,
+   const bool succeeded =
+       it->second->Decompress(source_ptr.as<uint8_t*>(), source_size,
+                              destination_ptr.as<uint8_t*>(), destination_size);
++  if (LdiLine())
++    XELOGW("LDI trace: handle {} frame {:X} bytes to {:08X}, asked {:X}, gave {:X}{}, caller {:08X}, data {}",
++           handle.value(), source_size.value(), destination_ptr.guest_address(),
++           uint32_t(*destination_size_ptr), destination_size, succeeded ? "" : " FAILED",
++           uint32_t(ctx->lr), xbox360ps5::xctd::Hex(destination_ptr.as<uint8_t*>(), destination_size, 16));
+   *destination_size_ptr = destination_size;
+   if (!succeeded) {
+     XELOGE("LDIDecompress: failed (source size {}, output size {})",
+diff --git a/include/xbox360ps5/xctd.hpp b/include/xbox360ps5/xctd.hpp
+new file mode 100644
+index 0000000..41596fd
+--- /dev/null
++++ b/include/xbox360ps5/xctd.hpp
+@@ -0,0 +1,111 @@
++// SPDX-License-Identifier: MIT
++// Fix 90 (1.0.5): NtQueryInformationFile(XFileXctdCompressionInformation), class 0x1B.
++//
++// Titles built with the XDK's XCTD file compression ask the kernel, for every file they open,
++// whether it is compressed; their own runtime then decompresses it (Kinect Sports, 4D5308C9:
++// 82A38740 reads the 4-byte answer's bit 0 as "compressed", and a failed query as "unknown").
++// The core answered every query with STATUS_INVALID_PARAMETER, so the runtime took its
++// fallback: it reads the file's first word itself, through the stream it then decompresses from,
++// and Kinect Sports crashed right after loading its first compressed bundle on
++// 1.0.5_candidate_5 (\AM\AMBundle\bundle\4F45161E; thread F8000078 at 827D6808, then five more).
++// XCTD files begin with the big-endian magic 0x0FF512ED (17 of Kinect Sports' bundles do); the
++// answer is now 1 for those and 0 for every other file, read at offset 0 without moving the
++// file's position. A file that cannot be read keeps the old answer.
++//
++// 1.0.5_candidate_9: Kinect Sports still stopped right after opening 4F45161E (the main thread in
++// its allocator, a free-list link of 0x00001003: its heap was overwritten). 4F45161E is the
++// disc's only XCTD file of one segment (2258 bytes, 2640 decoded: a CAFF); the larger XCTD
++// bundles before it loaded. Its frame decodes to a sane CAFF on the host (Xenia's LZX decoder,
++// window 0x20000), and the disc's compressed attribute (GDF 0x40) marks exactly the 0x0FF512ED
++// files, so the answer above is the console's. What the title then reads, asks and is told about
++// such a file is now logged (Tracer below), for the next console run.
++#pragma once
++#include <cstddef>
++#include <cstdint>
++#include <mutex>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::xctd {
++
++constexpr uint32_t kMagic = 0x0FF512ED;
++constexpr uint32_t kCompressed = 1, kNotCompressed = 0;
++
++inline bool IsCompressedHeader(const uint8_t* bytes, size_t size) {
++  if (!bytes || size < 4) return false;
++  const uint32_t word = uint32_t(bytes[0]) << 24 | uint32_t(bytes[1]) << 16 | uint32_t(bytes[2]) << 8 | bytes[3];
++  return word == kMagic;
++}
++// The 4-byte answer (big-endian in guest memory, written by the caller).
++inline uint32_t Answer(const uint8_t* bytes, size_t size) {
++  return IsCompressedHeader(bytes, size) ? kCompressed : kNotCompressed;
++}
++
++// The handles answered "compressed", followed for the log: each with its own budget of lines
++// (kLinesPerHandle) and a total (kLinesInAll), so a 30 MB bundle read in 32 KiB pieces does not
++// flood it. A handle number reused by a later open starts over (Add replaces it).
++class Tracer {
++ public:
++  static constexpr int kLinesPerHandle = 48, kLinesInAll = 600;
++  static constexpr size_t kHandles = 32;
++  void Add(uint32_t handle, const std::string& path) {
++    std::lock_guard lock(mutex_);
++    for (auto& h : handles_)
++      if (h.handle == handle) {
++        h = {handle, path, 0};
++        return;
++      }
++    if (handles_.size() >= kHandles) handles_.erase(handles_.begin());
++    handles_.push_back({handle, path, 0});
++  }
++  // True (and the file's path) when a line about this handle may still be logged.
++  bool Take(uint32_t handle, std::string* path = nullptr) {
++    std::lock_guard lock(mutex_);
++    for (auto& h : handles_)
++      if (h.handle == handle) {
++        if (h.lines >= kLinesPerHandle || all_ >= kLinesInAll) return false;
++        ++h.lines;
++        ++all_;
++        if (path) *path = h.path;
++        return true;
++      }
++    return false;
++  }
++  bool Traced(uint32_t handle) {
++    std::lock_guard lock(mutex_);
++    for (auto& h : handles_)
++      if (h.handle == handle) return true;
++    return false;
++  }
++  void Remove(uint32_t handle) {
++    std::lock_guard lock(mutex_);
++    for (auto it = handles_.begin(); it != handles_.end(); ++it)
++      if (it->handle == handle) {
++        handles_.erase(it);
++        return;
++      }
++  }
++
++ private:
++  struct Handle {
++    uint32_t handle;
++    std::string path;
++    int lines;
++  };
++  std::mutex mutex_;
++  std::vector<Handle> handles_;
++  int all_ = 0;
++};
++inline Tracer tracer;
++// The first bytes of a buffer as hex, for the log ("0ff512ed01000000").
++inline std::string Hex(const uint8_t* bytes, size_t size, size_t most = 8) {
++  static const char digits[] = "0123456789abcdef";
++  std::string out;
++  for (size_t n = 0; bytes && n < size && n < most; ++n) {
++    out += digits[bytes[n] >> 4];
++    out += digits[bytes[n] & 15];
++  }
++  return out;
++}
++
++}  // namespace xbox360ps5::xctd

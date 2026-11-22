@@ -65,6 +65,7 @@ checks=(
   check-global-lock-spin.cpp       # fix 55
   check-kinect-pairing.cpp         # fix 56
   check-nui-image-scan.cpp         # fix 57
+  check-motion-replay.cpp          # fix 57 (1.0.5)
   check-gpu-wait-lines.cpp         # fix 58
   check-fast-readback.cpp          # fix 59
   check-library-folders.cpp        # fix 60
@@ -95,6 +96,7 @@ checks=(
   check-unwatched-chunk.cpp        # fix 87
   check-global-lock-callers.cpp    # fix 88
   check-multidisc-library.cpp      # fix 89
+  check-xctd-query.cpp             # fix 90 (1.0.5)
   check-readback-repeat.cpp        # fix 91
   check-readback-keys.cpp          # fix 91 (diagnostic)
   check-bug-report.cpp             # fix 93
@@ -110,7 +112,16 @@ checks=(
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
   check-dark-default.cpp           # fix 98
+  check-avatar-assets.cpp          # fix 99 (1.0.5)
+  check-kinect-identity.cpp        # fix 99b (1.0.5)
   check-content-folders.cpp        # fix 101
+  check-index-unwatched.cpp        # fix 102
+  check-register-writes.cpp        # fix 103
+  check-texture-set-reuse.cpp      # fix 104
+  check-fetch-unchanged.cpp        # fix 105
+  check-kinect-tracker.cpp         # fix 106
+  check-kinect-emergency.cpp       # fix 107
+  check-kinect-diag.cpp            # fix 108
   check-dlc-remove.cpp             # fix 109
 )
 declare -A arguments=(
@@ -123,6 +134,7 @@ declare -A arguments=(
   [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-kinect-emergency.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-multidisc-library.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-bug-report.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-leaving-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -148,6 +160,7 @@ declare -A fix_of=(
   [check-global-lock-spin.cpp]=55
   [check-kinect-pairing.cpp]=56
   [check-nui-image-scan.cpp]=57
+  [check-motion-replay.cpp]=57
   [check-gpu-wait-lines.cpp]=58
   [check-fast-readback.cpp]=59
   [check-library-folders.cpp]=60
@@ -178,6 +191,7 @@ declare -A fix_of=(
   [check-unwatched-chunk.cpp]=87
   [check-global-lock-callers.cpp]=88
   [check-multidisc-library.cpp]=89
+  [check-xctd-query.cpp]=90
   [check-readback-repeat.cpp]=91
   [check-readback-keys.cpp]=91
   [check-bug-report.cpp]=93
@@ -193,7 +207,16 @@ declare -A fix_of=(
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
   [check-dark-default.cpp]=98
+  [check-avatar-assets.cpp]=99
+  [check-kinect-identity.cpp]=99b
   [check-content-folders.cpp]=101
+  [check-index-unwatched.cpp]=102
+  [check-register-writes.cpp]=103
+  [check-texture-set-reuse.cpp]=104
+  [check-fetch-unchanged.cpp]=105
+  [check-kinect-tracker.cpp]=106
+  [check-kinect-emergency.cpp]=107
+  [check-kinect-diag.cpp]=108
   [check-dlc-remove.cpp]=109
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
@@ -326,6 +349,26 @@ elif node "$repo/tools/check-page-version.mjs" "$tree"; then
   echo "pass check-page-version.mjs"
 else
   echo "FAIL check-page-version.mjs"
+  status=1
+fi
+# Fix 106: the phone's Kinect tracker (port/phone_camera_tracker.hpp) and the page's reasons, with node.
+echo "=== check-kinect-tracker.mjs"
+if [[ " $skipped_fixes " == *" 106 "* ]]; then
+  echo "skip check-kinect-tracker.mjs (fix 106 left out of this build)"
+elif node "$repo/tools/check-kinect-tracker.mjs" "$tree"; then
+  echo "pass check-kinect-tracker.mjs"
+else
+  echo "FAIL check-kinect-tracker.mjs"
+  status=1
+fi
+# Fix 107: re-centring the phone camera from the pad (the page's side), with node.
+echo "=== check-kinect-recentre.mjs"
+if [[ " $skipped_fixes " == *" 107 "* ]]; then
+  echo "skip check-kinect-recentre.mjs (fix 107 left out of this build)"
+elif node "$repo/tools/check-kinect-recentre.mjs" "$tree"; then
+  echo "pass check-kinect-recentre.mjs"
+else
+  echo "FAIL check-kinect-recentre.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

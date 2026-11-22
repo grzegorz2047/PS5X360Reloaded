@@ -1,0 +1,259 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
+index 3b7d507..a20b667 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/apps/xam_app.cc
+@@ -166,6 +166,27 @@ X_HRESULT XamApp::ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
+       XELOGD("XNuiDelayUI unimplemented({:08X})", ms_delay);
+       return X_E_SUCCESS;
+     }
++    case 0x0002A004:  // 1.0.5-work-fix99b2: the identity database's save (829E18D0, below)
++    case 0x0002A005:
++    case 0x0002A006:
++    case 0x0002A007:
++    case 0x0002A008:
++    case 0x0002A009: {  // 1.0.5-work-fix99b2: enrollment (829D75D0)
++      // Xbox360PS5 fix 99b (issue 15): the Kinect identity library's requests to the system
++      // (Kinect Sports 4D5308C9: 829D5144, 829D75E8, 829E1970, 24 bytes each, with an overlapped)
++      // as the player is picked and enrolled. There is no identity service here: they succeed
++      // with nothing done, as a Kinect ID with nothing stored, instead of E_FAIL that left the
++      // game waiting after "Pick main player". Logged (the first 16). 2A004 (1.0.5-work-fix99b2)
++      // is the save of the identity database after a player is picked (829D53C4 serializes it into
++      // a 0xAF000-byte buffer, sends 2A006 and 2A004 and ignores the result); it was the last
++      // unimplemented message before the console run's soft lock.
++      static std::atomic<uint32_t> shown{0};
++      if (shown.fetch_add(1) < 16)
++        XELOGW("Kinect identity: XMsg FE/{:05X} ({} bytes) answered with success, nothing stored "
++               "(fix 99b)",
++               message, buffer_length);
++      return X_E_SUCCESS;
++    }
+     case 0x0002B002: {
+       // Xbox360PS5 (fix 57): the Kinect SDK sends each skeleton frame the title made to the
+       // system's identity service, once a frame (Dragon Ball Z for Kinect: 824A46E8 builds
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+index 036f17a..2cb5708 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+@@ -24,6 +24,12 @@ namespace xe {
+ namespace kernel {
+ namespace xam {
+ namespace {
++// Fix 99b: the Kinect ID and system calls answered below, logged (the first 32).
++void KinectIdentityLog(const char* call, uint32_t a, uint32_t b, uint32_t result) {
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 32)
++    XELOGW("Kinect identity: {}({:08X}, {:08X}) -> {:08X} (fix 99b)", call, a, b, result);
++}
+ // Fix 57: every title whose executable requires Kinect (was Dragon Ball Z's title ID).
+ bool VirtualNuiMode() {
+   return xbox360ps5::motion::enabled.load() && KinectRequiredTitle(kernel_state());
+@@ -514,10 +520,83 @@ dword_result_t XamUserNuiEnableBiometric_entry(dword_t user_index,
+   if (xbox360ps5::motion::enabled.load() && !motion_reported.exchange(true))
+     XELOGW("Motion research: XamUserNuiEnableBiometric called; guest sensor remains unavailable; {}", xbox360ps5::motion::Status());
+ #endif
+-  return X_E_INVALIDARG;
++  // Xbox360PS5 fix 99b (issue 15): Kinect Sports enables the picked player's biometric data
++  // (829D75FC) and checks the result; a Kinect ID with nothing stored accepts it.
++  KinectIdentityLog("XamUserNuiEnableBiometric", uint32_t(user_index), uint32_t(enable), 0);
++  return X_ERROR_SUCCESS;
+ }
+ DECLARE_XAM_EXPORT1(XamUserNuiEnableBiometric, kNone, kStub);
+ 
++// Xbox360PS5 fix 99b (issue 15): the Kinect ID (NUI Identity) calls Kinect Sports makes as the
++// player is picked, until now undefined externs (an undefined extern returns without setting r3:
++// the game took its own first argument for the result), and the system calls around them. As
++// a Kinect ID that works with nothing stored: no biometric data to read (ERROR_NOT_FOUND, size
++// 0), writing it succeeds (and is dropped), the camera's elevation is accepted, the title cache
++// and the Live upload queue are not there. Each is logged (the first 32 calls).
++dword_result_t XamReadBiometricData_entry(dword_t user, lpdword_t version_ptr, dword_t buffer_ptr,
++                                          lpdword_t size_ptr, dword_t overlapped_ptr) {
++  if (size_ptr) *size_ptr = 0;
++  KinectIdentityLog("XamReadBiometricData", uint32_t(user), buffer_ptr, X_ERROR_NOT_FOUND);
++  return X_ERROR_NOT_FOUND;
++}
++DECLARE_XAM_EXPORT1(XamReadBiometricData, kNone, kStub);
++
++dword_result_t XamWriteBiometricData_entry(dword_t user, lpdword_t version_ptr, dword_t buffer_ptr,
++                                           lpdword_t size_ptr, dword_t overlapped_ptr) {
++  KinectIdentityLog("XamWriteBiometricData", uint32_t(user), size_ptr ? uint32_t(*size_ptr) : 0,
++                    X_ERROR_SUCCESS);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamWriteBiometricData, kNone, kStub);
++
++dword_result_t XamNuiCameraElevationSetAngle_entry(dword_t angle, dword_t flags) {
++  KinectIdentityLog("XamNuiCameraElevationSetAngle", uint32_t(angle), uint32_t(flags), 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamNuiCameraElevationSetAngle, kNone, kStub);
++
++dword_result_t XamCacheOpenFile_entry(dword_t a1, dword_t a2, dword_t a3, dword_t a4) {
++  KinectIdentityLog("XamCacheOpenFile", uint32_t(a1), uint32_t(a2), X_ERROR_FILE_NOT_FOUND);
++  return X_ERROR_FILE_NOT_FOUND;
++}
++DECLARE_XAM_EXPORT1(XamCacheOpenFile, kNone, kStub);
++
++dword_result_t XamCacheCloseFile_entry(dword_t a1) {
++  KinectIdentityLog("XamCacheCloseFile", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamCacheCloseFile, kNone, kStub);
++
++dword_result_t XamCacheReset_entry(dword_t a1) {
++  KinectIdentityLog("XamCacheReset", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamCacheReset, kNone, kStub);
++
++dword_result_t XamXlfsInitializeUploadQueue_entry(dword_t a1, dword_t a2) {
++  KinectIdentityLog("XamXlfsInitializeUploadQueue", uint32_t(a1), uint32_t(a2), X_E_FAIL);
++  return X_E_FAIL;
++}
++DECLARE_XAM_EXPORT1(XamXlfsInitializeUploadQueue, kNone, kStub);
++
++dword_result_t XamXlfsUninitializeUploadQueue_entry(dword_t a1) {
++  KinectIdentityLog("XamXlfsUninitializeUploadQueue", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamXlfsUninitializeUploadQueue, kNone, kStub);
++
++dword_result_t XamXlfsMountUploadQueueInstance_entry(dword_t a1, dword_t a2) {
++  KinectIdentityLog("XamXlfsMountUploadQueueInstance", uint32_t(a1), uint32_t(a2), X_E_FAIL);
++  return X_E_FAIL;
++}
++DECLARE_XAM_EXPORT1(XamXlfsMountUploadQueueInstance, kNone, kStub);
++
++dword_result_t XamXlfsUnmountUploadQueueInstance_entry(dword_t a1) {
++  KinectIdentityLog("XamXlfsUnmountUploadQueueInstance", uint32_t(a1), 0, 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamXlfsUnmountUploadQueueInstance, kNone, kStub);
++
+ struct X_NUI_PLAYER_ENGAGEMENT_UPDATE {
+   uint8_t data[0x1C];
+ };
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+index b6a9759..a78ef1a 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -931,6 +931,24 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+              xbox360ps5::motion::kBridgeBodyDistance - report.jump_to, report.jumps);
+     }
+   }
++  {
++    // Fix 99b (1.0.5-work-fix99b2, Kinect Sports): the title's body going away, and why. On
++    // 1.0.5-work-fix99b the hands vanished after "Pick main player" and only the 30 s status
++    // showed it (packets stopped while the phone still detected). Said for the first 32 losses.
++    static bool had_body = false;
++    static uint32_t losses_shown = 0;
++    if (had_body && !pose.tracked && losses_shown < 32) {
++      ++losses_shown;
++      const auto last = xbox360ps5::motion::Last();
++      XELOGW("Virtual Kinect: the body is gone: the phone's last frame came {} ms ago ({}, sequence "
++             "{}); frames refused so far {} (fix 99b)",
++             last.age_ms, last.body ? "with a body" : "without a body", last.sequence,
++             xbox360ps5::motion::RefusedJson());
++    } else if (!had_body && pose.tracked && losses_shown) {
++      XELOGW("Virtual Kinect: the body is back (fix 99b)");
++    }
++    had_body = pose.tracked;
++  }
+   // 1.0.5: the phone's pose as it came and the title's hands, kept for motion-*.xmr
+   // (motion_record.hpp; saved when the guide opens).
+   xbox360ps5::motion::motion_recorder.Add(xbox360ps5::motion::Snapshot(),
+diff --git a/include/xbox360ps5/motion_input.hpp b/include/xbox360ps5/motion_input.hpp
+index ceb32df..a68d74c 100644
+--- a/include/xbox360ps5/motion_input.hpp
++++ b/include/xbox360ps5/motion_input.hpp
+@@ -37,6 +37,12 @@ inline std::atomic<uint64_t> guest_skeleton_frames{0}, guest_skeleton_bodies{0};
+ inline std::mutex mutex;
+ inline Frame latest;
+ inline uint64_t packets = 0;
++// Fix 99b (1.0.5-work-fix99b2, Kinect Sports): the frames the console refused, by reason, and the
++// accepted frames without a body. On 1.0.5-work-fix99b the hands vanished: packets stopped at 2016
++// while the phone still detected, and nothing said whether the phone stopped sending or the
++// console refused its frames.
++inline std::atomic<uint64_t> refused_malformed{0}, refused_out_of_range{0}, refused_replay{0},
++    refused_disabled{0}, frames_without_body{0}, bodies_lost{0};
+ inline void SetEnabled(bool value) {
+   if (enabled.load() == value) return;
+   std::lock_guard lock(mutex);
+@@ -49,27 +55,34 @@ inline uint32_t U32(const char* p) {
+   return uint32_t(b[0]) | uint32_t(b[1]) << 8 | uint32_t(b[2]) << 16 | uint32_t(b[3]) << 24;
+ }
+ inline Result Receive(std::string_view bytes) {
+-  if (!enabled.load()) return Result::disabled;
+-  if (bytes.size() != 336 || bytes.substr(0, 4) != "XMP1") return Result::malformed;
++  if (!enabled.load()) { ++refused_disabled; return Result::disabled; }
++  if (bytes.size() != 336 || bytes.substr(0, 4) != "XMP1") { ++refused_malformed; return Result::malformed; }
+   Frame frame;
+   frame.sequence = U32(bytes.data() + 4); frame.session = U32(bytes.data() + 8);
+   const auto flags = U32(bytes.data() + 12);
+-  if (!frame.sequence || !frame.session || flags > 1) return Result::malformed;
++  if (!frame.sequence || !frame.session || flags > 1) { ++refused_malformed; return Result::malformed; }
+   frame.tracked = flags == 1;
+   for (size_t n = 0; n < 20; ++n) {
+     float values[4];
+     for (size_t c = 0; c < 4; ++c) {
+       const auto bits = U32(bytes.data() + 16 + n * 16 + c * 4);
+       std::memcpy(&values[c], &bits, 4);
+-      if (!std::isfinite(values[c])) return Result::malformed;
++      if (!std::isfinite(values[c])) { ++refused_malformed; return Result::malformed; }
++    }
++    if (std::abs(values[0]) > 4 || std::abs(values[1]) > 4 || std::abs(values[2]) > 4 || values[3] < 0 || values[3] > 1) {
++      ++refused_out_of_range;
++      return Result::malformed;
+     }
+-    if (std::abs(values[0]) > 4 || std::abs(values[1]) > 4 || std::abs(values[2]) > 4 || values[3] < 0 || values[3] > 1) return Result::malformed;
+     frame.joints[n] = {values[0], values[1], values[2], values[3]};
+   }
+   frame.received = std::chrono::steady_clock::now();
+   std::lock_guard lock(mutex);
+-  if (!enabled.load()) return Result::disabled;
+-  if (frame.session == latest.session && frame.sequence <= latest.sequence) return Result::replay;
++  if (!enabled.load()) { ++refused_disabled; return Result::disabled; }
++  if (frame.session == latest.session && frame.sequence <= latest.sequence) { ++refused_replay; return Result::replay; }
++  if (!frame.tracked) {
++    ++frames_without_body;
++    if (latest.tracked) ++bodies_lost;
++  }
+   latest = frame; ++packets;
+   return Result::accepted;
+ }
+@@ -80,6 +93,25 @@ inline Frame Snapshot() {
+   if (std::chrono::steady_clock::now() - frame.received > std::chrono::milliseconds(500)) frame.tracked = false;
+   return frame;
+ }
++// The newest accepted frame as it came (Snapshot drops a body older than 500 ms): its age (-1 with
++// none yet), sequence and whether it held a body.
++struct LastFrame { int64_t age_ms = -1; uint32_t sequence = 0; bool body = false; };
++inline LastFrame Last() {
++  std::lock_guard lock(mutex);
++  LastFrame last;
++  if (!latest.sequence) return last;
++  last.age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - latest.received).count();
++  last.sequence = latest.sequence;
++  last.body = latest.tracked;
++  return last;
++}
++// "refused" in the status (fix 99b): {"malformed":N,"out_of_range":N,"replay":N,"disabled":N}.
++inline std::string RefusedJson() {
++  return std::string("{\"malformed\":") + std::to_string(refused_malformed.load()) +
++    ",\"out_of_range\":" + std::to_string(refused_out_of_range.load()) +
++    ",\"replay\":" + std::to_string(refused_replay.load()) +
++    ",\"disabled\":" + std::to_string(refused_disabled.load()) + "}";
++}
+ inline std::string Status() {
+   std::lock_guard lock(mutex);
+   const auto age = latest.sequence ? std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - latest.received).count() : -1;
+@@ -94,6 +126,9 @@ inline std::string Status() {
+     ",\"guest_last_request\":" + std::to_string(guest_last_request.load()) +
+     ",\"guest_skeleton_bound\":" + (guest_skeleton_bound.load() ? "true" : "false") +
+     ",\"guest_skeleton_frames\":" + std::to_string(guest_skeleton_frames.load()) +
+-    ",\"guest_skeleton_bodies\":" + std::to_string(guest_skeleton_bodies.load()) + "}";
++    ",\"guest_skeleton_bodies\":" + std::to_string(guest_skeleton_bodies.load()) +
++    ",\"refused\":" + RefusedJson() +
++    ",\"frames_without_body\":" + std::to_string(frames_without_body.load()) +
++    ",\"bodies_lost\":" + std::to_string(bodies_lost.load()) + "}";
+ }
+ }

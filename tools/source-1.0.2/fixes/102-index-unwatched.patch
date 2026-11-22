@@ -1,0 +1,58 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -426,11 +426,11 @@ inline std::array<std::atomic<uint64_t>, kAliases> alias_write_notices{};
+ // (1.0.5_candidate_50: Modern Warfare 2's view A0000000 made 6,000 protection calls a second,
+ // 216 ms/s, with 1,956 write notices a second). Each protection call counts for the block where
+ // its request starts, with the kind of GPU request that armed it (set by ArmKindScope on the GPU
+-// thread: vertex data, memexport, textures; index buffers, resolves and the rest are "other");
+-// each write notice counts for its block, from any thread.
+-enum ArmKind : uint32_t { kArmOther = 0, kArmVertex, kArmMemexport, kArmTexture, kArmKinds };
++// thread: vertex data, memexport, textures, index buffers (fix 102); resolves and the rest are
++// "other"); each write notice counts for its block, from any thread.
++enum ArmKind : uint32_t { kArmOther = 0, kArmVertex, kArmMemexport, kArmTexture, kArmIndex, kArmKinds };
+ inline const char* ArmKindName(uint32_t kind) {
+-  static const char* const names[] = {"other", "vertex", "memexport", "texture"};
++  static const char* const names[] = {"other", "vertex", "memexport", "texture", "index"};
+   return kind < kArmKinds ? names[kind] : "?";
+ }
+ inline uint32_t arm_kind = kArmOther;  // the GPU thread's alone
+diff --git a/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc b/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc
+@@ -22,6 +22,9 @@
+ #include "xenia/gpu/shader.h"
+ #include "xenia/gpu/trace_writer.h"
+ #include "xenia/gpu/xenos.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/frame_cost.hpp"  // fix 102: the index buffers' watch arming
++#endif
+ 
+ // All these overrides are always safe to use as all backends are expected to
+ // support triangle lists and line strips.
+@@ -1024,8 +1027,24 @@ bool PrimitiveProcessor::Process(ProcessingResult& result_out) {
+           ProcessedIndexBufferType::kHostBuiltinForDMA) {
+     // Request the index buffer memory.
+     // TODO(Triang3l): Shared memory request cache.
++    // Xbox360PS5 fix 102: indices read from the shared memory (directly, or
++    // through the built-in adapter buffer) are used by this draw only, as
++    // vertex data is: nothing kept here depends on a later invalidation (the
++    // processed-index cache above arms its own watch), so the request may be
++    // answered from units left unwatched ("Optimized video memory"). Grand
++    // Theft Auto IV writes its dynamic indices next to its dynamic vertices in
++    // the 0xC0000000 view every frame; the index requests pinned those units
++    // watched, 1,300 to 2,100 protections a second with as many write faults.
++#if XE_PLATFORM_PS5
++    xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(
++        xbox360ps5::frame_cost::kArmIndex);  // fix 102
++    constexpr bool kIndicesAllowUnwatched = true;  // fix 102
++#else
++    constexpr bool kIndicesAllowUnwatched = false;
++#endif
+     if (!shared_memory_.RequestRange(guest_index_base,
+-                                     guest_index_buffer_needed_bytes)) {
++                                     guest_index_buffer_needed_bytes,
++                                     kIndicesAllowUnwatched)) {
+       XELOGE(
+           "PrimitiveProcessor: Failed to request index buffer 0x{:08X}, 0x{:X} "
+           "bytes needed, in the shared memory",
