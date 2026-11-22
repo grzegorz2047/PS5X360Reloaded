@@ -24,6 +24,17 @@
 // worker drains it (NeedsDrain), and the "wait" drains are logged by line.
 //  (f) NeedsDrain; the model's BeginSubmission waits for 0 after every chunk and drain nothing,
 //      while readback waits still find their submission submitted; the tree's wiring.
+// Fix 134c: Red Dead Redemption in mode 1 handed off 30 of 180-191 submissions/s (5.0-5.36 chunks
+// per frame): a submission with query resolves stayed on the GPU thread, which still replayed
+// 120-131 ms/s. Its resolves now go to the end of its commands, where the GPU thread recorded
+// them after the replay, and the line counts why a submission stays.
+//  (g) "resolves 0|1"; Kept: the swap, then sparse binds, then query resolves only with
+//      "resolves 0"; a model of Red Dead Redemption's frame (5 chunks with occlusion queries and
+//      the swap): 1 hand-off a frame as in 134, 5 with 134c; the resolves at the end of the
+//      handed-off commands, the same place as on the GPU thread;
+//  (h) the tree: the query pool's recorder for both kinds of command buffer (the Vulkan one
+//      unchanged), the resolves recorded into the deferred commands before the hand-off
+//      decision, only when it hands off, the reasons counted, the 30 s line and the settings.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
@@ -126,6 +137,56 @@ void CheckWorker() {
   Expect(!worker.Drain(), "Drain on an idle worker does not wait");
   worker.Stop();
   thread.join();
+}
+
+// Fix 134c.
+void CheckKept() {
+  as::Settings s;
+  Expect(s.resolves == 1, "query resolves handed off by default");
+  Expect(as::Parse("resolves 0\n", s) == 0 && s.resolves == 0, "resolves 0: kept on the GPU thread");
+  as::Settings t;
+  Expect(as::Parse("resolves 2\nresolves\n", t) == 2 && t.resolves == 1, "resolves 2 or nothing: not understood");
+  as::Settings u;
+  u.resolves = 0;
+  Expect(!(u == as::Settings()), "a change of resolves is a change of the settings (logged, applied)");
+  Expect(as::Kept(true, true, true, false) == as::kKeptSwap, "the swap first");
+  Expect(as::Kept(false, true, true, false) == as::kKeptSparse, "then sparse binds");
+  Expect(as::Kept(false, false, true, false) == as::kKeptResolves, "query resolves with resolves 0");
+  Expect(as::Kept(false, false, true, true) == as::kKeptReasons && as::Kept(false, false, false, false) == as::kKeptReasons,
+         "handed off: with resolves 1, or none to record");
+  // Red Dead Redemption's frame: 5 chunks, each with occlusion queries ended in it but the first,
+  // then the swap. The commands of a submission: its draws, then (GPU thread or worker) the
+  // resolves; the worker replays the deferred commands, so resolves recorded there must be last.
+  for (uint32_t resolves : {0u, 1u}) {
+    uint32_t handed_off = 0, kept_resolves = 0, kept_swap = 0;
+    bool resolves_last = true;
+    for (int frame = 0; frame < 30; ++frame) {
+      for (int chunk = 0; chunk < 6; ++chunk) {
+        const bool is_swap = chunk == 5;
+        const bool query_resolves = chunk != 0;
+        std::vector<char> commands(4, 'd');  // the draws, replayed
+        bool recorded = false;
+        if (query_resolves && resolves && as::HandOff(as::kWorker, is_swap, false, false)) {
+          commands.push_back('r');  // RecordResolveBatch(deferred_command_buffer_)
+          recorded = true;
+        }
+        const uint32_t kept = as::Kept(is_swap, false, query_resolves, resolves != 0);
+        kept_resolves += kept == as::kKeptResolves;
+        kept_swap += kept == as::kKeptSwap;
+        if (as::HandOff(as::kWorker, is_swap, false, query_resolves && !recorded)) {
+          ++handed_off;
+        } else if (query_resolves) {
+          commands.push_back('r');  // after the replay, on the GPU thread
+        }
+        resolves_last = resolves_last && (!query_resolves || commands.back() == 'r');
+      }
+    }
+    std::printf("model 134c (resolves %u): %u hand-offs in 30 frames, kept for query resolves %u, swap %u\n",
+                resolves, handed_off, kept_resolves, kept_swap);
+    Expect(handed_off == (resolves ? 150u : 30u) && kept_swap == 30 && kept_resolves == (resolves ? 0u : 120u),
+           "Red Dead Redemption's frame: 1 hand-off a frame as in 134, 5 with 134c");
+    Expect(resolves_last, "the resolves after the submission's draws either way");
+  }
 }
 
 void CheckNeedsDrain() {
@@ -253,7 +314,34 @@ void CheckTree() {
   Expect(vk.find("async_handed_off_ = job.submission;  // fix 134b") != std::string::npos &&
              vk.find("async_submitted_.store(job.submission, std::memory_order_release);  // fix 134b") != std::string::npos,
          "fix 134b: the hand-off and the worker's submit are tracked");
+  // Fix 134c.
+  const std::string qpc = Read(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.cc");
+  Expect(qp.find("void RecordResolveBatch(DeferredCommandBuffer& deferred_command_buffer);") != std::string::npos &&
+             qpc.find("struct VulkanQueryPool::ResolveRecorder {") != std::string::npos &&
+             qpc.find("deferred->CmdVkCopyQueryPoolResults(pool, first, count, dst, offset, stride, flags);") !=
+                 std::string::npos &&
+             qpc.find("dfn->vkCmdCopyQueryPoolResults(command_buffer, pool, first, count, dst, offset, stride,") !=
+                 std::string::npos,
+         "fix 134c: the query resolves into either kind of command buffer");
+  const size_t record_fn = qpc.find("void VulkanQueryPool::RecordResolveBatchTo(const ResolveRecorder& recorder) {");
+  const size_t record_end = qpc.find("\n}\n", record_fn);
+  Expect(record_fn != std::string::npos && qpc.find("dfn.vkCmd", record_fn) > record_end &&
+             qpc.find("recorder.CopyBuffer(counter_buffer_, counter_readback_buffer_,", record_fn) < record_end,
+         "fix 134c: the resolves' every command through the recorder");
+  const size_t in_stream = vk.find("host_query_pool_->RecordResolveBatch(deferred_command_buffer_);", end);
+  const size_t in_stream_if = vk.find("if (async_query_resolves && async_settings_.resolves &&", end);
+  Expect(in_stream_if != std::string::npos && in_stream_if < in_stream && in_stream < hand &&
+             vk.find("async_submit::HandOff(async_settings_.mode, is_swap,", in_stream_if) < in_stream,
+         "fix 134c: the resolves go to the deferred commands before the hand-off, only when it hands off");
+  Expect(vk.find("host_query_pool_->RecordResolveBatch(command_buffer.buffer);", execute) < submit,
+         "fix 134c: else recorded after the replay as before");
+  Expect(vk.find("xbox360ps5::frame_cost::async_kept[kept].fetch_add(1, std::memory_order_relaxed);", end) < hand &&
+             vk.find("query resolves {} (fix 134c)") != std::string::npos,
+         "fix 134c: why a submission stays, counted; the settings line");
   const std::string fc = Read("include/xbox360ps5/frame_cost.hpp");
+  Expect(fc.find("\"; kept on the GPU thread per frame: swap %.2f, sparse binds %.2f, query resolves %.2f; \"") !=
+             std::string::npos,
+         "fix 134c: the 30 s line says why submissions stayed");
   Expect(fc.find("\"; wait drains by line: \"") != std::string::npos &&
              vk.find("xbox360ps5::frame_cost::NoteAsyncWaitLine(xbox360ps5::frame_cost::wait_line);") != std::string::npos,
          "fix 134b: the wait drains by line");
@@ -276,6 +364,7 @@ int main(int argc, char** argv) {
   CheckDecisions();
   CheckWorker();
   CheckNeedsDrain();
+  CheckKept();
   CheckModel();
   if (!(argc > 1 && std::string(argv[1]) == "--model-only")) CheckTree();
   if (failures) {

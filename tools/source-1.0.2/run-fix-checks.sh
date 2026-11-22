@@ -273,6 +273,7 @@ declare -A fix_of=(
   [check-readback-batching.cpp]=133
   [check-async-submit.cpp]="134 134b"
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
+  [check-async-submit.cpp]="134 134b 134c"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
