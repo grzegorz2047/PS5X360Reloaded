@@ -148,7 +148,7 @@ checks=(
   check-resolution-scale.cpp       # fixes 117 to 117k
   check-library-groups.cpp         # fixes 112 to 112f
   check-vulkan-fxaa.cpp            # fixes 137 and 137b
-  check-swap-effects.cpp           # fix 141
+  check-swap-effects.cpp           # fixes 141 and 141b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -276,7 +276,7 @@ declare -A fix_of=(
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
   [check-async-submit.cpp]="134 134b 134c"
   [check-vulkan-fxaa.cpp]="137 137b"
-  [check-swap-effects.cpp]=141
+  [check-swap-effects.cpp]="141 141b"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

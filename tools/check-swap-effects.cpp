@@ -14,6 +14,11 @@
 //      nothing is asked for), the core's atomic setting, the launcher options (Video, live, per game,
 //      after Anti-aliasing), Off on OpenGL, and the settings handed to the core next to every
 //      ApplyPicture.
+// Fix 141b (console, Grand Theft Auto IV): OLED Deep Black darkened every level (median luma
+// 16 -> 7) and Vibrant darkened the shadows (16 -> 9). Now:
+//  (f) OLED changes only the levels below its toe's end (~6%), joining the untouched ones without
+//      a kink, and keeps 0, 8, 16 apart; Vibrant leaves grey levels as they are and keeps a colour's
+//      luma; Clean Neutral as before.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cmath>
@@ -147,7 +152,31 @@ void Colour() {
   }
   // What the presets do: OLED deepens the shadows, Vibrant saturates, Clean Neutral lifts mid-tones.
   const se::Grade oled = se::GradeFor(se::ColorPreset::kOledDeepBlack);
-  Expect(Out(16, oled) < 16 && Out(32, oled) < 32, "OLED Deep Black: darker shadows");
+  Expect(Out(8, oled) < 8 && Out(12, oled) < 12, "OLED Deep Black: darker deep shadows");
+  // Fix 141b: only below the toe's end; the levels above it (the median of a dark game) as Off.
+  bool oled_above = true;
+  for (int level = 16; level <= 255; ++level)
+    if (Out(level, oled) != level) oled_above = false;
+  Expect(oled_above && oled.toe_end <= 16.0f / 255.0f, "141b: OLED leaves levels 16 and up as Off");
+  // The toe joins without a kink: the slope just below the end is about 1.
+  const float end = oled.toe_end;
+  const float slope =
+      (se::GradeChannel(end, oled) - se::GradeChannel(end - 1e-4f, oled)) / 1e-4f;
+  Expect(std::fabs(slope - 1.0f) < 0.01f, "141b: OLED's toe joins smoothly");
+  const se::Grade vibrant = se::GradeFor(se::ColorPreset::kVibrant);
+  bool vibrant_grey = true;
+  for (int level = 0; level <= 255; ++level) {
+    float rgb[3] = {level / 255.0f, level / 255.0f, level / 255.0f};
+    se::GradeColor(rgb, vibrant);
+    if (Level(rgb[0]) != level || Level(rgb[1]) != level || Level(rgb[2]) != level) vibrant_grey = false;
+  }
+  Expect(vibrant_grey, "141b: Vibrant leaves grey levels (shadows, mid-tones) as Off");
+  float jacket[3] = {0.12f, 0.08f, 0.05f};  // a dark muted brown
+  const float luma_before = 0.2126f * jacket[0] + 0.7152f * jacket[1] + 0.0722f * jacket[2];
+  se::GradeColor(jacket, vibrant);
+  const float luma_after = 0.2126f * jacket[0] + 0.7152f * jacket[1] + 0.0722f * jacket[2];
+  Expect(std::fabs(luma_after - luma_before) < 1e-4f && jacket[0] - jacket[2] > 0.07f + 1e-4f,
+         "141b: Vibrant saturates a dark colour without darkening it");
   float muted[3] = {0.5f, 0.45f, 0.4f};
   se::GradeColor(muted, se::GradeFor(se::ColorPreset::kVibrant));
   Expect(muted[0] - muted[2] > 0.1f, "Vibrant: a muted colour more saturated");
@@ -208,7 +237,7 @@ void CropAndPath() {
   const se::PushConstants pc =
       se::MakePushConstants(1280, 720, c720, se::ColorPreset::kOledDeepBlack);
   Expect(std::fabs(pc.size_inv_x - 1.0f / 1280.0f) < 1e-9f && std::fabs(pc.size_inv_y - 1.0f / 720.0f) < 1e-9f &&
-             pc.offset_x == 26.0f && pc.offset_y == 14.0f && pc.grade_on == 1.0f && pc.toe > 0.0f,
+             pc.offset_x == 26.0f && pc.offset_y == 14.0f && pc.grade_on == 1.0f && pc.toe_end > 0.0f && pc.toe_depth > 0.0f,
          "push constants: size, the crop's corner, the preset");
   const se::PushConstants plain = se::MakePushConstants(1280, 720, se::Crop(1280, 720, 0),
                                                         se::ColorPreset::kOff);
@@ -236,7 +265,8 @@ void Tree() {
              Read(shaders + "fxaa.glsli").empty(),
          "the shaders: swap_post.glsli for FXAA, FXAA Extreme and no AA (fxaa.glsli folded in)");
   // The GLSL mirrors GradeChannel and GradeColor.
-  Expect(InOrder(glsli, {"x = clamp(x, 0.0, 1.0);", "x = x * x * (1.0 + toe) / (x + toe);",
+  Expect(InOrder(glsli, {"x = clamp(x, 0.0, 1.0);", "if (toe_end > 0.0 && x < toe_end) {", "float u = x / toe_end;",
+                         "x = toe_end * u * ((1.0 - toe_depth) + u * (2.0 * toe_depth - toe_depth * u));",
                          "x = x + curve * (x * x * (3.0 - 2.0 * x) - x);", "x = pow(x, inv_gamma);",
                          "return clamp(x, 0.0, 1.0);",
                          "float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));",

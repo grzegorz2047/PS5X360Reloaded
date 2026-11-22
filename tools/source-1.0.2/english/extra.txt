@@ -336,7 +336,7 @@ FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = O antisserrilhamento funciona apenas com o renderizador Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Predefinição de cores
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Muda as cores da imagem do jogo antes de ela ser ajustada à tela. OLED preto profundo: pretos mais profundos, mantendo os detalhes das sombras. Vívido: cores mais ricas e mais contraste. Neutro limpo: imagem um pouco mais clara e nítida. Só no Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Muda as cores da imagem do jogo antes de ela ser ajustada à tela. OLED preto profundo: pretos mais profundos, mantendo os detalhes das sombras. Vívido: cores mais ricas. Neutro limpo: imagem um pouco mais clara e nítida. Só no Vulkan.
 OLED Deep Black = OLED preto profundo
 Vibrant = Vívido
 Clean Neutral = Neutro limpo
@@ -491,7 +491,7 @@ FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = A suavização de arestas só funciona com o renderizador Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Predefinição de cores
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Muda as cores da imagem do jogo antes de esta ser ajustada ao ecrã. OLED preto profundo: pretos mais profundos, mantendo os detalhes das sombras. Vívido: cores mais ricas e mais contraste. Neutro limpo: imagem um pouco mais clara e nítida. Só em Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Muda as cores da imagem do jogo antes de esta ser ajustada ao ecrã. OLED preto profundo: pretos mais profundos, mantendo os detalhes das sombras. Vívido: cores mais ricas. Neutro limpo: imagem um pouco mais clara e nítida. Só em Vulkan.
 OLED Deep Black = OLED preto profundo
 Vibrant = Vívido
 Clean Neutral = Neutro limpo
@@ -646,7 +646,7 @@ FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Ajuste de color
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia los colores de la imagen del juego antes de escalarla a la pantalla. OLED negro profundo: negros más profundos, sin perder detalle en las sombras. Vívido: colores más ricos y más contraste. Neutro limpio: imagen algo más clara y nítida. Solo con Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia los colores de la imagen del juego antes de escalarla a la pantalla. OLED negro profundo: negros más profundos, sin perder detalle en las sombras. Vívido: colores más ricos. Neutro limpio: imagen algo más clara y nítida. Solo con Vulkan.
 OLED Deep Black = OLED negro profundo
 Vibrant = Vívido
 Clean Neutral = Neutro limpio
@@ -801,7 +801,7 @@ FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Ajuste de color
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia los colores de la imagen del juego antes de escalarla a la pantalla. OLED negro profundo: negros más profundos, sin perder detalle en las sombras. Vívido: colores más ricos y más contraste. Neutro limpio: imagen un poco más clara y nítida. Solo con Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia los colores de la imagen del juego antes de escalarla a la pantalla. OLED negro profundo: negros más profundos, sin perder detalle en las sombras. Vívido: colores más ricos. Neutro limpio: imagen un poco más clara y nítida. Solo con Vulkan.
 OLED Deep Black = OLED negro profundo
 Vibrant = Vívido
 Clean Neutral = Neutro limpio
@@ -956,7 +956,7 @@ FXAA Extreme = FXAA Extrem
 Anti-aliasing works with the Vulkan renderer only. = Kantenglättung funktioniert nur mit dem Vulkan-Renderer.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Farbvoreinstellung
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Ändert die Farben des Spielbilds, bevor es auf den Bildschirm skaliert wird. OLED Tiefschwarz: tieferes Schwarz, Details in den Schatten bleiben. Lebendig: kräftigere Farben und mehr Kontrast. Klar neutral: ein etwas helleres, klareres Bild. Nur mit Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Ändert die Farben des Spielbilds, bevor es auf den Bildschirm skaliert wird. OLED Tiefschwarz: tieferes Schwarz, Details in den Schatten bleiben. Lebendig: kräftigere Farben. Klar neutral: ein etwas helleres, klareres Bild. Nur mit Vulkan.
 OLED Deep Black = OLED Tiefschwarz
 Vibrant = Lebendig
 Clean Neutral = Klar neutral
@@ -1111,7 +1111,7 @@ FXAA Extreme = FXAA Extrême
 Anti-aliasing works with the Vulkan renderer only. = L'anticrénelage ne fonctionne qu'avec le moteur de rendu Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Préréglage de couleurs
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Modifie les couleurs de l'image du jeu avant sa mise à l'échelle à l'écran. OLED noir profond : noirs plus profonds, détails des ombres conservés. Éclatant : couleurs plus riches et plus de contraste. Neutre net : image un peu plus claire et plus nette. Vulkan uniquement.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Modifie les couleurs de l'image du jeu avant sa mise à l'échelle à l'écran. OLED noir profond : noirs plus profonds, détails des ombres conservés. Éclatant : couleurs plus riches. Neutre net : image un peu plus claire et plus nette. Vulkan uniquement.
 OLED Deep Black = OLED noir profond
 Vibrant = Éclatant
 Clean Neutral = Neutre net
@@ -1266,7 +1266,7 @@ FXAA Extreme = FXAA Estremo
 Anti-aliasing works with the Vulkan renderer only. = L'anti-aliasing funziona solo con il renderer Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Preset colore
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia i colori dell'immagine del gioco prima che venga adattata allo schermo. OLED nero profondo: neri più profondi, mantenendo i dettagli nelle ombre. Vivace: colori più ricchi e più contrasto. Neutro pulito: immagine un po' più chiara e nitida. Solo Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia i colori dell'immagine del gioco prima che venga adattata allo schermo. OLED nero profondo: neri più profondi, mantenendo i dettagli nelle ombre. Vivace: colori più ricchi. Neutro pulito: immagine un po' più chiara e nitida. Solo Vulkan.
 OLED Deep Black = OLED nero profondo
 Vibrant = Vivace
 Clean Neutral = Neutro pulito
@@ -1421,7 +1421,7 @@ FXAA Extreme = FXAA エクストリーム
 Anti-aliasing works with the Vulkan renderer only. = アンチエイリアスは Vulkan レンダラーでのみ使えます。
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = カラープリセット
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 画面に合わせて拡大する前に、ゲーム映像の色を調整します。OLED 深い黒：暗部の細部を残したまま黒を深くします。鮮やか：色を豊かにし、コントラストを上げます。ニュートラル：少し明るく、すっきりした映像にします。Vulkan のみ。
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 画面に合わせて拡大する前に、ゲーム映像の色を調整します。OLED 深い黒：暗部の細部を残したまま黒を深くします。鮮やか：色を豊かにします。ニュートラル：少し明るく、すっきりした映像にします。Vulkan のみ。
 OLED Deep Black = OLED 深い黒
 Vibrant = 鮮やか
 Clean Neutral = ニュートラル
@@ -1576,7 +1576,7 @@ FXAA Extreme = FXAA 익스트림
 Anti-aliasing works with the Vulkan renderer only. = 안티에일리어싱은 Vulkan 렌더러에서만 작동합니다.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = 색상 프리셋
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 게임 화면을 화면 크기에 맞추기 전에 색상을 바꿉니다. OLED 깊은 검정: 어두운 부분의 디테일을 살리면서 검정을 더 깊게 합니다. 선명하게: 색을 더 풍부하게 하고 대비를 높입니다. 깔끔한 중립: 조금 더 밝고 깨끗한 화면입니다. Vulkan 전용.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 게임 화면을 화면 크기에 맞추기 전에 색상을 바꿉니다. OLED 깊은 검정: 어두운 부분의 디테일을 살리면서 검정을 더 깊게 합니다. 선명하게: 색을 더 풍부하게 합니다. 깔끔한 중립: 조금 더 밝고 깨끗한 화면입니다. Vulkan 전용.
 OLED Deep Black = OLED 깊은 검정
 Vibrant = 선명하게
 Clean Neutral = 깔끔한 중립
@@ -1731,7 +1731,7 @@ FXAA Extreme = FXAA Extreem
 Anti-aliasing works with the Vulkan renderer only. = Anti-aliasing werkt alleen met de Vulkan-renderer.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Kleurvoorinstelling
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Past de kleuren van het spelbeeld aan voordat het naar het scherm wordt geschaald. OLED diepzwart: dieper zwart, met behoud van details in de schaduwen. Levendig: rijkere kleuren en meer contrast. Helder neutraal: een iets helderder, duidelijker beeld. Alleen Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Past de kleuren van het spelbeeld aan voordat het naar het scherm wordt geschaald. OLED diepzwart: dieper zwart, met behoud van details in de schaduwen. Levendig: rijkere kleuren. Helder neutraal: een iets helderder, duidelijker beeld. Alleen Vulkan.
 OLED Deep Black = OLED diepzwart
 Vibrant = Levendig
 Clean Neutral = Helder neutraal
@@ -1886,7 +1886,7 @@ FXAA Extreme = FXAA Extreme
 Anti-aliasing works with the Vulkan renderer only. = Wygładzanie krawędzi działa tylko z rendererem Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Profil kolorów
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Zmienia kolory obrazu gry, zanim zostanie on dopasowany do ekranu. OLED głęboka czerń: głębsza czerń, z zachowaniem szczegółów w cieniach. Żywe: bogatsze kolory i większy kontrast. Czyste neutralne: nieco jaśniejszy, czystszy obraz. Tylko Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Zmienia kolory obrazu gry, zanim zostanie on dopasowany do ekranu. OLED głęboka czerń: głębsza czerń, z zachowaniem szczegółów w cieniach. Żywe: bogatsze kolory. Czyste neutralne: nieco jaśniejszy, czystszy obraz. Tylko Vulkan.
 OLED Deep Black = OLED głęboka czerń
 Vibrant = Żywe
 Clean Neutral = Czyste neutralne
@@ -2041,7 +2041,7 @@ FXAA Extreme = FXAA Экстрим
 Anti-aliasing works with the Vulkan renderer only. = Сглаживание работает только с рендерером Vulkan.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Цветовой профиль
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Меняет цвета изображения игры перед масштабированием на экран. OLED глубокий чёрный: более глубокий чёрный с сохранением деталей в тенях. Насыщенный: более богатые цвета и больше контраста. Чистый нейтральный: чуть более светлое и чистое изображение. Только Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Меняет цвета изображения игры перед масштабированием на экран. OLED глубокий чёрный: более глубокий чёрный с сохранением деталей в тенях. Насыщенный: более богатые цвета. Чистый нейтральный: чуть более светлое и чистое изображение. Только Vulkan.
 OLED Deep Black = OLED глубокий чёрный
 Vibrant = Насыщенный
 Clean Neutral = Чистый нейтральный
@@ -2196,7 +2196,7 @@ FXAA Extreme = FXAA Ekstrem
 Anti-aliasing works with the Vulkan renderer only. = Kenar yumuşatma yalnızca Vulkan oluşturucuyla çalışır.
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = Renk ön ayarı
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Oyun görüntüsünün renklerini ekrana ölçeklenmeden önce değiştirir. OLED derin siyah: gölgelerdeki ayrıntıları koruyarak daha derin siyahlar. Canlı: daha zengin renkler ve daha fazla kontrast. Temiz nötr: biraz daha aydınlık, daha temiz bir görüntü. Yalnızca Vulkan.
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Oyun görüntüsünün renklerini ekrana ölçeklenmeden önce değiştirir. OLED derin siyah: gölgelerdeki ayrıntıları koruyarak daha derin siyahlar. Canlı: daha zengin renkler. Temiz nötr: biraz daha aydınlık, daha temiz bir görüntü. Yalnızca Vulkan.
 OLED Deep Black = OLED derin siyah
 Vibrant = Canlı
 Clean Neutral = Temiz nötr
@@ -2351,7 +2351,7 @@ FXAA Extreme = FXAA 极致
 Anti-aliasing works with the Vulkan renderer only. = 抗锯齿仅适用于 Vulkan 渲染器。
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = 色彩预设
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 在游戏画面缩放到屏幕之前调整其色彩。OLED 深邃黑：黑色更深，同时保留暗部细节。鲜艳：色彩更丰富，对比度更高。清爽中性：画面略微更亮、更通透。仅限 Vulkan。
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 在游戏画面缩放到屏幕之前调整其色彩。OLED 深邃黑：黑色更深，同时保留暗部细节。鲜艳：色彩更丰富。清爽中性：画面略微更亮、更通透。仅限 Vulkan。
 OLED Deep Black = OLED 深邃黑
 Vibrant = 鲜艳
 Clean Neutral = 清爽中性
@@ -2506,7 +2506,7 @@ FXAA Extreme = FXAA 極致
 Anti-aliasing works with the Vulkan renderer only. = 反鋸齒僅適用於 Vulkan 繪圖器。
 # Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
 Color preset = 色彩預設
-Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 在遊戲畫面縮放至螢幕之前調整其色彩。OLED 深邃黑：黑色更深，同時保留暗部細節。鮮豔：色彩更豐富，對比更高。清爽中性：畫面略為更亮、更通透。僅限 Vulkan。
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 在遊戲畫面縮放至螢幕之前調整其色彩。OLED 深邃黑：黑色更深，同時保留暗部細節。鮮豔：色彩更豐富。清爽中性：畫面略為更亮、更通透。僅限 Vulkan。
 OLED Deep Black = OLED 深邃黑
 Vibrant = 鮮豔
 Clean Neutral = 清爽中性

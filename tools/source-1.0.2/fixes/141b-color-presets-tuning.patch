@@ -1,0 +1,146 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.glsli b/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.glsli
+index 589be4f..7846a79 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.glsli
++++ b/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.glsli
+@@ -38,9 +38,9 @@ layout(push_constant) uniform XeSwapPostConstants {
+   vec2 size_inv;
+   // The crop's corner in the intermediate image, in pixels.
+   vec2 offset;
+-  // The colour preset: x toe, y curve, z vibrance, w 1 / gamma.
++  // The colour preset: x toe_end, y curve, z vibrance, w 1 / gamma.
+   vec4 grade;
+-  // x: 1 to apply the colour preset.
++  // x: 1 to apply the colour preset; y: toe_depth (fix 141b).
+   vec4 grade_on;
+ } xe_swap_post;
+ 
+@@ -48,15 +48,19 @@ layout(set = 0, binding = 0) uniform sampler2D xe_swap_post_source;
+ 
+ layout(location = 0) out vec4 xe_swap_post_dest;
+ 
+-// swap_effects::GradeChannel: shadows deeper with a smooth toe, contrast as a
+-// blend towards smoothstep, then gamma; 0 and 1 stay, and no level is clipped.
++// swap_effects::GradeChannel: shadows below toe_end deeper with a smooth toe
++// joining the untouched levels (fix 141b), contrast as a blend towards
++// smoothstep, then gamma; 0 and 1 stay, and no level is clipped.
+ float XeGradeChannel(float x) {
+-  float toe = xe_swap_post.grade.x;
++  float toe_end = xe_swap_post.grade.x;
++  float toe_depth = xe_swap_post.grade_on.y;
+   float curve = xe_swap_post.grade.y;
+   float inv_gamma = xe_swap_post.grade.w;
+   x = clamp(x, 0.0, 1.0);
+-  if (toe > 0.0) {
+-    x = x * x * (1.0 + toe) / (x + toe);
++  if (toe_end > 0.0 && x < toe_end) {
++    float u = x / toe_end;
++    x = toe_end * u *
++        ((1.0 - toe_depth) + u * (2.0 * toe_depth - toe_depth * u));
+   }
+   if (curve > 0.0) {
+     x = x + curve * (x * x * (3.0 - 2.0 * x) - x);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/swap_effects.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/swap_effects.h
+index 2814a9f..1c6ffaf 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/swap_effects.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/swap_effects.h
+@@ -68,31 +68,38 @@ constexpr const char* ColorPresetName(ColorPreset preset) {
+ }
+ 
+ // A preset's parameters (swap_post.glsli's push constants):
+-// - toe: deeper shadows with a smooth curve, x^2 (1 + toe) / (x + toe): 0 and 1 stay, every level
+-//   stays above the one below (no clipping of the darkest shades, unlike the prototype's
+-//   subtraction); 0 is none;
++// - toe: deeper shadows below toe_end only: with u = x / toe_end, x = toe_end g(u), g(u) =
++//   (1 - d) u + 2 d u^2 - d u^3 (d = toe_depth): g(0) = 0, g(1) = 1 and g'(1) = 1, so the curve
++//   joins the untouched levels above toe_end without a kink, and every level stays above the one
++//   below (no clipping of the darkest shades, unlike the prototype's subtraction); 0 is none;
+ // - curve: contrast as a blend towards smoothstep, x + curve (smoothstep(x) - x): 0 and 1 stay, the
+ //   brightest shades stay apart (no clipping above ~97.7% as the prototype's contrast did);
+ // - inv_gamma: x^inv_gamma, mid-tones brighter below 1;
+-// - vibrance: muted colours more saturated than already saturated ones; grey stays grey.
++// - vibrance: muted colours more saturated than already saturated ones; grey stays grey, and the
++//   luma of a colour stays (before the clamp).
++// Fix 141b (console, Grand Theft Auto IV, a dark game): fix 141's OLED toe x^2 (1 + t) / (x + t)
++// darkened every level (median luma 16 -> 7, the jacket and the fence lost their detail) and
++// Vibrant's toe and contrast darkened the shadows too (median 16 -> 9): OLED now deepens only the
++// levels below ~6% (15 of 255), and Vibrant is vibrance alone, with the low and mid luma of Off.
+ struct Grade {
+-  float toe = 0.0f;
++  float toe_end = 0.0f;
++  float toe_depth = 0.0f;
+   float curve = 0.0f;
+   float vibrance = 0.0f;
+   float inv_gamma = 1.0f;
+ };
+ constexpr bool IsIdentity(const Grade& grade) {
+-  return grade.toe == 0.0f && grade.curve == 0.0f && grade.vibrance == 0.0f &&
+-         grade.inv_gamma == 1.0f;
++  return (grade.toe_end == 0.0f || grade.toe_depth == 0.0f) && grade.curve == 0.0f &&
++         grade.vibrance == 0.0f && grade.inv_gamma == 1.0f;
+ }
+ constexpr Grade GradeFor(ColorPreset preset) {
+   switch (preset) {
+     case ColorPreset::kOledDeepBlack:
+-      return {0.08f, 0.15f, 0.10f, 1.0f};
++      return {0.06f, 1.0f, 0.0f, 0.10f, 1.0f};
+     case ColorPreset::kVibrant:
+-      return {0.02f, 0.25f, 0.30f, 1.0f};
++      return {0.0f, 0.0f, 0.0f, 0.35f, 1.0f};
+     case ColorPreset::kCleanNeutral:
+-      return {0.0f, 0.10f, 0.0f, 1.0f / 1.05f};
++      return {0.0f, 0.0f, 0.10f, 0.0f, 1.0f / 1.05f};
+     default:
+       return {};
+   }
+@@ -103,7 +110,11 @@ inline float Clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x);
+ // One channel, as swap_post.glsli's XeGradeChannel.
+ inline float GradeChannel(float x, const Grade& grade) {
+   x = Clamp01(x);
+-  if (grade.toe > 0.0f) x = x * x * (1.0f + grade.toe) / (x + grade.toe);
++  if (grade.toe_end > 0.0f && x < grade.toe_end) {
++    const float u = x / grade.toe_end;
++    const float d = grade.toe_depth;
++    x = grade.toe_end * u * ((1.0f - d) + u * (2.0f * d - d * u));
++  }
+   if (grade.curve > 0.0f) x = x + grade.curve * (x * x * (3.0f - 2.0f * x) - x);
+   if (grade.inv_gamma != 1.0f) x = std::pow(x, grade.inv_gamma);
+   return Clamp01(x);
+@@ -154,12 +165,13 @@ struct PushConstants {
+   float size_inv_y = 0.0f;
+   float offset_x = 0.0f;  // the crop's corner in the intermediate image, in pixels
+   float offset_y = 0.0f;
+-  float toe = 0.0f;
++  float toe_end = 0.0f;
+   float curve = 0.0f;
+   float vibrance = 0.0f;
+   float inv_gamma = 1.0f;
+   float grade_on = 0.0f;  // 1: apply the preset
+-  float reserved[3] = {};
++  float toe_depth = 0.0f;  // fix 141b
++  float reserved[2] = {};
+ };
+ static_assert(sizeof(PushConstants) == 48, "swap_post.glsli's XeSwapPostConstants");
+ 
+@@ -172,7 +184,8 @@ constexpr PushConstants MakePushConstants(uint32_t width, uint32_t height, const
+   constants.offset_x = float(crop.x);
+   constants.offset_y = float(crop.y);
+   const Grade grade = GradeFor(preset);
+-  constants.toe = grade.toe;
++  constants.toe_end = grade.toe_end;
++  constants.toe_depth = grade.toe_depth;
+   constants.curve = grade.curve;
+   constants.vibrance = grade.vibrance;
+   constants.inv_gamma = grade.inv_gamma;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 4a6345d..c83f37e 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -442,7 +442,7 @@ const std::vector<Option>& Options() {
+       // Fix 141: the colour preset and the overscan crop on fix 137's effect path, after the AA and
+       // before the image filter; live, per game, Off on OpenGL (ForGame).
+       {"color_preset", &S::color_preset, 0, W::live, 0, true, "Color preset",
+-       "Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only.",
++       "Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors. Clean Neutral: a slightly brighter, clearer picture. Vulkan only.",
+        {"Off", "OLED Deep Black", "Vibrant", "Clean Neutral"}},
+       {"overscan_crop", &S::overscan_crop, 0, W::live, 0, true, "Overscan crop",
+        "Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only.",
