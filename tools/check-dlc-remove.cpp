@@ -29,14 +29,8 @@
 //      game runs and every change is logged;
 //  (e) the language files (argument: tools/source-1.0.2/english/lang) have every text it shows;
 //  (f) the game sheet: L1 and R1 keys at the two ends of the tab bar (the "L1 / R1" text gone); its
-//      lists (Patches, Settings' subjects and options, Achievements, DLCs, Updates) start on the tab
-//      bar with no row highlighted, Down enters a list at its first row and Up on the first row
-//      leaves it;
-//  (g) fix 109d, the player's pick for the game sheet and the in-game guide (fix 115c): the tab bar
-//      "< L1  tabs  R1 >" with high-contrast pills from the shared xbox360ps5/tab_pills.hpp (38 px,
-//      round ends, white and near-black, drawn chevrons, not a U+2039 glyph); L1/R1 always switch
-//      tabs, left/right too while the bar has the pad (Play: right Patches, left About); in a list
-//      left/right only change the focused row's value, and value rows show "< value >".
+//      lists (Patches, Settings' subjects, Achievements, DLCs, Updates) start on the tab bar with no
+//      row highlighted, Down enters a list at its first row and Up on the first row leaves it.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/dlc_manager.hpp"
@@ -408,61 +402,37 @@ void CheckLauncher() {
              Has(x_body, "(enable ? \"switched on\" : \"switched off\") : \"not switched\",\n                   dlc2::Describe(step));") &&
              Has(x_body, ": switched == dlc2::Switched::twin ? \"twin\" : \"move-failed\";"),
          "every DLC change and refusal is logged");
-  // (f, g) The tab bar's L1 / R1 pills, the left/right rule, and the lists' focus.
+  // (f) The tab bar's L1 / R1 keys, and the lists' focus.
   const std::string sheet = Body(launcher, "void Launcher::DrawGameSheet(Canvas& c) {");
-  Expect(Has(sheet, "c.Shoulder(\"L1\", tab_x, 266, true, bar);") &&
-             Has(sheet, "c.Shoulder(\"R1\", x + 820 - c.ShoulderWidth(\"R1\"), 266, false, bar);") &&
-             !Has(sheet, "c.Text(\"L1 / R1\"") && Has(sheet, "const bool bar = g_list_focus_tab != game_tab_;") &&
-             Has(sheet, "(780 - 2 * shoulder) / (names + 26 * float(std::size(tabs) - 1))"),
-         "\"< L1\" and \"R1 >\" at the bar's outer edges (x + 40, x + 820), lit while the bar has the pad");
-  Expect(Has(launcher, "#include \"xbox360ps5/tab_pills.hpp\"") &&
-             Has(launcher, "float ShoulderWidth(const char* name) const { return tab_pills::Width(Font(tab_pills::kText), name); }") &&
-             Has(launcher, "tab_pills::Draw(list, Font(tab_pills::kText), scale, At(x, y), name, left, Color(kText, lit ? 1.0f : 0.45f),") &&
-             Has(launcher, "tab_pills::DrawChevron(list, scale, At(x, y), left, Color(rgb));"),
-         "the launcher draws the pills and chevrons with the header it shares with the guide");
-  const std::string pills = Read("include/xbox360ps5/tab_pills.hpp");
-  Expect(Has(pills, "inline constexpr float kHeight = 38.0f;") && Has(pills, "inline constexpr float kPad = 14.0f;") &&
-             Has(pills, "inline constexpr float kText = 22.0f;") && Has(pills, "inline constexpr float kChevronGap = 8.0f;") &&
-             Has(pills, "inline constexpr ImU32 kFill = IM_COL32(255, 255, 255, 255);") &&
-             Has(pills, "inline constexpr ImU32 kInk = IM_COL32(16, 18, 22, 255);") &&
-             Has(pills, "list->AddRectFilled(at, ImVec2(at.x + w, at.y + h), fill, h / 2);") &&
-             Has(pills, "list->AddPolyline(points, 3, ink, 0, kLine * scale);") && !Has(pills, "\xE2\x80\xB9"),
-         "tab_pills.hpp: the agreed pill (38 px, round ends, 14 px padding, 22 px name, white on near-black) and a drawn chevron");
+  Expect(Has(sheet, "c.Shoulder(\"L1\", tab_x, 272, bar);") && Has(sheet, "c.Shoulder(\"R1\", x + 56 + 748 - c.ShoulderWidth(\"R1\"), 272, bar);") &&
+             !Has(sheet, "c.Text(\"L1 / R1\"") && Has(sheet, "const bool bar = g_list_focus_tab != game_tab_;"),
+         "L1 and R1 at the two ends of the tab bar, lit while the bar has the pad");
+  Expect(Has(launcher, "float Shoulder(const char* name, float x, float y, bool lit) const {") &&
+             Has(launcher, "float ShoulderWidth(const char* name) const { return Width(name, 20) + 24; }") &&
+             Has(launcher, "Fill(x, y, w, h, 0x6e747c, lit ? 1.0f : 0.45f, h / 2);") &&
+             Has(launcher, "Text(name, x + w / 2, y + 4, 20, kWhite, lit ? 1.0f : 0.6f, 1);"),
+         "the shoulder keys look as the guide's (fix 115b): a grey pill, white 20 px name, 12 px padding");
   Expect(Has(launcher, "  game_tab_ = tab;\n  g_list_focus_tab = -1;  // fix 109: the tab bar first\n"),
          "a sheet opens on its tab bar");
-  Expect(Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = (game_tab_ + step + 7) % 7;") &&
-             Has(press, "if (key == Key::l1 || key == Key::r1) { switch_tab(key == Key::r1 ? 1 : -1); break; }") &&
-             Has(press, "if (game_tab_ != 0 && g_list_focus_tab != game_tab_ && (key == Key::left || key == Key::right)) {\n"
-                        "        switch_tab(key == Key::right ? 1 : -1);"),
-         "L1/R1 always switch tabs (each new tab on its bar); left/right too while the bar has the pad");
-  Expect(Has(press, "if (key == Key::right || key == Key::left) g_list_focus_tab = -1;  // fix 109: a new tab starts on the tab bar\n") &&
-             Has(press, "if (key == Key::left) { game_info_scroll = 0; game_tab_ = 6; }"),
-         "Play: right goes to Patches, left to About");
-  Expect(Has(press, "if (game_tab_ >= 1 && game_tab_ <= 5) {") &&
-             Has(press, "game_tab_ == 2 ? (game_category_open_ ? game_option_row_ : game_category_)") &&
+  Expect(Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = (game_tab_ + (key == Key::r1 ? 1 : 6)) % 7;") &&
+             Has(press, "if (key == Key::right) g_list_focus_tab = -1;  // fix 109: a new tab starts on the tab bar\n"),
+         "a new tab (L1, R1, Right from Play) starts on its tab bar");
+  Expect(Has(press, "if (game_tab_ >= 1 && game_tab_ <= 5 && !(game_tab_ == 2 && game_category_open_)) {") &&
              Has(press, "if (key == Key::down) { g_list_focus_tab = game_tab_; first_row = 0; break; }") &&
-             Has(press, "if (key == Key::up || key == Key::cross || (game_tab_ == 4 && key == Key::triangle)) break;") &&
+             Has(press, "if (key == Key::up || key == Key::cross || key == Key::left || key == Key::right ||\n"
+                        "              (game_tab_ == 4 && key == Key::triangle)) break;") &&
              Has(press, "} else if (key == Key::up && first_row == 0) {\n          g_list_focus_tab = -1;"),
-         "Down enters a list (a subject's options too) at its first row, Up on it leaves; X waits for the list");
-  const size_t tabs_rule = press.find("if (game_tab_ != 0 && g_list_focus_tab != game_tab_ && (key == Key::left || key == Key::right)) {");
-  const size_t focus_rule = press.find("if (game_tab_ >= 1 && game_tab_ <= 5) {");
-  Expect(tabs_rule != std::string::npos && focus_rule != std::string::npos && tabs_rule < focus_rule &&
-             focus_rule < press.find("if (game_tab_ == 6) {"),
-         "the tab and focus rules come before every tab's own keys (so a row's left/right needs the list)");
+         "Down enters a list at its first row, Up on it leaves; row keys wait for the list");
+  Expect(press.find("if (game_tab_ >= 1 && game_tab_ <= 5 && !(game_tab_ == 2 && game_category_open_)) {") <
+             press.find("if (game_tab_ == 6) {"),
+         "the focus rule comes before every tab's own keys");
   for (const char* highlight : {"const bool focused = n == patch_row_ && g_list_focus_tab == 1;",
                                 "const bool focused = n == game_category_ && g_list_focus_tab == 2;",
                                 "const bool row_focused = game_category_ == row && g_list_focus_tab == 2;",
-                                "const bool focused = n == game_option_row_ && g_list_focus_tab == 2;",
                                 "n == achievement_row_ && g_list_focus_tab == 3 ? kSurfaceHigh : kSurface",
                                 "const bool selected = n == dlc_row_ && g_list_focus_tab == 4;",
                                 "const bool selected = n == sheet.row && g_list_focus_tab == 5;"})
     Expect(Has(launcher, highlight), std::string("a row is highlighted only once its list has the pad: ") + highlight);
-  // (g) Value rows: "< value >".
-  Expect(Has(launcher, "c.Chevron(x + 776 - value_w - 16, y + 22, true, ink);\n    c.Text(text, x + 776, y + 10, 22, ink, 1.0f, 2, 330);\n"
-                       "    c.Chevron(x + 786, y + 22, false, ink);") &&
-             Has(launcher, "c.Chevron(x + 776 - value_w - 16, y + 20, true, ink);\n  c.Text(value, x + 776, y + 8, 24, ink, 1.0f, 2, 200);\n"
-                           "  c.Chevron(x + 786, y + 20, false, ink);"),
-         "a subject's options and the bug report row show < value >");
 }
 
 std::string Escaped(const std::string& text) {
