@@ -282,6 +282,7 @@ also listed here.
 | 134 (`134-async-submit`) | a 1.0.5 performance option (off by default): chunks of a frame are replayed and submitted by a worker thread while the GPU command thread records the rest (`gpu_async_submit` 1; 2 makes the chunks without the worker; also live from `async-submit.txt`); aimed at Grand Theft Auto IV and Red Dead Redemption, whose GPU thread spends 92-147 ms/s replaying commands | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134` |
 | 134b (`134b-async-submit-wait-drain`) | fix 134's worker is no longer drained at every chunk (a check of the completed submissions at every new submission waited for it), so its replay runs alongside the GPU thread; the log names the lines that still drain it | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134b` |
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
+| 138 (`138-frame-cost-guest-wait`) | a 1.0.5 diagnostics fix: the log's Frame time line no longer counts the GPU thread's waits for the game (WAIT_REG_MEM sleeps) as its own work; they are shown on their own | host-checked (`tools/check-frame-cost.cpp`); console: `1.0.5-work-fix138` |
 
 ## Comparison with the official executable
 
