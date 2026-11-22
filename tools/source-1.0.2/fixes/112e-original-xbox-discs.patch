@@ -1,0 +1,89 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 567b222..9efb74b 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1144,6 +1144,11 @@ void Launcher::Scan() {
+         // A package's data folder sits beside its header file.
+         if (depth < 6 && extension != ".data" && !grouped_directories.count(path)) scan(path, depth + 1, root);
+       } else if (extension == ".iso") {
++        // Fix 112e: an original Xbox game (default.xbe at the disc's root, no default.xex) is left out.
++        if (library_groups::ReadDiscRoot(path.string()) == library_groups::DiscRoot::original_xbox) {
++          XELOGW("LAUNCHER skipped {}: an original Xbox game (default.xbe), not supported", path.string());
++          continue;
++        }
+         GameEntry game{path.stem().string(), path, "ISO", directory.string()};
+         game.size = SizeText(entry.file_size(error));
+         add(std::move(game), {});
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+index 7306d2a..85aa7df 100644
+--- a/port/library_groups.hpp
++++ b/port/library_groups.hpp
+@@ -19,6 +19,9 @@
+ #pragma once
+ #include <algorithm>
+ #include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
+ #include <map>
+ #include <set>
+ #include <string>
+@@ -253,6 +256,58 @@ inline std::vector<Cell> MosaicCells(const std::vector<float>& aspects, float fo
+   return cells;
+ }
+ 
++// Fix 112e: what the root folder of a disc image (XDVDFS) says the disc is. An original Xbox game
++// has default.xbe at its root and no default.xex; the emulator runs only Xbox 360 games, so the
++// library leaves such a disc out. An image whose root cannot be read stays in the library as before.
++enum class DiscRoot { unreadable, xbox360, original_xbox };
++
++inline DiscRoot ReadDiscRoot(const std::string& iso) {
++  std::FILE* file = std::fopen(iso.c_str(), "rb");
++  if (!file) return DiscRoot::unreadable;
++  const auto read_at = [file](uint64_t offset, size_t size, std::vector<uint8_t>& out) {
++    out.assign(size, 0);
++#if defined(_WIN32)
++    if (_fseeki64(file, int64_t(offset), SEEK_SET)) return false;
++#else
++    if (fseeko(file, off_t(offset), SEEK_SET)) return false;
++#endif
++    return std::fread(out.data(), 1, size, file) == size;
++  };
++  const auto le16 = [](const uint8_t* p) { return uint16_t(p[0] | p[1] << 8); };
++  const auto le32 = [](const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; };
++  DiscRoot result = DiscRoot::unreadable;
++  std::vector<uint8_t> sector, table;
++  // The game partition starts at one of these offsets (plain XDVDFS, XGD1, XGD2, XGD3), as
++  // covers.cpp's IsoXexHeader looks for it.
++  for (const uint64_t base : {0ull, 0x18300000ull, 0xFD90000ull, 0x2080000ull}) {
++    if (!read_at(base + 32 * 2048, 2048, sector) || std::memcmp(sector.data(), "MICROSOFT*XBOX*MEDIA", 20)) continue;
++    const uint32_t root_sector = le32(&sector[20]), root_size = le32(&sector[24]);
++    if (!root_size || root_size > (1u << 20) || !read_at(base + uint64_t(root_sector) * 2048, root_size, table)) break;
++    // The root's entries form a binary tree; walk all of it.
++    bool xex = false, xbe = false;
++    std::vector<uint32_t> pending{0};
++    for (int visited = 0; !pending.empty() && visited < 4096; ++visited) {
++      const uint32_t at = pending.back();
++      pending.pop_back();
++      if (at + 14 > table.size()) continue;
++      const uint16_t left = le16(&table[at]), right = le16(&table[at + 2]);
++      if (left == 0xFFFF) continue;
++      const uint8_t length = table[at + 13];
++      if (at + 14 + length > table.size()) continue;
++      std::string name(table.begin() + at + 14, table.begin() + at + 14 + length);
++      name = LowerAscii(name);
++      xex = xex || name == "default.xex";
++      xbe = xbe || name == "default.xbe";
++      if (left) pending.push_back(uint32_t(left) * 4);
++      if (right) pending.push_back(uint32_t(right) * 4);
++    }
++    result = !xex && xbe ? DiscRoot::original_xbox : DiscRoot::xbox360;
++    break;
++  }
++  std::fclose(file);
++  return result;
++}
++
+ // The group to stay in when the library is built again: `key`, else the nearest of its parent
+ // folders that is still a group, else the library ("").
+ inline std::string StillThere(const Layout& layout, std::string key) {

@@ -251,7 +251,9 @@ void CheckTree() {
   Expect(!Has(body, "game.name") && !Has(body, "game.cover"), "ChooseDisc keeps the set's name and cover");
   Expect(Has(launcher, "for (const auto& disc : game.discs) paths.push_back(disc.path);  // fix 89: every disc of a set"),
          "GamePaths lists every disc");
-  Expect(Has(launcher, "if (HasDiscPath(games_[size_t(view_[size_t(n)])], keep)) selected_ = n;"),
+  // Fix 112's groups keep the selection through FindKept (a game by any disc's path, or a group).
+  Expect(Has(launcher, "if (HasDiscPath(games_[size_t(view_[size_t(n)])], keep)) selected_ = n;") ||
+             Has(launcher, "if (item >= 0 ? HasDiscPath(games[size_t(item)], keep)"),
          "the selection is kept by any disc's path");
   Expect(Has(launcher, "if (HasDiscPath(game, recents_[at])) best = at;"), "a set's place: its most recent disc");
   Expect(Has(launcher, "if (SyncRunningDisc(games_)) SelectionChanged();  // fix 89"), "a running disc is chosen");
