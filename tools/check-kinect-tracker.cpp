@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 102 (Kinect Sports, issue 15): the console side of the phone tracker's change.
+// Fix 106 (Kinect Sports, issue 15): the console side of the phone tracker's change.
 //
 //   check-kinect-tracker        run from an assembled tree's root
 //
@@ -8,7 +8,7 @@
 //      report without any; the stages line reads the same report as before; bad input is ignored;
 //  (b) port/phone_camera_tls.cpp serves the title's tracker (phone_camera_tracker.hpp) at
 //      /kinect_tracker.mjs before the package's files, and logs the new line with the stages';
-//  (c) the tracker module compiles in, made from the package's with the fix 102 changes and its
+//  (c) the tracker module compiles in, made from the package's with the fix 106 changes and its
 //      licence. Its behaviour is checked with node (tools/check-kinect-tracker.mjs).
 #include <cstdio>
 #include <fstream>
@@ -55,7 +55,7 @@ int main() {
         stages->find("; 25.3 fps, queue 2") != std::string::npos);
   // Nothing to say: no line.
   CHECK(!pl::ReasonsLine("{\"fps\":30,\"reasons\":{\"no_body\":0,\"stale\":0},\"restarts\":\"\"}").has_value());
-  CHECK(!pl::ReasonsLine("{\"fps\":30,\"queue\":0}").has_value());  // a page before fix 102
+  CHECK(!pl::ReasonsLine("{\"fps\":30,\"queue\":0}").has_value());  // a page before fix 106
   // Only kept bodies, or only a restart.
   CHECK(pl::ReasonsLine("{\"reasons\":{\"hips_inferred\":5}}").value_or("") ==
         "Motion: phone frames without a body, last 2 s: none; kept with hips inferred 5");
@@ -74,7 +74,7 @@ int main() {
   const std::string tracker = phone_camera::kTrackerModule;
   CHECK(tracker.find("export class KinectTracker") != std::string::npos);
   CHECK(tracker.find("import {skeleton} from './pose.mjs?v=kinect2';") != std::string::npos);
-  CHECK(tracker.find("PS5X360Reloaded fix 102") != std::string::npos);
+  CHECK(tracker.find("PS5X360Reloaded fix 106") != std::string::npos);
   CHECK(tracker.find("if ([11,12].some(n => vis(world[n]) < .5)) {") != std::string::npos);
   CHECK(tracker.find("return {pose: null, status: this.status('hips_hidden')};") == std::string::npos);
   CHECK(tracker.find("takeEvents()") != std::string::npos);
@@ -86,7 +86,7 @@ int main() {
   } else {
     CHECK(header.find("MIT, Copyright (c) 2026 Xbox360PS5\n// contributors") != std::string::npos);
     // (b) Served before the package's files, and the new line logged with the stages'.
-    const size_t ours = tls.find("if (method == \"GET\" && target == \"/kinect_tracker.mjs\")  // fix 102");
+    const size_t ours = tls.find("if (method == \"GET\" && target == \"/kinect_tracker.mjs\")  // fix 106");
     const size_t theirs = tls.find("target == \"/pose.mjs\" || target == \"/kinect_tracker.mjs\"");
     CHECK(ours != std::string::npos && theirs != std::string::npos && ours < theirs);
     CHECK(tls.find("phone_camera::kTrackerModule);", ours) < theirs);

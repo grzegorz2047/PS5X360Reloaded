@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 102 (tools/source-1.0.2/fixes/102-kinect-tracker.patch): the phone's Kinect tracker the console
+// Fix 106 (tools/source-1.0.2/fixes/106-kinect-tracker.patch): the phone's Kinect tracker the console
 // serves (port/phone_camera_tracker.hpp) and the page's report of frames without a body.
 //   node tools/check-kinect-tracker.mjs <assembled tree>
 // Kinect Sports (issue 15) lost its player at "Pick main player" while the player stood in the
@@ -164,8 +164,8 @@ check('(c) the reasons and restarts reach the report', () => {
 });
 check('(c) the page uses the title\'s tracker, the reasons and the restart causes', () => {
   const page = between(pageHeader, 'R"KINECTPAGE(', ')KINECTPAGE"');
-  assert.ok(page.includes("from './kinect_tracker.mjs?v=kinect102';"));
-  assert.ok(page.includes("frameReason} from './latency.mjs?v=102';"));
+  assert.ok(page.includes("from './kinect_tracker.mjs?v=kinect106';"));
+  assert.ok(page.includes("frameReason} from './latency.mjs?v=106';"));
   assert.ok(page.includes('latencyWindow.reason(frameReason(stale, seen, latest, tracked));'));
   assert.ok(page.includes('for (const event of tracker.takeEvents()) latencyWindow.calibration(event);'));
   for (const cause of ['mode', 'recentre', 'camera']) assert.ok(page.includes("tracker.resetCalibration('" + cause + "')"), cause);

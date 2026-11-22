@@ -80,7 +80,7 @@ checks=(
   check-xctd-query.cpp             # fix 90 (1.0.5)
   check-avatar-assets.cpp          # fix 99 (1.0.5)
   check-kinect-identity.cpp        # fix 99b (1.0.5)
-  check-kinect-tracker.cpp         # fix 102
+  check-kinect-tracker.cpp         # fix 106
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -125,7 +125,7 @@ declare -A fix_of=(
   [check-xctd-query.cpp]=90
   [check-avatar-assets.cpp]=99
   [check-kinect-identity.cpp]=99b
-  [check-kinect-tracker.cpp]=102
+  [check-kinect-tracker.cpp]=106
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -249,10 +249,10 @@ else
   echo "FAIL check-phone-latency.mjs"
   status=1
 fi
-# Fix 102: the phone's Kinect tracker (port/phone_camera_tracker.hpp) and the page's reasons, with node.
+# Fix 106: the phone's Kinect tracker (port/phone_camera_tracker.hpp) and the page's reasons, with node.
 echo "=== check-kinect-tracker.mjs"
-if [[ " $skipped_fixes " == *" 102 "* ]]; then
-  echo "skip check-kinect-tracker.mjs (fix 102 left out of this build)"
+if [[ " $skipped_fixes " == *" 106 "* ]]; then
+  echo "skip check-kinect-tracker.mjs (fix 106 left out of this build)"
 elif node "$repo/tools/check-kinect-tracker.mjs" "$tree"; then
   echo "pass check-kinect-tracker.mjs"
 else
