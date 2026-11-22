@@ -125,7 +125,6 @@ checks=(
   check-dlc-remove.cpp             # fix 109
   check-extent-count.cpp           # fix 110
   check-unwatched-lock-free.cpp    # fix 111
-  check-swap-pacing.cpp            # fix 112
   check-osk-keyboard.cpp           # fix 114
   check-osk-modes.cpp              # fix 114b
   check-guide-quick.cpp            # fix 115
@@ -240,7 +239,6 @@ declare -A fix_of=(
   [check-kinect-diag.cpp]=108
   [check-extent-count.cpp]=110
   [check-unwatched-lock-free.cpp]=111
-  [check-swap-pacing.cpp]=112
   [check-osk-keyboard.cpp]=114
   [check-guide-quick.cpp]=115
   [check-swap-pacing.cpp]=116
