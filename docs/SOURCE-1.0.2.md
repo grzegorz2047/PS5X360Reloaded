@@ -244,6 +244,7 @@ also listed here.
 | 97 (`97-timer-apc`) | a crash fix: a guest timer's APC routine queued from the host TimerQueue thread read through a missing guest context (Brian Lara International Cricket 2007, issue 16: a read fault at 0x20 five seconds after the start); the kernel's APC relay, started by the first such timer, queues it now | host-checked (`tools/check-timer-apc.cpp`); console: Brian Lara International Cricket 2007 past its start, the `Timer APC (fix 97)` line |
 | 98 (`98-dark-default`) | the dark theme is the default (a new install, or no choice saved, starts dark); a player's light choice is kept in `ui-light.on`; the web settings and phone camera pages were dark already | host-checked (`tools/check-dark-default.cpp`) |
 | 101 (`101-content-folders`) | a storage fix: extended storage is a hard drive to the games, and a package a game creates itself (Battlefield 3's HD content) lands in a writable, mounted folder where it is opened from later; the save drive setting stops answering a game that keeps refusing it | host-checked (`tools/check-content-folders.cpp`); console: Battlefield 3, Install HD content, on ext1 and on the internal device |
+| 113 (`113-avatar-skeleton`) | issue 15, avatar milestone 1: a generated 71-joint avatar skeleton in `XamAvatarGetAssets`' set, its scales from the profile's body type, height and weight, picked in the launcher's profiles sheet (Triangle) | host-checked (`tools/check-avatar-skeleton.cpp`); console: `1.0.5-work-fix113` |
 
 ## Comparison with the official executable
 
