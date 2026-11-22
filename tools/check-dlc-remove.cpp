@@ -14,7 +14,10 @@
 //  (c) dlc2::Remove refuses while a game is running and leaves the file; it deletes only the chosen
 //      package (not its disabled twin, not the same file on another drive, not the dlc folder's
 //      copy, not a neighbour), keeps the folders, and never removes a dlc folder's package or a
-//      path outside the item's own folder; Move works on the package's own drive;
+//      path outside the item's own folder; Move works on the package's own drive. It uses stat and
+//      unlink only (the console's sandbox refuses lstat, and libc's remove() asks lstat first:
+//      1.0.5-work-fix109 left BF3's HD textures on ext1 with "not removed"), and says which step
+//      failed with its errno (a folder that refuses the unlink: EACCES, POSIX hosts not run as root);
 //  (d) launcher.cpp: the tab and the start of a game use the scan's roots, Triangle opens the
 //      "Remove DLC?" window only while no game runs, the window says the name, size and drive and
 //      that it cannot be undone, with the raised buttons;
@@ -28,6 +31,7 @@
 #define CHECK_DLC_SCAN 1
 #endif
 
+#include <cerrno>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -172,7 +176,14 @@ void CheckRemove(const stdfs::path& base) {
   Expect(dlc2::Remove(hd, 0x4D530A87, false) == dlc2::Removal::not_installed && stdfs::exists(hd.path),
          "another title's folder is not this package's");
   // The chosen package only.
-  Expect(dlc2::Remove(hd, kBf3, false) == dlc2::Removal::removed, "removed when no game runs");
+  dlc2::RemoveStep refused;
+  Expect(dlc2::Remove(outside, kBf3, false, &refused) == dlc2::Removal::not_installed &&
+             refused.call == "check: not in its own folder" && refused.error == 0,
+         "a refused check says which one");
+  dlc2::RemoveStep step;
+  Expect(dlc2::Remove(hd, kBf3, false, &step) == dlc2::Removal::removed && step.call == "unlink" && step.error == 0 &&
+             dlc2::Describe(step) == "unlink",
+         "removed when no game runs, by unlink");
   Expect(!stdfs::exists(hd.path), "the package file is gone");
   Expect(stdfs::is_directory(dlc2::ActiveFolder(l.ext1, kBf3)), "its folder stays");
   Expect(stdfs::exists(dlc2::ActiveFolder(l.ext1, kBf3) / "map_pack_1") &&
@@ -200,6 +211,32 @@ void CheckRemove(const stdfs::path& base) {
   Expect(dlc2::Move(ext_pack, l.internal, kBf3, false) && stdfs::exists(dlc2::DisabledFolder(l.ext1, kBf3) / "map_pack_1") &&
              !stdfs::exists(dlc2::DisabledFolder(l.internal, kBf3) / "map_pack_1"),
          "Off moves an ext1 package within ext1");
+}
+
+// A folder that refuses the unlink (no write permission on it): failed, the step and errno said,
+// the file kept. POSIX hosts not run as root (root may unlink anyway).
+void CheckRefusedUnlink(const stdfs::path& base) {
+#ifndef _WIN32
+  if (::geteuid() == 0) {
+    std::printf("skip: the refused unlink (run as root)\n");
+    return;
+  }
+  const Layout l = MakeLayout(base);
+  const dlc2::Found found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  const dlc2::Item hd = *Named(found, "HD Content", "M.2 SSD / extended storage (ext1)");
+  const stdfs::path folder = dlc2::ActiveFolder(l.ext1, kBf3);
+  stdfs::permissions(folder, stdfs::perms::owner_read | stdfs::perms::owner_exec);
+  dlc2::RemoveStep step;
+  const dlc2::Removal removal = dlc2::Remove(hd, kBf3, false, &step);
+  stdfs::permissions(folder, stdfs::perms::owner_all);
+  Expect(removal == dlc2::Removal::failed && step.call == "unlink" && step.error == EACCES,
+         "a folder that refuses the unlink: failed at unlink with EACCES (got " + dlc2::Describe(step) + ")");
+  Expect(Has(dlc2::Describe(step), "unlink failed: errno " + std::to_string(EACCES) + " ("), "the log names the call and errno");
+  Expect(stdfs::exists(hd.path), "the file is kept when the unlink is refused");
+#else
+  (void)base;
+  std::printf("skip: the refused unlink (no POSIX permissions on this host)\n");
+#endif
 }
 
 #ifdef CHECK_DLC_SCAN
@@ -275,8 +312,17 @@ void CheckLauncher() {
          "Triangle on an installed package opens the window only while no game is running");
   const std::string press = Body(launcher, "void Launcher::Press(Key key) {");
   Expect(Has(press, "if (g_dlc_remove_open) {") &&
-             Has(press, "dlc2::Remove(item, g_dlc_remove_title, !g_running_path.empty() || dlc2::copier().Busy());"),
+             Has(press, "dlc2::Remove(item, g_dlc_remove_title, !g_running_path.empty() || dlc2::copier().Busy(), &step);"),
          "X in the window removes, refused while a game runs or a copy is going on");
+  Expect(Has(press, "removal == dlc2::Removal::removed ? \"removed\" : \"not removed\",\n             dlc2::Describe(step));"),
+         "the log line says the step and errno");
+  // stat and unlink only on the console: no lstat (symlink_status) and no libc remove() there.
+  const std::string header = Read("port/dlc_manager.hpp");
+  const std::string remove = Body(header, "inline Removal Remove(const Item& item, uint32_t title, bool game_running, RemoveStep* why = nullptr) {");
+  Expect(!remove.empty() && !Has(remove, "symlink_status") && Has(remove, "fs::status(item.path, ec);  // stat") &&
+             Has(remove, "#ifdef _WIN32\n  fs::remove(item.path, ec);  // the host checks on Windows\n") &&
+             Has(remove, "#else\n  const int error = ::unlink(item.path.c_str()) == 0 ? 0 : errno;\n#endif"),
+         "Remove: stat and unlink on the console, never lstat or remove()");
   Expect(press.find("if (g_dlc_remove_open) {") < press.find("if (g_confirm_open) {"), "the window takes the pad first");
   const std::string draw = Body(launcher, "void Launcher::Draw(ImGuiIO& io) {");
   Expect(Has(draw, "Tr(\"Remove DLC?\")") && Has(draw, "c.Text(item.name,") && Has(draw, "Tr(\"Size: %s\")") &&
@@ -331,6 +377,7 @@ int main(int argc, char** argv) {
   const stdfs::path base = stdfs::temp_directory_path() / "check-dlc-remove";
   CheckListing(base);
   CheckRemove(base);
+  CheckRefusedUnlink(base);
 #ifdef CHECK_DLC_SCAN
   CheckScan(base);
 #else
