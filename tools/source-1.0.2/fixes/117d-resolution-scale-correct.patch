@@ -25,19 +25,19 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-can
    bool destroyed_any = false;
    while (texture_used_first_ != nullptr) {
      uint64_t total_host_memory_usage_mb =
-@@ -252,6 +269,12 @@ void TextureCache::CompletedSubmissionUpdated(
-       // any texture has been destroyed.
-       ResetTextureBindings();
+@@ -238,6 +255,12 @@ void TextureCache::CompletedSubmissionUpdated(
+         (texture->last_usage_time() + limit_soft_lifetime) > current_time) {
+       break;
      }
 +#if XE_PLATFORM_PS5
 +    if (memory_pressure) {
 +      xbox360ps5::resolution_scale::counters.textures_evicted.fetch_add(
-+          1, std::memory_order_relaxed);
++          1, std::memory_order_relaxed);  // fix 117d
 +    }
 +#endif
-     // Remove the texture from the map and destroy it via its unique_ptr.
-     auto found_texture_it = textures_.find(texture->key());
-     assert_true(found_texture_it != textures_.end());
+     if (!destroyed_any) {
+       destroyed_any = true;
+ #if XE_PLATFORM_PS5
 @@ -827,21 +850,6 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
        key.scaled_resolve = 1;
      }
