@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 120 (tools/source-1.0.2/fixes/120-dynamic-constants.patch): the draw constant buffers as
+// Fix 120 (tools/source-1.0.2/fixes/120-constants-dynamic-offset.patch): the draw constant buffers as
 // dynamic uniform buffers. The float constants change for nearly every draw, so UpdateBindings
 // allocated and wrote a new set of the seven constant buffer descriptors for nearly every draw,
 // only because the buffers' offsets had moved within the uniform pool's page (bindings: Red Dead
