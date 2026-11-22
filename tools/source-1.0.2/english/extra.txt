@@ -251,6 +251,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Solte L3 + R3 para parar; um corpo vindo do celular assume.
 Re-centring the phone camera in %d... Stand still at your spot. = Recentralizando a câmera do celular em %d... Fique parado no seu lugar.
 Re-centring the phone camera... Stand still at your spot. = Recentralizando a câmera do celular... Fique parado no seu lugar.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvo. Os jogos que mostram avatares vão usá-lo a partir da próxima vez que forem iniciados.
+Could not save the avatar. = Não foi possível salvar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = O formato do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por enquanto só o formato: o avatar ainda não tem roupas nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem quadris um pouco mais largos e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -313,6 +326,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Largue L3 + R3 para parar; um corpo vindo do telemóvel toma o lugar.
 Re-centring the phone camera in %d... Stand still at your spot. = A recentrar a câmara do telemóvel em %d... Fique parado no seu lugar.
 Re-centring the phone camera... Stand still at your spot. = A recentrar a câmara do telemóvel... Fique parado no seu lugar.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Os jogos que mostram avatares vão usá-lo a partir do próximo arranque.
+Could not save the avatar. = Não foi possível guardar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = A forma do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por agora só a forma: o avatar ainda não tem roupa nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem ancas um pouco mais largas e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -375,6 +401,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para pararla; un cuerpo del teléfono toma el relevo.
 Re-centring the phone camera in %d... Stand still at your spot. = Recentrando la cámara del teléfono en %d... Quédate quieto en tu sitio.
 Re-centring the phone camera... Stand still at your spot. = Recentrando la cámara del teléfono... Quédate quieto en tu sitio.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo usarán a partir de su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -437,6 +476,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para detenerla; un cuerpo del celular la reemplaza.
 Re-centring the phone camera in %d... Stand still at your spot. = Recentrando la cámara del celular en %d... Quédate quieto en tu lugar.
 Re-centring the phone camera... Stand still at your spot. = Recentrando la cámara del celular... Quédate quieto en tu lugar.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo van a usar desde su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -499,6 +551,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Notfall-Haltung aktiv: Das Spiel sieht die letzte Haltung. Lass L3 + R3 los, um sie zu beenden; ein Körper vom Handy übernimmt.
 Re-centring the phone camera in %d... Stand still at your spot. = Handykamera wird in %d neu zentriert... Bleib still an deinem Platz stehen.
 Re-centring the phone camera... Stand still at your spot. = Handykamera wird neu zentriert... Bleib still an deinem Platz stehen.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar gespeichert. Spiele mit Avataren verwenden ihn ab dem nächsten Start.
+Could not save the avatar. = Der Avatar konnte nicht gespeichert werden.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Die Körperform des Avatars dieses Profils, für Spiele, die den Spieler als Avatar zeigen (Kinect Sports). Vorerst nur die Form: Der Avatar hat noch keine Kleidung und kein Gesicht.
+Body type = Körpertyp
+Female = Weiblich
+Male = Männlich
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Der Körperbau des Avatars: Ein weiblicher Körper hat etwas breitere Hüften und schmalere Schultern.
+Height = Größe
+Shorter or taller limbs and body. = Kürzere oder längere Gliedmaßen und Rumpf.
+Weight = Gewicht
+A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
 
 [added fr]
 Console storage = Stockage de la console
@@ -561,6 +626,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posture de secours active : le jeu voit la dernière posture. Relâchez L3 + R3 pour l'arrêter ; un corps venant du téléphone prend le relais.
 Re-centring the phone camera in %d... Stand still at your spot. = Recentrage de la caméra du téléphone dans %d... Restez immobile à votre place.
 Re-centring the phone camera... Stand still at your spot. = Recentrage de la caméra du téléphone... Restez immobile à votre place.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar enregistré. Les jeux qui affichent des avatars l'utiliseront à leur prochain lancement.
+Could not save the avatar. = Impossible d'enregistrer l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La silhouette de l'avatar de ce profil, pour les jeux qui montrent le joueur sous forme d'avatar (Kinect Sports). Seulement la silhouette pour l'instant : l'avatar n'a pas encore de vêtements ni de visage.
+Body type = Morphologie
+Female = Femme
+Male = Homme
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La carrure de l'avatar : un corps féminin a des hanches un peu plus larges et des épaules plus étroites.
+Height = Taille
+Shorter or taller limbs and body. = Membres et corps plus courts ou plus longs.
+Weight = Corpulence
+A thinner or heavier build. = Une silhouette plus mince ou plus forte.
 
 [added it]
 Console storage = Memoria della console
@@ -623,6 +701,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posa di emergenza attiva: il gioco vede l'ultima posa. Rilascia L3 + R3 per fermarla; un corpo dal telefono subentra.
 Re-centring the phone camera in %d... Stand still at your spot. = Ricentratura della fotocamera del telefono tra %d... Resta fermo al tuo posto.
 Re-centring the phone camera... Stand still at your spot. = Ricentratura della fotocamera del telefono... Resta fermo al tuo posto.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvato. I giochi che mostrano gli avatar lo useranno dal prossimo avvio.
+Could not save the avatar. = Impossibile salvare l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La corporatura dell'avatar di questo profilo, per i giochi che mostrano il giocatore come avatar (Kinect Sports). Per ora solo la corporatura: l'avatar non ha ancora vestiti né volto.
+Body type = Tipo di corpo
+Female = Donna
+Male = Uomo
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La corporatura dell'avatar: un corpo femminile ha fianchi un po' più larghi e spalle più strette.
+Height = Altezza
+Shorter or taller limbs and body. = Arti e corpo più corti o più lunghi.
+Weight = Peso
+A thinner or heavier build. = Una corporatura più magra o più robusta.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -685,6 +776,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急ポーズ中：ゲームには最後のポーズが送られています。L3 + R3 を離すと終了し、スマートフォンで体が見つかると引き継ぎます。
 Re-centring the phone camera in %d... Stand still at your spot. = %d 秒後にスマートフォンのカメラを再センタリングします... その場でじっとしていてください。
 Re-centring the phone camera... Stand still at your spot. = スマートフォンのカメラを再センタリングしています... その場でじっとしていてください。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = アバター
+Avatar saved. Games that show avatars use it from their next start. = アバターを保存しました。アバターを表示するゲームでは、次回の起動から使われます。
+Could not save the avatar. = アバターを保存できませんでした。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = このプロフィールのアバターの体形です。プレイヤーをアバターで表示するゲーム（Kinect Sports）で使われます。今は体形のみで、服や顔はまだありません。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = アバターの体格：女性の体は腰がやや広く、肩が狭くなります。
+Height = 身長
+Shorter or taller limbs and body. = 手足と胴体を短く、または長くします。
+Weight = 体重
+A thinner or heavier build. = 細め、またはがっしりした体格にします。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -747,6 +851,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 비상 자세 사용 중: 게임에 마지막 자세가 전달됩니다. L3 + R3를 놓으면 멈추고, 휴대폰에서 몸이 잡히면 이어받습니다.
 Re-centring the phone camera in %d... Stand still at your spot. = %d초 후 휴대폰 카메라를 다시 중앙에 맞춥니다... 그 자리에 가만히 서 계세요.
 Re-centring the phone camera... Stand still at your spot. = 휴대폰 카메라를 다시 중앙에 맞추는 중... 그 자리에 가만히 서 계세요.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 아바타
+Avatar saved. Games that show avatars use it from their next start. = 아바타를 저장했습니다. 아바타를 표시하는 게임은 다음 실행부터 사용합니다.
+Could not save the avatar. = 아바타를 저장할 수 없습니다.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 이 프로필 아바타의 체형으로, 플레이어를 아바타로 보여 주는 게임(Kinect Sports)에서 사용됩니다. 지금은 체형만 있으며, 아바타에 아직 옷이나 얼굴이 없습니다.
+Body type = 체형 유형
+Female = 여성
+Male = 남성
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 아바타의 체격: 여성의 몸은 엉덩이가 조금 더 넓고 어깨가 더 좁습니다.
+Height = 키
+Shorter or taller limbs and body. = 팔다리와 몸통을 더 짧게 또는 길게 합니다.
+Weight = 체중
+A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -809,6 +926,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Noodhouding aan: de game ziet de laatste houding. Laat L3 + R3 los om te stoppen; een lichaam van de telefoon neemt het over.
 Re-centring the phone camera in %d... Stand still at your spot. = De telefooncamera wordt over %d opnieuw gecentreerd... Blijf stil op je plek staan.
 Re-centring the phone camera... Stand still at your spot. = De telefooncamera wordt opnieuw gecentreerd... Blijf stil op je plek staan.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar opgeslagen. Games die avatars tonen gebruiken hem vanaf de volgende start.
+Could not save the avatar. = Kan de avatar niet opslaan.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = De lichaamsvorm van de avatar van dit profiel, voor games die de speler als avatar tonen (Kinect Sports). Voorlopig alleen de vorm: de avatar heeft nog geen kleding of gezicht.
+Body type = Lichaamstype
+Female = Vrouw
+Male = Man
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = De bouw van de avatar: een vrouwelijk lichaam heeft iets bredere heupen en smallere schouders.
+Height = Lengte
+Shorter or taller limbs and body. = Kortere of langere ledematen en romp.
+Weight = Gewicht
+A thinner or heavier build. = Een slankere of zwaardere bouw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -871,6 +1001,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Poza awaryjna włączona: gra widzi ostatnią pozę. Puść L3 + R3, aby ją wyłączyć; ciało z telefonu przejmie sterowanie.
 Re-centring the phone camera in %d... Stand still at your spot. = Wyśrodkowanie kamery telefonu za %d... Stań nieruchomo w swoim miejscu.
 Re-centring the phone camera... Stand still at your spot. = Wyśrodkowywanie kamery telefonu... Stań nieruchomo w swoim miejscu.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Awatar
+Avatar saved. Games that show avatars use it from their next start. = Awatar zapisany. Gry z awatarami użyją go od następnego uruchomienia.
+Could not save the avatar. = Nie udało się zapisać awatara.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Sylwetka awatara tego profilu, dla gier, które pokazują gracza jako awatar (Kinect Sports). Na razie tylko sylwetka: awatar nie ma jeszcze ubrań ani twarzy.
+Body type = Budowa ciała
+Female = Kobieta
+Male = Mężczyzna
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Budowa awatara: ciało kobiety ma nieco szersze biodra i węższe ramiona.
+Height = Wzrost
+Shorter or taller limbs and body. = Krótsze lub dłuższe kończyny i tułów.
+Weight = Waga
+A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
 
 [added ru]
 Console storage = Память консоли
@@ -933,6 +1076,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Аварийная поза включена: игра видит последнюю позу. Отпустите L3 + R3, чтобы её выключить; тело с телефона её сменит.
 Re-centring the phone camera in %d... Stand still at your spot. = Камера телефона будет заново центрирована через %d... Стойте неподвижно на своём месте.
 Re-centring the phone camera... Stand still at your spot. = Камера телефона заново центрируется... Стойте неподвижно на своём месте.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Аватар
+Avatar saved. Games that show avatars use it from their next start. = Аватар сохранён. Игры с аватарами будут использовать его со следующего запуска.
+Could not save the avatar. = Не удалось сохранить аватар.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Телосложение аватара этого профиля для игр, в которых игрок показан аватаром (Kinect Sports). Пока только телосложение: у аватара ещё нет одежды и лица.
+Body type = Тип тела
+Female = Женский
+Male = Мужской
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Телосложение аватара: у женского тела чуть шире бёдра и уже плечи.
+Height = Рост
+Shorter or taller limbs and body. = Более короткие или длинные конечности и туловище.
+Weight = Вес
+A thinner or heavier build. = Более худое или более плотное телосложение.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -995,6 +1151,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Acil durum pozu açık: oyun son pozu görüyor. Durdurmak için L3 + R3'ü bırakın; telefondan gelen bir vücut devralır.
 Re-centring the phone camera in %d... Stand still at your spot. = Telefon kamerası %d saniye içinde yeniden ortalanacak... Yerinizde hareketsiz durun.
 Re-centring the phone camera... Stand still at your spot. = Telefon kamerası yeniden ortalanıyor... Yerinizde hareketsiz durun.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar kaydedildi. Avatar gösteren oyunlar onu bir sonraki başlatmadan itibaren kullanır.
+Could not save the avatar. = Avatar kaydedilemedi.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Bu profilin avatarının vücut şekli; oyuncuyu avatar olarak gösteren oyunlar için (Kinect Sports). Şimdilik yalnızca şekil: avatarın henüz kıyafeti veya yüzü yok.
+Body type = Vücut tipi
+Female = Kadın
+Male = Erkek
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Avatarın yapısı: kadın vücudunun kalçaları biraz daha geniş, omuzları daha dardır.
+Height = Boy
+Shorter or taller limbs and body. = Daha kısa veya daha uzun uzuvlar ve gövde.
+Weight = Kilo
+A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1057,6 +1226,19 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 紧急姿势已开启：游戏看到的是上一个姿势。松开 L3 + R3 即可停止；手机检测到身体后会接管。
 Re-centring the phone camera in %d... Stand still at your spot. = %d 秒后重新居中手机摄像头... 请站在原地不动。
 Re-centring the phone camera... Stand still at your spot. = 正在重新居中手机摄像头... 请站在原地不动。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虚拟形象
+Avatar saved. Games that show avatars use it from their next start. = 虚拟形象已保存。显示虚拟形象的游戏将从下次启动起使用它。
+Could not save the avatar. = 无法保存虚拟形象。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此个人资料的虚拟形象体型，用于以虚拟形象显示玩家的游戏（Kinect Sports）。目前只有体型：虚拟形象还没有衣服和脸。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虚拟形象的体格：女性身体的臀部略宽，肩膀较窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更长的四肢和躯干。
+Weight = 体重
+A thinner or heavier build. = 更瘦或更壮的体格。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1119,3 +1301,16 @@ No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly 
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急姿勢已開啟：遊戲看到的是上一個姿勢。放開 L3 + R3 即可停止；手機偵測到身體後會接手。
 Re-centring the phone camera in %d... Stand still at your spot. = %d 秒後重新置中手機相機... 請站在原地不動。
 Re-centring the phone camera... Stand still at your spot. = 正在重新置中手機相機... 請站在原地不動。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虛擬人偶
+Avatar saved. Games that show avatars use it from their next start. = 虛擬人偶已儲存。顯示虛擬人偶的遊戲會從下次啟動起使用它。
+Could not save the avatar. = 無法儲存虛擬人偶。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此設定檔的虛擬人偶體型，用於以虛擬人偶顯示玩家的遊戲（Kinect Sports）。目前只有體型：虛擬人偶還沒有衣服和臉。
+Body type = 體型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虛擬人偶的體格：女性身體的臀部稍寬，肩膀較窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更長的四肢和軀幹。
+Weight = 體重
+A thinner or heavier build. = 更瘦或更壯的體格。

@@ -83,6 +83,7 @@ checks=(
   check-kinect-tracker.cpp         # fix 106
   check-kinect-emergency.cpp       # fix 107
   check-kinect-diag.cpp            # fix 108
+  check-avatar-skeleton.cpp        # fix 113
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -95,6 +96,7 @@ declare -A arguments=(
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-emergency.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-avatar-skeleton.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -131,6 +133,7 @@ declare -A fix_of=(
   [check-kinect-tracker.cpp]=106
   [check-kinect-emergency.cpp]=107
   [check-kinect-diag.cpp]=108
+  [check-avatar-skeleton.cpp]=113
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
