@@ -270,6 +270,7 @@ also listed here.
 | 112c (`112c-library-group-mosaic`) | for players: the covers on a group's folder are smaller and no longer squeezed: each keeps its own shape, with yellow folder around them (two games: two covers side by side, three or four: a square of four) | host-checked (`tools/check-library-groups.cpp`); console test pending |
 | 112d (`112d-library-group-one-game`) | for players: a folder with one game in it is shown as that game, not as a group, also when the folder holds the game's DLC and title updates, or when the same game is in folders of that name on two drives. Title updates and DLC are never games in the library (the DLC and Updates tabs still find them) | host-checked (`tools/check-library-groups.cpp`); console test pending |
 | 112e (`112e-original-xbox-discs`) | for players: disc images of original Xbox games (the first Xbox, before the Xbox 360), which the emulator cannot run, no longer show in the library; the log says which were left out | host-checked (`tools/check-library-groups.cpp`); console test pending |
+| 112f (`112f-one-tile-per-copy`) | for players: the same game on two drives (the same image, same size) is one tile; the copy on the console's storage is used first, then the extended storage, then USB, and the game's details line names the drive. Different versions (another size) still show apart | host-checked (`tools/check-library-groups.cpp`); console test pending |
 
 ## Comparison with the official executable
 

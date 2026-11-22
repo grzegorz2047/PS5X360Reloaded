@@ -23,6 +23,9 @@
 // console's Halo folders (one game each beside its DLC and title updates) are no groups.
 // Fix 112e: ReadDiscRoot on made-up XDVDFS images (default.xbe only: an original Xbox disc, left
 // out; default.xex, both or neither: kept; no XDVDFS, a cut root, a short or missing file: kept).
+// Fix 112f: MergeCopies (identical copies on ext1 and usb0: one tile on ext1; another size or title
+// ID: two tiles; the console's storage first; unknown title IDs and sizes apart), DriveOf, DriveRank,
+// and the launcher keeping the other copies for GamePaths, the forwarder and the recent list.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/library_groups.hpp"
@@ -394,6 +397,48 @@ void CheckDiscRoot() {
   fs::remove_all(folder);
 }
 
+// Fix 112f: copies of one game on two drives are one tile.
+void CheckCopies() {
+  Expect(lg::DriveOf("/mnt/ext1/xbox360/halo ce/Halo.iso") == "ext1" && lg::DriveOf("/mnt/usb0/xbox360/a.iso") == "usb0" &&
+             lg::DriveOf("/data/xbox360/a.iso").empty() && lg::DriveOf("/app0/assets/roms/a.iso").empty() &&
+             lg::DriveOf("/mnt/").empty(),
+         "DriveOf: the drive under /mnt, none for the console's storage");
+  Expect(lg::DriveRank("/data/xbox360/a.iso") < lg::DriveRank("/mnt/ext1/a.iso") &&
+             lg::DriveRank("/mnt/ext1/a.iso") < lg::DriveRank("/mnt/usb0/a.iso") &&
+             lg::DriveRank("/mnt/usb0/a.iso") < lg::DriveRank("/mnt/disc/a.iso"),
+         "DriveRank: the console's storage, then ext, then usb");
+  using C = lg::CopyInfo;
+  const uint64_t gb = 7800000000ull;
+  {
+    // Halo: Reach on usb0 (found first) and ext1, same title and size: one tile, on ext1.
+    const auto into = lg::MergeCopies({C{"4D53085B", gb, "/mnt/usb0/xbox360/halo reach/Halo - Reach.iso", true},
+                                       C{"4D53085B", gb, "/mnt/ext1/xbox360/halo reach/Halo - Reach.iso", true}});
+    Expect(into == std::vector<size_t>{1, 1}, "identical copies on ext1 and usb0: one tile, the ext1 copy");
+  }
+  {
+    const auto into = lg::MergeCopies({C{"4D53085B", gb, "/mnt/ext1/a.iso", true}, C{"4D53085B", gb + 2048, "/mnt/usb0/a.iso", true}});
+    Expect(into == std::vector<size_t>{0, 1}, "a different size: two tiles");
+  }
+  {
+    const auto into = lg::MergeCopies({C{"4D53085B", gb, "/mnt/ext1/a.iso", true}, C{"4D5309B1", gb, "/mnt/usb0/b.iso", true}});
+    Expect(into == std::vector<size_t>{0, 1}, "a different title ID: two tiles");
+  }
+  {
+    // The console's storage first; three copies; one of them not copyable (an extracted game).
+    const auto into = lg::MergeCopies({C{"4D5309B1", gb, "/mnt/usb0/h.iso", true}, C{"4D5309B1", gb, "/mnt/ext0/h.iso", true},
+                                       C{"4D5309B1", gb, "/data/xbox360/h.iso", true}, C{"4D5309B1", gb, "/mnt/ext1/h/default.xex", false}});
+    Expect(into == std::vector<size_t>{2, 2, 2, 3}, "three copies: the console's storage; an extracted game apart");
+  }
+  {
+    // Of one rank, the first found; unknown title IDs and sizes never merge.
+    const auto into = lg::MergeCopies({C{"4D5309B1", gb, "/mnt/ext0/h.iso", true}, C{"4d5309b1", gb, "/mnt/ext1/h.iso", true},
+                                       C{"", gb, "/mnt/ext0/x.iso", true}, C{"", gb, "/mnt/usb0/x.iso", true},
+                                       C{"00000000", gb, "/mnt/ext0/y.iso", true}, C{"00000000", gb, "/mnt/usb0/y.iso", true},
+                                       C{"4D530919", 0, "/mnt/ext0/z.iso", true}, C{"4D530919", 0, "/mnt/usb0/z.iso", true}});
+    Expect(into == std::vector<size_t>{0, 0, 2, 3, 4, 5, 6, 7}, "one rank: the first; no title ID or no size: apart");
+  }
+}
+
 void CheckFolders() {
   namespace fs = std::filesystem;
   const fs::path root = fs::temp_directory_path() / ("check-library-groups-" + std::to_string(std::random_device{}()));
@@ -496,6 +541,24 @@ void CheckTree() {
   Expect(Has(launcher, "void DrawGroupFolder(") && Has(launcher, "DrawGroupFolder(c, textures_, arts_, g_group_covers[g]") &&
              Has(launcher, "g_groups.groups[g].games.size(), entry.name, box,"),
          "both shelves draw a group as a folder");
+  // Fix 112f: copies merged after the disc sets and before the order; kept as the tile's copies.
+  const size_t sets = launcher.find("g_running_synced.clear();  // a set whose disc is running chooses it again");
+  const size_t merge = launcher.find("const auto into = library_groups::MergeCopies(infos);", sets);
+  const size_t sorted = launcher.find("std::stable_sort(games_.begin(), games_.end()", merge);
+  Expect(sets != std::string::npos && merge != std::string::npos && sorted != std::string::npos,
+         "copies are merged after the disc sets, before the shelf's order");
+  Expect(Has(launcher, "shown.copies.push_back(games_[n].path);") &&
+             Has(launcher, "XELOGW(\"LAUNCHER library entry {} also on {} (same title, same size), one tile\""),
+         "a merged copy is kept and logged");
+  Expect(Has(launcher, "for (const auto& copy : game.copies) paths.push_back(copy);      // fix 112f: every copy") &&
+             Has(launcher, "other.path = copy;") && Has(launcher, "for (const auto& copy : game.copies) before.insert(copy.string());") &&
+             Has(launcher, "for (const auto& copy : game.copies)  // fix 112f: a copy on another drive is this game too"),
+         "GamePaths, the forwarder, the new-game notice and the recent list see every copy");
+  Expect(Has(launcher, "game_bytes[path.string()] = entry.file_size(error);  // fix 112f"), "the sizes come from the scan");
+  Expect(Has(launcher, "line += \"   ·   \" + (drive.empty() ? std::string(Tr(\"Internal storage\")) : drive);") &&
+             Has(launcher, "(drive.empty() ? std::string(Tr(\"Internal storage\")) : drive);"),
+         "the info line names the drive of the copy shown");
+  Expect(Has(header, "std::vector<std::filesystem::path> copies;"), "GameEntry has its copies");
   // Fix 112e: an original Xbox disc is left out of the scan, with its log line, before it is listed.
   const size_t iso = launcher.find("} else if (extension == \".iso\") {");
   const size_t xbe = launcher.find("if (library_groups::ReadDiscRoot(path.string()) == library_groups::DiscRoot::original_xbox) {", iso);
@@ -603,6 +666,7 @@ int main(int argc, char** argv) {
   CheckBuild();
   CheckMosaic();
   CheckDiscRoot();
+  CheckCopies();
   CheckFolders();
   CheckTree();
   if (argc > 1) CheckLanguages(argv[1]);
