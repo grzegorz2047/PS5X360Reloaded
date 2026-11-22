@@ -186,21 +186,28 @@ int main(int argc, char** argv) {
     stats.Refused(false);
     for (int n = 0; n < 290; ++n) stats.Frame(true);
     for (int n = 0; n < 10; ++n) stats.Frame(false);
-    stats.Page("{\"fps\":30,\"picture_on\":1,\"picture_sent\":512,\"picture_skipped\":31}");
+    stats.Page("{\"fps\":30,\"picture_on\":1,\"picture_sent\":512,\"picture_skipped\":31,\"picture_failed\":2,\"picture_wanted\":1}");
     stats.Page("{\"fps\":30}");                           // a report without them changes nothing
     line = stats.Due(21000, true);
     CHECK(line == "Virtual Kinect: camera picture in 10 s (fix 119): 47 taken (last 160x120), refused 3 (setting off 1, "
-                  "not a picture 2); colour frames 290 from the picture, 10 grey; setting on; phone page: switch on, 512 sent, "
-                  "31 skipped for the network");
+                  "not a picture 2); colour frames 290 from the picture, 10 grey; setting on; phone page: switch on, sees the "
+                  "PS5 ask, 512 sent, 31 skipped for the network, 2 failed");
+    // An older 119c page: no "picture_failed" nor "picture_wanted" (0 failed, the ask not told).
+    stats.Page("{\"picture_on\":1,\"picture_sent\":5,\"picture_skipped\":0}");
+    CHECK(stats.Due(22000, true).empty());
+    CHECK(stats.Due(32000, true).find("phone page: switch on, 5 sent, 0 skipped for the network, 0 failed") !=
+          std::string::npos);
+    stats.Page("{\"picture_on\":1,\"picture_sent\":5,\"picture_skipped\":0,\"picture_wanted\":0}");
+    CHECK(stats.Due(42000, true).find("switch on, sees no ask from the PS5, 5 sent") != std::string::npos);
     stats.Page("{\"picture_on\":0,\"picture_sent\":512,\"picture_skipped\":31}");
     for (int n = 0; n < 300; ++n) stats.Frame(false);
-    line = stats.Due(31000, true);                       // the counters started again
+    line = stats.Due(52000, true);                       // the counters started again
     CHECK(line.find(": 0 taken (last 160x120), refused 0") != std::string::npos);
     CHECK(line.find("colour frames 0 from the picture, 300 grey; setting on; phone page: switch off, 512 sent") != std::string::npos);
     for (int n = 0; n < 300; ++n) stats.Frame(false);
-    CHECK(stats.Due(41000, false).empty());               // setting off and nothing came: no line
+    CHECK(stats.Due(62000, false).empty());               // setting off and nothing came: no line
     stats.Refused(true);
-    CHECK(stats.Due(51000, false).find("setting off; ") != std::string::npos);  // a refusal is told
+    CHECK(stats.Due(72000, false).find("setting off; ") != std::string::npos);  // a refusal is told
   }
 
   // (e) The tree.

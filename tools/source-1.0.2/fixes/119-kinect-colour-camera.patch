@@ -16,10 +16,10 @@ index daf76ca..7a996d9 100644
      if (counter_ptr && IsGuestRange(counter_ptr,4)) {
 diff --git a/include/xbox360ps5/camera_picture.hpp b/include/xbox360ps5/camera_picture.hpp
 new file mode 100644
-index 0000000..13b0139
+index 0000000..5c3d7b2
 --- /dev/null
 +++ b/include/xbox360ps5/camera_picture.hpp
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,235 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 119 (issue 15): the phone's camera picture as the virtual Kinect's colour stream. A Kinect
 +// game that shows its camera (Kinect Sports' Show Off & Share replays, photos) saw a flat grey
@@ -214,6 +214,8 @@ index 0000000..13b0139
 +    page_on_.store(int(on == 1));
 +    page_sent_.store(uint64_t(std::max<int64_t>(ReportNumber(report, "picture_sent"), 0)));
 +    page_skipped_.store(uint64_t(std::max<int64_t>(ReportNumber(report, "picture_skipped"), 0)));
++    page_failed_.store(uint64_t(std::max<int64_t>(ReportNumber(report, "picture_failed"), 0)));  // fix 119d
++    page_wanted_.store(int(ReportNumber(report, "picture_wanted")));
 +  }
 +  // The line when one is due (the window's counters start again), empty otherwise.
 +  std::string Due(int64_t now_ms, bool wanted) {
@@ -235,8 +237,10 @@ index 0000000..13b0139
 +            std::to_string(bad) + "); colour frames " + std::to_string(from_picture) + " from the picture, " +
 +            std::to_string(grey) + " grey; setting " + (wanted ? "on" : "off") + "; phone page: ";
 +    line += page_on < 0 ? std::string("no report (an older page, or not paired)")
-+                        : std::string("switch ") + (page_on ? "on" : "off") + ", " + std::to_string(page_sent_.load()) +
-+                              " sent, " + std::to_string(page_skipped_.load()) + " skipped for the network";
++                        : std::string("switch ") + (page_on ? "on" : "off") +
++                              (page_wanted_.load() == 0 ? ", sees no ask from the PS5" : page_wanted_.load() == 1 ? ", sees the PS5 ask" : "") +
++                              ", " + std::to_string(page_sent_.load()) + " sent, " + std::to_string(page_skipped_.load()) +
++                              " skipped for the network, " + std::to_string(page_failed_.load()) + " failed";
 +    return line;
 +  }
 +
@@ -244,7 +248,8 @@ index 0000000..13b0139
 +  std::atomic<uint64_t> received_{0}, refused_off_{0}, refused_bad_{0}, picture_frames_{0}, grey_frames_{0};
 +  std::atomic<uint32_t> last_size_{0};
 +  std::atomic<int> page_on_{-1};
-+  std::atomic<uint64_t> page_sent_{0}, page_skipped_{0};
++  std::atomic<uint64_t> page_sent_{0}, page_skipped_{0}, page_failed_{0};
++  std::atomic<int> page_wanted_{-1};
 +  std::atomic<int64_t> window_start_{0};
 +};
 +inline PictureStats picture_stats;
@@ -313,7 +318,7 @@ index 3236ff2..ffefbc1 100644
   private:
    uint32_t Sequence() const {
 diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
-index 63f2a8b..198c90a 100644
+index 63f2a8b..acc80a7 100644
 --- a/port/phone_camera_page.hpp
 +++ b/port/phone_camera_page.hpp
 @@ -49,6 +49,8 @@ button.big{font-size:20px;min-height:64px;flex:1 1 100%}
@@ -387,7 +392,7 @@ index 63f2a8b..198c90a 100644
    asking = false;
    if (quiet && state.pairing === 'disconnected') return;  // Disconnect was pressed meanwhile
    const next = afterStatus(state.pairing, http, json);
-@@ -280,6 +289,10 @@ function reportLatency(now) {
+@@ -280,6 +289,12 @@ function reportLatency(now) {
    lastLatency = now;
    const report = latencyWindow.report(now, inFlight);
    report.recentred = recentring.done;  // fix 107: the pad re-centre this page ran
@@ -395,10 +400,12 @@ index 63f2a8b..198c90a 100644
 +  report.picture_on = pictureChoice.value === 'on' ? 1 : 0;
 +  report.picture_sent = pictures.sent;
 +  report.picture_skipped = pictures.skipped;
++  report.picture_failed = pictures.failed;  // fix 119d: thrown, or another answer than 204 and 409
++  report.picture_wanted = pictures.wanted ? 1 : 0;  // whether the page saw the PS5 ask
    latencyLine.textContent = T('latency', ...summaryValues(report)) + ' · ' + report.fps + ' fps';
    latencyLine.hidden = false;
    if (onConsole && paired && consoleKey)
-@@ -297,6 +310,57 @@ function showPose(pose, extra) {
+@@ -297,10 +312,65 @@ function showPose(pose, extra) {
      }).join('\n');
  }
  
@@ -407,7 +414,7 @@ index 63f2a8b..198c90a 100644
 +// second, one at a time, and none while pose frames wait or the network is slow. The picture is
 +// made from the camera in memory and not kept.
 +const pictures = new PictureGate();
-+let lastNetworkMs = 0;
++let lastNetworkMs = 0, lastPoseDrop = -Infinity;
 +const pictureCanvas = document.createElement('canvas');
 +pictureCanvas.width = PICTURE_WIDTH; pictureCanvas.height = PICTURE_HEIGHT;
 +const pictureContext = pictureCanvas.getContext('2d', {willReadFrequently: true});
@@ -436,7 +443,10 @@ index 63f2a8b..198c90a 100644
 +async function sendPicture() {
 +  showPictureNote();
 +  if (!onConsole || !paired || !consoleKey || demo || !stream || video.readyState < 2) return;
-+  if (!pictures.due(performance.now(), pictureChoice.value === 'on', inFlight, lastNetworkMs)) return;
++  // Fix 119d: since the last pose frame the page had to drop (two waiting), not frames in flight:
++  // that count included the frame whose answer called this, so nearly every picture was skipped.
++  const now = performance.now();
++  if (!pictures.due(now, pictureChoice.value === 'on', now - lastPoseDrop, lastNetworkMs)) return;
 +  const crop = pictureCrop(video.videoWidth, video.videoHeight);
 +  if (!crop || !pictureContext) return;
 +  pictures.inFlight = true;
@@ -447,6 +457,7 @@ index 63f2a8b..198c90a 100644
 +      body: packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence)});
 +    pictures.answer(response.status, performance.now());
 +  } catch {
++    pictures.failed++;  // fix 119d: counted for the console's line
 +  } finally {
 +    pictures.inFlight = false;
 +    showPictureNote();
@@ -456,7 +467,12 @@ index 63f2a8b..198c90a 100644
  async function sendPose(pose, queuedSession = null) {
    if (!paired && !queuedSession) return;
    const target = queuedSession || motionSession;
-@@ -321,8 +385,15 @@ async function sendPose(pose, queuedSession = null) {
+-  if (inFlight >= 2) { if (!pose) pendingLost = target; return; }
++  if (inFlight >= 2) { lastPoseDrop = performance.now(); if (!pose) pendingLost = target; return; }  // fix 119d: noted
+   if (++target.sequence > 0xffffffff) { if (target === motionSession) setPairing('lost'); return; }
+   inFlight++;
+   try {
+@@ -321,8 +391,15 @@ async function sendPose(pose, queuedSession = null) {
      }
      if (paired && target === motionSession) sentTimes.push(performance.now());
      if (pose && onConsole) latencyWindow.add('network', (performance.now() - sentAt) / 2);
@@ -473,7 +489,7 @@ index 63f2a8b..198c90a 100644
    } catch (e) {
      if (target === motionSession) setPairing(afterFrame(state.pairing, 0, ''));
    } finally {
-@@ -804,6 +875,66 @@ export class RecentreState {
+@@ -804,6 +881,70 @@ export class RecentreState {
    }
  }
  
@@ -482,6 +498,7 @@ index 63f2a8b..198c90a 100644
 +export const PICTURE_WIDTH = 160, PICTURE_HEIGHT = 120;
 +export const PICTURE_MS = 100;               // at most 10 a second
 +export const PICTURE_MAX_NETWORK_MS = 150;   // none while a pose frame takes longer than this
++export const PICTURE_AFTER_DROP_MS = 500;    // none this long after a pose frame had to be dropped
 +
 +// The middle 4:3 of a video `width` x `height` (null before the camera has a size).
 +export function pictureCrop(width, height) {
@@ -517,21 +534,24 @@ index 63f2a8b..198c90a 100644
 +}
 +
 +// When a picture goes: the console wants it ("picture" in its answers), the page's switch is on,
-+// none is on its way, 100 ms since the last try, and the pose frames keep up (fewer than 2 waiting,
-+// half a round trip under 150 ms); a picture skipped for the network waits for the next try.
++// none is on its way, 100 ms since the last try, and the pose frames keep up (no pose frame dropped
++// for two waiting in the last 500 ms, half a round trip under 150 ms); a picture skipped for the
++// network waits for the next try. Fix 119d: sinceDropMs replaces a count of frames in flight, which
++// included the frame just answered and so held back nearly every picture.
 +export class PictureGate {
-+  constructor() { this.wanted = false; this.inFlight = false; this.last = -Infinity; this.sequence = 0; this.sent = 0; this.skipped = 0; }
++  constructor() { this.wanted = false; this.inFlight = false; this.last = -Infinity; this.sequence = 0; this.sent = 0; this.skipped = 0; this.failed = 0; }
 +  note(json) { if (json && json.picture !== undefined) this.wanted = Number(json.picture) === 1; }
-+  due(now, enabled, poseInFlight, networkMs) {
++  due(now, enabled, sinceDropMs, networkMs) {
 +    if (!enabled || !this.wanted || this.inFlight || now - this.last < PICTURE_MS) return false;
 +    this.last = now;
-+    if (poseInFlight >= 2 || networkMs > PICTURE_MAX_NETWORK_MS) { this.skipped++; return false; }
++    if (sinceDropMs < PICTURE_AFTER_DROP_MS || networkMs > PICTURE_MAX_NETWORK_MS) { this.skipped++; return false; }
 +    return true;
 +  }
-+  // The console's answer to a picture: 204 taken, 409 its setting is off.
++  // The console's answer to a picture: 204 taken, 409 its setting is off, anything else failed.
 +  answer(status, now) {
 +    if (status === 204) { this.sent++; this.sentAt = now; }
 +    else if (status === 409) this.wanted = false;
++    else this.failed++;
 +  }
 +  // Pictures are going: the console wants them and took one in the last 2 s.
 +  sending(now) { return this.wanted && this.sentAt !== undefined && now - this.sentAt < 2000; }
@@ -540,12 +560,12 @@ index 63f2a8b..198c90a 100644
  // The page's line: the medians, '–' for a stage without samples.
  export function summaryValues(report) {
    return STAGES.map(name => {
-@@ -812,5 +943,5 @@ export function summaryValues(report) {
+@@ -812,5 +953,5 @@ export function summaryValues(report) {
    });
  }
  )LATENCYJS";
 -inline constexpr char kPageVersion[] = "2a2c908b5d1578ff";
-+inline constexpr char kPageVersion[] = "2501175510d9dd64";
++inline constexpr char kPageVersion[] = "89eed2d843ed6c76";
  }  // namespace xbox360ps5::phone_camera
 diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
 index 34ddd5a..c237bba 100644
