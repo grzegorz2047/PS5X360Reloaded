@@ -130,6 +130,7 @@ checks=(
   check-nui-hud-check.cpp          # fix 118
   check-guide-header.cpp           # fix 115b
   check-guide-tabs.cpp             # fix 115c
+  check-guide-counter.cpp          # fix 115d
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -232,6 +233,7 @@ declare -A fix_of=(
   [check-nui-hud-check.cpp]=118
   [check-guide-header.cpp]=115b
   [check-guide-tabs.cpp]=115c
+  [check-guide-counter.cpp]=115d
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

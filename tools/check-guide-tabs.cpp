@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Fix 115c (tools/source-1.0.2/fixes/115c-guide-tab-bar.patch): the in-game guide's pages become a
-// tab bar along the panel's top (include/xbox360ps5/tab_bar.hpp, shared with the library's game
+// tab bar along the panel's top (reconstructed/xbox360ps5/tab_bar.hpp, shared with the library's game
 // sheet), the user's choice after the console run of 1.0.5-work-fix115b (research/fix115b-guide/):
 // L1 and R1 were small, low-contrast and far from the side tabs, and left and right on the first
 // page switched pages while on the settings page they changed options ("I change an option by
@@ -256,7 +256,7 @@ void CheckGuide() {
   const std::string draw = Between(main, "// Fix 115c: the pages are tabs on a bar", "const auto items = GuideItems(state_.page, settings_, state_.category);");
   Expect(Has(draw, "const float list_top = top + tb::kBarHeight;") &&
              Has(draw, "std::vector<std::string> tabs = {Tr(kGuidePages[0]), Tr(kGuidePages[1])};") &&
-             Has(draw, "tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar);") &&
+             Has(draw, "tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar)") &&
              Has(draw, "list->PushClipRect(at(left, list_top), at(right, bottom), true);"),
          "(c) the tab bar along the panel's top, the list below it");
   Expect(!Has(main, "Sideways(list, medium, 28 * scale, at(other_left + blade - 14, top + 24)") &&
@@ -266,8 +266,10 @@ void CheckGuide() {
              Has(main, "const bool focused = row_focus && n == state_.row;") &&
              Has(main, "if (row_focus && state_.row >= first_row && state_.row < last_row)"),
          "(c) rows below the bar; none lit while the bar has the pad");
-  Expect(Has(main, "const int shown_rows = button ? kGuideRows - 1 : kGuideRows;") &&
-             Has(main, "list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24"),
+  Expect((Has(main, "const int shown_rows = button ? kGuideRows - 1 : kGuideRows;") &&
+              Has(main, "list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24")) ||
+             // Fix 115d (check-guide-counter.cpp): the button in a slot of its own.
+             (Has(main, "const int shown_rows = kGuideRows;") && Has(main, "list_top + (listed - first_row) * 63.0f + 4")),
          "(c) six rows below the bar (five above fix 93d's button), both pages scroll");
   Expect(Has(main, "tb::DrawValue(painter, items[size_t(n)].value.c_str(), page_right - 24 + slide_x, y + 16, 28,") &&
              Has(main, "GuideRowHasValue(items[size_t(n)]));"),

@@ -133,6 +133,7 @@ on:
       - 'tools/check-swap-pacing.cpp'
       - 'tools/check-guide-header.cpp'
       - 'tools/check-guide-tabs.cpp'
+      - 'tools/check-guide-counter.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

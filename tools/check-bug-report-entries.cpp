@@ -102,13 +102,17 @@ void CheckGame() {
              ((Has(main, "std::max(0, listed - kGuideRows)") && Has(main, "std::min(listed, first_row + kGuideRows)")) ||
               // Fix 115c (check-guide-tabs.cpp): the rows below the tab bar, one fewer above the button.
               (Has(main, "const int shown_rows = button ? kGuideRows - 1 : kGuideRows;") &&
-               Has(main, "std::max(0, listed - shown_rows)") && Has(main, "std::min(listed, first_row + shown_rows)"))),
+               Has(main, "std::max(0, listed - shown_rows)") && Has(main, "std::min(listed, first_row + shown_rows)")) ||
+              // Fix 115d (check-guide-counter.cpp): the button in a slot of its own after the rows.
+              Has(main, "xbox360ps5::guide_quick::Window(state_.row, total, listed, shown_rows);")),
          "(d) the rows are the others; the action is not one of them (no green focus bar on it)");
-  const std::string draw = Between(main, "    if (button) {", "list->PopClipRect();");
+  std::string draw = Between(main, "    if (button) {", "list->PopClipRect();");
+  if (draw.empty()) draw = Between(main, "    if (button_shown) {", "list->PopClipRect();");  // fix 115d
   Expect((Has(draw, "const bool focused = state_.row == listed;") || Has(draw, "const bool focused = row_focus && state_.row == listed;")) &&
              Has(draw, "const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;") &&
              (Has(draw, "top + std::min(listed - first_row, kGuideRows) * 63.0f + 24") ||
-              Has(draw, "list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24")),
+              Has(draw, "list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24") ||
+              Has(draw, "list_top + (listed - first_row) * 63.0f + 4")),
          "(d) a button centred below the list");
   // The approved mock-up (bug-report-guide-raised), without the "!" mark: a raised button.
   Expect(Has(draw, "for (int n = 4; n >= 1; --n)") && Has(draw, "fade(40, 44, 52, a * 7 / 100)"),
