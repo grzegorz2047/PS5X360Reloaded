@@ -188,6 +188,12 @@ check('(d) the page', () => {
   assert.ok(page.includes('pictures.jpeg = false;  // not again on this page'));
   assert.ok(page.includes('body = packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence);'));
   assert.ok(page.includes('if (video.currentTime === lastPictureFrame) return;'));
+  // Fix 119l: each new camera frame tries a picture (requestVideoFrameCallback), not only a pose
+  // frame's answer (25-26 a second).
+  const frames = between(page, 'function watchFrames() {', '\n}\n');
+  assert.ok(frames.includes("if (active && pictureChoice.value === 'on') void sendPicture();"));
+  assert.ok(frames.indexOf('void sendPicture();') < frames.indexOf('video.requestVideoFrameCallback(next); else'));
+  assert.ok(page.includes('    void sendPicture();\n    }'));  // still after a pose frame's answer too
   assert.ok(page.indexOf('if (video.currentTime === lastPictureFrame) return;') < page.indexOf('if (!pictures.due(') &&
             page.indexOf('lastPictureFrame = video.currentTime;') > page.indexOf('if (!pictures.due('));
   assert.ok(page.includes("import {packJpegPicture, PICTURE_JPEG_QUALITY} from './latency.mjs?v=119';  // fix 119i"));
@@ -202,7 +208,7 @@ check('(d) the page', () => {
   assert.ok(!/localStorage[^\n]*pixels|sessionStorage[^\n]*pixels/.test(page));
   // After a frame's answer, which carries "picture"; the status too.
   const answer = page.indexOf('pictures.note(answer);');
-  assert.ok(answer > page.indexOf('lastNetworkMs = (performance.now() - sentAt) / 2;  // fix 119') && answer < page.indexOf('void sendPicture();'));
+  assert.ok(answer > page.indexOf('lastNetworkMs = (performance.now() - sentAt) / 2;  // fix 119') && answer < page.indexOf('void sendPicture();', answer));
   assert.ok(page.includes('if (json) { pictures.note(json); showPictureNote(); }  // fix 119'));
   const TEXT = eval('(' + between(page, 'const TEXT = ', ';\nconst lang = ') + ')');
   assert.equal(Object.keys(TEXT).length, 4);

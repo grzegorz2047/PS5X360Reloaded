@@ -474,7 +474,7 @@ index 3236ff2..ffefbc1 100644
   private:
    uint32_t Sequence() const {
 diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
-index 63f2a8b..dc08448 100644
+index 63f2a8b..a8a31b7 100644
 --- a/port/phone_camera_page.hpp
 +++ b/port/phone_camera_page.hpp
 @@ -49,6 +49,8 @@ button.big{font-size:20px;min-height:64px;flex:1 1 100%}
@@ -549,7 +549,17 @@ index 63f2a8b..dc08448 100644
    asking = false;
    if (quiet && state.pairing === 'disconnected') return;  // Disconnect was pressed meanwhile
    const next = afterStatus(state.pairing, http, json);
-@@ -280,6 +290,13 @@ function reportLatency(now) {
+@@ -268,6 +278,9 @@ function watchFrames() {
+   watchingFrames = true;
+   const next = (now, meta) => {
+     frameCaptured = meta.captureTime ?? meta.presentationTime ?? now;
++    // Fix 119l: a picture for each new camera frame, at the camera's pace; after a pose frame's
++    // answer alone (25-26 a second on the console) it was 17-20 a second with 3 on their way.
++    if (active && pictureChoice.value === 'on') void sendPicture();
+     if (active) video.requestVideoFrameCallback(next); else watchingFrames = false;
+   };
+   video.requestVideoFrameCallback(next);
+@@ -280,6 +293,13 @@ function reportLatency(now) {
    lastLatency = now;
    const report = latencyWindow.report(now, inFlight);
    report.recentred = recentring.done;  // fix 107: the pad re-centre this page ran
@@ -563,7 +573,7 @@ index 63f2a8b..dc08448 100644
    latencyLine.textContent = T('latency', ...summaryValues(report)) + ' · ' + report.fps + ' fps';
    latencyLine.hidden = false;
    if (onConsole && paired && consoleKey)
-@@ -297,6 +314,81 @@ function showPose(pose, extra) {
+@@ -297,6 +317,81 @@ function showPose(pose, extra) {
      }).join('\n');
  }
  
@@ -645,7 +655,7 @@ index 63f2a8b..dc08448 100644
  async function sendPose(pose, queuedSession = null) {
    if (!paired && !queuedSession) return;
    const target = queuedSession || motionSession;
-@@ -321,8 +413,15 @@ async function sendPose(pose, queuedSession = null) {
+@@ -321,8 +416,15 @@ async function sendPose(pose, queuedSession = null) {
      }
      if (paired && target === motionSession) sentTimes.push(performance.now());
      if (pose && onConsole) latencyWindow.add('network', (performance.now() - sentAt) / 2);
@@ -662,7 +672,7 @@ index 63f2a8b..dc08448 100644
    } catch (e) {
      if (target === motionSession) setPairing(afterFrame(state.pairing, 0, ''));
    } finally {
-@@ -804,6 +903,105 @@ export class RecentreState {
+@@ -804,6 +906,105 @@ export class RecentreState {
    }
  }
  
@@ -768,12 +778,12 @@ index 63f2a8b..dc08448 100644
  // The page's line: the medians, '–' for a stage without samples.
  export function summaryValues(report) {
    return STAGES.map(name => {
-@@ -812,5 +1010,5 @@ export function summaryValues(report) {
+@@ -812,5 +1013,5 @@ export function summaryValues(report) {
    });
  }
  )LATENCYJS";
 -inline constexpr char kPageVersion[] = "2a2c908b5d1578ff";
-+inline constexpr char kPageVersion[] = "33a4706b7041e9ab";
++inline constexpr char kPageVersion[] = "a51b77192b989ffb";
  }  // namespace xbox360ps5::phone_camera
 diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
 index 34ddd5a..9716616 100644
