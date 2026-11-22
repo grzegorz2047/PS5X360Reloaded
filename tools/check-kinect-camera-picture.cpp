@@ -338,6 +338,17 @@ int main(int argc, char** argv) {
         std::string::npos);
   CHECK(tls.find("motion::PictureJson(motion::picture_wanted.load()) + \"}\");") != std::string::npos);
   CHECK(tls.find("motion::picture_stats.Received(taken_width, taken_height);") != std::string::npos);  // 119i: either kind
+  // Fix 119j: a refused resolve (vf0 not one rectangle) says what it would have written, once for
+  // each destination and vf0 size, 16 at most.
+  const std::string draw_util = ReadText(".deps/xenia-canary/src/xenia/gpu/draw_util.cc");
+  const size_t refused = draw_util.find("XELOGE(\"Unsupported resolve vertex buffer format ({} so far)\", count + 1);");
+  const size_t described = draw_util.find("\"Resolve refused (fix 119j): vf0 type {} size {} words ({} rectangles if 3 vertices \"");
+  CHECK(refused != std::string::npos && described != std::string::npos && refused < described);
+  CHECK(described < draw_util.find("assert_always();\n    return false;", refused));
+  CHECK(draw_util.find("if (described.size() < 16 &&") != std::string::npos);
+  CHECK(draw_util.find("uint32_t(fetch.size) / 6,\n            uint32_t(fetch.address) * 4, uint32_t(rb_copy_control.copy_command),") !=
+        std::string::npos);
+  CHECK(draw_util.find("uint32_t(dest_info.copy_dest_format), uint32_t(dest_pitch.copy_dest_pitch),") != std::string::npos);
   // Fix 119i: the JPEG decoder is the build's stb_image, set when the server starts.
   CHECK(tls.find("#include \"third_party/stb/stb_image.h\"") != std::string::npos);
   CHECK(tls.find("#define STB_IMAGE_IMPLEMENTATION") == std::string::npos);  // xenia/ui/imgui_drawer.cc has it

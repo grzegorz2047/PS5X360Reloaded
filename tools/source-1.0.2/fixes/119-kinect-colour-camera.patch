@@ -1,3 +1,55 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/draw_util.cc b/.deps/xenia-canary/src/xenia/gpu/draw_util.cc
+index d4557c4..cf34790 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/draw_util.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/draw_util.cc
+@@ -8,6 +8,9 @@
+  */
+ 
+ #include "xenia/gpu/draw_util.h"
++#include <algorithm>
++#include <vector>
++#include <mutex>
+ 
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
+@@ -1282,6 +1285,37 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
+     if (count < 4 || !(count & 0xFFF)) {
+       XELOGE("Unsupported resolve vertex buffer format ({} so far)", count + 1);
+     }
++    // Xbox360PS5 fix 119j: what these copies would write, once for each destination and vf0 size
++    // (at most 16): a refused copy leaves its texture as it was (Kinect Sports' player masks are
++    // thought to be among them: an info card drawn wrong for a moment after Show Off & Share).
++    {
++      static std::mutex described_mutex;
++      static std::vector<uint64_t> described;
++      const uint32_t dest_base = regs[XE_GPU_REG_RB_COPY_DEST_BASE];
++      const auto dest_info = regs.Get<reg::RB_COPY_DEST_INFO>();
++      const auto dest_pitch = regs.Get<reg::RB_COPY_DEST_PITCH>();
++      const uint64_t key = uint64_t(dest_base) << 32 | (uint32_t(fetch.size) << 2 | uint32_t(fetch.type));
++      bool first = false;
++      {
++        std::lock_guard<std::mutex> lock(described_mutex);
++        if (described.size() < 16 &&
++            std::find(described.begin(), described.end(), key) == described.end()) {
++          described.push_back(key);
++          first = true;
++        }
++      }
++      if (first) {
++        XELOGW(
++            "Resolve refused (fix 119j): vf0 type {} size {} words ({} rectangles if 3 vertices "
++            "of 2 floats each) at {:08X}; copy command {} from render target {} to {:08X}, format "
++            "{}, pitch {}, height {}",
++            uint32_t(fetch.type), uint32_t(fetch.size), uint32_t(fetch.size) / 6,
++            uint32_t(fetch.address) * 4, uint32_t(rb_copy_control.copy_command),
++            uint32_t(rb_copy_control.copy_src_select), dest_base,
++            uint32_t(dest_info.copy_dest_format), uint32_t(dest_pitch.copy_dest_pitch),
++            uint32_t(dest_pitch.copy_dest_height));
++      }
++    }
+     assert_always();
+     return false;
+   }
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
 index daf76ca..7a996d9 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
