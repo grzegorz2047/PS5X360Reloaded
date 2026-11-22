@@ -6,7 +6,7 @@
 # tree's include/ and reconstructed/ and the core's include roots), then run with its arguments.
 # check-wait-wakeups.cpp (fix 31) is built four ways (see below).
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
-# (fix 25, English keys) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
+# (fix 25, English keys), tools/check-game-patch-files.py (the shipped assets/patches files) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
 # host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 # tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
@@ -418,6 +418,14 @@ if "$python" -I "$repo/tools/check-patch-syntax.py"; then
   echo "pass check-patch-syntax.py"
 else
   echo "FAIL check-patch-syntax.py"
+  status=1
+fi
+# The shipped game patch files (assets/patches): TOML, the title's reader, GTA IV's draw distance.
+echo "=== check-game-patch-files.py"
+if "$python" -I "$repo/tools/check-game-patch-files.py"; then
+  echo "pass check-game-patch-files.py"
+else
+  echo "FAIL check-game-patch-files.py"
   status=1
 fi
 echo "=== check-bf3-preset.py"
