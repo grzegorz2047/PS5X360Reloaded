@@ -83,6 +83,7 @@ on:
       - 'tools/check-kinect-emergency.cpp'
       - 'tools/check-kinect-recentre.mjs'
       - 'tools/check-kinect-diag.cpp'
+      - 'tools/check-file-sector.cpp'
       - 'tools/source-1.0.2/fixtures/kinect-1.0.2/**'
       - 'tools/check-suspend-trace.cpp'
       - 'tools/check-pending-resume.cpp'
