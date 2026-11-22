@@ -20,11 +20,17 @@
 //      steady clock, the rest of executing; the hooks: draws, resolves, submissions, the memexport
 //      readback, uploads, texture requests, fence waits; the build's symbol list (eboot-symbols.txt)
 //      in the artifact, to name the guide's "Measure performance" offsets.
+// Fix 138: "executing" also held the GPU thread's WAIT_REG_MEM sleeps (Red Dead Redemption with
+// fix 134c: 989 ms/s either way while those sleeps went from 39-47 to 206-208 ms/s).
+//  (e) the sleeps timed on the GPU thread only, taken out of "executing" and shown after "idle
+//      for the guest" as "waiting for the guest (WAIT_REG_MEM)", the old figure the sum of the
+//      two; the reading counts them with the idle time; the line without sleeps unchanged.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../include/xbox360ps5/frame_cost.hpp"
 
 #include <cstdio>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -52,6 +58,7 @@ void ResetTotals() {
     fc::totals.waits[c] = 0;
   }
   fc::totals.execute_ns = fc::totals.idle_ns = fc::totals.other_wait_ns = fc::totals.other_waits = 0;
+  fc::totals.guest_wait_ns = fc::totals.guest_waits = 0;  // fix 138
   fc::totals.gpu_busy_ns = fc::totals.gpu_samples = fc::totals.submissions = 0;
 }
 
@@ -135,6 +142,62 @@ void CheckLine() {
   Expect(Contains(Line(500, 200, 100, 500, 0, 0, false), "GPU busy not measured (no timestamps)"), "no timestamps");
   Expect(Contains(Line(500, 200, 100, 500, 0, 0, false), "reading: GPU-bound (the GPU thread waits for frames in flight)"),
          "no timestamps: frames in flight");
+}
+
+// Fix 138: the GPU thread's WAIT_REG_MEM sleeps out of "executing".
+void CheckGuestWait() {
+  ResetTotals();
+  {
+    fc::WaitRegTimer not_gpu(true, 0x200);
+    not_gpu.Missed();
+    not_gpu.AfterSleep(not_gpu.BeforeSleep());
+  }
+  Expect(fc::totals.guest_waits == 0 && fc::totals.guest_wait_ns == 0, "fix 138: sleeps counted on the GPU thread only");
+  std::thread([] {
+    fc::MarkGpuThread();
+    fc::WaitRegTimer slept(true, 0x200);
+    for (int n = 0; n < 2; ++n) {
+      slept.Missed();
+      const uint64_t before = slept.BeforeSleep();
+      std::this_thread::sleep_for(std::chrono::milliseconds(3));
+      slept.AfterSleep(before);
+    }
+  }).join();
+  Expect(fc::totals.guest_waits == 2 && fc::totals.guest_wait_ns >= 6000000 && fc::totals.guest_wait_ns < 200000000,
+         "fix 138: two sleeps of 3 ms timed (" + std::to_string(fc::totals.guest_wait_ns) + " ns)");
+  // Red Dead Redemption with fix 134c, mode 1: executing 989 ms/s with 207 ms/s of sleeps.
+  ResetTotals();
+  fc::Reporter reporter;
+  (void)reporter.Line(30, true);
+  const auto ns = [](double ms_per_s) { return uint64_t(ms_per_s * 30 * 1e6); };
+  fc::totals.gpu_busy_ns = ns(304);
+  fc::totals.gpu_samples = fc::totals.submissions = 6300;
+  fc::totals.execute_ns = ns(989);
+  fc::totals.idle_ns = ns(12);
+  fc::totals.guest_wait_ns = ns(207);
+  fc::totals.guest_waits = 6000;
+  const std::string line = reporter.Line(30, true);
+  std::printf("   %s\n", line.c_str());
+  Expect(Contains(line, "GPU thread executing 782 ms/s (waits taken out), idle for the guest 12 ms/s, "
+                        "waiting for the guest (WAIT_REG_MEM) 207 ms/s in 200 sleeps/s, waiting for the GPU 0 ms/s"),
+         "fix 138: the sleeps out of executing, on their own (782 + 207 = the old 989)");
+  Expect(Contains(line, "reading: the GPU command thread's own work"), "fix 138: still the command thread at 782 ms/s");
+  // A thread that mostly sleeps for the guest: the reading says so.
+  ResetTotals();
+  (void)reporter.Line(30, true);
+  fc::totals.gpu_busy_ns = ns(300);
+  fc::totals.gpu_samples = fc::totals.submissions = 3000;
+  fc::totals.execute_ns = ns(800);
+  fc::totals.idle_ns = ns(100);
+  fc::totals.guest_wait_ns = ns(450);
+  fc::totals.guest_waits = 3000;
+  Expect(Contains(reporter.Line(30, true), "reading: the guest's CPU time"),
+         "fix 138: idle plus the WAIT_REG_MEM sleeps read as the guest's CPU time");
+  // Without sleeps the line is as before (0 in 0 sleeps/s).
+  Expect(Contains(Line(400, 250, 100, 50, 300, 0),
+                  "GPU thread executing 250 ms/s (waits taken out), idle for the guest 100 ms/s, "
+                  "waiting for the guest (WAIT_REG_MEM) 0 ms/s in 0 sleeps/s, waiting for the GPU 350 ms/s"),
+         "fix 138: no sleeps, the same figures");
 }
 
 std::string Read(const std::string& path) {
@@ -243,6 +306,7 @@ int main() {
   CheckGpuBusy();
   CheckWaits();
   CheckLine();
+  CheckGuestWait();
   CheckSections();
   CheckTree();
   if (failures) {

@@ -209,7 +209,7 @@ declare -A fix_of=(
   [check-app-identity.cpp]=46 [check-official-import.cpp]=46
   [check-hang-watch.cpp]=47
   [check-memexport-loss.cpp]=48
-  [check-frame-cost.cpp]=49
+  [check-frame-cost.cpp]="49 138"
   [check-save-folder.cpp]=50
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52

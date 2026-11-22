@@ -1,0 +1,105 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -11,6 +11,12 @@
+ //   - other threads' waits for the GPU (the UI thread's presenter);
+ // and a reading: GPU-bound, waiting for readbacks or queries (synchronisation), the guest's own
+ // CPU time (game code, JIT, the kernel), or the command thread's own work.
++// Fix 138: "executing" also held the GPU thread's sleeps in WAIT_REG_MEM, waiting for the guest
++// to write a memory word or register (fix 77's "sleeping"). Red Dead Redemption with fix 134c in
++// mode 1 moved 140 ms/s of replay to the submit worker, yet "executing" stayed at 989 ms/s: the
++// WAIT_REG_MEM sleeps went from 39-47 to 206-208 ms/s. They are now taken out and shown on
++// their own, after "idle for the guest": "waiting for the guest (WAIT_REG_MEM) x ms/s in n
++// sleeps/s". The old "executing" is the new one plus that figure.
+ // No Xenia headers: tools/check-frame-cost.cpp drives it.
+ #pragma once
+ #include <algorithm>
+@@ -44,6 +50,7 @@ inline uint64_t NowNs() {
+ struct Totals {
+   std::array<std::atomic<uint64_t>, kCauses> wait_ns{}, waits{};
+   std::atomic<uint64_t> execute_ns{0}, idle_ns{0};       // GPU command thread
++  std::atomic<uint64_t> guest_wait_ns{0}, guest_waits{0};  // fix 138: its WAIT_REG_MEM sleeps
+   std::atomic<uint64_t> other_wait_ns{0}, other_waits{0};  // other threads' fence waits
+   std::atomic<uint64_t> gpu_busy_ns{0}, gpu_samples{0}, submissions{0};
+ };
+@@ -944,11 +951,18 @@ class WaitRegTimer {
+     if (!start_) start_ = Ticks();
+     ++polls_;
+   }
+-  uint64_t BeforeSleep() const { return active_ ? Ticks() : 0; }
++  uint64_t BeforeSleep() {
++    if (!active_) return 0;
++    sleep_start_ns_ = NowNs();  // fix 138
++    return Ticks();
++  }
+   void AfterSleep(uint64_t before) {
+     if (!active_) return;
+     slept_ += Ticks() - before;
+     ++sleeps_;
++    // Fix 138: the sleep, out of "executing" in the Frame time line.
++    AddOwn(totals.guest_wait_ns, NowNs() - sleep_start_ns_);
++    AddOwn(totals.guest_waits, 1);
+   }
+   ~WaitRegTimer() {
+     if (!active_ || !start_) return;
+@@ -968,6 +982,7 @@ class WaitRegTimer {
+   bool active_, memory_;
+   uint32_t wait_;
+   uint64_t start_ = 0, slept_ = 0, polls_ = 0, sleeps_ = 0;
++  uint64_t sleep_start_ns_ = 0;  // fix 138
+ };
+ // "Frame time WAIT_REG_MEM (GPU thread): n/s, w/s waited (m on memory), polling x ms/s, sleeping
+ // y ms/s in s sleeps/s, p polls/s; waits by wait field: 0 a/s, 1-FF b/s, 100-3FF c/s, 400+ d/s"
+@@ -1288,7 +1303,8 @@ class Reporter {
+     uint64_t gpu_wait_ns = 0;
+     for (uint32_t c = 0; c < kCauses; ++c)
+       if (c != kPipeline) gpu_wait_ns += d.wait_ns[c];
+-    const uint64_t waits_in_execute = gpu_wait_ns + d.wait_ns[kPipeline];
++    // Fix 138: the WAIT_REG_MEM sleeps taken out too.
++    const uint64_t waits_in_execute = gpu_wait_ns + d.wait_ns[kPipeline] + d.guest_wait_ns;
+     const uint64_t own = d.execute_ns > waits_in_execute ? d.execute_ns - waits_in_execute : 0;
+     std::string causes;
+     for (uint32_t c = 0; c < kCauses; ++c) {
+@@ -1307,11 +1323,14 @@ class Reporter {
+     char text[700];
+     std::snprintf(text, sizeof(text),
+                   "Frame time: %s; GPU thread executing %.0f ms/s (waits taken out), idle for the guest %.0f ms/s, "
++                  "waiting for the guest (WAIT_REG_MEM) %.0f ms/s in %.0f sleeps/s, "
+                   "waiting for the GPU %.0f ms/s (%s), for pipelines %.0f ms/s in %.0f/s; other threads waiting for the GPU "
+                   "%.0f ms/s; %s",
+-                  gpu, ms(own), ms(d.idle_ns), ms(gpu_wait_ns), causes.empty() ? "no waits" : causes.c_str(),
++                  gpu, ms(own), ms(d.idle_ns), ms(d.guest_wait_ns), double(d.guest_waits) / s, ms(gpu_wait_ns),
++                  causes.empty() ? "no waits" : causes.c_str(),
+                   ms(d.wait_ns[kPipeline]), double(d.waits[kPipeline]) / s, ms(d.other_wait_ns),
+-                  Reading(timestamps && d.gpu_samples ? ms(d.gpu_busy_ns) : -1, ms(own), ms(d.idle_ns),
++                  Reading(timestamps && d.gpu_samples ? ms(d.gpu_busy_ns) : -1, ms(own),
++                          ms(d.idle_ns + d.guest_wait_ns),  // fix 138: both wait for the guest
+                           ms(d.wait_ns[kMemexport] + d.wait_ns[kResolve] + d.wait_ns[kQuery]),
+                           ms(d.wait_ns[kThrottle]), ms(d.wait_ns[kPipeline])));
+     return text;
+@@ -1333,6 +1352,7 @@ class Reporter {
+   struct Snapshot {
+     std::array<uint64_t, kCauses> wait_ns{}, waits{};
+     uint64_t execute_ns = 0, idle_ns = 0, other_wait_ns = 0, gpu_busy_ns = 0, gpu_samples = 0, submissions = 0;
++    uint64_t guest_wait_ns = 0, guest_waits = 0;  // fix 138
+     Snapshot Minus(const Snapshot& o) const {
+       Snapshot d;
+       for (uint32_t c = 0; c < kCauses; ++c) {
+@@ -1341,6 +1361,8 @@ class Reporter {
+       }
+       d.execute_ns = execute_ns - o.execute_ns;
+       d.idle_ns = idle_ns - o.idle_ns;
++      d.guest_wait_ns = guest_wait_ns - o.guest_wait_ns;
++      d.guest_waits = guest_waits - o.guest_waits;
+       d.other_wait_ns = other_wait_ns - o.other_wait_ns;
+       d.gpu_busy_ns = gpu_busy_ns - o.gpu_busy_ns;
+       d.gpu_samples = gpu_samples - o.gpu_samples;
+@@ -1356,6 +1378,8 @@ class Reporter {
+     }
+     s.execute_ns = totals.execute_ns.load(std::memory_order_relaxed);
+     s.idle_ns = totals.idle_ns.load(std::memory_order_relaxed);
++    s.guest_wait_ns = totals.guest_wait_ns.load(std::memory_order_relaxed);
++    s.guest_waits = totals.guest_waits.load(std::memory_order_relaxed);
+     s.other_wait_ns = totals.other_wait_ns.load(std::memory_order_relaxed);
+     s.gpu_busy_ns = totals.gpu_busy_ns.load(std::memory_order_relaxed);
+     s.gpu_samples = totals.gpu_samples.load(std::memory_order_relaxed);
