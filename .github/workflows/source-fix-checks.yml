@@ -145,6 +145,7 @@ on:
       - 'tools/check-content-checked.cpp'
       - 'tools/check-sample-ticket.cpp'
       - 'tools/check-vfs-host-ops.cpp'
+      - 'tools/check-library-groups.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

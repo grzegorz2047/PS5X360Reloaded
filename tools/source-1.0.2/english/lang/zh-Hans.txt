@@ -213,6 +213,7 @@ Geometry\srounding = 几何取整
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = 查看游戏库（游戏保持打开）
 Graphics = 图形
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = 用于绘制游戏的图形\sAPI。更改后模拟器会重启。Vulkan\s和\sOpenGL\s使用各自的缓存，兼容性可能不同。
+Group = 分组
 HDTV = HDTV
 Hand\sreach\s(the\sgame\sneeds\s%.2f) = 手部伸展（游戏需要\s%.2f）
 Hard\sdrive = 硬盘

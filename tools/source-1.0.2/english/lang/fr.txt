@@ -213,6 +213,7 @@ Geometry\srounding = Arrondi\sde\sla\sgéométrie
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Voir\sla\sbibliothèque\s(le\sjeu\sreste\souvert)
 Graphics = Graphismes
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = API\sgraphique\sutilisée\spour\sdessiner\sles\sjeux.\sLa\schanger\sredémarre\sl'émulateur.\sVulkan\set\sOpenGL\sutilisent\sdes\scaches\sséparés\s;\sla\scompatibilité\speut\sdifférer\sentre\seux.
+Group = Groupe
 HDTV = TV\sHD
 Hand\sreach\s(the\sgame\sneeds\s%.2f) = Portée\sde\sla\smain\s(le\sjeu\sdemande\s%.2f)
 Hard\sdrive = Disque\sdur

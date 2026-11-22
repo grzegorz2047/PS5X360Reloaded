@@ -140,6 +140,7 @@ checks=(
   check-content-checked.cpp        # fix 125
   check-sample-ticket.cpp          # fix 126
   check-vfs-host-ops.cpp           # fix 129
+  check-library-groups.cpp         # fix 112
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -153,6 +154,7 @@ declare -A arguments=(
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-emergency.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-multidisc-library.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-library-groups.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-bug-report.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-leaving-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-bug-report-entries.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -256,6 +258,7 @@ declare -A fix_of=(
   [check-content-checked.cpp]=125
   [check-sample-ticket.cpp]=126
   [check-vfs-host-ops.cpp]=129
+  [check-library-groups.cpp]=112
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
