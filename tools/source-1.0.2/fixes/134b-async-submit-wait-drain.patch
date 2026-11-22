@@ -1,0 +1,140 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+@@ -75,6 +75,14 @@ inline bool HandOff(uint32_t mode, bool is_swap, bool wait_semaphores, bool quer
+   return mode == kWorker && !is_swap && !wait_semaphores && !query_resolves;
+ }
+ 
++// Fix 134b: whether a wait for `awaited` must first drain the worker: only while that submission
++// was handed to it (`handed_off`, the last one) and not yet submitted (`submitted`, the last
++// one), or to surface its failure. BeginSubmission's wait for submission 0 at every new
++// submission needs nothing from the worker.
++inline bool NeedsDrain(uint64_t awaited, uint64_t submitted, uint64_t handed_off, bool failed) {
++  return failed || (awaited > submitted && awaited <= handed_off);
++}
++
+ enum DrainReason : uint32_t { kDrainSwap = 0, kDrainReadback, kDrainWait, kDrainSync, kDrainOther, kDrainReasons };
+ inline const char* DrainReasonName(uint32_t reason) {
+   static const char* const names[] = {"swap", "readback", "wait", "sync", "other"};
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -750,6 +750,10 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   std::vector<DeferredCommandBuffer*> async_free_command_buffers_;
+   std::mutex async_free_mutex_;
+   std::atomic<bool> async_submit_failed_{false};
++  // Fix 134b: the last submission the worker has submitted (its thread), and the last handed to
++  // it (the GPU thread): a wait drains the worker only for one in between.
++  std::atomic<uint64_t> async_submitted_{0};
++  uint64_t async_handed_off_ = 0;
+   void RefreshAsyncSubmitSettings();
+   bool HandOffSubmission();
+   void RunAsyncSubmitJob(AsyncSubmitJob& job);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1542,6 +1542,7 @@ bool VulkanCommandProcessor::HandOffSubmission() {
+   AsyncSubmitJob job;
+   job.command_buffer = command_buffer;
+   job.submission = GetCurrentSubmission();
++  async_handed_off_ = job.submission;  // fix 134b
+   job.fence = fence_acquisition->GetFenceForSubmitting();
+   if (frame_cost_query_pool_ != VK_NULL_HANDLE) {
+     // Fix 49's timestamps, written by the worker around the replay.
+@@ -1608,6 +1609,7 @@ void VulkanCommandProcessor::RunAsyncSubmitJob(AsyncSubmitJob& job) {
+   if (!ok) {
+     async_submit_failed_.store(true, std::memory_order_release);
+   }
++  async_submitted_.store(job.submission, std::memory_order_release);  // fix 134b
+   const auto submitted = std::chrono::steady_clock::now();
+   xbox360ps5::frame_cost::async_worker_replay_ns.fetch_add(
+       uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(replayed - start).count()),
+@@ -1629,6 +1631,10 @@ void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
+   if (async_worker_->Drain()) {
+     xbox360ps5::frame_cost::async_drains[std::min<uint32_t>(reason, 4)].fetch_add(
+         1, std::memory_order_relaxed);
++    if (reason == async_submit::kDrainWait) {
++      // Fix 134b: the line of this file that waited (fix 58's line scope).
++      xbox360ps5::frame_cost::NoteAsyncWaitLine(xbox360ps5::frame_cost::wait_line);
++    }
+     xbox360ps5::frame_cost::async_drain_ns.fetch_add(
+         uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      std::chrono::steady_clock::now() - start)
+@@ -1643,12 +1649,21 @@ void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
+ }
+ 
+ // Fix 134: a wait for a submission, after the worker has submitted it.
++// Fix 134b: only a submission still with the worker drains it. BeginSubmission checks the
++// completed submissions with a wait for submission 0 at every new submission (1.0.5-work-fix134
++// in Grand Theft Auto IV: 4.00 "wait" drains per frame, 160 ms/s, one at every chunk), which
++// needs nothing from the worker.
+ bool VulkanCommandProcessor::AwaitSubmissionDrained(uint64_t submission) {
+   const uint32_t cause = xbox360ps5::frame_cost::cause;
+-  DrainAsyncSubmit(cause == xbox360ps5::frame_cost::kMemexport ||
+-                           cause == xbox360ps5::frame_cost::kResolve
+-                       ? async_submit::kDrainReadback
+-                       : async_submit::kDrainWait);
++  if (async_worker_ &&
++      async_submit::NeedsDrain(submission, async_submitted_.load(std::memory_order_acquire),
++                               async_handed_off_,
++                               async_submit_failed_.load(std::memory_order_acquire))) {
++    DrainAsyncSubmit(cause == xbox360ps5::frame_cost::kMemexport ||
++                             cause == xbox360ps5::frame_cost::kResolve
++                         ? async_submit::kDrainReadback
++                         : async_submit::kDrainWait);
++  }
+   if (device_lost_) {
+     return false;
+   }
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1100,6 +1100,22 @@ inline std::atomic<uint64_t> async_handoffs{0}, async_chunks{0}, async_room_wait
+     async_worker_submit_ns{0}, async_drain_ns{0};
+ inline std::array<std::atomic<uint64_t>, 5> async_drains{};
+ inline std::atomic<uint32_t> async_mode_now{0}, async_chunk_kib_now{256};
++// Fix 134b: the "wait" drains by the line of vulkan_command_processor.cc that waited (fix 58's
++// line scope); up to four lines, the rest under line -1. The GPU thread is the only writer.
++inline std::array<std::atomic<int>, 4> async_wait_lines{};
++inline std::array<std::atomic<uint64_t>, 4> async_wait_line_counts{};
++inline void NoteAsyncWaitLine(int line) {
++  for (size_t n = 0; n < async_wait_lines.size(); ++n) {
++    const int held = async_wait_lines[n].load(std::memory_order_relaxed);
++    if (held == line || held == 0) {
++      async_wait_lines[n].store(line, std::memory_order_relaxed);
++      async_wait_line_counts[n].fetch_add(1, std::memory_order_relaxed);
++      return;
++    }
++  }
++  async_wait_lines.back().store(-1, std::memory_order_relaxed);
++  async_wait_line_counts.back().fetch_add(1, std::memory_order_relaxed);
++}
+ class AsyncSubmitReporter {
+  public:
+   std::string Line(double seconds, uint64_t frames) {
+@@ -1122,11 +1138,24 @@ class AsyncSubmitReporter {
+                   async_mode_now.load(std::memory_order_relaxed), async_chunk_kib_now.load(std::memory_order_relaxed),
+                   d[0] / s, d[1] / f, d[3] / 1e6 / s, d[4] / 1e6 / s, d[6] / f, d[7] / f, d[8] / f, d[9] / f,
+                   d[10] / f, d[5] / 1e6 / s, d[2] / s);
+-    return text;
++    // Fix 134b: where the "wait" drains came from.
++    std::string lines;
++    for (size_t n = 0; n < async_wait_lines.size(); ++n) {
++      const uint64_t count = async_wait_line_counts[n].load(std::memory_order_relaxed);
++      const uint64_t since = count - last_lines_[n];
++      last_lines_[n] = count;
++      if (!since) continue;
++      char item[64];
++      std::snprintf(item, sizeof(item), "%sline %d %.2f/frame", lines.empty() ? "" : ", ",
++                    async_wait_lines[n].load(std::memory_order_relaxed), double(since) / f);
++      lines += item;
++    }
++    return std::string(text) + "; wait drains by line: " + (lines.empty() ? "none" : lines);
+   }
+ 
+  private:
+   uint64_t last_[11] = {};
++  uint64_t last_lines_[4] = {};
+ };
+ 
+ // "Frame time uploads (GPU thread): ..." since its previous line.

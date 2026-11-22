@@ -18,6 +18,12 @@
 //      branch with the drain before any other submission and the original sequence untouched
 //      for it, every wait for a submission through AwaitSubmissionDrained, the worker's thread
 //      and name, the stop before shutdown, the reporter's line after fix 130's.
+// Fix 134b: 1.0.5-work-fix134 in Grand Theft Auto IV drained the worker at every chunk (4.00
+// "wait" drains per frame, 160 ms/s), so the worker's replay came back as waiting: BeginSubmission
+// waits for submission 0 at every new submission. Now only a wait for a submission still with the
+// worker drains it (NeedsDrain), and the "wait" drains are logged by line.
+//  (f) NeedsDrain; the model's BeginSubmission waits for 0 after every chunk and drain nothing,
+//      while readback waits still find their submission submitted; the tree's wiring.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
@@ -122,6 +128,15 @@ void CheckWorker() {
   thread.join();
 }
 
+void CheckNeedsDrain() {
+  Expect(!as::NeedsDrain(0, 0, 0, false), "a wait for 0 with nothing handed off: no drain");
+  Expect(!as::NeedsDrain(0, 7, 9, false), "BeginSubmission's wait for 0: no drain");
+  Expect(!as::NeedsDrain(7, 7, 9, false) && !as::NeedsDrain(5, 7, 9, false), "already submitted: no drain");
+  Expect(as::NeedsDrain(8, 7, 9, false) && as::NeedsDrain(9, 7, 9, false), "still with the worker: drain");
+  Expect(!as::NeedsDrain(10, 7, 9, false), "not handed off (the GPU thread's own): no drain");
+  Expect(as::NeedsDrain(0, 7, 9, true), "a failure is surfaced by a drain");
+}
+
 void CheckModel() {
   as::Worker<Job> worker;
   Queue queue;
@@ -136,14 +151,20 @@ void CheckModel() {
   uint64_t next = 1;          // GetCurrentSubmission
   uint64_t submitted_max = 0;  // what the timeline may be asked to wait for
   bool waited_unsubmitted = false, busy_at_swap = false;
+  uint64_t begin_drains = 0;  // fix 134b: BeginSubmission's waits for 0 that drained
   std::vector<std::pair<uint64_t, uint64_t>> swap_then_present;  // (swap's index, queue position)
   for (int frame = 0; frame < 40; ++frame) {
     for (int chunk = 0; chunk < 4; ++chunk) {
       worker.Enqueue(Job{next});  // HandOffSubmission
       submitted_max = next++;
+      // The next chunk's BeginSubmission: a wait for submission 0 (fix 134b: no drain).
+      if (as::NeedsDrain(0, worker_submitted.load(), submitted_max, false)) {
+        worker.Drain();
+        ++begin_drains;
+      }
       if (chunk == 1 && frame % 5 == 0) {
         // A readback: AwaitSubmissionDrained drains, then waits for the submission.
-        worker.Drain();
+        if (as::NeedsDrain(submitted_max, worker_submitted.load(), submitted_max, false)) worker.Drain();
         waited_unsubmitted |= worker_submitted.load() < submitted_max;
       }
     }
@@ -175,6 +196,7 @@ void CheckModel() {
   Expect(!waited_unsubmitted, "a wait never finds its submission still with the worker");
   Expect(!busy_at_swap, "the worker is idle at the swap's submit");
   Expect(present_right_after_swap, "no submission between the swap's and the presenter's");
+  Expect(begin_drains == 0, "fix 134b: no drain at the chunks' BeginSubmission");
 }
 
 void CheckTree() {
@@ -222,6 +244,19 @@ void CheckTree() {
                             std::string::npos,
          "the timeline is awaited directly only by the poll and by AwaitSubmissionDrained (" + std::to_string(direct) + ")");
   Expect(drained >= 5, "the waits go through AwaitSubmissionDrained (" + std::to_string(drained) + ")");
+  // Fix 134b.
+  const size_t awaited = vk.find("bool VulkanCommandProcessor::AwaitSubmissionDrained(uint64_t submission) {");
+  Expect(awaited != std::string::npos &&
+             vk.find("async_submit::NeedsDrain(submission, async_submitted_.load(std::memory_order_acquire),", awaited) <
+                 vk.find("DrainAsyncSubmit(", awaited),
+         "fix 134b: a wait drains only for a submission still with the worker");
+  Expect(vk.find("async_handed_off_ = job.submission;  // fix 134b") != std::string::npos &&
+             vk.find("async_submitted_.store(job.submission, std::memory_order_release);  // fix 134b") != std::string::npos,
+         "fix 134b: the hand-off and the worker's submit are tracked");
+  const std::string fc = Read("include/xbox360ps5/frame_cost.hpp");
+  Expect(fc.find("\"; wait drains by line: \"") != std::string::npos &&
+             vk.find("xbox360ps5::frame_cost::NoteAsyncWaitLine(xbox360ps5::frame_cost::wait_line);") != std::string::npos,
+         "fix 134b: the wait drains by line");
   Expect(vk.find("async_worker_thread_->set_name(\"GPU Submit worker\");") != std::string::npos &&
              vk.find("new kernel::XHostThread(") != std::string::npos,
          "the worker is a named host thread, listed and placed like the others");
@@ -240,6 +275,7 @@ int main(int argc, char** argv) {
   CheckParse();
   CheckDecisions();
   CheckWorker();
+  CheckNeedsDrain();
   CheckModel();
   if (!(argc > 1 && std::string(argv[1]) == "--model-only")) CheckTree();
   if (failures) {

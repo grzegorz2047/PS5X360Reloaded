@@ -265,7 +265,7 @@ declare -A fix_of=(
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i"
   [check-avatar-skeleton.cpp]=113
   [check-submit-parts.cpp]=130
-  [check-async-submit.cpp]=134
+  [check-async-submit.cpp]="134 134b"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
