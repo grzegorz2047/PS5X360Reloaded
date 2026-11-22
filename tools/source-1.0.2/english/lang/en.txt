@@ -208,6 +208,7 @@ Geometry\srounding = Geometry\srounding
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen)
 Graphics = Graphics
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem.
+Group = Group
 HDTV = HDTV
 Hard\sdrive = Hard\sdrive
 Home = Home

@@ -206,6 +206,7 @@ Geometry\srounding = Geometri\syuvarlama
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Kütüphaneyi\sgör\s(oyun\saçık\skalır)
 Graphics = Grafik
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = Oyunları\sçizmek\siçin\skullanılan\sgrafik\sAPI'si.\sDeğiştirmek\semülatörü\syeniden\sbaşlatır.\sVulkan\sve\sOpenGL\sayrı\sönbellekler\skullanır;\suyumluluk\sfarklı\solabilir.
+Group = Grup
 HDTV = HDTV
 Hard\sdrive = Sabit\sdisk
 Home = Ana\ssayfa

@@ -110,6 +110,7 @@ on:
       - 'tools/check-dark-default.cpp'
       - 'tools/check-content-folders.cpp'
       - 'tools/check-content-create.*'
+      - 'tools/check-library-groups.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

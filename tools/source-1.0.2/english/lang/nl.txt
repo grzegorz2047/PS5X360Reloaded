@@ -206,6 +206,7 @@ Geometry\srounding = Geometrie\safronden
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Bibliotheek\sbekijken\s(de\sgame\sblijft\sopen)
 Graphics = Graphics
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = Grafische\sAPI\swaarmee\sde\sgames\sgetekend\sworden.\sWisselen\sherstart\sde\semulator.\sVulkan\sen\sOpenGL\sgebruiken\saparte\scaches;\sde\scompatibiliteit\skan\sverschillen.
+Group = Groep
 HDTV = HDTV
 Hard\sdrive = Harde\sschijf
 Home = Start

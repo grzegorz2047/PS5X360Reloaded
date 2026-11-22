@@ -206,6 +206,7 @@ Geometry\srounding = Redondeo\sde\sgeometría
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Ver\sla\sbiblioteca\s(el\sjuego\ssigue\sabierto)
 Graphics = Gráficos
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = API\sgráfica\sutilizada\spara\sdibujar\slos\sjuegos.\sCambiarla\sreinicia\sel\semulador.\sVulkan\sy\sOpenGL\susan\scachés\sseparadas;\sla\scompatibilidad\spuede\svariar\sentre\sambos.
+Group = Grupo
 HDTV = TV\sHD
 Hard\sdrive = Disco\sduro
 Home = Inicio

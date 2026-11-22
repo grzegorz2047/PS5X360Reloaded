@@ -206,6 +206,7 @@ Geometry\srounding = Округление\sгеометрии
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Открыть\sбиблиотеку\s(игра\sостаётся\sоткрытой)
 Graphics = Графика
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = Графический\sAPI\sдля\sотрисовки\sигр.\sСмена\sперезапускает\sэмулятор.\sVulkan\sи\sOpenGL\sиспользуют\sотдельные\sкэши;\sсовместимость\sможет\sразличаться.
+Group = Группа
 HDTV = HDTV
 Hard\sdrive = Жёсткий\sдиск
 Home = Главная

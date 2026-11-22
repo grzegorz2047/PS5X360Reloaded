@@ -1,0 +1,392 @@
+// SPDX-License-Identifier: MIT
+// Fix 112 (tools/source-1.0.2/fixes/112-library-groups.patch): the player's own folders in a
+// game folder are groups of games on the library's shelf.
+//  (a) port/library_groups.hpp on made-up entries: games at the top of a game folder beside two
+//      groups; a folder holding one game (an image in a folder of its own, an extracted game's
+//      folder) is no group; nested groups and their trail; a folder whose games are all in one
+//      subfolder passes through; a group that would be alone at the top is the top; a disc set (one
+//      entry, fix 89) inside a group; a package's title ID and content type folders passed through;
+//      the same folder in two game folders is one group; FoldersBelow's edges; Inside; StillThere;
+//  (b) the same rules on real folders in a temporary directory, walked the way Launcher::Scan
+//      walks them (default.xex makes a folder a game, .iso images, subfolders six deep, empty
+//      folders), placed with EntryFolders;
+//  (c) the assembled tree: the scan records each game's game folder and builds the groups after
+//      the order, the view holds groups as -1 - n, the shelf draws Tile(n), X opens a group,
+//      Circle leaves it, the game sheet and game settings are only for games, a game shown from
+//      elsewhere (the home's slots, the per-game list) opens in its group;
+//  (d) every language file (argument: tools/source-1.0.2/english/lang) translates "Group".
+// Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
+#undef NDEBUG
+#include "../port/library_groups.hpp"
+
+#include <algorithm>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <map>
+#include <random>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace {
+
+int failures = 0;
+void Expect(bool condition, const std::string& what) {
+  if (!condition) {
+    std::printf("FAIL: %s\n", what.c_str());
+    ++failures;
+  }
+}
+
+std::string Read(const std::string& path) {
+  std::ifstream file(path, std::ios::binary);
+  std::stringstream text;
+  text << file.rdbuf();
+  return text.str();
+}
+bool Has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+
+namespace lg = xbox360ps5::library_groups;
+using Folders = std::vector<std::vector<std::string>>;
+
+std::string Join(const std::vector<std::string>& parts) {
+  std::string text;
+  for (const auto& part : parts) text += (text.empty() ? "" : "/") + part;
+  return text;
+}
+const lg::Group* GroupOf(const lg::Layout& layout, const std::string& key) {
+  const int at = layout.Find(key);
+  return at < 0 ? nullptr : &layout.groups[size_t(at)];
+}
+
+void CheckBuild() {
+  {
+    // Two games at the top, a "Racing" group of three, a "Shooters" group of two.
+    const Folders folders = {{}, {"Racing"}, {"Racing"}, {"Shooters"}, {}, {"Racing"}, {"Shooters"}};
+    const auto layout = lg::Build(folders);
+    Expect(layout.groups.size() == 2, "the top with two groups: two groups");
+    const auto* racing = GroupOf(layout, "racing");
+    const auto* shooters = GroupOf(layout, "shooters");
+    Expect(racing && racing->name == "Racing" && racing->parent.empty() && racing->games == std::vector<size_t>{1, 2, 5},
+           "Racing holds its three games, at the top");
+    Expect(shooters && shooters->games == std::vector<size_t>{3, 6}, "Shooters holds its two games");
+    Expect(layout.shown_in[0].empty() && layout.shown_in[4].empty(), "the games at the top stay at the top");
+    Expect(layout.shown_in[1] == "racing" && layout.shown_in[6] == "shooters", "the others are in their groups");
+    Expect(racing && racing->trail == std::vector<std::string>{"Racing"}, "a top group's trail is its name");
+  }
+  {
+    // A game in a folder of its own is no group: "Halo 3/Halo 3.iso" stays a tile at the top.
+    const Folders folders = {{"Halo 3"}, {"Fable II"}, {"Racing"}, {"Racing"}};
+    const auto layout = lg::Build(folders);
+    Expect(layout.groups.size() == 1 && GroupOf(layout, "racing"), "a folder of one game is no group");
+    Expect(layout.shown_in[0].empty() && layout.shown_in[1].empty(), "a game in its own folder is shown at the top");
+  }
+  {
+    // Nested: Racing/Rally (two) and Racing/Forza Motorsport 4 (one game in its own folder).
+    const Folders folders = {{"Racing", "Rally"}, {"Racing", "Rally"}, {"Racing", "Forza Motorsport 4"}, {"Racing"}, {}};
+    const auto layout = lg::Build(folders);
+    const auto* racing = GroupOf(layout, "racing");
+    const auto* rally = GroupOf(layout, "racing/rally");
+    Expect(layout.groups.size() == 2 && racing && rally, "a group inside a group");
+    Expect(rally && rally->parent == "racing" && rally->name == "Rally", "Rally is shown inside Racing");
+    Expect(rally && rally->trail == std::vector<std::string>{"Racing", "Rally"}, "Rally's trail");
+    Expect(racing && racing->games == std::vector<size_t>{0, 1, 2, 3}, "Racing holds its groups' games too");
+    Expect(layout.shown_in[2] == "racing" && layout.shown_in[3] == "racing", "a one-game subfolder's game is in Racing");
+    Expect(layout.shown_in[0] == "racing/rally", "Rally's games are in Rally");
+    Expect(layout.Inside(0, "racing") && layout.Inside(0, "racing/rally") && layout.Inside(0, ""),
+           "a Rally game is inside Racing, Rally and the library");
+    Expect(!layout.Inside(4, "racing") && !layout.Inside(3, "racing/rally"), "and nothing else is");
+    Expect(lg::Layout{{}, {"racing2"}}.Inside(0, "racing") == false, "a longer folder name is not inside");
+    // Three levels: every level that holds two games or more is a group.
+    const Folders deep = {{"A", "B", "C"}, {"A", "B", "C"}, {"A", "B"}, {"A"}, {}};
+    const auto three = lg::Build(deep);
+    Expect(three.groups.size() == 3 && GroupOf(three, "a/b/c") && GroupOf(three, "a/b")->parent == "a",
+           "groups nest three deep");
+  }
+  {
+    // A folder whose games are all in one subfolder passes through: Collection/Shooters/(two games).
+    const Folders folders = {{"Collection", "Shooters"}, {"Collection", "Shooters"}, {}};
+    const auto layout = lg::Build(folders);
+    Expect(layout.groups.size() == 1 && GroupOf(layout, "collection/shooters"), "only Shooters is a group");
+    const auto* shooters = GroupOf(layout, "collection/shooters");
+    Expect(shooters && shooters->parent.empty() && shooters->trail == std::vector<std::string>{"Shooters"},
+           "it is shown at the top");
+  }
+  {
+    // Every game in one folder ("xbox360/games/..."): that folder would be alone at the top.
+    const Folders folders = {{"games"}, {"games"}, {"games", "Racing"}, {"games", "Racing"}};
+    const auto layout = lg::Build(folders);
+    Expect(!GroupOf(layout, "games") && GroupOf(layout, "games/racing"), "a lone top group is the top itself");
+    Expect(layout.shown_in[0].empty() && layout.shown_in[2] == "games/racing", "its games and groups are at the top");
+    Expect(GroupOf(layout, "games/racing")->parent.empty(), "Racing is a top group then");
+    const auto single = lg::Build({{"games"}, {"games"}});
+    Expect(single.groups.empty() && single.shown_in[0].empty(), "a library in one folder has no groups");
+  }
+  {
+    // A disc set is one entry (fix 89): alone in its folder it is no group; in "Shooters" beside
+    // another game it is one of the group's two games.
+    const Folders folders = {{"Battlefield 3"}, {"Shooters"}, {"Shooters"}};
+    const auto layout = lg::Build(folders);
+    Expect(layout.shown_in[0].empty(), "a set alone in its folder is shown at the top");
+    const auto* shooters = GroupOf(layout, "shooters");
+    Expect(shooters && shooters->games.size() == 2, "a set in a group counts as one game");
+  }
+  {
+    // GOD/STFS: "Racing/<game>/4D5307E6/00007000/<package>" - the hex folders are the package's.
+    const Folders folders = {{"Racing", "Forza 4", "4D5307E6", "00007000"}, {"Racing", "Forza 3", "4D5307D5", "00007000"},
+                             {"Halo", "4D5307E6", "00007000"}, {"Halo", "4D5307E6", "00007000"}};
+    const auto layout = lg::Build(folders);
+    Expect(!GroupOf(layout, "racing/forza 4") && GroupOf(layout, "racing"), "a package in a game folder is no group");
+    Expect(layout.shown_in[0] == "racing" && layout.shown_in[1] == "racing", "the packages are in Racing");
+    for (const auto& group : layout.groups)
+      Expect(Has(group.key, "00007000") == false && Has(group.key, "4d5307e6") == false, "no hex folder is a group: " + group.key);
+    Expect(GroupOf(layout, "halo") && GroupOf(layout, "halo")->games.size() == 2, "two discs' packages in Halo: a group");
+    Expect(lg::PackageFolder("00007000") && lg::PackageFolder("4d5307E6") && !lg::PackageFolder("Halo 3") &&
+               !lg::PackageFolder("0000700") && !lg::PackageFolder("0000700G"),
+           "PackageFolder: eight hex digits");
+  }
+  {
+    // The same folder in two game folders is one group (case aside), named as found first.
+    const Folders folders = {{"Racing"}, {"racing"}, {"RACING"}, {}};
+    const auto layout = lg::Build(folders);
+    Expect(layout.groups.size() == 1 && GroupOf(layout, "racing") && GroupOf(layout, "racing")->name == "Racing" &&
+               GroupOf(layout, "racing")->games.size() == 3,
+           "one Racing for three spellings");
+  }
+  {
+    // Nothing found: no groups; empty folder lists are the top.
+    const auto none = lg::Build({});
+    Expect(none.groups.empty() && none.shown_in.empty(), "an empty library has no groups");
+    const auto flat = lg::Build({{}, {}, {}});
+    Expect(flat.groups.empty() && flat.shown_in == std::vector<std::string>{"", "", ""}, "games at the top only");
+  }
+  {
+    const auto layout = lg::Build({{"Racing", "Rally"}, {"Racing", "Rally"}, {"Racing"}, {}});
+    Expect(lg::StillThere(layout, "racing/rally") == "racing/rally", "StillThere: a group that is there");
+    Expect(lg::StillThere(layout, "racing/rally/old") == "racing/rally", "StillThere: its nearest group");
+    Expect(lg::StillThere(layout, "gone/away") == "", "StillThere: else the library");
+  }
+  // FoldersBelow and EntryFolders.
+  Expect(lg::FoldersBelow("/mnt/ext1/xbox360", "/mnt/ext1/xbox360/Racing/Rally") ==
+             std::vector<std::string>{"Racing", "Rally"}, "FoldersBelow: two folders");
+  Expect(lg::FoldersBelow("/mnt/ext1/xbox360/", "/mnt/ext1/xbox360/Racing/") == std::vector<std::string>{"Racing"},
+         "FoldersBelow: slashes at the end");
+  Expect(lg::FoldersBelow("/mnt/ext1/xbox360", "/mnt/ext1/xbox360").empty(), "FoldersBelow: the root itself");
+  Expect(lg::FoldersBelow("/data/xbox360", "/data/xbox3600/Racing").empty(), "FoldersBelow: a longer name is not below");
+  Expect(lg::FoldersBelow("/data/xbox360", "/mnt/usb0/xbox360/Racing").empty(), "FoldersBelow: another drive");
+  Expect(lg::FoldersBelow("/", "/Racing/Rally") == std::vector<std::string>{"Racing", "Rally"}, "FoldersBelow: below /");
+  Expect(lg::EntryFolders("/r", "ISO", "/r/Racing/Forza.iso", "/r/Racing") == std::vector<std::string>{"Racing"},
+         "EntryFolders: an image is held by its folder");
+  Expect(lg::EntryFolders("/r", "XEX", "/r/Racing/Forza/default.xex", "/r/Racing/Forza") == std::vector<std::string>{"Racing"},
+         "EntryFolders: an extracted game is its folder");
+  Expect(lg::EntryFolders("/r", "XEX", "/r/Mass Effect 3/Disc 1/default.xex", "/r/Mass Effect 3").empty(),
+         "EntryFolders: an extracted set is its set's folder");
+  Expect(lg::EntryFolders("/r", "XEX", "/r/default.xex", "/r").empty(), "EntryFolders: a game at the top of the root");
+  Expect(lg::EntryFolders("/r", "GOD/STFS", "/r/Halo/4D5307E6/00007000/ABCD", "/r/Halo/4D5307E6/00007000") ==
+             std::vector<std::string>{"Halo", "4D5307E6", "00007000"},
+         "EntryFolders: a package is held by its folder");
+}
+
+// (b) Real folders, walked as Launcher::Scan walks them.
+struct Found {
+  std::string kind, path, folder;
+};
+std::string Lower(std::string text) {
+  for (char& ch : text) if (ch >= 'A' && ch <= 'Z') ch = char(ch - 'A' + 'a');
+  return text;
+}
+std::vector<Found> Walk(const std::filesystem::path& root) {
+  namespace fs = std::filesystem;
+  std::vector<Found> found;
+  const std::function<void(const fs::path&, int)> scan = [&](const fs::path& directory, int depth) {
+    std::vector<fs::directory_entry> entries;
+    for (const auto& entry : fs::directory_iterator(directory)) entries.push_back(entry);
+    std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.path() < b.path(); });
+    fs::path executable;
+    int executables = 0;
+    for (const auto& entry : entries) {
+      if (Lower(entry.path().extension().string()) != ".xex" || entry.is_directory()) continue;
+      ++executables;
+      if (Lower(entry.path().filename().string()) == "default.xex") { executable = entry.path(); executables = 1; break; }
+      executable = entry.path();
+    }
+    if (executables == 1) {
+      found.push_back({"XEX", executable.generic_string(), directory.generic_string()});
+      if (directory != root) return;
+    }
+    // A disc set (fix 89: "<set>/Disc 1/default.xex", "<set>/Disc 2/..."): one entry, its set's folder.
+    if (fs::is_directory(directory / "Disc 1") && fs::is_directory(directory / "Disc 2")) {
+      found.push_back({"XEX", (directory / "Disc 1" / "default.xex").generic_string(), directory.generic_string()});
+      return;
+    }
+    std::vector<fs::path> images;
+    for (const auto& entry : entries) {
+      const std::string extension = Lower(entry.path().extension().string());
+      if (entry.is_directory()) {
+        if (depth < 6 && extension != ".data") scan(entry.path(), depth + 1);
+      } else if (extension == ".iso") {
+        // Fix 89's ISO sets: "... (Disc N).iso" of one name in one folder are one entry.
+        const std::string name = entry.path().filename().string();
+        if (Has(name, "(Disc ") && !Has(name, "(Disc 1)")) continue;
+        found.push_back({"ISO", entry.path().generic_string(), directory.generic_string()});
+      }
+    }
+  };
+  scan(root, 0);
+  return found;
+}
+
+void CheckFolders() {
+  namespace fs = std::filesystem;
+  const fs::path root = fs::temp_directory_path() / ("check-library-groups-" + std::to_string(std::random_device{}()));
+  fs::remove_all(root);
+  const auto file = [&](const std::string& rel) {
+    fs::create_directories((root / rel).parent_path());
+    std::ofstream(root / rel, std::ios::binary) << "x";
+  };
+  file("Halo 3.iso");                                  // at the top
+  file("Fable II/Fable II.iso");                       // a game in a folder of its own
+  file("Gears of War/default.xex");                    // an extracted game
+  file("Gears of War/Content/media.bin");
+  file("Racing/Forza Motorsport 4.iso");
+  file("Racing/Burnout Paradise/default.xex");         // an extracted game inside a group
+  file("Racing/Rally/DiRT 3.iso");
+  file("Racing/Rally/WRC 3.iso");
+  file("Shooters/Battlefield 3 (Disc 1).iso");         // a disc set inside a group: one entry
+  file("Shooters/Battlefield 3 (Disc 2).iso");
+  file("Shooters/Mass Effect 3/Disc 1/default.xex");   // an extracted disc set inside the group
+  file("Shooters/Mass Effect 3/Disc 2/default.xex");
+  file("Final Fantasy XIII/Final Fantasy XIII (Disc 1).iso");  // a set alone in its folder
+  file("Final Fantasy XIII/Final Fantasy XIII (Disc 2).iso");
+  fs::create_directories(root / "Empty");              // empty folders: nothing
+  fs::create_directories(root / "Empty Too" / "Deeper");
+  file("Notes/readme.txt");                            // a folder with no game
+  const auto found = Walk(root);
+  Folders folders;
+  std::map<std::string, size_t> at;
+  for (size_t n = 0; n < found.size(); ++n) {
+    folders.push_back(lg::EntryFolders(root.generic_string(), found[n].kind, found[n].path, found[n].folder));
+    at[fs::path(found[n].path).lexically_relative(root).generic_string()] = n;
+  }
+  Expect(found.size() == 10, "ten library entries on the folders (" + std::to_string(found.size()) + ")");
+  const auto layout = lg::Build(folders);
+  const auto shown = [&](const std::string& rel) {
+    const auto it = at.find(rel);
+    Expect(it != at.end(), "found: " + rel);
+    return it == at.end() ? std::string("?") : layout.shown_in[it->second];
+  };
+  Expect(shown("Halo 3.iso").empty(), "folders: a game at the top");
+  Expect(shown("Fable II/Fable II.iso").empty(), "folders: a game in its own folder is at the top");
+  Expect(shown("Gears of War/default.xex").empty(), "folders: an extracted game is at the top, not a group");
+  Expect(shown("Final Fantasy XIII/Final Fantasy XIII (Disc 1).iso").empty(), "folders: a set alone in its folder is at the top");
+  Expect(shown("Racing/Forza Motorsport 4.iso") == "racing", "folders: Racing holds Forza");
+  Expect(shown("Racing/Burnout Paradise/default.xex") == "racing", "folders: and the extracted Burnout");
+  Expect(shown("Racing/Rally/DiRT 3.iso") == "racing/rally" && shown("Racing/Rally/WRC 3.iso") == "racing/rally",
+         "folders: Rally inside Racing");
+  Expect(shown("Shooters/Battlefield 3 (Disc 1).iso") == "shooters", "folders: the BF3 set is in Shooters");
+  Expect(shown("Shooters/Mass Effect 3/Disc 1/default.xex") == "shooters", "folders: the extracted set too");
+  std::vector<std::string> keys;
+  for (const auto& group : layout.groups) keys.push_back(group.key);
+  Expect(keys == std::vector<std::string>{"racing", "racing/rally", "shooters"}, "folders: three groups (" + Join(keys) + ")");
+  Expect(GroupOf(layout, "racing") && GroupOf(layout, "racing")->games.size() == 4, "folders: Racing has four games");
+  Expect(GroupOf(layout, "shooters") && GroupOf(layout, "shooters")->games.size() == 2, "folders: Shooters has two");
+  fs::remove_all(root);
+}
+
+// (c) The assembled tree.
+void CheckTree() {
+  const std::string launcher = Read("src/launcher.cpp");
+  const std::string header = Read("include/xbox360ps5/launcher.hpp");
+  const std::string press = Read("port/kinect_press.inc");
+  Expect(Has(launcher, "#include \"library_groups.hpp\""), "the launcher has the groups");
+  Expect(Has(launcher, "game_roots[game.path.string()] = scanning_root;"), "each game's game folder is kept");
+  const size_t root = launcher.find("scanning_root = root.string();");
+  const size_t walk = launcher.find("if (visible) scan(root, 0, root);", root);
+  const size_t cleared = launcher.find("scanning_root.clear();", walk);
+  const size_t drive = launcher.find("// Games on a disc in a drive", cleared);
+  Expect(root != std::string::npos && walk != std::string::npos && cleared != std::string::npos && drive != std::string::npos,
+         "a game folder is named while it is walked, the drive's disc has none");
+  const size_t order = launcher.find("std::stable_sort(games_.begin(), games_.end()");
+  const size_t build = launcher.find("g_groups = library_groups::Build(folders);", order);
+  const size_t filter = launcher.find("ApplyFilter();", build);
+  Expect(order != std::string::npos && build != std::string::npos && filter != std::string::npos,
+         "the groups are made after the shelf's order, before the view");
+  Expect(Has(launcher, "folders[n] = library_groups::EntryFolders(root->second, first.kind, first.path.string(), first.folder);"),
+         "an entry (a set by its first disc) is placed by EntryFolders");
+  Expect(Has(launcher, "if (tile.cover < 0) tile.cover = games_[n].cover;"), "a group's tile has its first game's cover");
+  Expect(Has(launcher, "g_group = library_groups::StillThere(g_groups, g_group);"), "a rebuild stays in the group");
+  Expect(Has(launcher, "return item < 0 ? nullptr : &games_[size_t(item)];"), "a group's tile is no Selected() game");
+  Expect(Has(launcher, "if (g_groups.groups[g].parent == g_group) view_.push_back(-1 - int(g));"),
+         "the open group's groups are in the view");
+  Expect(Has(launcher, "const bool flat = filter_ != 0 || !g_search.empty();"), "a filter or a search shows games only");
+  Expect(Has(launcher, "if (!g_groups.Inside(size_t(n), g_group)) continue;"), "the view keeps to the open group");
+  Expect(!Has(launcher, "games_[size_t(view_[size_t(n)])]") && !Has(launcher, "games_[size_t(view_[size_t(selected_)])]"),
+         "nothing reads view_ as games only");
+  Expect(Has(launcher, "if (SelectedGroup() >= 0) OpenGroup(SelectedGroup());"), "X opens a group");
+  const size_t circle = launcher.find("if (mode_ == Mode::shelf && key == Key::circle && !g_group.empty()) {");
+  const size_t leave = launcher.find("LeaveGroup();", circle);
+  const size_t library = launcher.find("if (mode_ == Mode::shelf && home_library_open && key == Key::circle) {", circle);
+  Expect(circle != std::string::npos && leave < library && library != std::string::npos,
+         "Circle leaves the group before it closes the library");
+  Expect(Has(launcher, "if (const int kept = FindKept(view_, games_, left); kept >= 0) selected_ = kept;"),
+         "back in the parent, its tile is chosen");
+  Expect(Has(launcher, "RevealGame(wanted);  // fix 112"), "the per-game list opens a game in its group");
+  Expect(Has(press, "if (RevealGame(slot.game) >= 0) {"), "the home's game slots open a game in its group");
+  Expect(Has(launcher, "DrawCase(c, textures_, arts_, Tile(n), q,") && Has(launcher, "const GameEntry& entry = Tile(n);"),
+         "both shelves draw Tile(n)");
+  Expect(Has(launcher, "if (Selected()) x = c.Hint('t', Tr(\"Game settings\"), x, 990);") &&
+             Has(launcher, "if (Selected()) right = NxeHint(c, 't', Tr(\"Game settings\"), right, 990);"),
+         "Game settings only for a game");
+  Expect(Has(launcher, "if (!g_group.empty()) c.Chip(GroupTrail(g_group), 96, 124, kAccent);") &&
+             Has(launcher, "if (!g_group.empty()) NxeText(c, GroupTrail(g_group), 150, 286 + slide"),
+         "both shelves name the open group");
+  Expect(Has(launcher, "if (NxeUi() || !g_group.empty()) x = c.Hint('o', Tr(\"Back\"), x, 990);") &&
+             Has(launcher, "if (!g_group.empty()) right = NxeHint(c, 'o', Tr(\"Back\"), right, 990);"),
+         "both shelves say Circle goes back");
+  Expect(Has(launcher, "std::string detail = group ? std::string(Tr(\"Group\")) : entry.kind;") &&
+             Has(launcher, "if (group_chosen) line = Tr(\"Group\");"),
+         "a group's tile says Group and its number of games");
+  Expect(Has(header, "int SelectedGroup() const;") && Has(header, "void OpenGroup(int group);") &&
+             Has(header, "void LeaveGroup();") && Has(header, "int RevealGame(int index);"),
+         "the launcher's header declares the group functions");
+  // The library's own lists still hold every game, not the groups.
+  Expect(Has(launcher, "const std::vector<GameEntry>& Entries() const { return games_; }") ||
+             Has(header, "const std::vector<GameEntry>& Entries() const { return games_; }"),
+         "Entries() is still every game");
+}
+
+void CheckLanguages(const std::string& folder) {
+  namespace fs = std::filesystem;
+  int files = 0;
+  for (const auto& entry : fs::directory_iterator(folder)) {
+    if (entry.path().extension() != ".txt") continue;
+    ++files;
+    const std::string text = "\n" + Read(entry.path().string());
+    const std::string name = entry.path().filename().string();
+    const size_t at = text.find("\nGroup = ");
+    Expect(at != std::string::npos, name + " translates Group");
+    if (at == std::string::npos) continue;
+    const size_t start = at + 9;
+    const std::string value = text.substr(start, text.find('\n', start) - start);
+    Expect(!value.empty() && value.find('%') == std::string::npos, name + ": Group has a text: " + value);
+  }
+  Expect(files == 16, "16 language files (" + std::to_string(files) + ")");
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  CheckBuild();
+  CheckFolders();
+  CheckTree();
+  if (argc > 1) CheckLanguages(argv[1]);
+  else Expect(false, "the language folder is given");
+  if (failures) {
+    std::printf("check-library-groups: %d failure(s)\n", failures);
+    return 1;
+  }
+  std::printf("check-library-groups: ok\n");
+  return 0;
+}

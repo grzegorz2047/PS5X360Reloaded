@@ -206,6 +206,7 @@ Geometry\srounding = 지오메트리\s반올림
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = 라이브러리\s보기(게임은\s열린\s상태\s유지)
 Graphics = 그래픽
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = 게임을\s그리는\s데\s쓰는\s그래픽\sAPI.\s바꾸면\s에뮬레이터가\s다시\s시작됩니다.\sVulkan과\sOpenGL은\s별도의\s캐시를\s쓰며\s호환성이\s다를\s수\s있습니다.
+Group = 그룹
 HDTV = HDTV
 Hard\sdrive = 하드\s디스크
 Home = 홈

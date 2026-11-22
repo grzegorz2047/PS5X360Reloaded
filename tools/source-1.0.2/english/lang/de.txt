@@ -206,6 +206,7 @@ Geometry\srounding = Geometrie-Rundung
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Bibliothek\sansehen\s(das\sSpiel\sbleibt\soffen)
 Graphics = Grafik
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = Grafik-API,\smit\sder\sdie\sSpiele\sgezeichnet\swerden.\sEin\sWechsel\sstartet\sden\sEmulator\sneu.\sVulkan\sund\sOpenGL\snutzen\sgetrennte\sCaches;\sdie\sKompatibilität\skann\ssich\sunterscheiden.
+Group = Gruppe
 HDTV = HDTV
 Hard\sdrive = Festplatte
 Home = Start

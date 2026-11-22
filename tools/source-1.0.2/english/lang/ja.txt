@@ -206,6 +206,7 @@ Geometry\srounding = ジオメトリの丸め
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = ライブラリを見る（ゲームは開いたまま）
 Graphics = グラフィックス
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = ゲームの描画に使うグラフィックス\sAPI。変更するとエミュレーターが再起動します。Vulkan\sと\sOpenGL\sは別々のキャッシュを使い、互換性が異なる場合があります。
+Group = グループ
 HDTV = HDTV
 Hard\sdrive = ハードディスク
 Home = ホーム

@@ -206,6 +206,7 @@ Geometry\srounding = Zaokrąglanie\sgeometrii
 Go\sto\sthe\slibrary\s(the\sgame\sstays\sopen) = Zobacz\sbibliotekę\s(gra\spozostaje\sotwarta)
 Graphics = Grafika
 Graphics\sAPI\sused\sto\sdraw\sgames.\sChanging\sit\srestarts\sthe\semulator.\sVulkan\sand\sOpenGL\suse\sseparate\scaches;\scompatibility\smay\sdiffer\sbetween\sthem. = Interfejs\sgraficzny\sużywany\sdo\srysowania\sgier.\sZmiana\suruchamia\semulator\sponownie.\sVulkan\si\sOpenGL\sużywają\sosobnych\spamięci\spodręcznych;\szgodność\smoże\ssię\sróżnić.
+Group = Grupa
 HDTV = HDTV
 Hard\sdrive = Dysk\stwardy
 Home = Start
