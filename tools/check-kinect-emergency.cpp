@@ -26,6 +26,7 @@
 #include "xbox360ps5/motion_emergency.hpp"
 #include "xbox360ps5/virtual_nui.hpp"
 #include "xbox360ps5/phone_latency.hpp"
+#include "xbox360ps5/phone_qr_panel.hpp"
 
 namespace m = xbox360ps5::motion;
 using Clock = std::chrono::steady_clock;
@@ -177,6 +178,18 @@ int main(int argc, char** argv) {
   }
   CHECK(m::kEmergencyButtons == (0x02 | 0x04));
 
+  // (f) The motion panel's text lines: one each, so the distance cannot run into the status line in
+  // any language ("Motion: tracking (research)Odległość 2.7 m"); the hint under the distance while
+  // it shows, all of it above the skeleton's clip (185).
+  for (const bool tracked : {true, false}) {
+    const auto lines = m::PanelStatusLines(tracked);
+    CHECK(lines.skeleton - lines.status >= m::kStatusLineHeight - 2);
+    CHECK(lines.distance - lines.skeleton >= m::kStatusLineHeight);
+    if (tracked) CHECK(lines.hint - lines.distance >= m::kStatusLineHeight);
+    else CHECK(lines.hint == lines.distance);
+    CHECK(lines.hint + m::kStatusLineHeight <= 186 + m::kStatusLineHeight && lines.status >= 100);
+  }
+
   // (e) A brief press asks for a re-centre; a hold, or a press that started the emergency body, does not.
   {
     m::EmergencyPose e;
@@ -232,6 +245,12 @@ int main(int argc, char** argv) {
     CHECK(pad_call != std::string::npos && pad_call < pad.find("std::lock_guard<std::mutex> lock(mutex_);", pad.find("void DualSenseInput::Submit")));
     CHECK(game.find("DrawEmergencyHint(scale, now);  // fix 107") != std::string::npos);
     CHECK(game.find("const bool recentring = xbox360ps5::motion::RecentrePending(now_ms);  // fix 107") != std::string::npos);
+    // (f) The panel draws its lines where PanelStatusLines says, the distance no longer at the
+    // status line's right end.
+    CHECK(game.find("const auto lines = xbox360ps5::motion::PanelStatusLines(phone.tracked);") != std::string::npos);
+    CHECK(game.find("ImVec2((1570 + shift_) * scale, lines.distance * scale),") != std::string::npos);
+    CHECK(game.find("DrawPositionHint(draw, scale, pose, lines.hint);") != std::string::npos);
+    CHECK(game.find("(1885 + shift_) * scale - size.x, 117 * scale)") == std::string::npos);
     // The pad's press, the server's answers and the acknowledgement, with their log lines.
     CHECK(pad.find("\"Virtual Kinect: re-centre requested from the pad (seq {}) (fix 107)\"") != std::string::npos);
     CHECK(pad.find("motion::enabled.load() && motion::game_running.load()) {") != std::string::npos);

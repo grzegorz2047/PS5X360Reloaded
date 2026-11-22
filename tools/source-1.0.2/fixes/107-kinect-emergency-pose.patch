@@ -311,6 +311,32 @@ index 0f1fd55..da1bf88 100644
  // At most one line every 1.5 s, whatever the phone sends (now_ms: a steady clock).
  inline bool Due(uint64_t now_ms) {
    static std::atomic<uint64_t> last{0};
+diff --git a/include/xbox360ps5/phone_qr_panel.hpp b/include/xbox360ps5/phone_qr_panel.hpp
+index 60d50a6..ab1fc6f 100644
+--- a/include/xbox360ps5/phone_qr_panel.hpp
++++ b/include/xbox360ps5/phone_qr_panel.hpp
+@@ -34,6 +34,21 @@ inline PanelView ChoosePanelView(std::chrono::steady_clock::time_point received,
+   return now - received > kPhoneQuiet ? PanelView::kPhoneQr : PanelView::kSkeleton;
+ }
+ 
++// Fix 107: the skeleton view's text lines, one each, in 1080p units: the status, the game's
++// skeleton, the phone's distance (while a body is tracked) and the position hint under it. The
++// distance was drawn at the status line's right end and ran into it ("Motion: tracking
++// (research)Odległość 2.7 m"): the box is 350 wide and the lines are as long as their language
++// makes them, so none shares a line with another.
++constexpr float kStatusLineHeight = 23;  // the 20-unit text and a gap
++struct StatusLines {
++  float status = 115, skeleton = 140, distance = 163, hint = 163;
++};
++inline StatusLines PanelStatusLines(bool distance_shown) {
++  StatusLines lines;
++  lines.hint = distance_shown ? lines.distance + kStatusLineHeight : lines.distance;
++  return lines;
++}
++
+ // Where the "no phone" view draws, in 1080p units (the overlay scales by the screen's height):
+ // inside the motion panel's own box, which it does not grow.
+ struct QrPanelLayout {
 diff --git a/include/xbox360ps5/virtual_depth_camera.hpp b/include/xbox360ps5/virtual_depth_camera.hpp
 index fb392f0..3236ff2 100644
 --- a/include/xbox360ps5/virtual_depth_camera.hpp
@@ -508,7 +534,7 @@ index 78b3a4a..0cdfac2 100644
                      result == motion::Result::disabled ? "{\"error\":\"disabled\"}" : "{\"error\":\"invalid motion frame\"}");
    }
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 512369c..ba22328 100644
+index 512369c..cb78246 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
 @@ -137,6 +137,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
@@ -527,7 +553,41 @@ index 512369c..ba22328 100644
        if (phone_checked_ == std::chrono::steady_clock::time_point{} || now - phone_checked_ >= std::chrono::seconds(2)) {
          phone_checked_ = now;
          phone_key_ = xbox360ps5::WebSettingsKey();
-@@ -483,6 +485,37 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -421,24 +423,26 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+         DrawPhoneQr(draw, scale);
+       } else if (!panel_off) {
+       draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
+-      draw->AddText(ImVec2((1570 + shift_)*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
+-      draw->AddText(ImVec2((1570 + shift_)*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
++      // Fix 107: one line each (phone_qr_panel.hpp, PanelStatusLines); the distance had shared the
++      // status line and ran into it in Polish.
++      const auto phone = xbox360ps5::motion::Snapshot();
++      const auto lines = xbox360ps5::motion::PanelStatusLines(phone.tracked);
++      draw->AddText(ImVec2((1570 + shift_)*scale,lines.status*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
++      draw->AddText(ImVec2((1570 + shift_)*scale,lines.skeleton*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
+       // 1.0.5_candidate_4: the distance the phone page reports (before the console re-centres
+-      // it), at the panel's top right: amber outside Dragon Ball Z's 1.8-3.5 m, as a page
++      // it), on its own line (fix 107): amber outside Dragon Ball Z's 1.8-3.5 m, as a page
+       // calibrated near the phone shows (3.8 m, its limit); "Recenter" on the page fixes it.
+-      const auto phone = xbox360ps5::motion::Snapshot();
+       if (phone.tracked) {
+         char distance[48];
+         const float metres = xbox360ps5::motion::kBridgeBodyDistance - phone.joints[0].z;
+         std::snprintf(distance, sizeof(distance), Tr("Distance %.1f m"), double(metres));
+-        const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(20 * scale, 4096, 0, distance);
+         const bool outside = metres < xbox360ps5::motion::kNearestMetres || metres > xbox360ps5::motion::kFarthestMetres;
+-        draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1885 + shift_) * scale - size.x, 117 * scale),
++        draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1570 + shift_) * scale, lines.distance * scale),
+                       outside ? IM_COL32(245, 204, 137, 255) : IM_COL32(200, 200, 200, 255), distance);
+       }
+       // Fix 63: what the game needs, under the live skeleton (kinect_hand_view.hpp).
+       const auto hands = xbox360ps5::motion::SnapshotGameHands();
+-      DrawPositionHint(draw, scale, pose);
++      DrawPositionHint(draw, scale, pose, lines.hint);
+       if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
+       if (pose.tracked) {
+         const auto point = [&](int n) { return ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
+@@ -483,6 +487,37 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -565,3 +625,20 @@ index 512369c..ba22328 100644
    // Fix 63: the panel's "no phone" view, inside the panel's own box (1550-1900 x 100-640 at
    // 1080p, scaled for 4K): a title line, the QR code on a white card, the code, how to stand.
    void DrawPhoneQr(ImDrawList* draw, float scale) {
+@@ -515,14 +550,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+                   IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
+   }
+   // Fix 63: too close / too far / not all of the body in the picture, under the status lines.
+-  void DrawPositionHint(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose) {
++  void DrawPositionHint(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose, float y) {
+     using xbox360ps5::motion::Positioning;
+     const Positioning hint = xbox360ps5::motion::PositionHint(pose);
+     const char* text = hint == Positioning::kStepBack ? Tr("Step back")
+                      : hint == Positioning::kStepCloser ? Tr("Step closer")
+                      : hint == Positioning::kWholeBody ? Tr("Show your whole body to the camera") : nullptr;
+     if (text)
+-      draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1570 + shift_) * scale, 163 * scale), IM_COL32(245, 204, 137, 255),
++      draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1570 + shift_) * scale, y * scale), IM_COL32(245, 204, 137, 255),
+                     text, nullptr, 312 * scale);
+   }
+   // Fix 63: the arms as the game wants them, faint, behind the live skeleton: each arm

@@ -207,7 +207,8 @@ void CheckTree() {
   CHECK(game.find("#include \"xbox360ps5/kinect_hand_view.hpp\"") != std::string::npos);
   CHECK(game.find("DrawTargetArms(draw, scale, pose, hands)") != std::string::npos);
   CHECK(game.find("DrawReachBars(draw, scale, hands)") != std::string::npos);
-  CHECK(game.find("DrawPositionHint(draw, scale, pose)") != std::string::npos);
+  CHECK(game.find("DrawPositionHint(draw, scale, pose)") != std::string::npos ||
+        game.find("DrawPositionHint(draw, scale, pose, lines.hint)") != std::string::npos);  // fix 107: its own line
   CHECK(game.find("DrawTargetArms(draw, scale, pose, hands)") < game.find("const int bones[][2]"));  // under it
   for (const char* key : {"Tr(\"Step back\")", "Tr(\"Step closer\")", "Tr(\"Show your whole body to the camera\")",
                           "Tr(\"Hand reach (the game needs %.2f)\")"})
