@@ -142,6 +142,7 @@ checks=(
   check-vfs-host-ops.cpp           # fix 129
   check-resolution-scale.cpp       # fixes 117 to 117i
   check-avatar-skeleton.cpp        # fix 113
+  check-submit-parts.cpp           # fix 130
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -262,6 +263,7 @@ declare -A fix_of=(
   [check-vfs-host-ops.cpp]=129
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i"
   [check-avatar-skeleton.cpp]=113
+  [check-submit-parts.cpp]=130
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

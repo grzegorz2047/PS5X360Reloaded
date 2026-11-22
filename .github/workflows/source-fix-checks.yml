@@ -147,6 +147,7 @@ on:
       - 'tools/check-sample-ticket.cpp'
       - 'tools/check-vfs-host-ops.cpp'
       - 'tools/check-resolution-scale.cpp'
+      - 'tools/check-submit-parts.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
