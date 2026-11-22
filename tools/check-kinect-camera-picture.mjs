@@ -157,10 +157,23 @@ check('(d) the page', () => {
   assert.ok(page.includes('<p id="picture_live" role="status" hidden></p><p id="calibration" role="status"></p>'));
   assert.ok(page.indexOf('<p id="picture_live"') < page.indexOf('<details id="settings">'));
   assert.ok(page.includes("const sending = pictureChoice.value === 'on' && pictures.sending(performance.now());"));
-  assert.ok(page.includes("if (pictureLive.hidden === sending) { pictureLive.textContent = T('picture_live'); pictureLive.hidden = !sending; }"));
+  // 1.0.5-work-fix119c: the same line hints at the switch while the PS5 asks and it is off; a tap
+  // opens the options at the switch and does not turn it on.
+  assert.ok(page.includes("const hint = !sending && pictureChoice.value !== 'on' && onConsole && paired && pictures.wanted;"));
+  assert.ok(page.includes("const live = sending ? T('picture_live') : hint ? T('picture_hint') : '';"));
+  assert.ok(page.includes('pictureLive.hidden = !live;\n  pictureLive.classList.toggle(\'hint\', hint);'));
+  const tap = between(page, 'pictureLive.onclick = () => {', '};');
+  assert.ok(tap.includes("if (!pictureLive.classList.contains('hint')) return;") && tap.includes("$('settings').open = true;") &&
+            tap.includes('pictureChoice.focus();'));
+  assert.ok(!tap.includes('pictureChoice.value ='), 'the tap does not turn the picture on');
   assert.ok(page.includes('async function sendPicture() {\n  showPictureNote();'));
   assert.ok(page.includes('pictures.answer(response.status, performance.now());'));
   assert.ok(page.includes('#picture_live{color:var(--warn);font-weight:700;margin:6px 0}'));
+  assert.ok(page.includes('#picture_live.hint{color:var(--text);font-weight:600;cursor:pointer;text-decoration:underline}'));
+  for (const code of ['en', 'pt', 'es', 'pl']) {
+    assert.ok(TEXT[code].picture_hint.includes(TEXT[code].picture_label), code + ' hint names the switch');
+    assert.ok(TEXT[code].picture_hint.toLowerCase().includes(TEXT[code].options.toLowerCase().slice(0, 10)), code + ' and where it is');
+  }
 });
 
 fs.rmSync(work, {recursive: true, force: true});
