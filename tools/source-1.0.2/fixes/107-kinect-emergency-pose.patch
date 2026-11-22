@@ -407,10 +407,10 @@ index 9ea7c73..f778580 100644
    X_INPUT_GAMEPAD next{};
    bool keyboard_suppressed = false;
 diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
-index df23686..a34061a 100644
+index f349958..63f2a8b 100644
 --- a/port/phone_camera_page.hpp
 +++ b/port/phone_camera_page.hpp
-@@ -89,9 +89,9 @@ body.focus #exit-focus{display:block}
+@@ -91,9 +91,9 @@ body.focus #exit-focus{display:block}
  import {skeleton} from './pose.mjs?v=kinect5';
  import {KinectTracker, GestureMonitor, BODY_DISTANCE, MIRRORED, mirrorLandmarks} from './kinect_tracker.mjs?v=kinect106';
  import {afterStatus, afterFrame, shouldPoll, shouldAutoStart, afterCameraError, view, POLL_MS} from './pairing.mjs?v=56';
@@ -422,15 +422,15 @@ index df23686..a34061a 100644
  const lang = (navigator.language || 'en').slice(0, 2).toLowerCase();
  const words = TEXT[lang] || TEXT.en;
  document.documentElement.lang = TEXT[lang] ? lang : 'en';
-@@ -209,6 +209,7 @@ async function ask(quiet) {
-     http = response.status;
+@@ -232,6 +232,7 @@ async function ask(quiet) {
+     if (reloadIfUpdated(response.headers.get('X-Page-Version'), typed, sessionStorage, () => location.reload())) return;
      if (response.ok) json = await response.json();
    } catch {}
 +  if (json) recentring.note(json, performance.now());  // fix 107: a re-centre asked on the PS5
    asking = false;
    if (quiet && state.pairing === 'disconnected') return;  // Disconnect was pressed meanwhile
    const next = afterStatus(state.pairing, http, json);
-@@ -231,6 +232,7 @@ render();
+@@ -254,6 +255,7 @@ render();
  if (state.pairing === 'connecting') setTimeout(() => ask(false), 0);
  // ---- PS5X360Reloaded fix 66: the delay by stage (latency.mjs) ------------------------------------
  const latencyWindow = new StageWindow();
@@ -438,7 +438,7 @@ index df23686..a34061a 100644
  const latencyLine = document.createElement('p');
  latencyLine.id = 'latency';
  latencyLine.hidden = true;
-@@ -254,6 +256,7 @@ function reportLatency(now) {
+@@ -277,6 +279,7 @@ function reportLatency(now) {
    if (now - lastLatency < REPORT_MS) return;
    lastLatency = now;
    const report = latencyWindow.report(now, inFlight);
@@ -446,7 +446,7 @@ index df23686..a34061a 100644
    latencyLine.textContent = T('latency', ...summaryValues(report)) + ' · ' + report.fps + ' fps';
    latencyLine.hidden = false;
    if (onConsole && paired && consoleKey)
-@@ -295,6 +298,8 @@ async function sendPose(pose, queuedSession = null) {
+@@ -318,6 +321,8 @@ async function sendPose(pose, queuedSession = null) {
      }
      if (paired && target === motionSession) sentTimes.push(performance.now());
      if (pose && onConsole) latencyWindow.add('network', (performance.now() - sentAt) / 2);
@@ -455,7 +455,7 @@ index df23686..a34061a 100644
    } catch (e) {
      if (target === motionSession) setPairing(afterFrame(state.pairing, 0, ''));
    } finally {
-@@ -411,6 +416,8 @@ async function loop() {
+@@ -434,6 +439,8 @@ async function loop() {
        // Fix 106: why a frame had no body (or kept one with inferred hips), and the tracker's
        // calibration restarts, for the console's log.
        latencyWindow.reason(frameReason(stale, seen, latest, tracked));
@@ -464,7 +464,7 @@ index df23686..a34061a 100644
        for (const event of tracker.takeEvents()) latencyWindow.calibration(event);
        reportLatency(capturedAt);
        draw(seen, stale ? null : latest, tracked);
-@@ -423,6 +430,9 @@ async function loop() {
+@@ -446,6 +453,9 @@ async function loop() {
  function showStatus(stale, tracked) {
    if (stale) { status.textContent = T('frame_old'); return; }
    status.textContent = latest ? T('body') : T('no_body');
@@ -474,7 +474,7 @@ index df23686..a34061a 100644
    if (mode.value !== 'kinect') { calibrationText.textContent = T('original'); progress.value = 0; return; }
    const s = tracked?.status;
    progress.value = s?.progress ?? 0;
-@@ -746,6 +756,31 @@ export class StageWindow {
+@@ -769,6 +779,31 @@ export class StageWindow {
    }
  }
  
@@ -506,12 +506,19 @@ index df23686..a34061a 100644
  // The page's line: the medians, '–' for a stage without samples.
  export function summaryValues(report) {
    return STAGES.map(name => {
+@@ -777,5 +812,5 @@ export function summaryValues(report) {
+   });
+ }
+ )LATENCYJS";
+-inline constexpr char kPageVersion[] = "527ac0e149d1b4c7";
++inline constexpr char kPageVersion[] = "2a2c908b5d1578ff";
+ }  // namespace xbox360ps5::phone_camera
 diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
-index 78b3a4a..0cdfac2 100644
+index fa076d3..34ddd5a 100644
 --- a/port/phone_camera_tls.cpp
 +++ b/port/phone_camera_tls.cpp
-@@ -309,14 +309,20 @@ std::string Route(const std::string& method, std::string target, const std::stri
-   if (method == "GET" && target == "/api/motion/status") return Response("200 OK", "application/json", motion::Status());
+@@ -314,14 +314,20 @@ std::string Route(const std::string& method, std::string target, const std::stri
+                     (std::string("X-Page-Version: ") + phone_camera::kPageVersion + "\r\n").c_str());
    if (method == "POST" && target == "/api/motion/latency") {
      // Fix 66: the page's delay by stage, every 2 s while paired; one game log line at most every 1.5 s.
 -    if (phone_latency::Due(phone_latency::NowMs()))
@@ -534,10 +541,10 @@ index 78b3a4a..0cdfac2 100644
                      result == motion::Result::disabled ? "{\"error\":\"disabled\"}" : "{\"error\":\"invalid motion frame\"}");
    }
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index 512369c..cb78246 100644
+index 6dc8490..d553679 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -137,6 +137,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -144,6 +144,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include "xbox360ps5/web_settings.hpp"
  #include "xbox360ps5/qr_code.hpp"         // fix 63: the camera QR code in the motion panel
  #include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
@@ -545,7 +552,7 @@ index 512369c..cb78246 100644
  #include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
  #include "xbox360ps5/body_scale.hpp"  // fix 57: the body the games get
  #include "xbox360ps5/motion_record.hpp"  // 1.0.5: the last 10 s of phone motion
-@@ -406,6 +407,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -413,6 +414,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
        // Fix 63: while no phone sends frames, the library's camera QR code and the pairing code
        // in the panel's place (phone_qr_panel.hpp); the address is looked up every 2 s.
        const auto now = std::chrono::steady_clock::now();
@@ -553,7 +560,7 @@ index 512369c..cb78246 100644
        if (phone_checked_ == std::chrono::steady_clock::time_point{} || now - phone_checked_ >= std::chrono::seconds(2)) {
          phone_checked_ = now;
          phone_key_ = xbox360ps5::WebSettingsKey();
-@@ -421,24 +423,26 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -428,24 +430,26 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
          DrawPhoneQr(draw, scale);
        } else if (!panel_off) {
        draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
@@ -587,7 +594,7 @@ index 512369c..cb78246 100644
        if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
        if (pose.tracked) {
          const auto point = [&](int n) { return ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
-@@ -483,6 +487,37 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -490,6 +494,37 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -625,7 +632,7 @@ index 512369c..cb78246 100644
    // Fix 63: the panel's "no phone" view, inside the panel's own box (1550-1900 x 100-640 at
    // 1080p, scaled for 4K): a title line, the QR code on a white card, the code, how to stand.
    void DrawPhoneQr(ImDrawList* draw, float scale) {
-@@ -515,14 +550,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -522,14 +557,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
                    IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
    }
    // Fix 63: too close / too far / not all of the body in the picture, under the status lines.
