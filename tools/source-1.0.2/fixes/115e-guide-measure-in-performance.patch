@@ -1,0 +1,19 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index d6b0f7d..dc4f5bf 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -760,9 +760,13 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+       item.category = c;
+       items.push_back(item);
+     }
+-    items.push_back({GuideAction::measure, Tr("Measure performance (10 s)"), ""});  // fix 54: was 5 s
+     return items;
+   }
++  // Fix 115e: "Measure performance" opens the Performance category, with the options it measures
++  // (it was the last row of the list of categories; the user asked for it there, for consistency).
++  // An action row: Cross only, no value.
++  if (std::strcmp(xbox360ps5::kOptionCategories[category], "Performance") == 0)
++    items.push_back({GuideAction::measure, Tr("Measure performance (10 s)"), ""});  // fix 54: was 5 s
+   for (const auto& option : xbox360ps5::Options()) {
+     if (!shown(option) || option.category != category) continue;
+     items.push_back({GuideAction::option, Tr(option.label), Tr(option.choices[size_t(settings.*option.field)]), &option});
