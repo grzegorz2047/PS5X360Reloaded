@@ -11,9 +11,20 @@
 //      turn into 2x; the launcher's built-in presets give no game a scale;
 //  (c) the core: the device line after the clamp, the sparse buffers' line, the floor asked
 //      before each heap's vkAllocateMemory, the refused commits not logged one by one, the 10 s line.
+// Fix 117b (117b-resolution-scale-floor.patch): the same floor for new render targets of the scaled
+// class (their pitch and MSAA render at 1x from then on, the threshold's native class) and new scaled
+// textures, the free memory asked at most every 250 ms, and the Vulkan driver's memory (every
+// vkAllocateMemory less vkFreeMemory, counted in radv_dispatch.cpp) in the 10 s line, at 1x too.
+//  (d) the header: the driver memory tally (sizes by handle, a handle freed twice or never seen, the
+//      peak), the cached free memory, the render target and texture admissions and their estimates;
+//  (e) the tree: radv_dispatch.cpp hands out counting vkAllocateMemory/vkFreeMemory through
+//      vkGetDeviceProcAddr; IsScaleNativeForPitch honours the kept-native classes; the render
+//      target and texture floors come before their allocations; render_target_cache.h includes
+//      platform.h (the class's layout must not differ between translation units).
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
+#include <cstdint>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -43,6 +54,13 @@ std::string Read(const std::string& path) {
 
 namespace rs = xbox360ps5::resolution_scale;
 
+int queries = 0;
+int64_t answer = 0;
+int64_t Query() {
+  ++queries;
+  return answer;
+}
+
 void CheckHeader() {
   Expect(rs::kChoices == 2, "two choices");
   Expect(rs::ScaleForChoice(0) == 1, "choice 0 is 1x");
@@ -60,7 +78,13 @@ void CheckHeader() {
   Expect(!rs::MayCommit(0, kHeap), "nothing free: refused");
 
   rs::Counters c;
-  Expect(rs::Line(c, 3000ll << 20).empty(), "no 10 s line at 1x");
+  rs::DriverMemory::Totals driver;
+  driver.bytes = uint64_t(1500) << 20;
+  driver.peak = uint64_t(1600) << 20;
+  driver.allocations = 420;
+  const std::string one = rs::Line(c, driver, 3000ll << 20);
+  Expect(one == "Resolution scale (fix 117): 1x; driver memory 1500 MiB (peak 1600 MiB, 420 allocations); direct free 3000 MiB",
+         "10 s line at 1x (fix 117b): " + one);
   c.scale = 2;
   c.sparse = true;
   Expect(rs::Admit(c, 3000ll << 20, kHeap), "3000 MiB free: admitted");
@@ -74,13 +98,56 @@ void CheckHeader() {
   Expect(c.heaps == 2 && c.heap_bytes == 2 * kHeap, "two heaps of 16 MiB counted");
   Expect(c.failed == 1 && c.refused == 2, "one failed, two refused");
   Expect(c.lowest_free == (900ll << 20), "lowest free seen at a commit: 900 MiB");
-  const std::string line = rs::Line(c, 1200ll << 20);
+  Expect(!rs::AdmitRenderTarget(c, 1030ll << 20, rs::RenderTargetBytes(2560, 1440, 1, false)),
+         "a 2560x1440 render target (14 MiB) with 1030 MiB free: refused");
+  Expect(rs::AdmitRenderTarget(c, 3000ll << 20, rs::RenderTargetBytes(2560, 1440, 4, true)),
+         "a 4xMSAA depth target with 3000 MiB free: admitted");
+  Expect(!rs::AdmitTexture(c, 1030ll << 20, rs::TextureBytes(2560, 1440, 1, false)), "a scaled texture at 1030 MiB: refused");
+  Expect(!rs::AdmitTexture(c, 500ll << 20, rs::TextureBytes(64, 64, 1, true)), "a small scaled texture at 500 MiB: refused");
+  Expect(c.native_classes == 1 && c.textures_refused == 2, "one render target class kept at 1x, two textures refused");
+  const std::string line = rs::Line(c, driver, 1200ll << 20);
   Expect(line == "Resolution scale (fix 117): 2x, scaled resolve sparse, 2 heaps (32 MiB) committed, 2 refused "
-                 "(under 1024 MiB free), 1 failed; direct free 1200 MiB (lowest at a commit 900 MiB)",
+                 "(under 1024 MiB free), 1 failed; render target classes kept at 1x 1, scaled textures refused 2; "
+                 "driver memory 1500 MiB (peak 1600 MiB, 420 allocations); direct free 1200 MiB (lowest at a commit "
+                 "500 MiB)",
          "10 s line: " + line);
   c.sparse = false;
-  Expect(Has(rs::Line(c, -1), "scaled resolve none,") && Has(rs::Line(c, -1), "direct free -1 MiB"),
+  Expect(Has(rs::Line(c, driver, -1), "scaled resolve none,") && Has(rs::Line(c, driver, -1), "direct free -1 MiB"),
          "10 s line without sparse buffers or a known free amount");
+
+  // Fix 117b: estimates.
+  Expect(rs::RenderTargetBytes(2560, 1440, 1, false) == uint64_t(2560) * 1440 * 4, "a 32bpp render target");
+  Expect(rs::RenderTargetBytes(2560, 1440, 4, true) == uint64_t(2560) * 1440 * 4 * 8, "a 4xMSAA 64bpp/depth target");
+  Expect(rs::RenderTargetBytes(10, 10, 0, false) == 400, "no sample count counts as one");
+  Expect(rs::TextureBytes(100, 100, 1, false) == 80000, "a texture without mips, 8 bytes a texel");
+  Expect(rs::TextureBytes(100, 100, 6, true) == 480000 + 160000, "a cube with mips: a third more");
+
+  // Fix 117b: the driver's memory.
+  rs::DriverMemory m;
+  m.Allocated(0x10, 100);
+  m.Allocated(0x20, 300);
+  Expect(m.Get().bytes == 400 && m.Get().peak == 400 && m.Get().allocations == 2, "two allocations");
+  m.Freed(0x10);
+  Expect(m.Get().bytes == 300 && m.Get().peak == 400 && m.Get().allocations == 1, "one freed, the peak kept");
+  m.Freed(0x10);
+  m.Freed(0x99);
+  Expect(m.Get().bytes == 300 && m.Get().allocations == 1, "a handle freed twice or never seen changes nothing");
+  m.Allocated(0x20, 50);
+  Expect(m.Get().bytes == 50 && m.Get().allocations == 1, "a handle reused by the driver counts its new size once");
+  m.Allocated(0x30, 1000);
+  Expect(m.Get().peak == 1050, "the peak follows the total");
+
+  // Fix 117b: the free memory asked at most every 250 ms.
+  queries = 0;
+  rs::direct_free_at_ms = -1000;
+  answer = 5000;
+  Expect(rs::DirectFreeRecent(10000, Query) == 5000 && queries == 1, "first ask queries");
+  answer = 4000;
+  Expect(rs::DirectFreeRecent(10100, Query) == 5000 && queries == 1, "100 ms later: the value kept");
+  Expect(rs::DirectFreeRecent(10249, Query) == 5000 && queries == 1, "249 ms later: the value kept");
+  Expect(rs::DirectFreeRecent(10250, Query) == 4000 && queries == 2, "250 ms later: asked again");
+  answer = 3000;
+  Expect(rs::DirectFreeRecent(9000, Query) == 3000 && queries == 3, "a clock behind the last ask: asked again");
 
   rs::Device d;
   d.asked_x = d.asked_y = 2;
@@ -178,7 +245,42 @@ void CheckCore() {
          "the fallback buffers keep the floor");
   Expect(Has(render_targets, "Fix 117") && Has(render_targets, "failed_commits < 8"),
          "a refused commit is logged a few times, not at every resolve");
-  Expect(Has(game_main, "xbox360ps5::resolution_scale::Line("), "the 10 s line");
+  Expect(Has(game_main, "xbox360ps5::resolution_scale::Line(") &&
+             Has(game_main, "xbox360ps5::resolution_scale::driver_memory.Get(),"),
+         "the 10 s line, with the driver's memory (fix 117b)");
+
+  // Fix 117b.
+  const std::string dispatch = Read("platform/ps5/radv_dispatch.cpp");
+  Expect(Has(dispatch, "if (!std::strcmp(name, \"vkGetDeviceProcAddr\")) {") &&
+             Has(dispatch, "return reinterpret_cast<PFN_vkVoidFunction>(DeviceProc);") &&
+             Has(dispatch, "return reinterpret_cast<PFN_vkVoidFunction>(AllocateMemory);") &&
+             Has(dispatch, "return reinterpret_cast<PFN_vkVoidFunction>(FreeMemory);"),
+         "the driver's vkAllocateMemory/vkFreeMemory are handed out counting, through vkGetDeviceProcAddr");
+  Expect(Has(dispatch, "resolution_scale::driver_memory.Allocated(MemoryHandle(*memory), info->allocationSize);") &&
+             Has(dispatch, "resolution_scale::driver_memory.Freed(MemoryHandle(memory));"),
+         "allocations counted with their size, frees by handle");
+  const std::string rt_header = Read(".deps/xenia-canary/src/xenia/gpu/render_target_cache.h");
+  const std::string rt_common = Read(".deps/xenia-canary/src/xenia/gpu/render_target_cache.cc");
+  const size_t platform = rt_header.find("#include \"xenia/base/platform.h\"");
+  const size_t first_ps5 = rt_header.find("#if XE_PLATFORM_PS5");
+  Expect(platform != std::string::npos && first_ps5 != std::string::npos && platform < first_ps5,
+         "render_target_cache.h includes platform.h before its PS5 member (one layout in every unit)");
+  const size_t native_fn = rt_common.find("bool RenderTargetCache::IsScaleNativeForPitch(");
+  const size_t kept = rt_common.find("kept_native_[pitch_tiles_at_32bpp * 4 + uint32_t(msaa_samples)]", native_fn);
+  const size_t threshold = rt_common.find("uint32_t threshold = cvars::draw_resolution_scale_threshold;", native_fn);
+  Expect(native_fn != std::string::npos && kept != std::string::npos && threshold != std::string::npos && kept < threshold,
+         "IsScaleNativeForPitch answers kept-native classes before the threshold");
+  const size_t rt_admit = render_targets.find("xbox360ps5::resolution_scale::AdmitRenderTarget(");
+  const size_t rt_alloc = render_targets.find("if (!ui::vulkan::util::CreateDedicatedAllocationImage(", rt_admit);
+  const size_t rt_keep = render_targets.find("KeepScaleNativeForPitch(key.pitch_tiles_at_32bpp, key.msaa_samples);", rt_admit);
+  Expect(rt_admit != std::string::npos && rt_keep != std::string::npos && rt_alloc != std::string::npos &&
+             rt_keep < rt_alloc && Has(render_targets, "if (!key.scale_native && IsDrawResolutionScaled()) {"),
+         "a scaled render target asks the floor first and keeps its class at 1x when refused");
+  const size_t tex_admit = texture_cache.find("xbox360ps5::resolution_scale::AdmitTexture(");
+  const size_t tex_alloc = texture_cache.find("if (vmaCreateImage(vma_allocator_, &image_create_info,", tex_admit);
+  Expect(tex_admit != std::string::npos && tex_alloc != std::string::npos && tex_alloc - tex_admit < 1200 &&
+             Has(texture_cache, "  if (key.scaled_resolve &&\n      !xbox360ps5::resolution_scale::AdmitTexture("),
+         "a scaled texture asks the floor before vmaCreateImage");
 }
 
 }  // namespace
