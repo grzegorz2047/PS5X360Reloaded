@@ -502,4 +502,14 @@ else
   echo "FAIL check-content-create.sh"
   status=1
 fi
+# Fix 139: a file system entry outlives its files and deletes (left out with the fix).
+echo "=== check-vfs-entry-lifetime.sh"
+if ! grep -q 'fix 139' "$tree/.deps/xenia-canary/src/xenia/vfs/entry.cc"; then
+  echo "skip check-vfs-entry-lifetime.sh (fix 139 left out)"
+elif bash "$repo/tools/check-vfs-entry-lifetime.sh" "$tree"; then
+  echo "pass check-vfs-entry-lifetime.sh"
+else
+  echo "FAIL check-vfs-entry-lifetime.sh"
+  status=1
+fi
 exit $status
