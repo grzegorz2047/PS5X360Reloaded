@@ -16,10 +16,10 @@ index daf76ca..7a996d9 100644
      if (counter_ptr && IsGuestRange(counter_ptr,4)) {
 diff --git a/include/xbox360ps5/camera_picture.hpp b/include/xbox360ps5/camera_picture.hpp
 new file mode 100644
-index 0000000..26487b7
+index 0000000..a5d825e
 --- /dev/null
 +++ b/include/xbox360ps5/camera_picture.hpp
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,252 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 119 (issue 15): the phone's camera picture as the virtual Kinect's colour stream. A Kinect
 +// game that shows its camera (Kinect Sports' Show Off & Share replays, photos) saw a flat grey
@@ -58,6 +58,7 @@ index 0000000..26487b7
 +// 10 s. With 1 s (119 to 119e) the gaps between pictures (2 to 4 a second, in bursts) gave the
 +// game grey frames between them, and Kinect Sports' replay flickered between the player and grey.
 +constexpr int64_t kPictureFreshMs = 10000;  // older than this, the frame is grey again
++constexpr int64_t kPictureRestartMs = 1000;  // fix 119g: an older number after this is a new page
 +constexpr uint32_t kMosaicWidth = 640, kMosaicHeight = 480;
 +constexpr size_t kMosaicBytes = size_t(kMosaicWidth) * kMosaicHeight;
 +constexpr uint8_t kNoPictureLevel = 128;
@@ -147,9 +148,13 @@ index 0000000..26487b7
 +    std::vector<uint8_t> mosaic;
 +    PictureMosaic(picture, mosaic);
 +    std::lock_guard lock(mutex_);
++    ++pictures_;
++    // Fix 119g: with two on their way an older one can come after a newer one: it is taken and
++    // not shown. A lower number after a second without pictures is a new page (it counts from 1).
++    if (at_ms_ && picture.sequence <= sequence_ && now_ms - at_ms_ < kPictureRestartMs) return PictureResult::accepted;
 +    mosaic_.swap(mosaic);
 +    at_ms_ = now_ms ? now_ms : 1;
-+    ++pictures_;
++    sequence_ = picture.sequence;
 +    return PictureResult::accepted;
 +  }
 +  // The colour frame: the latest picture while it is fresh and wanted; false (out untouched)
@@ -176,6 +181,7 @@ index 0000000..26487b7
 +  std::mutex mutex_;
 +  std::vector<uint8_t> mosaic_;
 +  int64_t at_ms_ = 0;
++  uint32_t sequence_ = 0;
 +  std::atomic<uint64_t> pictures_{0};
 +};
 +inline PictureStore picture_store;
@@ -219,6 +225,10 @@ index 0000000..26487b7
 +    page_skipped_.store(uint64_t(std::max<int64_t>(ReportNumber(report, "picture_skipped"), 0)));
 +    page_failed_.store(uint64_t(std::max<int64_t>(ReportNumber(report, "picture_failed"), 0)));  // fix 119d
 +    page_wanted_.store(int(ReportNumber(report, "picture_wanted")));
++    // Fix 119g: the page's average time per picture since its last report (-1: none timed).
++    page_capture_ms_.store(int(ReportNumber(report, "picture_capture_ms")));
++    page_pack_ms_.store(int(ReportNumber(report, "picture_pack_ms")));
++    page_upload_ms_.store(int(ReportNumber(report, "picture_upload_ms")));
 +  }
 +  // The line when one is due (the window's counters start again), empty otherwise.
 +  std::string Due(int64_t now_ms, bool wanted) {
@@ -244,6 +254,9 @@ index 0000000..26487b7
 +                              (page_wanted_.load() == 0 ? ", sees no ask from the PS5" : page_wanted_.load() == 1 ? ", sees the PS5 ask" : "") +
 +                              ", " + std::to_string(page_sent_.load()) + " sent, " + std::to_string(page_skipped_.load()) +
 +                              " skipped for the network, " + std::to_string(page_failed_.load()) + " failed";
++    if (page_on >= 0 && page_capture_ms_.load() >= 0)
++      line += "; per picture on the phone: capture " + std::to_string(page_capture_ms_.load()) + " ms, pack " +
++              std::to_string(page_pack_ms_.load()) + " ms, upload " + std::to_string(page_upload_ms_.load()) + " ms";
 +    return line;
 +  }
 +
@@ -253,6 +266,7 @@ index 0000000..26487b7
 +  std::atomic<int> page_on_{-1};
 +  std::atomic<uint64_t> page_sent_{0}, page_skipped_{0}, page_failed_{0};
 +  std::atomic<int> page_wanted_{-1};
++  std::atomic<int> page_capture_ms_{-1}, page_pack_ms_{-1}, page_upload_ms_{-1};
 +  std::atomic<int64_t> window_start_{0};
 +};
 +inline PictureStats picture_stats;
@@ -321,7 +335,7 @@ index 3236ff2..ffefbc1 100644
   private:
    uint32_t Sequence() const {
 diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
-index 63f2a8b..d095171 100644
+index 63f2a8b..c0ab383 100644
 --- a/port/phone_camera_page.hpp
 +++ b/port/phone_camera_page.hpp
 @@ -49,6 +49,8 @@ button.big{font-size:20px;min-height:64px;flex:1 1 100%}
@@ -395,7 +409,7 @@ index 63f2a8b..d095171 100644
    asking = false;
    if (quiet && state.pairing === 'disconnected') return;  // Disconnect was pressed meanwhile
    const next = afterStatus(state.pairing, http, json);
-@@ -280,6 +289,12 @@ function reportLatency(now) {
+@@ -280,6 +289,13 @@ function reportLatency(now) {
    lastLatency = now;
    const report = latencyWindow.report(now, inFlight);
    report.recentred = recentring.done;  // fix 107: the pad re-centre this page ran
@@ -405,10 +419,11 @@ index 63f2a8b..d095171 100644
 +  report.picture_skipped = pictures.skipped;
 +  report.picture_failed = pictures.failed;  // fix 119d: thrown, or another answer than 204 and 409
 +  report.picture_wanted = pictures.wanted ? 1 : 0;  // whether the page saw the PS5 ask
++  Object.assign(report, pictures.takeTimes());  // fix 119g: picture_capture_ms, _pack_ms, _upload_ms
    latencyLine.textContent = T('latency', ...summaryValues(report)) + ' · ' + report.fps + ' fps';
    latencyLine.hidden = false;
    if (onConsole && paired && consoleKey)
-@@ -297,6 +312,60 @@ function showPose(pose, extra) {
+@@ -297,6 +313,68 @@ function showPose(pose, extra) {
      }).join('\n');
  }
  
@@ -451,17 +466,25 @@ index 63f2a8b..d095171 100644
 +  if (!pictures.due(performance.now(), pictureChoice.value === 'on', lastNetworkMs)) return;
 +  const crop = pictureCrop(video.videoWidth, video.videoHeight);
 +  if (!crop || !pictureContext) return;
-+  pictures.inFlight = true;
++  pictures.inFlight++;  // fix 119g: up to PICTURE_IN_FLIGHT at once
 +  try {
++    // Fix 119g: each stage timed for the console's line (capture: the camera into the small
++    // canvas and its pixels read back; pack: YCbCr; upload: the POST and its answer).
++    const started = performance.now();
 +    pictureContext.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, PICTURE_WIDTH, PICTURE_HEIGHT);
 +    const pixels = pictureContext.getImageData(0, 0, PICTURE_WIDTH, PICTURE_HEIGHT).data;
++    const captured = performance.now();
++    const body = packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence);
++    const packed = performance.now();
 +    const response = await fetch('/api/motion/picture', {method: 'POST', headers: {'X-Key': consoleKey, 'Content-Type': 'application/octet-stream'},
-+      body: packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence)});
-+    pictures.answer(response.status, performance.now());
++      body});
++    const answered = performance.now();
++    pictures.time(captured - started, packed - captured, answered - packed);
++    pictures.answer(response.status, answered);
 +  } catch {
 +    pictures.failed++;  // fix 119d: counted for the console's line
 +  } finally {
-+    pictures.inFlight = false;
++    pictures.inFlight--;
 +    showPictureNote();
 +  }
 +}
@@ -469,7 +492,7 @@ index 63f2a8b..d095171 100644
  async function sendPose(pose, queuedSession = null) {
    if (!paired && !queuedSession) return;
    const target = queuedSession || motionSession;
-@@ -321,8 +390,15 @@ async function sendPose(pose, queuedSession = null) {
+@@ -321,8 +399,15 @@ async function sendPose(pose, queuedSession = null) {
      }
      if (paired && target === motionSession) sentTimes.push(performance.now());
      if (pose && onConsole) latencyWindow.add('network', (performance.now() - sentAt) / 2);
@@ -486,16 +509,17 @@ index 63f2a8b..d095171 100644
    } catch (e) {
      if (target === motionSession) setPairing(afterFrame(state.pairing, 0, ''));
    } finally {
-@@ -804,6 +880,73 @@ export class RecentreState {
+@@ -804,6 +889,89 @@ export class RecentreState {
    }
  }
  
 +// Fix 119: the camera picture for the game (port/phone_camera_page.hpp's sendPicture; the console's
 +// include/xbox360ps5/camera_picture.hpp). 160x120, 4:3 from the middle of the camera's picture.
 +export const PICTURE_WIDTH = 160, PICTURE_HEIGHT = 120;
-+export const PICTURE_MS = 100;               // at most 10 a second
-+export const PICTURE_SLOW_NETWORK_MS = 60;   // above this, at most 4 a second (PICTURE_SLOW_MS)
-+export const PICTURE_SLOW_MS = 250;
++export const PICTURE_MS = 50;                // at most 20 a second (fix 119g; 10 before)
++export const PICTURE_SLOW_NETWORK_MS = 60;   // above this, at most 8 a second (PICTURE_SLOW_MS)
++export const PICTURE_SLOW_MS = 125;
++export const PICTURE_IN_FLIGHT = 2;          // fix 119g: the next is captured while one uploads
 +export const PICTURE_MAX_NETWORK_MS = 150;   // none while a pose frame takes longer than this
 +
 +// The middle 4:3 of a video `width` x `height` (null before the camera has a size).
@@ -532,17 +556,32 @@ index 63f2a8b..d095171 100644
 +}
 +
 +// When a picture goes: the console wants it ("picture" in its answers), the page's switch is on,
-+// none is on its way, 100 ms since the last try (250 ms while half a pose frame's round trip is
-+// over 60 ms), and that half round trip is under 150 ms; a picture skipped for the network waits
++// fewer than 2 are on their way, 50 ms since the last try (125 ms while half a pose frame's round
++// trip is over 60 ms), and that half round trip is under 150 ms (fix 119g: one at a time and 100 ms
++// gave 7.5 a second on the console, a slideshow in the replay); a picture skipped for the network waits
 +// for the next try. Fix 119f: the network's delay alone protects the pose frames; 119's count of
 +// frames in flight and 119d's dropped pose frames are the page's normal pacing at 45-50 frames a
 +// second and held back more than half of the pictures (2 to 4 a second on the console).
 +export class PictureGate {
-+  constructor() { this.wanted = false; this.inFlight = false; this.last = -Infinity; this.sequence = 0; this.sent = 0; this.skipped = 0; this.failed = 0; }
++  constructor() {
++    this.wanted = false; this.inFlight = 0; this.last = -Infinity; this.sequence = 0; this.sent = 0; this.skipped = 0; this.failed = 0;
++    this.times = [0, 0, 0]; this.timed = 0;
++  }
++  // Fix 119g: one picture's capture, pack and upload, in ms; takeTimes gives their averages since
++  // the last call (for the page's report, every 2 s) as whole ms, nothing when none was timed.
++  time(capture, pack, upload) {
++    this.times[0] += capture; this.times[1] += pack; this.times[2] += upload; this.timed++;
++  }
++  takeTimes() {
++    if (!this.timed) return {};
++    const [capture, pack, upload] = this.times.map(t => Math.round(t / this.timed));
++    this.times = [0, 0, 0]; this.timed = 0;
++    return {picture_capture_ms: capture, picture_pack_ms: pack, picture_upload_ms: upload};
++  }
 +  note(json) { if (json && json.picture !== undefined) this.wanted = Number(json.picture) === 1; }
 +  due(now, enabled, networkMs) {
 +    const interval = networkMs > PICTURE_SLOW_NETWORK_MS ? PICTURE_SLOW_MS : PICTURE_MS;
-+    if (!enabled || !this.wanted || this.inFlight || now - this.last < interval) return false;
++    if (!enabled || !this.wanted || this.inFlight >= PICTURE_IN_FLIGHT || now - this.last < interval) return false;
 +    this.last = now;
 +    if (networkMs > PICTURE_MAX_NETWORK_MS) { this.skipped++; return false; }
 +    return true;
@@ -560,12 +599,12 @@ index 63f2a8b..d095171 100644
  // The page's line: the medians, '–' for a stage without samples.
  export function summaryValues(report) {
    return STAGES.map(name => {
-@@ -812,5 +955,5 @@ export function summaryValues(report) {
+@@ -812,5 +980,5 @@ export function summaryValues(report) {
    });
  }
  )LATENCYJS";
 -inline constexpr char kPageVersion[] = "2a2c908b5d1578ff";
-+inline constexpr char kPageVersion[] = "5a230ffd88a13526";
++inline constexpr char kPageVersion[] = "4eeb5e0b9bb7d8c2";
  }  // namespace xbox360ps5::phone_camera
 diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
 index 34ddd5a..c237bba 100644
