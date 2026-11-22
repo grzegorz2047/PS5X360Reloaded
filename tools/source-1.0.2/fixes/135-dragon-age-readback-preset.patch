@@ -1,0 +1,15 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -613,6 +613,11 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // Fast for the game, research/kinect-119i-rb): the board clean. Fast adds GPU waits for the
+       // keys it copies (fix 91k: their own copies for the occasional ones).
+       {"4D5308C9", {{"readback", 1}}},
++      // Fix 135: Dragon Age II draws the picture of a new save from a target it reads back;
++      // with readback off the thumbnail in the game's Load Game list is noise. Console
++      // (1.0.5-work-fix132 with the game's own readback Fast): the thumbnail a correct game
++      // picture, output 29.5 to 30 a second as with readback off, waits 5 to 21 ms a second.
++      {"4541090B", {{"readback", 1}}},
+   };
+   GameOverrides preset;
+   for (const auto& [id, values] : built_in) if (Lower(title_id) == Lower(id)) preset = values;

@@ -278,6 +278,7 @@ also listed here.
 | 130 (`130-submit-parts`) | a 1.0.5 diagnostics fix: the log splits the GPU thread's submission time into its parts (prepare, begin, replaying the recorded commands, end, queue submit, after), to size an asynchronous submit thread | host-checked (`tools/check-submit-parts.cpp`); console: `1.0.5-work-fix130` |
 | 131 (`131-kinect-sports-readback-preset`) | Kinect Sports gets readback Fast by default (its own setting still wins): its crowd board of flip tiles is a picture it reads back, garbage for a moment with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix131` |
 | 132 (`132-console-game-language`) | the game language "Automatic (console)" follows every PS5 system language the launcher's Language list offers (Polish, Russian, Korean, both Chinese, Dutch, Turkish, English UK), not only six; Dragon Age II on a Polish PS5 opened `locale\en-us` with Automatic and now opens `locale\pl-pl` | host-checked (`tools/check-game-language.cpp`); console: `1.0.5-work-fix132` |
+| 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
 
 ## Comparison with the official executable
 
