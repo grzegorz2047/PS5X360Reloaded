@@ -1,0 +1,476 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -13,6 +13,7 @@
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
++#include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include <sys/stat.h>
+ #include <algorithm>
+ #include <chrono>
+@@ -435,6 +436,29 @@ bool VulkanCommandProcessor::SetupContext() {
+         "the emulator, reducing to {}x{}",
+         draw_resolution_scale_x, draw_resolution_scale_y);
+   }
++#if XE_PLATFORM_PS5
++  {
++    // Fix 117: what the device offers and the scale in use, for the console test of the
++    // "Resolution scale (test)" option (xbox360ps5/resolution_scale.hpp).
++    xbox360ps5::resolution_scale::Device device;
++    TextureCache::GetConfigDrawResolutionScale(device.asked_x, device.asked_y);
++    device.used_x = draw_resolution_scale_x;
++    device.used_y = draw_resolution_scale_y;
++    device.sparse_binding = device_properties.sparseBinding;
++    device.sparse_residency_buffer = device_properties.sparseResidencyBuffer;
++    device.interlock = device_properties.fragmentShaderPixelInterlock;
++    device.max_storage_buffer_range = device_properties.maxStorageBufferRange;
++    device.max_image_2d = device_properties.maxImageDimension2D;
++    device.max_framebuffer_width = device_properties.maxFramebufferWidth;
++    device.max_framebuffer_height = device_properties.maxFramebufferHeight;
++    XELOGW("{}", xbox360ps5::resolution_scale::DeviceLine(
++                     device, xbox360ps5::resolution_scale::DirectFree()));
++    // The 10 s line runs while this is above 1.
++    xbox360ps5::resolution_scale::counters.scale.store(
++        std::max(draw_resolution_scale_x, draw_resolution_scale_y),
++        std::memory_order_relaxed);
++  }
++#endif
+ 
+   render_target_cache_ = std::make_unique<VulkanRenderTargetCache>(
+       *register_file_, *memory_, trace_writer_, draw_resolution_scale_x,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -1290,10 +1290,23 @@ bool VulkanRenderTargetCache::Resolve(
+             scaled_buffer_ready = true;
+             if (!texture_cache.EnsureScaledResolveMemoryCommittedPublic(
+                     dest_address, dest_length)) {
++#if XE_PLATFORM_PS5
++              // Fix 117: refused under the free memory floor (counted in the
++              // 10 s line), maybe at every resolve: the first few are logged.
++              static uint32_t failed_commits = 0;
++              if (failed_commits < 8) {
++                ++failed_commits;
++                XELOGE(
++                    "Failed to commit scaled resolve memory for resolve dest "
++                    "at 0x{:08X}",
++                    dest_address);
++              }
++#else
+               XELOGE(
+                   "Failed to commit scaled resolve memory for resolve dest at "
+                   "0x{:08X}",
+                   dest_address);
++#endif
+               scaled_buffer_ready = false;
+             }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -29,6 +29,7 @@
+ #include "xenia/gpu/vulkan/vulkan_command_processor.h"
+ #include "xenia/ui/vulkan/ui_samplers.h"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
++#include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include "xenia/ui/vulkan/vulkan_mem_alloc.h"
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ 
+@@ -3686,6 +3687,14 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(
+         scaled_resolve_current_range_start_scaled_ = buffer_start;
+         scaled_resolve_current_range_length_scaled_ = buffer_size;
+       } else {
++#if XE_PLATFORM_PS5
++        // Fix 117: the fallback's 256 MiB buffers keep the same floor.
++        if (!xbox360ps5::resolution_scale::Admit(
++                xbox360ps5::resolution_scale::counters,
++                xbox360ps5::resolution_scale::DirectFree(), buffer_size)) {
++          return false;
++        }
++#endif
+         ScaledResolveBuffer new_buffer;
+         new_buffer.size = buffer_size;
+ 
+@@ -3702,6 +3711,11 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(
+             vma_allocator_, &buffer_create_info, &allocation_create_info,
+             &new_buffer.buffer, &new_buffer.allocation, nullptr);
+ 
++#if XE_PLATFORM_PS5
++        xbox360ps5::resolution_scale::Allocated(
++            xbox360ps5::resolution_scale::counters, result == VK_SUCCESS,
++            buffer_size);
++#endif
+         if (result != VK_SUCCESS) {
+           XELOGE(
+               "VulkanTextureCache: Failed to create scaled resolve buffer: {}",
+@@ -3831,6 +3845,11 @@ bool VulkanTextureCache::InitializeSparseScaledResolve() {
+ 
+   if (!cvars::tiled_shared_memory) {
+     XELOGI("VulkanTextureCache: Sparse scaled resolve disabled by CVAR");
++#if XE_PLATFORM_PS5
++    XELOGW("{}", xbox360ps5::resolution_scale::SparseLine(
++                     xbox360ps5::resolution_scale::Sparse::kOffByCvar, 0, 0, 0,
++                     xbox360ps5::resolution_scale::DirectFree()));
++#endif
+     return true;
+   }
+ 
+@@ -3844,6 +3863,11 @@ bool VulkanTextureCache::InitializeSparseScaledResolve() {
+     XELOGI(
+         "VulkanTextureCache: Sparse binding not supported, using simple "
+         "buffers");
++#if XE_PLATFORM_PS5
++    XELOGW("{}", xbox360ps5::resolution_scale::SparseLine(
++                     xbox360ps5::resolution_scale::Sparse::kNoSupport, 0, 0, 0,
++                     xbox360ps5::resolution_scale::DirectFree()));
++#endif
+     return true;
+   }
+ 
+@@ -3872,6 +3896,12 @@ bool VulkanTextureCache::InitializeSparseScaledResolve() {
+     if (result != VK_SUCCESS) {
+       XELOGE("VulkanTextureCache: Failed to create sparse buffer {}: error {}",
+              i, static_cast<int>(result));
++#if XE_PLATFORM_PS5
++      XELOGW("{}", xbox360ps5::resolution_scale::SparseLine(
++                       xbox360ps5::resolution_scale::Sparse::kBufferFailed, i, 0,
++                       static_cast<int>(result),
++                       xbox360ps5::resolution_scale::DirectFree()));
++#endif
+       ShutdownSparseScaledResolve();
+       return true;  // Fall back to simple buffers
+     }
+@@ -3893,6 +3923,11 @@ bool VulkanTextureCache::InitializeSparseScaledResolve() {
+     XELOGE(
+         "VulkanTextureCache: Failed to find suitable memory type for sparse "
+         "buffers");
++#if XE_PLATFORM_PS5
++    XELOGW("{}", xbox360ps5::resolution_scale::SparseLine(
++                     xbox360ps5::resolution_scale::Sparse::kNoMemoryType, 0, 0, 0,
++                     xbox360ps5::resolution_scale::DirectFree()));
++#endif
+     ShutdownSparseScaledResolve();
+     return true;
+   }
+@@ -3912,6 +3947,14 @@ bool VulkanTextureCache::InitializeSparseScaledResolve() {
+       "VulkanTextureCache: Sparse scaled resolve initialized with {} buffers, "
+       "max {} heaps",
+       buffer_count, max_heap_count);
++#if XE_PLATFORM_PS5
++  xbox360ps5::resolution_scale::counters.sparse.store(
++      true, std::memory_order_relaxed);
++  XELOGW("{}", xbox360ps5::resolution_scale::SparseLine(
++                   xbox360ps5::resolution_scale::Sparse::kMade, buffer_count,
++                   max_heap_count, 0,
++                   xbox360ps5::resolution_scale::DirectFree()));
++#endif
+ 
+   return true;
+ }
+@@ -4032,6 +4075,17 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommittedSparse(
+     }
+ 
+     if (scaled_resolve_heaps_[heap_index] == VK_NULL_HANDLE) {
++#if XE_PLATFORM_PS5
++      // Fix 117: no heap that would leave the system less than 1 GiB of free
++      // direct memory (the guest's memory comes from there too); the resolve
++      // then stays unscaled or missing instead of the game closing.
++      if (!xbox360ps5::resolution_scale::Admit(
++              xbox360ps5::resolution_scale::counters,
++              xbox360ps5::resolution_scale::DirectFree(),
++              kScaledResolveHeapSize)) {
++        return false;
++      }
++#endif
+       // Allocate a new heap
+       VkMemoryAllocateInfo allocate_info = {};
+       allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+@@ -4041,11 +4095,25 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommittedSparse(
+       VkDeviceMemory heap;
+       VkResult result =
+           dfn.vkAllocateMemory(device, &allocate_info, nullptr, &heap);
++#if XE_PLATFORM_PS5
++      xbox360ps5::resolution_scale::Allocated(
++          xbox360ps5::resolution_scale::counters, result == VK_SUCCESS,
++          kScaledResolveHeapSize);
++      if (result != VK_SUCCESS) {
++        if (xbox360ps5::resolution_scale::counters.failed.load(
++                std::memory_order_relaxed) <= 8) {
++          XELOGE("VulkanTextureCache: Failed to allocate heap {}: error {}",
++                 heap_index, static_cast<int>(result));
++        }
++        return false;
++      }
++#else
+       if (result != VK_SUCCESS) {
+         XELOGE("VulkanTextureCache: Failed to allocate heap {}: error {}",
+                heap_index, static_cast<int>(result));
+         return false;
+       }
++#endif
+ 
+       scaled_resolve_heaps_[heap_index] = heap;
+       ++scaled_resolve_heap_count_;
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -59,6 +59,9 @@ struct Settings {
+   int vsync = 1;          // Applied before graphics setup; changes restart the title.
+   int renderer = 0;       // 0 Vulkan, 1 OpenGL; restart required, separate GPU caches.
+   int resolution_scale = 1;   // Games render at 1, 2 or 3 times their resolution. Read when the title starts.
++  // Fix 117: the draw resolution scale as an option (resolution_scale above stays unread, as
++  // settings.txt of every earlier build holds resolution_scale=1): 0 1x, 1 2x (a test).
++  int draw_scale = 0;
+   int image_filter = 0;       // How a game's picture is stretched to the screen: 0 plain, 1 CAS, 2 FSR.
+   int touchpad_menu = 1;  // The touchpad click opens the emulator's guide (else it is the Back button).
+   // Picture.
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -0,0 +1,168 @@
++// SPDX-License-Identifier: MIT
++// Fix 117 (tools/source-1.0.2/fixes/117-resolution-scale.patch): a game may render at twice its
++// resolution (the core's draw_resolution_scale), as a test. The option ("Resolution scale (test)",
++// key draw_scale, a start option a game may have of its own) offers 1x and 2x only: 3x needs four
++// 2 GiB sparse buffers of scaled resolve memory, more than the 4 GiB window the PS5 Vulkan driver
++// maps its memory into. The core goes back to 1x when the device has no sparse binding.
++// What it prints, to decide on the console whether it works:
++//   at start  "Resolution scale (fix 117): asked AxB, ..." (the device's sparse properties and
++//             limits, the scale in use) and "Resolution scale (fix 117): scaled resolve ..."
++//             (the sparse buffers made, or why not);
++//   10 s line "Resolution scale (fix 117): scaled resolve N heaps (M MiB) committed, ...".
++// Scaled resolve memory is committed in 16 MiB heaps that live until the game ends; no new heap
++// is made while the system's free direct memory would fall below 1 GiB (the guest's own memory
++// comes from there too: running it out closes the game). A refused heap leaves that resolve
++// unscaled or missing: a picture fault, not a crash.
++#pragma once
++
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++#if defined(__PROSPERO__)
++extern "C" {
++int64_t sceKernelGetDirectMemorySize();
++int32_t sceKernelAvailableDirectMemorySize(int64_t, int64_t, size_t, int64_t*, size_t*);
++}
++#endif
++
++namespace xbox360ps5 {
++namespace resolution_scale {
++
++// The system's free direct memory, as fix 47's hang watch reads it; -1 when not known.
++inline int64_t DirectFree() {
++#if defined(__PROSPERO__)
++  size_t free_bytes = 0;
++  int64_t at = 0;
++  if (sceKernelAvailableDirectMemorySize(0, sceKernelGetDirectMemorySize(), 0x10000, &at, &free_bytes) == 0)
++    return int64_t(free_bytes);
++#endif
++  return -1;
++}
++
++// The option's choices: 0 is 1x, 1 is 2x.
++inline constexpr int kChoices = 2;
++inline uint32_t ScaleForChoice(int choice) { return choice == 1 ? 2u : 1u; }
++
++// The floor of free direct memory a new heap must leave.
++inline constexpr uint64_t kDirectFloor = uint64_t(1) << 30;
++// direct_free < 0: not known (the query failed, or not on the console): allowed.
++inline bool MayCommit(int64_t direct_free, uint64_t bytes) {
++  return direct_free < 0 || uint64_t(direct_free) >= kDirectFloor + bytes;
++}
++
++struct Counters {
++  std::atomic<uint64_t> heaps{0};          // made
++  std::atomic<uint64_t> heap_bytes{0};     // their size
++  std::atomic<uint64_t> refused{0};        // not made: the floor
++  std::atomic<uint64_t> failed{0};         // not made: vkAllocateMemory failed
++  std::atomic<int64_t> lowest_free{-1};    // the least free direct memory seen at a commit
++  std::atomic<uint32_t> scale{1};          // in use (1: no line every 10 s)
++  std::atomic<bool> sparse{false};         // the sparse scaled resolve buffers exist
++};
++inline Counters counters;
++
++inline void NoteFree(Counters& c, int64_t direct_free) {
++  if (direct_free < 0) return;
++  int64_t seen = c.lowest_free.load(std::memory_order_relaxed);
++  while ((seen < 0 || direct_free < seen) &&
++         !c.lowest_free.compare_exchange_weak(seen, direct_free, std::memory_order_relaxed)) {
++  }
++}
++// Decides one heap of `bytes` at the given free direct memory, and counts the outcome of the
++// allocation the caller then makes (allocated: whether vkAllocateMemory succeeded).
++inline bool Admit(Counters& c, int64_t direct_free, uint64_t bytes) {
++  NoteFree(c, direct_free);
++  if (MayCommit(direct_free, bytes)) return true;
++  c.refused.fetch_add(1, std::memory_order_relaxed);
++  return false;
++}
++inline void Allocated(Counters& c, bool allocated, uint64_t bytes) {
++  if (allocated) {
++    c.heaps.fetch_add(1, std::memory_order_relaxed);
++    c.heap_bytes.fetch_add(bytes, std::memory_order_relaxed);
++  } else {
++    c.failed.fetch_add(1, std::memory_order_relaxed);
++  }
++}
++
++inline long long MiB(int64_t bytes) { return bytes < 0 ? -1 : (long long)(bytes >> 20); }
++
++// At start, after the core clamped the scale to what the device supports.
++struct Device {
++  uint32_t asked_x = 1, asked_y = 1, used_x = 1, used_y = 1;
++  bool sparse_binding = false, sparse_residency_buffer = false, interlock = false;
++  uint64_t max_storage_buffer_range = 0;
++  uint32_t max_image_2d = 0, max_framebuffer_width = 0, max_framebuffer_height = 0;
++};
++inline std::string DeviceLine(const Device& d, int64_t direct_free) {
++  char line[400];
++  std::snprintf(line, sizeof(line),
++                "Resolution scale (fix 117): asked %ux%u, in use %ux%u; device sparseBinding %s, "
++                "sparseResidencyBuffer %s, fragmentShaderPixelInterlock %s, maxStorageBufferRange %llu MiB, "
++                "maxImageDimension2D %u, maxFramebuffer %ux%u; direct free %lld MiB%s",
++                d.asked_x, d.asked_y, d.used_x, d.used_y, d.sparse_binding ? "yes" : "no",
++                d.sparse_residency_buffer ? "yes" : "no", d.interlock ? "yes" : "no",
++                (unsigned long long)(d.max_storage_buffer_range >> 20), d.max_image_2d,
++                d.max_framebuffer_width, d.max_framebuffer_height, MiB(direct_free),
++                (d.asked_x > 1 || d.asked_y > 1) && d.used_x == 1 && d.used_y == 1
++                    ? " (the device cannot: 1x)"
++                    : "");
++  return line;
++}
++
++// The scaled resolve buffers at start (texture cache).
++enum class Sparse { kMade, kNoSupport, kBufferFailed, kNoMemoryType, kOffByCvar };
++inline std::string SparseLine(Sparse outcome, size_t buffers, uint32_t max_heaps, int result,
++                              int64_t direct_free) {
++  char line[300];
++  switch (outcome) {
++    case Sparse::kMade:
++      std::snprintf(line, sizeof(line),
++                    "Resolution scale (fix 117): scaled resolve: %zu sparse buffer(s) of 2 GiB made, up to %u "
++                    "heaps of 16 MiB; direct free %lld MiB, heaps stop below %lld MiB free",
++                    buffers, max_heaps, MiB(direct_free), MiB(int64_t(kDirectFloor)));
++      break;
++    case Sparse::kBufferFailed:
++      std::snprintf(line, sizeof(line),
++                    "Resolution scale (fix 117): scaled resolve: sparse buffer %zu of 2 GiB not made (VkResult %d); "
++                    "scaled resolves cannot be kept",
++                    buffers, result);
++      break;
++    case Sparse::kNoMemoryType:
++      std::snprintf(line, sizeof(line),
++                    "Resolution scale (fix 117): scaled resolve: no device-local memory type for the sparse buffers; "
++                    "scaled resolves cannot be kept");
++      break;
++    case Sparse::kOffByCvar:
++      std::snprintf(line, sizeof(line),
++                    "Resolution scale (fix 117): scaled resolve: sparse buffers off (tiled_shared_memory false)");
++      break;
++    default:
++      std::snprintf(line, sizeof(line),
++                    "Resolution scale (fix 117): scaled resolve: no sparse binding on the device");
++      break;
++  }
++  return line;
++}
++
++// Every 10 s while the scale is above 1x; empty otherwise.
++inline std::string Line(const Counters& c, int64_t direct_free) {
++  if (c.scale.load(std::memory_order_relaxed) <= 1) return {};
++  char line[300];
++  std::snprintf(line, sizeof(line),
++                "Resolution scale (fix 117): %ux, scaled resolve %s, %llu heaps (%lld MiB) committed, %llu refused "
++                "(under %lld MiB free), %llu failed; direct free %lld MiB (lowest at a commit %lld MiB)",
++                c.scale.load(std::memory_order_relaxed), c.sparse.load(std::memory_order_relaxed) ? "sparse" : "none",
++                (unsigned long long)c.heaps.load(std::memory_order_relaxed),
++                MiB(int64_t(c.heap_bytes.load(std::memory_order_relaxed))),
++                (unsigned long long)c.refused.load(std::memory_order_relaxed), MiB(int64_t(kDirectFloor)),
++                (unsigned long long)c.failed.load(std::memory_order_relaxed), MiB(direct_free),
++                MiB(c.lowest_free.load(std::memory_order_relaxed)));
++  return line;
++}
++
++}  // namespace resolution_scale
++}  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -134,6 +134,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/display_surface.hpp"
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
++#include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by holder
+ #include "xbox360ps5/enum_trace.hpp"  // fix 81: the enumerators' lives by kind
+ #include "xbox360ps5/autotest.hpp"
+@@ -3700,6 +3701,18 @@ int main(int argc, char** argv) {
+             }
+             stalled_notice=frame_watch.Notice(watch_seconds);
+             fps_sum += fps; fps_low = std::min(fps_low, fps);
++            {
++              // Fix 117: every 10 s while the game renders above 1x, the scaled resolve memory
++              // committed and refused, and the system's free direct memory.
++              static auto scale_line_at = std::chrono::steady_clock::now();
++              const auto scale_now = std::chrono::steady_clock::now();
++              if (scale_now - scale_line_at >= std::chrono::seconds(10)) {
++                scale_line_at = scale_now;
++                const std::string scale_line = xbox360ps5::resolution_scale::Line(
++                    xbox360ps5::resolution_scale::counters, xbox360ps5::resolution_scale::DirectFree());
++                if (!scale_line.empty()) XELOGW("{}", scale_line);
++              }
++            }
+             const int summary_samples =
+ #ifdef XBOX360PS5_EXPERIMENTAL_DIAGNOSTICS
+                 xbox360ps5::gpu_diag::enabled ? 5 : 30;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -21,6 +21,7 @@
+ #include "xbox360ps5/canary_audio.hpp"
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/bug_report.hpp"  // fix 93
++#include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
+ #include <algorithm>
+@@ -375,6 +376,12 @@ const std::vector<Option>& Options() {
+       {"internal_resolution", &S::internal_resolution, 0, W::launch, 0, true, "Emulated console resolution",
+        "The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 1080p some draw more (heavier). Many games ignore it and stay at 720p.",
+        {"720p", "1080p", "480p (848x480)", "540p (960x540)"}},
++      // Fix 117: the core reads the scale as it starts (VulkanCommandProcessor::SetupContext), so
++      // a game with its own value restarts the emulator into it. 3x is not offered: its scaled
++      // resolve memory needs four 2 GiB sparse buffers, more than the PS5 driver's 4 GiB window.
++      {"draw_scale", &S::draw_scale, 0, W::start, 0, true, "Resolution scale (test)",
++       "Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x.",
++       {"1x (720p, native)", "2x (1440p, demanding)"}},
+       {"video_clock", &S::video_clock, 0, W::live, 0, true, "Emulated video rate",
+        "How many times a second the emulated console tells the game a new frame is due. At 120 Hz some games held at 30 frames go to 60, but others run fast. It is a test, game by game; it does not guarantee 60 frames.",
+        {"60 Hz", "120 Hz (test)"}},
+@@ -614,7 +621,8 @@ void Settings::Load() {
+     else if (key == "interface_language") interface_language = value;
+     else if (key == "logging_policy") logging_policy = value;
+     // resolution_scale: not read. Scaled rendering takes the PS5's memory away
+-    // from the game's threads (every game crashed at its first frame).
++    // from the game's threads (every game crashed at its first frame). Fix 117's
++    // test is the draw_scale option, with its own key: this one is 1 in every file.
+     else if (const Option* option = FindOption(key))
+       this->*option->field = std::clamp(value, 0, int(option->choices.size()) - 1);
+   }
+@@ -638,7 +646,10 @@ void Settings::Apply() const {
+   LoadUiTranslations(ui_language.load());
+   cvars::user_language = GameLanguage();
+   cvars::mute = mute != 0;
+-  cvars::draw_resolution_scale_x = cvars::draw_resolution_scale_y = resolution_scale;
++  // Fix 117: 1x unless the option (or the game's own value) says 2x; the core goes back to 1x
++  // when the device has no sparse binding and says so in its start line.
++  cvars::draw_resolution_scale_x = cvars::draw_resolution_scale_y =
++      xbox360ps5::resolution_scale::ScaleForChoice(draw_scale);
+   // Normal gameplay records warnings/errors plus explicit session metadata.
+   // Do not duplicate every line into the platform stdout transport, and do
+   // not let stale debug files silently override the user's visible setting.
