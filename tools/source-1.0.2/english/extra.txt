@@ -305,6 +305,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagem da câmera para o jogo
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvo. Os jogos que mostram avatares vão usá-lo a partir da próxima vez que forem iniciados.
+Could not save the avatar. = Não foi possível salvar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = O formato do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por enquanto só o formato: o avatar ainda não tem roupas nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem quadris um pouco mais largos e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -422,6 +435,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagem da câmera para o jogo
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Os jogos que mostram avatares vão usá-lo a partir do próximo arranque.
+Could not save the avatar. = Não foi possível guardar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = A forma do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por agora só a forma: o avatar ainda não tem roupa nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem ancas um pouco mais largas e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -539,6 +565,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagen de la cámara para el juego
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un móvil como Kinect, el móvil también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del móvil. Desactivada, los juegos ven una imagen gris.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo usarán a partir de su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -656,6 +695,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagen de la cámara para el juego
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un celular como Kinect, el celular también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del celular. Desactivada, los juegos ven una imagen gris.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo van a usar desde su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -773,6 +825,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Dieses L
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Kamerabild für das Spiel
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Mit einem Handy als Kinect kann das Handy auch ein kleines Bild seiner Kamera senden, für Spiele, die die Kamera zeigen (Wiederholungen, Fotos). Es geht nur an diese Konsole, und der Emulator hält es nur im Arbeitsspeicher, nie auf einem Laufwerk; ein Spiel kann trotzdem eigene Fotos in seinen Spielständen behalten. Dazu muss auch Kamerabild für das Spiel auf der Handy-Seite eingeschaltet sein. Aus sehen Spiele ein graues Bild.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar gespeichert. Spiele mit Avataren verwenden ihn ab dem nächsten Start.
+Could not save the avatar. = Der Avatar konnte nicht gespeichert werden.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Die Körperform des Avatars dieses Profils, für Spiele, die den Spieler als Avatar zeigen (Kinect Sports). Vorerst nur die Form: Der Avatar hat noch keine Kleidung und kein Gesicht.
+Body type = Körpertyp
+Female = Weiblich
+Male = Männlich
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Der Körperbau des Avatars: Ein weiblicher Körper hat etwas breitere Hüften und schmalere Schultern.
+Height = Größe
+Shorter or taller limbs and body. = Kürzere oder längere Gliedmaßen und Rumpf.
+Weight = Gewicht
+A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
 
 [added fr]
 Console storage = Stockage de la console
@@ -890,6 +955,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Ce péri
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Image de la caméra pour le jeu
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Avec un téléphone comme Kinect, le téléphone peut aussi envoyer une petite image de sa caméra pour les jeux qui montrent la caméra (replays, photos). Elle ne va qu'à cette console, et l'émulateur la garde seulement en mémoire, jamais sur un disque ; un jeu peut quand même garder ses propres photos dans ses sauvegardes. Il faut aussi activer Image de la caméra pour le jeu sur la page du téléphone. Désactivée, les jeux voient une image grise.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar enregistré. Les jeux qui affichent des avatars l'utiliseront à leur prochain lancement.
+Could not save the avatar. = Impossible d'enregistrer l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La silhouette de l'avatar de ce profil, pour les jeux qui montrent le joueur sous forme d'avatar (Kinect Sports). Seulement la silhouette pour l'instant : l'avatar n'a pas encore de vêtements ni de visage.
+Body type = Morphologie
+Female = Femme
+Male = Homme
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La carrure de l'avatar : un corps féminin a des hanches un peu plus larges et des épaules plus étroites.
+Height = Taille
+Shorter or taller limbs and body. = Membres et corps plus courts ou plus longs.
+Weight = Corpulence
+A thinner or heavier build. = Une silhouette plus mince ou plus forte.
 
 [added it]
 Console storage = Memoria della console
@@ -1007,6 +1085,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Questa u
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Immagine della fotocamera per il gioco
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un telefono come Kinect, il telefono può anche inviare una piccola immagine della sua fotocamera per i giochi che mostrano la telecamera (replay, foto). Va solo a questa console, e l'emulatore la tiene solo in memoria, mai su un'unità; un gioco può comunque conservare foto proprie nei suoi salvataggi. Serve anche attivare Immagine della fotocamera per il gioco nella pagina del telefono. Disattivata, i giochi vedono un'immagine grigia.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvato. I giochi che mostrano gli avatar lo useranno dal prossimo avvio.
+Could not save the avatar. = Impossibile salvare l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La corporatura dell'avatar di questo profilo, per i giochi che mostrano il giocatore come avatar (Kinect Sports). Per ora solo la corporatura: l'avatar non ha ancora vestiti né volto.
+Body type = Tipo di corpo
+Female = Donna
+Male = Uomo
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La corporatura dell'avatar: un corpo femminile ha fianchi un po' più larghi e spalle più strette.
+Height = Altezza
+Shorter or taller limbs and body. = Arti e corpo più corti o più lunghi.
+Weight = Peso
+A thinner or heavier build. = Una corporatura più magra o più robusta.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1124,6 +1215,19 @@ This drive has this DLC both On and Off: remove one of the two first. = この�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = ゲーム用のカメラ画像
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = スマートフォンを Kinect として使うとき、カメラを映すゲーム（リプレイ、写真）のために、スマートフォンのカメラの小さな画像も送れます。画像はこの本体にだけ送られ、エミュレーターはメモリーにだけ置き、ドライブには保存しません。ただし、ゲームが自分の写真をセーブデータに残すことはあります。スマートフォンのページでも「ゲーム用のカメラ画像」をオンにする必要があります。オフのとき、ゲームには灰色の画像が映ります。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = アバター
+Avatar saved. Games that show avatars use it from their next start. = アバターを保存しました。アバターを表示するゲームでは、次回の起動から使われます。
+Could not save the avatar. = アバターを保存できませんでした。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = このプロフィールのアバターの体形です。プレイヤーをアバターで表示するゲーム（Kinect Sports）で使われます。今は体形のみで、服や顔はまだありません。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = アバターの体格：女性の体は腰がやや広く、肩が狭くなります。
+Height = 身長
+Shorter or taller limbs and body. = 手足と胴体を短く、または長くします。
+Weight = 体重
+A thinner or heavier build. = 細め、またはがっしりした体格にします。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1241,6 +1345,19 @@ This drive has this DLC both On and Off: remove one of the two first. = 이 드�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = 게임용 카메라 이미지
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 휴대폰을 Kinect로 쓸 때, 카메라를 보여 주는 게임(리플레이, 사진)을 위해 휴대폰 카메라의 작은 이미지도 보낼 수 있습니다. 이미지는 이 본체로만 가고, 에뮬레이터는 메모리에만 두며 드라이브에 저장하지 않습니다. 다만 게임이 자체 사진을 세이브에 남길 수는 있습니다. 휴대폰 페이지에서도 게임용 카메라 이미지를 켜야 합니다. 끄면 게임에는 회색 이미지가 보입니다.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 아바타
+Avatar saved. Games that show avatars use it from their next start. = 아바타를 저장했습니다. 아바타를 표시하는 게임은 다음 실행부터 사용합니다.
+Could not save the avatar. = 아바타를 저장할 수 없습니다.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 이 프로필 아바타의 체형으로, 플레이어를 아바타로 보여 주는 게임(Kinect Sports)에서 사용됩니다. 지금은 체형만 있으며, 아바타에 아직 옷이나 얼굴이 없습니다.
+Body type = 체형 유형
+Female = 여성
+Male = 남성
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 아바타의 체격: 여성의 몸은 엉덩이가 조금 더 넓고 어깨가 더 좁습니다.
+Height = 키
+Shorter or taller limbs and body. = 팔다리와 몸통을 더 짧게 또는 길게 합니다.
+Weight = 체중
+A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1358,6 +1475,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Dit stat
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Camerabeeld voor de game
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Met een telefoon als Kinect kan de telefoon ook een klein beeld van zijn camera sturen, voor games die de camera tonen (herhalingen, foto's). Het gaat alleen naar deze console, en de emulator houdt het alleen in het geheugen, nooit op een schijf; een game kan wel eigen foto's in zijn opslag bewaren. Zet ook Camerabeeld voor de game aan op de pagina van de telefoon. Uit zien games een grijs beeld.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar opgeslagen. Games die avatars tonen gebruiken hem vanaf de volgende start.
+Could not save the avatar. = Kan de avatar niet opslaan.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = De lichaamsvorm van de avatar van dit profiel, voor games die de speler als avatar tonen (Kinect Sports). Voorlopig alleen de vorm: de avatar heeft nog geen kleding of gezicht.
+Body type = Lichaamstype
+Female = Vrouw
+Male = Man
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = De bouw van de avatar: een vrouwelijk lichaam heeft iets bredere heupen en smallere schouders.
+Height = Lengte
+Shorter or taller limbs and body. = Kortere of langere ledematen en romp.
+Weight = Gewicht
+A thinner or heavier build. = Een slankere of zwaardere bouw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1475,6 +1605,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Na tym d
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Obraz z kamery dla gry
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Gdy telefon służy jako Kinect, może też wysyłać mały obraz ze swojej kamery do gier, które pokazują kamerę (powtórki, zdjęcia). Trafia on tylko do tej konsoli, a emulator trzyma go wyłącznie w pamięci, nigdy na dysku; gra może jednak zachować własne zdjęcia w swoich zapisach. Trzeba też włączyć Obraz z kamery dla gry na stronie w telefonie. Wyłączone: gry widzą szary obraz.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Awatar
+Avatar saved. Games that show avatars use it from their next start. = Awatar zapisany. Gry z awatarami użyją go od następnego uruchomienia.
+Could not save the avatar. = Nie udało się zapisać awatara.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Sylwetka awatara tego profilu, dla gier, które pokazują gracza jako awatar (Kinect Sports). Na razie tylko sylwetka: awatar nie ma jeszcze ubrań ani twarzy.
+Body type = Budowa ciała
+Female = Kobieta
+Male = Mężczyzna
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Budowa awatara: ciało kobiety ma nieco szersze biodra i węższe ramiona.
+Height = Wzrost
+Shorter or taller limbs and body. = Krótsze lub dłuższe kończyny i tułów.
+Weight = Waga
+A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
 
 [added ru]
 Console storage = Память консоли
@@ -1592,6 +1735,19 @@ This drive has this DLC both On and Off: remove one of the two first. = На э�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Изображение с камеры для игры
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Когда телефон работает как Kinect, он может также отправлять небольшое изображение со своей камеры для игр, которые показывают камеру (повторы, фото). Оно идёт только на эту консоль, и эмулятор держит его только в памяти, никогда на диске; игра всё же может сохранить собственные фото в своих сохранениях. Нужно также включить «Изображение с камеры для игры» на странице в телефоне. Если выключено, игры видят серое изображение.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Аватар
+Avatar saved. Games that show avatars use it from their next start. = Аватар сохранён. Игры с аватарами будут использовать его со следующего запуска.
+Could not save the avatar. = Не удалось сохранить аватар.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Телосложение аватара этого профиля для игр, в которых игрок показан аватаром (Kinect Sports). Пока только телосложение: у аватара ещё нет одежды и лица.
+Body type = Тип тела
+Female = Женский
+Male = Мужской
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Телосложение аватара: у женского тела чуть шире бёдра и уже плечи.
+Height = Рост
+Shorter or taller limbs and body. = Более короткие или длинные конечности и туловище.
+Weight = Вес
+A thinner or heavier build. = Более худое или более плотное телосложение.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1709,6 +1865,19 @@ This drive has this DLC both On and Off: remove one of the two first. = Bu sür�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Oyun için kamera görüntüsü
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Telefon Kinect olarak kullanılırken, kamerayı gösteren oyunlar (tekrarlar, fotoğraflar) için telefon kamerasından küçük bir görüntü de gönderebilir. Görüntü yalnızca bu konsola gider ve emülatör onu yalnızca bellekte tutar, asla bir sürücüye yazmaz; yine de bir oyun kendi fotoğraflarını kayıtlarında saklayabilir. Telefon sayfasında da Oyun için kamera görüntüsü açık olmalıdır. Kapalıyken oyunlar gri bir görüntü görür.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar kaydedildi. Avatar gösteren oyunlar onu bir sonraki başlatmadan itibaren kullanır.
+Could not save the avatar. = Avatar kaydedilemedi.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Bu profilin avatarının vücut şekli; oyuncuyu avatar olarak gösteren oyunlar için (Kinect Sports). Şimdilik yalnızca şekil: avatarın henüz kıyafeti veya yüzü yok.
+Body type = Vücut tipi
+Female = Kadın
+Male = Erkek
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Avatarın yapısı: kadın vücudunun kalçaları biraz daha geniş, omuzları daha dardır.
+Height = Boy
+Shorter or taller limbs and body. = Daha kısa veya daha uzun uzuvlar ve gövde.
+Weight = Kilo
+A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1826,6 +1995,19 @@ This drive has this DLC both On and Off: remove one of the two first. = 此驱�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = 供游戏使用的摄像头画面
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手机当作 Kinect 时，手机还可以为显示摄像头画面的游戏（回放、照片）发送一张小的摄像头画面。画面只发送到这台主机，模拟器只把它放在内存中，绝不写入硬盘；不过游戏仍可能在自己的存档中保存照片。还需要在手机页面上打开“供游戏使用的摄像头画面”。关闭时，游戏看到的是灰色画面。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虚拟形象
+Avatar saved. Games that show avatars use it from their next start. = 虚拟形象已保存。显示虚拟形象的游戏将从下次启动起使用它。
+Could not save the avatar. = 无法保存虚拟形象。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此个人资料的虚拟形象体型，用于以虚拟形象显示玩家的游戏（Kinect Sports）。目前只有体型：虚拟形象还没有衣服和脸。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虚拟形象的体格：女性身体的臀部略宽，肩膀较窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更长的四肢和躯干。
+Weight = 体重
+A thinner or heavier build. = 更瘦或更壮的体格。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1943,3 +2125,16 @@ This drive has this DLC both On and Off: remove one of the two first. = 此磁�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = 供遊戲使用的攝影機畫面
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手機當作 Kinect 時，手機還可以為顯示攝影機畫面的遊戲（重播、照片）傳送一張小的攝影機畫面。畫面只傳送到這台主機，模擬器只把它放在記憶體中，絕不寫入硬碟；不過遊戲仍可能在自己的存檔中保存照片。還需要在手機頁面上開啟「供遊戲使用的攝影機畫面」。關閉時，遊戲看到的是灰色畫面。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虛擬人偶
+Avatar saved. Games that show avatars use it from their next start. = 虛擬人偶已儲存。顯示虛擬人偶的遊戲會從下次啟動起使用它。
+Could not save the avatar. = 無法儲存虛擬人偶。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此設定檔的虛擬人偶體型，用於以虛擬人偶顯示玩家的遊戲（Kinect Sports）。目前只有體型：虛擬人偶還沒有衣服和臉。
+Body type = 體型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虛擬人偶的體格：女性身體的臀部稍寬，肩膀較窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更長的四肢和軀幹。
+Weight = 體重
+A thinner or heavier build. = 更瘦或更壯的體格。

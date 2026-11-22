@@ -87,6 +87,7 @@ on:
       - 'tools/check-kinect-camera-picture.cpp'
       - 'tools/check-file-sector.cpp'
       - 'tools/check-kinect-camera-picture.mjs'
+      - 'tools/check-avatar-skeleton.cpp'
       - 'tools/source-1.0.2/fixtures/kinect-1.0.2/**'
       - 'tools/check-suspend-trace.cpp'
       - 'tools/check-pending-resume.cpp'
