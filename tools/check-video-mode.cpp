@@ -9,6 +9,11 @@
 //      both core sizes from ForChoice (no "& 3" left), Load reads the saved value through LoadedChoice;
 //  (c) the core: VdQueryVideoMode takes the custom size only when one is set (the default path is the
 //      console's own size, as before), before deciding widescreen, and logs its first answer once.
+// Fix 140b (140b-video-mode-real.patch): Minecraft crashed at 480p told 848x480 (a VGA-only mode); the game is
+// told only modes a real console reports.
+//  (d) the header: ReportedMode's table (1080p 1920x1080; 480p 640x480 with the widescreen flag; 900p 1600x900;
+//      540p and any other size not reported), each option value through it;
+//  (e) the core: VdQueryVideoMode takes the table's size and its widescreen flag.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdint>
@@ -85,6 +90,38 @@ void CheckHeader() {
          "the line for 480p");
 }
 
+void CheckRealModes() {
+  // Each option value: what the core's sizes are (as before) and what the game is told.
+  struct Row {
+    int choice;
+    uint32_t told_width, told_height;
+    bool reported, widescreen_forced;
+  };
+  const Row rows[] = {
+      {0, 0, 0, false, false},        // the console's own (720p)
+      {1, 1920, 1080, true, false},   // 1080p: a real HDMI mode
+      {2, 640, 480, true, true},      // 480p: 640x480 with the widescreen flag, as over HDMI
+      {3, 0, 0, false, false},        // 540p: not a real mode, the console's own
+      {4, 1600, 900, true, false},    // 900p: a clean 16:9
+  };
+  for (const Row& row : rows) {
+    const vm::Size core = vm::ForChoice(row.choice);
+    const vm::Mode mode = vm::ReportedMode(core.width, core.height);
+    const std::string name = "choice " + std::to_string(row.choice);
+    Expect(mode.reported == row.reported, name + ": reported or not");
+    if (row.reported)
+      Expect(Same(mode.size, row.told_width, row.told_height), name + ": the size the game is told");
+    Expect(mode.widescreen_forced == row.widescreen_forced, name + ": the widescreen flag");
+  }
+  Expect(Same(vm::ForChoice(2), 848, 480) && Same(vm::ForChoice(3), 960, 540),
+         "the core's own sizes for 480p and 540p stay as before (the vertical counter's step)");
+  Expect(!vm::ReportedMode(1024, 768).reported && !vm::ReportedMode(1, 1).reported && !vm::ReportedMode(0, 0).reported,
+         "other sizes: the console's own");
+  const vm::Mode p480 = vm::ReportedMode(848, 480);
+  Expect(!vm::HiDef(p480.size) && !vm::AspectWide(p480.size) && p480.widescreen_forced,
+         "480p: standard definition, 4:3-sized, widescreen by the flag");
+}
+
 void CheckTree() {
   const std::string launcher = Read("src/launcher.cpp");
   Expect(Has(launcher, "{\"720p\", \"1080p\", \"480p (848x480)\", \"540p (960x540)\", \"900p (1600x900)\"}}"),
@@ -113,10 +150,15 @@ void CheckTree() {
   Expect(fn != std::string::npos && console != std::string::npos && custom != std::string::npos &&
              wide != std::string::npos && console < custom && custom < wide,
          "VdQueryVideoMode takes the custom size after the console's, before deciding widescreen");
-  Expect(Has(video, "const bool custom_mode = xbox360ps5::video_mode::IsCustom(\n"
-                    "      cvars::custom_internal_display_resolution_x,\n"
-                    "      cvars::custom_internal_display_resolution_y);"),
-         "only when a custom size is set (the default path is the console's own size)");
+  Expect(Has(video, "xbox360ps5::video_mode::ReportedMode(\n"
+                    "          cvars::custom_internal_display_resolution_x,\n"
+                    "          cvars::custom_internal_display_resolution_y);") &&
+             Has(video, "const bool custom_mode = reported_mode.reported;") &&
+             Has(video, "resolution = Resolution(uint16_t(reported_mode.size.width),"),
+         "fix 140b: only the table's modes are reported (the default path is the console's own size)");
+  Expect(Has(video, "const auto is_widescreen = IsWidescreen(kernel_state(), resolution) ||\n"
+                    "                             reported_mode.widescreen_forced;"),
+         "fix 140b: the table's widescreen flag (480p 16:9)");
   Expect(logged != std::string::npos && logged > wide && Has(video, "xbox360ps5::video_mode::Line("),
          "the first answer is logged once");
   Expect(Has(video, "DECLARE_uint32(custom_internal_display_resolution_x);") &&
@@ -128,6 +170,7 @@ void CheckTree() {
 
 int main() {
   CheckHeader();
+  CheckRealModes();
   CheckTree();
   if (failures) {
     std::printf("check-video-mode: %d failure(s)\n", failures);

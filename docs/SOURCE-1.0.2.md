@@ -292,6 +292,7 @@ also listed here.
 | 134c (`134c-async-submit-resolves`) | in fix 134's mode 1, a chunk with occlusion query results to copy goes to the submit worker too (in Red Dead Redemption most chunks stayed on the GPU thread); the log says why a submission stays there | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134c` |
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
 | 140 (`140-video-mode-900p`) | "Emulated console resolution" now really sets the video mode the game is told (it was always 720p before), and 900p (1600x900) is added; 720p (the default) is unchanged; if a game misbehaves at another mode, set it back to 720p | host-checked (`tools/check-video-mode.cpp`); console: the `Video mode (fix 140)` line, a game that follows the mode and one that does not, at 720p, 900p and 1080p |
+| 140b (`140b-video-mode-real`) | the game is told only modes a real console reports: 480p as 640x480 widescreen (Minecraft crashed when told 848x480), 540p not at all (720p, as before), 1080p as 1920x1080, 900p as 1600x900 | host-checked (`tools/check-video-mode.cpp`); console: Minecraft at 480p, 900p and 1080p |
 
 ## Comparison with the official executable
 
