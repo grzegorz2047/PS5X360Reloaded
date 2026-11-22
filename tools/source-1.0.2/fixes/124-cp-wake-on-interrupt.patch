@@ -1,0 +1,264 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/interrupt_wake.h b/.deps/xenia-canary/src/xenia/gpu/interrupt_wake.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/interrupt_wake.h
+@@ -0,0 +1,65 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5 (fix 124, CP wake on interrupt): wakes the GPU command thread's memory waits
++// (WAIT_REG_MEM on memory) as soon as a guest interrupt callback returns, instead of on the next
++// 100 us poll of fix 83.
++//
++// The Sims 3's present code makes the GPU wait every frame for a word that only the game's vblank
++// interrupt callback writes (SCRATCH_REG1's writeback, cleared once the queued flip's vblank has
++// come). The callback runs on the thread that dispatches the interrupt; the command thread notices
++// the word on its next poll. Notify() after each callback and WaitAfter() in the polling loop
++// end the wait right after it: the same vblank, the game's pacing unchanged. A write by any other
++// guest thread is still seen by the poll, at the latest one slice later.
++#ifndef XENIA_GPU_INTERRUPT_WAKE_H_
++#define XENIA_GPU_INTERRUPT_WAKE_H_
++
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <cstdint>
++#include <mutex>
++
++namespace xe {
++namespace gpu {
++namespace interrupt_wake {
++
++inline uint64_t SteadyNs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
++class Waker {
++ public:
++  // An interrupt callback has returned (any thread). The count changes under the mutex, so a
++  // waiter that read the old count before waiting cannot miss it.
++  void Notify() {
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      last_ns_.store(SteadyNs(), std::memory_order_relaxed);
++      seq_.store(seq_.load(std::memory_order_relaxed) + 1, std::memory_order_release);
++    }
++    cv_.notify_all();
++  }
++  // The interrupts so far; read it before reading the awaited word.
++  uint64_t Seq() const { return seq_.load(std::memory_order_acquire); }
++  // When the latest interrupt callback returned (SteadyNs).
++  uint64_t LastNs() const { return last_ns_.load(std::memory_order_relaxed); }
++  // Waits for `slice` at most, or until an interrupt after `seen`; true if one came.
++  template <class Rep, class Period>
++  bool WaitAfter(uint64_t seen, std::chrono::duration<Rep, Period> slice) {
++    std::unique_lock<std::mutex> lock(mutex_);
++    return cv_.wait_for(lock, slice, [&] { return seq_.load(std::memory_order_relaxed) != seen; });
++  }
++
++ private:
++  std::mutex mutex_;
++  std::condition_variable cv_;
++  std::atomic<uint64_t> seq_{0};
++  std::atomic<uint64_t> last_ns_{0};
++};
++
++}  // namespace interrupt_wake
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_INTERRUPT_WAKE_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h
+--- a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h
++++ b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.h
+@@ -18,6 +18,7 @@ DECLARE_string(trace_gpu_frames);
+ DECLARE_path(dump_shaders);
+ 
+ DECLARE_bool(vsync);
++DECLARE_bool(gpu_wake_on_interrupt);
+ 
+ DECLARE_uint64(framerate_limit);
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/gpu_flags.cc
+@@ -25,6 +25,11 @@ DEFINE_path(
+     "GPU.Debug");
+ 
+ DEFINE_bool(vsync, true, "Enable VSYNC.", "GPU");
++// Xbox360PS5 (fix 124): end the GPU command thread's memory waits right after a guest interrupt
++// callback returns (xenia/gpu/interrupt_wake.h) instead of on the next 100 us poll.
++DEFINE_bool(gpu_wake_on_interrupt, true,
++            "Wake the GPU command thread's memory waits when a guest interrupt callback returns.",
++            "GPU");
+ 
+ DEFINE_uint64(framerate_limit, 0,
+               "Maximum frames per second. 0 = Unlimited frames.\n"
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -20,6 +20,8 @@
+ #include <unordered_map>
+ #include <vector>
+ 
++#include "xenia/gpu/interrupt_wake.h"  // fix 124: CP wake on interrupt
++
+ #include "xenia/base/math.h"
+ #include "xenia/gpu/cp_trace.h"  // Xbox360PS5 (fix 24)
+ #include "xenia/base/ring_buffer.h"
+@@ -613,6 +615,13 @@ class CommandProcessor {
+   std::atomic<bool> worker_running_;
+   kernel::object_ref<kernel::XHostThread> worker_thread_;
+ 
++ public:
++  // Fix 124 (CP wake on interrupt): a guest interrupt callback has returned (any thread).
++  void NotifyInterruptDispatched() { interrupt_waker_.Notify(); }
++
++ protected:
++  interrupt_wake::Waker interrupt_waker_;
++
+   std::queue<std::function<void()>> pending_fns_;
+ 
+   // MicroEngine binary from PM4_ME_INIT
+diff --git a/.deps/xenia-canary/src/xenia/gpu/graphics_system.cc b/.deps/xenia-canary/src/xenia/gpu/graphics_system.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/graphics_system.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/graphics_system.cc
+@@ -433,6 +433,11 @@ void GraphicsSystem::SetInterruptCallback(uint32_t callback,
+ void GraphicsSystem::DispatchInterruptCallback(uint32_t source, uint32_t cpu) {
+   kernel_state()->EmulateCPInterruptDPC(interrupt_callback_,
+                                         interrupt_callback_data_, source, cpu);
++#if XE_PLATFORM_PS5
++  // Fix 124: a memory wait of the GPU command thread may be for a word the callback wrote (The
++  // Sims 3's flip: the vblank callback clears it).
++  if (command_processor_) command_processor_->NotifyInterruptDispatched();
++#endif
+ }
+ 
+ void GraphicsSystem::MarkVblank() {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -750,6 +750,13 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+ #if XE_PLATFORM_PS5
+   // Fix 77: how long the GPU thread waits here, polling and sleeping.
+   xbox360ps5::frame_cost::WaitRegTimer frame_cost_wait(is_memory, wait);
++  // Fix 124 (CP wake on interrupt): the interrupts so far, read before the word; whether this
++  // wait slept, and the polls an interrupt cut short.
++  const uint64_t wake_seq_start = interrupt_waker_.Seq();
++  uint64_t wake_seen = wake_seq_start;
++  bool wake_slept = false;
++  uint64_t wake_early = 0;
++  const bool wake_on_interrupt = cvars::gpu_wake_on_interrupt;
+ #endif
+ 
+   do {
+@@ -805,8 +812,19 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+           if (is_memory) {
+             const auto until = std::chrono::steady_clock::now() +
+                                std::chrono::milliseconds(wait / 0x100);
++            wake_slept = true;
+             do {
+-              xe::threading::Sleep(std::chrono::microseconds(100));
++              // Fix 124: the same 100 us slice, ended early by an interrupt callback
++              // returning (the word may be what it wrote).
++              if (wake_on_interrupt) {
++                if (interrupt_waker_.WaitAfter(wake_seen,
++                                               std::chrono::microseconds(100))) {
++                  ++wake_early;
++                }
++              } else {
++                xe::threading::Sleep(std::chrono::microseconds(100));
++              }
++              wake_seen = interrupt_waker_.Seq();
+               const uint32_t now_value = xenos::GpuSwap(
+                   uint32_t(value_ref),
+                   static_cast<xenos::Endian>(poll_reg_addr & 0x3));
+@@ -837,6 +855,17 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+     }
+   } while (!matched);
+ 
++#if XE_PLATFORM_PS5
++  // Fix 124: a memory wait that slept, and whether an interrupt callback returned during it
++  // (then the time from the latest one to here).
++  if (is_memory && wake_slept) {
++    const bool after_interrupt = interrupt_waker_.Seq() != wake_seq_start;
++    const uint64_t now_ns = interrupt_wake::SteadyNs(), last_ns = interrupt_waker_.LastNs();
++    xbox360ps5::frame_cost::NoteInterruptWake(
++        wake_on_interrupt, after_interrupt,
++        after_interrupt && now_ns > last_ns ? now_ns - last_ns : 0, wake_early);
++  }
++#endif
+   if (traced) xbox360ps5::cp_trace::Global().EndWait();
+   return true;
+ }
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -969,6 +969,54 @@ class WaitRegTimer {
+   uint32_t wait_;
+   uint64_t start_ = 0, slept_ = 0, polls_ = 0, sleeps_ = 0;
+ };
++// Fix 124 (CP wake on interrupt, xenia/gpu/interrupt_wake.h): the GPU thread's memory waits that
++// slept, those during which a guest interrupt callback returned, the time from the latest such
++// callback to the wait's end, and the 100 us polls an interrupt cut short. "Performance interrupt
++// wake (GPU thread, fix 124, on): n/s memory waits slept, k/s ended after an interrupt callback,
++// x us from the callback to the wait's end on average (max y us), e/s polls cut short".
++inline std::atomic<bool> wake_mode_on{false};
++inline std::atomic<uint64_t> wake_memory_waits{0}, wake_after_interrupt{0}, wake_latency_ns{0},
++    wake_latency_max_ns{0}, wake_early{0};
++inline void NoteInterruptWake(bool on, bool after_interrupt, uint64_t latency_ns, uint64_t early) {
++  if (!OnGpuThread()) return;
++  wake_mode_on.store(on, std::memory_order_relaxed);
++  AddOwn(wake_memory_waits, 1);
++  if (after_interrupt) {
++    AddOwn(wake_after_interrupt, 1);
++    AddOwn(wake_latency_ns, latency_ns);
++    if (latency_ns > wake_latency_max_ns.load(std::memory_order_relaxed))
++      wake_latency_max_ns.store(latency_ns, std::memory_order_relaxed);
++  }
++  if (early) AddOwn(wake_early, early);
++}
++class InterruptWakeReporter {
++ public:
++  std::string Line(double seconds) {
++    const double s = seconds > 0 ? seconds : 1;
++    const uint64_t w = wake_memory_waits.load(std::memory_order_relaxed);
++    const uint64_t a = wake_after_interrupt.load(std::memory_order_relaxed);
++    const uint64_t l = wake_latency_ns.load(std::memory_order_relaxed);
++    const uint64_t e = wake_early.load(std::memory_order_relaxed);
++    const uint64_t max = wake_latency_max_ns.exchange(0, std::memory_order_relaxed);
++    const uint64_t dw = w - last_waits_, da = a - last_after_, dl = l - last_latency_, de = e - last_early_;
++    last_waits_ = w;
++    last_after_ = a;
++    last_latency_ = l;
++    last_early_ = e;
++    char line[256];
++    std::snprintf(line, sizeof(line),
++                  "Performance interrupt wake (GPU thread, fix 124, %s): %.0f/s memory waits slept, %.0f/s ended "
++                  "after an interrupt callback, %.0f us from the callback to the wait's end on average (max %.0f "
++                  "us), %.0f/s polls cut short",
++                  wake_mode_on.load(std::memory_order_relaxed) ? "on" : "off", double(dw) / s, double(da) / s,
++                  da ? double(dl) / double(da) / 1000.0 : 0.0, double(max) / 1000.0, double(de) / s);
++    return line;
++  }
++
++ private:
++  uint64_t last_waits_ = 0, last_after_ = 0, last_latency_ = 0, last_early_ = 0;
++};
++
+ // "Frame time WAIT_REG_MEM (GPU thread): n/s, w/s waited (m on memory), polling x ms/s, sleeping
+ // y ms/s in s sleeps/s, p polls/s; waits by wait field: 0 a/s, 1-FF b/s, 100-3FF c/s, 400+ d/s"
+ class WaitRegReporter {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -4023,6 +4023,9 @@ int main(int argc, char** argv) {
+                 // Fix 104: the draws' texture descriptor sets, reused or written.
+                 static xbox360ps5::frame_cost::TextureSetReporter frame_cost_texture_sets;
+                 XELOGW("{}", frame_cost_texture_sets.Line(double(summary_samples)));
++                // Fix 124: the GPU thread's memory waits woken by interrupt callbacks.
++                static xbox360ps5::frame_cost::InterruptWakeReporter frame_cost_interrupt_wake;
++                XELOGW("{}", frame_cost_interrupt_wake.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game
