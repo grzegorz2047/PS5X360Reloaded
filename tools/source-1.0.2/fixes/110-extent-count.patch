@@ -1,0 +1,47 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/cp_trace.h b/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
+--- a/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
++++ b/.deps/xenia-canary/src/xenia/gpu/cp_trace.h
+@@ -336,7 +336,19 @@ class Trace {
+   }
+   uint64_t Total(Kind kind) const {
+     std::lock_guard<std::mutex> lock(mutex_);
+-    return totals_[size_t(kind)];
++    return totals_[size_t(kind)] +
++           counted_[size_t(kind)].load(std::memory_order_relaxed);  // fix 110
++  }
++  // Fix 110: a write only counted, not kept in the recent writes or the
++  // targets. For the screen extents (EVENT_WRITE_EXT), which Red Dead
++  // Redemption writes for most draws (36,000 to 51,000 a second, each to its
++  // own address): each Record took the clock, the mutex and two scans of the
++  // 32 targets, 0.57 us a packet, and pushed every other write out of the
++  // STALL report. The GPU thread is the only writer.
++  void Count(Kind kind) {
++    std::atomic<uint64_t>& counted = counted_[size_t(kind)];
++    counted.store(counted.load(std::memory_order_relaxed) + 1,
++                  std::memory_order_relaxed);
+   }
+   uint64_t Waits() const {
+     std::lock_guard<std::mutex> lock(mutex_);
+@@ -360,6 +372,7 @@ class Trace {
+   std::array<Target, kTargets> targets_{};
+   size_t targets_used_ = 0;
+   std::array<uint64_t, size_t(Kind::kCount)> totals_{};
++  std::array<std::atomic<uint64_t>, size_t(Kind::kCount)> counted_{};  // fix 110
+   WaitState wait_;
+   uint64_t waits_ = 0;
+   std::atomic<uint32_t> read_{0}, write_{0};
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -1027,8 +1027,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(
+ #endif
+   auto endianness = static_cast<xenos::Endian>(address & 0x3);
+   address &= ~0x3;
+-  xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kEventExt, address,
+-                       0);  // Xbox360PS5 (fix 24)
++  // Xbox360PS5 (fix 24): counted for the STALL report; fix 110: only counted
++  // (no clock, lock or target search per packet).
++  xbox360ps5::cp_trace::Global().Count(xbox360ps5::cp_trace::Kind::kEventExt);
+ 
+   // Let us hope we can fake this.
+   // This callback tells the driver the xy coordinates affected by a previous
