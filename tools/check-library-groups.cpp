@@ -21,6 +21,8 @@
 // Fix 112d: copies of one game (one title ID) count once, so a folder of one game is never a group;
 // a package in a title update's or DLC's content type folder is not read (GamePackageFolder); the
 // console's Halo folders (one game each beside its DLC and title updates) are no groups.
+// Fix 112e: ReadDiscRoot on made-up XDVDFS images (default.xbe only: an original Xbox disc, left
+// out; default.xex, both or neither: kept; no XDVDFS, a cut root, a short or missing file: kept).
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/library_groups.hpp"
@@ -28,6 +30,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -330,6 +333,67 @@ void CheckMosaic() {
   Expect(lg::MosaicCells({0.7f}, 0.0f).size() == 1, "an unknown folder shape still lays out");
 }
 
+// Fix 112e: a made-up XDVDFS image: the volume descriptor at sector 32 of `base` and a root folder
+// whose entries (a binary tree, 4-byte aligned) name `names`.
+void WriteXdvdfs(const std::filesystem::path& path, const std::vector<std::string>& names, uint64_t base = 0,
+                 bool magic = true) {
+  std::vector<uint8_t> root;
+  for (size_t i = 0; i < names.size(); ++i) {
+    const size_t at = root.size();
+    const size_t length = 14 + names[i].size();
+    const size_t next = (at + length + 3) / 4 * 4;
+    root.resize(next, 0xFF);
+    const uint16_t right = i + 1 < names.size() ? uint16_t(next / 4) : 0;  // each entry's right: the next one
+    root[at] = 0; root[at + 1] = 0;                                          // no left
+    root[at + 2] = uint8_t(right); root[at + 3] = uint8_t(right >> 8);
+    for (int b = 4; b < 13; ++b) root[at + b] = 0;
+    root[at + 12] = 0x20;  // a file
+    root[at + 13] = uint8_t(names[i].size());
+    std::memcpy(&root[at + 14], names[i].data(), names[i].size());
+  }
+  if (root.empty()) root.assign(4, 0xFF);
+  root.resize((root.size() + 2047) / 2048 * 2048, 0xFF);
+  std::vector<uint8_t> image(size_t(base) + 40 * 2048 + root.size(), 0);
+  uint8_t* volume = &image[size_t(base) + 32 * 2048];
+  if (magic) std::memcpy(volume, "MICROSOFT*XBOX*MEDIA", 20);
+  const uint32_t root_sector = 40, root_size = uint32_t(root.size());
+  for (int b = 0; b < 4; ++b) { volume[20 + b] = uint8_t(root_sector >> (8 * b)); volume[24 + b] = uint8_t(root_size >> (8 * b)); }
+  std::memcpy(&image[size_t(base) + 40 * 2048], root.data(), root.size());
+  std::ofstream(path, std::ios::binary).write(reinterpret_cast<const char*>(image.data()), std::streamsize(image.size()));
+}
+
+void CheckDiscRoot() {
+  namespace fs = std::filesystem;
+  const fs::path folder = fs::temp_directory_path() / ("check-disc-root-" + std::to_string(std::random_device{}()));
+  fs::create_directories(folder);
+  const auto kind = [&](const std::string& name, const std::vector<std::string>& names, uint64_t base = 0, bool magic = true) {
+    const fs::path path = folder / name;
+    WriteXdvdfs(path, names, base, magic);
+    return lg::ReadDiscRoot(path.string());
+  };
+  using lg::DiscRoot;
+  Expect(kind("xbe.iso", {"default.xbe", "media"}) == DiscRoot::original_xbox, "disc root: default.xbe only -> original Xbox");
+  Expect(kind("xbe-upper.iso", {"$SystemUpdate", "DEFAULT.XBE"}) == DiscRoot::original_xbox, "disc root: DEFAULT.XBE in capitals");
+  Expect(kind("xex.iso", {"default.xex", "media"}) == DiscRoot::xbox360, "disc root: default.xex -> a game");
+  Expect(kind("both.iso", {"default.xbe", "default.xex"}) == DiscRoot::xbox360, "disc root: both -> a game");
+  Expect(kind("deep.iso", {"a", "b", "c", "d", "e", "default.xbe"}) == DiscRoot::original_xbox, "disc root: found down the tree");
+  Expect(kind("neither.iso", {"media", "readme.txt"}) == DiscRoot::xbox360, "disc root: neither -> kept as today");
+  Expect(kind("no-magic.iso", {"default.xbe"}, 0, false) == DiscRoot::unreadable, "disc root: no XDVDFS -> unreadable, kept");
+  Expect(kind("xgd3.iso", {"default.xbe"}, 0x2080000) == DiscRoot::original_xbox, "disc root: at the XGD3 offset too");
+  {
+    std::ofstream(folder / "short.iso", std::ios::binary) << "not an image";
+    Expect(lg::ReadDiscRoot((folder / "short.iso").string()) == DiscRoot::unreadable, "disc root: a short file -> unreadable");
+  }
+  {
+    // A root folder beyond the end of the file: unreadable, kept.
+    WriteXdvdfs(folder / "cut.iso", {"default.xbe"});
+    fs::resize_file(folder / "cut.iso", 40 * 2048 + 10);
+    Expect(lg::ReadDiscRoot((folder / "cut.iso").string()) == DiscRoot::unreadable, "disc root: a cut root -> unreadable");
+  }
+  Expect(lg::ReadDiscRoot((folder / "missing.iso").string()) == DiscRoot::unreadable, "disc root: no file -> unreadable");
+  fs::remove_all(folder);
+}
+
 void CheckFolders() {
   namespace fs = std::filesystem;
   const fs::path root = fs::temp_directory_path() / ("check-library-groups-" + std::to_string(std::random_device{}()));
@@ -432,6 +496,14 @@ void CheckTree() {
   Expect(Has(launcher, "void DrawGroupFolder(") && Has(launcher, "DrawGroupFolder(c, textures_, arts_, g_group_covers[g]") &&
              Has(launcher, "g_groups.groups[g].games.size(), entry.name, box,"),
          "both shelves draw a group as a folder");
+  // Fix 112e: an original Xbox disc is left out of the scan, with its log line, before it is listed.
+  const size_t iso = launcher.find("} else if (extension == \".iso\") {");
+  const size_t xbe = launcher.find("if (library_groups::ReadDiscRoot(path.string()) == library_groups::DiscRoot::original_xbox) {", iso);
+  const size_t xbe_log = launcher.find("XELOGW(\"LAUNCHER skipped {}: an original Xbox game (default.xbe), not supported\", path.string());", xbe);
+  const size_t listed = launcher.find("GameEntry game{path.stem().string(), path, \"ISO\", directory.string()};", xbe_log);
+  Expect(iso != std::string::npos && xbe != std::string::npos && xbe_log != std::string::npos && listed != std::string::npos &&
+             listed - iso < 500,
+         "an original Xbox disc is skipped with its log line before an image is listed");
   // Fix 112d: copies of one game count once; non-game content type folders are not read; the log.
   Expect(Has(launcher, "g_groups = library_groups::Build(folders, ids);") &&
              Has(launcher, "if (!games_[n].title_id.empty() && games_[n].title_id != \"00000000\") ids[n] = games_[n].title_id;"),
@@ -530,6 +602,7 @@ void CheckLanguages(const std::string& folder) {
 int main(int argc, char** argv) {
   CheckBuild();
   CheckMosaic();
+  CheckDiscRoot();
   CheckFolders();
   CheckTree();
   if (argc > 1) CheckLanguages(argv[1]);
