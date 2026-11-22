@@ -30,19 +30,13 @@ checks=(
   check-english-fallback.cpp       # fixes 23 and 25
   check-stall-dump.cpp             # fix 24
   check-label-owner.cpp            # fix 24, candidate 21
-  check-memexport-merge.cpp        # fix 30
-  check-notify-first-poll.cpp      # fix 28
-  check-net-conf.cpp               # fix 29
   check-xtl-locale.cpp             # fix 26
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
-  check-home-hints.cpp             # fix 40 (reconstructed files)
-  check-cover-fallback.cpp         # fix 41
-  check-network-self-test.cpp      # fix 42
-  check-ui-lang-overlay.cpp        # fix 43
-  check-game-info.cpp              # fix 43
-  check-kinect-usb.cpp             # fix 44
+  check-notify-first-poll.cpp      # fix 28
+  check-net-conf.cpp               # fix 29
+  check-memexport-merge.cpp        # fix 30
   check-media-voice.cpp            # fix 32
   check-switch-title.cpp           # fix 33
   check-pipeline-claim.cpp         # fix 34
@@ -51,6 +45,12 @@ checks=(
   check-exact-unwatch.cpp          # fix 37
   check-jit-backports.cpp          # fix 38
   check-net-log-drain.cpp          # fix 39
+  check-home-hints.cpp             # fix 40 (reconstructed files)
+  check-cover-fallback.cpp         # fix 41
+  check-network-self-test.cpp      # fix 42
+  check-ui-lang-overlay.cpp        # fix 43
+  check-game-info.cpp              # fix 43
+  check-kinect-usb.cpp             # fix 44
   check-review-fix30.cpp           # fixes 35-37 with fix 30
   check-guest-crash.cpp            # fix 45
   check-app-identity.cpp           # fix 46
@@ -58,21 +58,21 @@ checks=(
   check-hang-watch.cpp             # fix 47
   check-memexport-loss.cpp         # fix 48
   check-frame-cost.cpp             # fix 49
-  check-measure-10s.cpp            # fix 54
-  check-global-lock-spin.cpp       # fix 55
   check-save-folder.cpp            # fix 50
   check-multidisc-source.cpp       # fix 51
   check-library-disc.cpp           # fix 52
+  check-measure-10s.cpp            # fix 54
+  check-global-lock-spin.cpp       # fix 55
   check-kinect-pairing.cpp         # fix 56
+  check-nui-image-scan.cpp         # fix 57
   check-gpu-wait-lines.cpp         # fix 58
   check-fast-readback.cpp          # fix 59
   check-library-folders.cpp        # fix 60
   check-fault-stack.cpp            # fix 61
   check-upload-cost.cpp            # fix 62
-  check-fault-path.cpp             # fix 65
-  check-nui-image-scan.cpp         # fix 57
   check-phone-qr-panel.cpp         # fix 63
   check-native-mutant.cpp          # fix 64
+  check-fault-path.cpp             # fix 65
   check-phone-latency.cpp          # fix 66
   check-xma-unwatch.cpp            # fix 67
   check-suspend-trace.cpp          # fix 69
@@ -95,22 +95,22 @@ checks=(
   check-unwatched-chunk.cpp        # fix 87
   check-global-lock-callers.cpp    # fix 88
   check-multidisc-library.cpp      # fix 89
+  check-readback-repeat.cpp        # fix 91
+  check-readback-keys.cpp          # fix 91 (diagnostic)
   check-bug-report.cpp             # fix 93
   check-leaving-notice.cpp         # fix 93b
   check-boot-notice.cpp            # fix 93c
-  check-boost-presets.cpp          # fix 95
-  check-event-writes.cpp           # fix 96
-  check-timer-apc.cpp              # fix 97
-  check-readback-repeat.cpp        # fix 91
-  check-readback-keys.cpp          # fix 91 (diagnostic)
-  check-dark-default.cpp           # fix 98
-  check-content-folders.cpp        # fix 101
   check-bug-report-entries.cpp     # fix 93d
   check-recent-calls.cpp           # fix 93e
   check-report-session.cpp         # fix 93f
   check-flush-before-restart.cpp   # fix 93g
   check-leaving-steps.cpp          # fix 93h
   check-bounded-leave.cpp          # fix 93i
+  check-boost-presets.cpp          # fix 95
+  check-event-writes.cpp           # fix 96
+  check-timer-apc.cpp              # fix 97
+  check-dark-default.cpp           # fix 98
+  check-content-folders.cpp        # fix 101
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -139,21 +139,21 @@ declare -A fix_of=(
   [check-hang-watch.cpp]=47
   [check-memexport-loss.cpp]=48
   [check-frame-cost.cpp]=49
-  [check-measure-10s.cpp]=54
-  [check-global-lock-spin.cpp]=55
   [check-save-folder.cpp]=50
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52
+  [check-measure-10s.cpp]=54
+  [check-global-lock-spin.cpp]=55
   [check-kinect-pairing.cpp]=56
+  [check-nui-image-scan.cpp]=57
   [check-gpu-wait-lines.cpp]=58
   [check-fast-readback.cpp]=59
   [check-library-folders.cpp]=60
   [check-fault-stack.cpp]=61
   [check-upload-cost.cpp]=62
-  [check-fault-path.cpp]=65
-  [check-nui-image-scan.cpp]=57
   [check-phone-qr-panel.cpp]=63
   [check-native-mutant.cpp]=64
+  [check-fault-path.cpp]=65
   [check-phone-latency.cpp]=66
   [check-xma-unwatch.cpp]=67
   [check-suspend-trace.cpp]=69
@@ -176,22 +176,22 @@ declare -A fix_of=(
   [check-unwatched-chunk.cpp]=87
   [check-global-lock-callers.cpp]=88
   [check-multidisc-library.cpp]=89
+  [check-readback-repeat.cpp]=91
+  [check-readback-keys.cpp]=91
   [check-bug-report.cpp]=93
   [check-leaving-notice.cpp]=93b
   [check-boot-notice.cpp]=93c
-  [check-boost-presets.cpp]=95
-  [check-event-writes.cpp]=96
-  [check-timer-apc.cpp]=97
-  [check-readback-repeat.cpp]=91
-  [check-readback-keys.cpp]=91
-  [check-dark-default.cpp]=98
-  [check-content-folders.cpp]=101
   [check-bug-report-entries.cpp]=93d
   [check-recent-calls.cpp]=93e
   [check-report-session.cpp]=93f
   [check-flush-before-restart.cpp]=93g
   [check-leaving-steps.cpp]=93h
   [check-bounded-leave.cpp]=93i
+  [check-boost-presets.cpp]=95
+  [check-event-writes.cpp]=96
+  [check-timer-apc.cpp]=97
+  [check-dark-default.cpp]=98
+  [check-content-folders.cpp]=101
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
