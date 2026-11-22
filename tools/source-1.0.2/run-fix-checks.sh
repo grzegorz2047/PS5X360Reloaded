@@ -115,7 +115,7 @@ checks=(
   check-register-writes.cpp        # fix 103
   check-texture-set-reuse.cpp      # fix 104
   check-fetch-unchanged.cpp        # fix 105
-  check-swap-pacing.cpp            # fix 112
+  check-swap-pacing.cpp            # fix 116
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -201,7 +201,7 @@ declare -A fix_of=(
   [check-register-writes.cpp]=103
   [check-texture-set-reuse.cpp]=104
   [check-fetch-unchanged.cpp]=105
-  [check-swap-pacing.cpp]=112
+  [check-swap-pacing.cpp]=116
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

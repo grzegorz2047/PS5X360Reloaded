@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 112 (tools/source-1.0.2/fixes/112-swap-pacing.patch): fix 10's VdSwap pacing (a 16.60 ms
+// Fix 116 (tools/source-1.0.2/fixes/116-swap-pacing.patch): fix 10's VdSwap pacing (a 16.60 ms
 // grid while VSync is on) only for a game whose own swaps come faster than the vblank. Pro
 // Evolution Soccer 6 (4B4E07DA) waits for the vblank itself; its early swaps slept until the grid
 // point and missed the next vblank: 53.5 to 54 frames a second with VSync on, 59.9 with it off
@@ -7,7 +7,7 @@
 //  (a) include/xbox360ps5/swap_pacing.hpp in a model of a game that waits for each 60 Hz vblank
 //      and then works 6 to 16 ms (with a few long frames), where a sleep wakes 1.5 ms late (a
 //      host sleep wakes after the scheduler's latency, not at its deadline): fix 10's pacing
-//      (always on) sleeps in many swaps and makes frames miss their vblank; fix 112 stops pacing
+//      (always on) sleeps in many swaps and makes frames miss their vblank; fix 116 stops pacing
 //      after the first window and the frames miss nothing more than their own long work;
 //  (b) a game unlocked to about 80 frames a second (12.5 ms of its own per frame) is paced as
 //      fix 10 paced it: about 60 swaps a second, the same as fix 10's pacing;
@@ -94,10 +94,10 @@ void CheckVblankPaced() {
   const int misses_old = VblankPacedMisses(old, 3600, long_old);
   sp::Pacer pacer;
   const int misses_new = VblankPacedMisses(pacer, 3600, long_new);
-  std::printf("   vblank-paced game, 3600 frames: fix 10 slept in %llu swaps, %d missed vblanks; fix 112 slept "
+  std::printf("   vblank-paced game, 3600 frames: fix 10 slept in %llu swaps, %d missed vblanks; fix 116 slept "
               "in %llu, %d missed (%d long frames of its own)\n",
               (unsigned long long)old.slept, misses_old, (unsigned long long)pacer.slept, misses_new, long_new);
-  Expect(!pacer.pacing && pacer.changes == 1, "fix 112 sees the game pace itself and stops pacing");
+  Expect(!pacer.pacing && pacer.changes == 1, "fix 116 sees the game pace itself and stops pacing");
   Expect(pacer.slept <= sp::kWindow, "no swap sleeps after the first window");
   Expect(misses_new <= long_new + 2, "the frames miss nothing more than their own long work");
   Expect(misses_old > misses_new, "fix 10's pacing made this game miss vblanks");
@@ -114,7 +114,7 @@ void CheckUnlocked() {
     t_new += pacer.OnSwap(t_new);
   }
   const double fps_old = 3600.0 / (double(t_old) / 1e9), fps_new = 3600.0 / (double(t_new) / 1e9);
-  std::printf("   unlocked game (80 fps of its own): fix 10 %.1f fps, fix 112 %.1f fps\n", fps_old, fps_new);
+  std::printf("   unlocked game (80 fps of its own): fix 10 %.1f fps, fix 116 %.1f fps\n", fps_old, fps_new);
   Expect(pacer.pacing && pacer.changes == 0, "an unlocked game stays paced");
   Expect(fps_new > 59.5 && fps_new < 60.6 && fps_new - fps_old < 0.2 && fps_old - fps_new < 0.2,
          "paced to about 60 swaps a second, as fix 10");
@@ -142,12 +142,12 @@ void CheckTree() {
   const size_t fn = video.find("static void PaceSwap() {");
   const size_t vsync = video.find("if (!xbox360ps5::EffectiveVsync(cvars::vsync)) {\n    return;\n  }", fn);
   const size_t ask = video.find("std::lock_guard<std::mutex> lock(pacer_mutex);\n    sleep_ns = pacer.OnSwap(now);", vsync);
-  const size_t line = video.find("\"Performance swap pacing (fix 112): {:.1f} swaps/s, {:.1f} slept/s \"", ask);
+  const size_t line = video.find("\"Performance swap pacing (fix 116): {:.1f} swaps/s, {:.1f} slept/s \"", ask);
   const size_t sleep = video.find("  if (sleep_ns > 0) {\n    xe::threading::NanoSleep(sleep_ns);\n  }\n}", line);
   Expect(fn != std::string::npos && vsync != std::string::npos && ask != std::string::npos && line != std::string::npos &&
              sleep != std::string::npos,
          "PaceSwap: nothing with VSync off, the pacer under a lock, the line every 30 s, the sleep outside the lock");
-  Expect(video.find("#include \"xbox360ps5/swap_pacing.hpp\"  // fix 112") != std::string::npos &&
+  Expect(video.find("#include \"xbox360ps5/swap_pacing.hpp\"  // fix 116") != std::string::npos &&
              video.find("static std::atomic<int64_t> deadline_ns{0};") == std::string::npos,
          "fix 10's own grid is replaced by the pacer's");
   Expect(video.find("#if XBOX360PS5_SWAP_CAP\n  PaceSwap();\n#endif") != std::string::npos, "VdSwap still paces");
