@@ -48,6 +48,13 @@
 //      start sets the core's threshold from it and the game's own scale (0 otherwise) and logs it;
 //      assets/presets.txt (argument 1, from the repository) gives Tekken Tag Tournament 2 1040 and
 //      keeps its readback=1.
+// Fix 117f (117f-resolution-scale-trim.patch): Tekken Tag Tournament 2 at 2x made 4.2 GiB of render targets,
+// never freed, down to 94 MiB free, and its 117e preset was not in the staged package.
+//  (l) the header: no render target under 512 MiB, the trim's conditions (2x, under 1.5 GiB, every 10 s at
+//      most, only after new render targets), its counters and line, the compiled-in thresholds;
+//  (m) the tree: the trim at the end of a frame before the core's cache clear, after an idle wait, with the
+//      core's RenderTargetCache::ClearCache; the 1x-class stop before the allocation; the launcher's
+//      threshold from presets.txt first, then compiled in, with its source on the start line.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -152,8 +159,9 @@ void CheckHeader() {
   Expect(line == "Resolution scale (fix 117): 2x, scaled resolve sparse, 2 heaps (32 MiB) committed, 2 refused "
                  "(under 1024 MiB free), 1 failed; render targets made scaled 2 (148 MiB), 1x 1 (4 MiB), classes "
                  "kept at 1x 2 (under 1536 MiB free); scaled textures made 1 (28 MiB); texture cache 300 MiB, 7 "
-                 "evicted under memory pressure; heaps under the floor 2, resolves skipped 3; driver memory 1500 MiB "
-                 "(peak 1600 MiB, 420 allocations); direct free 1200 MiB (lowest at a commit 500 MiB)",
+                 "evicted under memory pressure; heaps under the floor 2, resolves skipped 3; render targets refused "
+                 "under 512 MiB free 0, trims 0 (0 destroyed); driver memory 1500 MiB (peak 1600 MiB, 420 "
+                 "allocations); direct free 1200 MiB (lowest at a commit 500 MiB)",
          "10 s line: " + line);
   c.sparse = false;
   Expect(Has(rs::Line(c, driver, -1), "scaled resolve none,") && Has(rs::Line(c, driver, -1), "direct free -1 MiB"),
@@ -250,10 +258,50 @@ void CheckHeader() {
   Expect(rs::ThresholdFor(1, 1040) == 0, "1x: no threshold");
   Expect(rs::ThresholdFor(2, 0) == 0 && rs::ThresholdFor(2, -5) == 0, "no preset or a negative one: none");
   Expect(rs::ThresholdFor(2, 8192) == 8192 && rs::ThresholdFor(2, 8193) == 0, "at most 8192 pixels");
-  Expect(rs::ThresholdLine(1040, "4E4D0859") ==
-             "Resolution scale (fix 117e): surfaces up to 1040 pixels of pitch render at 1x (preset of 4E4D0859)",
-         "the start line");
-  Expect(Has(rs::ThresholdLine(800, ""), "(preset of no identified title)"), "the start line without a title");
+  Expect(rs::ThresholdLine(1040, "4E4D0859", "compiled-in") ==
+             "Resolution scale (fix 117e): surfaces up to 1040 pixels of pitch render at 1x (preset of 4E4D0859, "
+             "compiled-in)",
+         "the start line, with its source (fix 117f)");
+  Expect(Has(rs::ThresholdLine(800, "", "presets.txt"), "(preset of no identified title, presets.txt)"),
+         "the start line without a title");
+  Expect(Has(rs::ThresholdLine(800, "X", nullptr), ", unknown)"), "the start line without a source");
+  // Fix 117f: compiled-in thresholds.
+  Expect(rs::CompiledThreshold("4E4D0859") == 1040 && rs::CompiledThreshold("4e4d0859") == 1040,
+         "Tekken Tag Tournament 2 compiled in, any case");
+  Expect(rs::CompiledThreshold("545407F2") == 0 && rs::CompiledThreshold("") == 0 &&
+             rs::CompiledThreshold("4E4D08590") == 0,
+         "no other title, nor a malformed id");
+  // Fix 117f: no render target under 512 MiB.
+  {
+    rs::Counters h;
+    const uint64_t rt = uint64_t(14) << 20;
+    Expect(rs::AdmitAnyRenderTarget(h, 600ll << 20, rt), "600 MiB free: a 14 MiB target made");
+    Expect(!rs::AdmitAnyRenderTarget(h, 520ll << 20, rt), "520 MiB free: refused (would leave under 512)");
+    Expect(rs::AdmitAnyRenderTarget(h, -1, rt), "unknown: made");
+    Expect(h.rt_refused == 1, "one refused");
+  }
+  // Fix 117f: the trim's conditions.
+  {
+    rs::Counters t2;
+    Expect(!rs::ShouldTrim(t2, 1000ll << 20, 100000), "1x: no trim");
+    t2.scale = 2;
+    Expect(!rs::ShouldTrim(t2, 1000ll << 20, 100000), "2x, nothing made yet: no trim");
+    rs::NoteRenderTarget(t2, true, uint64_t(50) << 20);
+    Expect(!rs::ShouldTrim(t2, 2000ll << 20, 100000), "2000 MiB free: no trim");
+    Expect(!rs::ShouldTrim(t2, -1, 100000), "unknown free memory: no trim");
+    Expect(rs::ShouldTrim(t2, 1400ll << 20, 100000), "1400 MiB free after a new target: trim");
+    rs::NoteTrim(t2, 100000, 12);
+    Expect(t2.trims == 1 && t2.trimmed == 12, "the trim counted");
+    rs::NoteRenderTarget(t2, false, uint64_t(4) << 20);
+    Expect(!rs::ShouldTrim(t2, 1400ll << 20, 105000), "5 s later: not yet");
+    Expect(rs::ShouldTrim(t2, 1400ll << 20, 110000), "10 s later with a new target: trim");
+    rs::NoteTrim(t2, 110000, 0);
+    Expect(!rs::ShouldTrim(t2, 1400ll << 20, 130000), "nothing made since the last trim: no trim");
+    Expect(rs::TrimLine(12, 30, uint64_t(4000) << 20, uint64_t(2500) << 20, 1900ll << 20) ==
+               "Resolution scale (fix 117f): render targets trimmed: 12 destroyed, 30 kept (owning EDRAM data); "
+               "driver memory 4000 -> 2500 MiB; direct free 1900 MiB",
+           "the trim's line");
+  }
   // Fix 117d: the warning, once a session, at 2x under 1 GiB.
   rs::Counters w;
   Expect(!rs::ShouldWarn(w, 500ll << 20), "1x: no warning");
@@ -452,19 +500,39 @@ void CheckCore() {
          "fix 117d: the once-a-session notice through Tr");
   // Fix 117e.
   const std::string launcher = Read("src/launcher.cpp");
-  const size_t threshold_fn = launcher.find("int ScaleThresholdFor(const std::string& title_id) {");
+  const size_t threshold_fn = launcher.find("int ScaleThresholdFor(const std::string& title_id, const char** from) {");
+  const size_t from_file = launcher.find("values.find(\"scale_threshold\")", threshold_fn);
+  const size_t from_build = launcher.find("xbox360ps5::resolution_scale::CompiledThreshold(title_id)", threshold_fn);
   Expect(threshold_fn != std::string::npos &&
              launcher.find("ReadValues(\"/app0/assets/presets.txt\", title_id)", threshold_fn) != std::string::npos &&
-             launcher.find("values.find(\"scale_threshold\")", threshold_fn) != std::string::npos,
-         "fix 117e: the launcher reads scale_threshold from the game's presets.txt section");
+             from_file != std::string::npos && from_build != std::string::npos && from_file < from_build &&
+             launcher.find("*from = \"presets.txt\";", threshold_fn) != std::string::npos &&
+             launcher.find("*from = \"compiled-in\";", threshold_fn) != std::string::npos,
+         "fixes 117e, 117f: presets.txt's scale_threshold first, then the compiled-in one, with the source");
   Expect(Has(game_main, "DECLARE_uint32(draw_resolution_scale_threshold);") &&
-             Has(game_main, "int ScaleThresholdFor(const std::string& title_id);") &&
+             Has(game_main, "int ScaleThresholdFor(const std::string& title_id, const char** from);") &&
              Has(game_main, "xbox360ps5::resolution_scale::ThresholdFor(\n"
                             "              xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale),\n"
-                            "              xbox360ps5::ScaleThresholdFor(settings_title));") &&
+                            "              xbox360ps5::ScaleThresholdFor(settings_title, &scale_threshold_from));") &&
              Has(game_main, "cvars::draw_resolution_scale_threshold = scale_threshold;") &&
-             Has(game_main, "xbox360ps5::resolution_scale::ThresholdLine(scale_threshold, settings_title)"),
-         "fix 117e: the game start sets the core's threshold from the preset at 2x (0 otherwise) and logs it");
+             Has(game_main, "xbox360ps5::resolution_scale::ThresholdLine(scale_threshold, settings_title,\n"),
+         "fix 117e: the game start sets the core's threshold at 2x (0 otherwise) and logs it with its source");
+  // Fix 117f: the trim and the stop.
+  const size_t trim = processor.find("xbox360ps5::resolution_scale::ShouldTrim(");
+  const size_t trim_idle = processor.find("AwaitAllQueueOperationsCompletion()) {", trim);
+  const size_t trim_clear = processor.find("render_target_cache_->ClearCache();", trim);
+  const size_t core_clear = processor.find("if (cache_clear_requested_ && AwaitAllQueueOperationsCompletion()) {");
+  Expect(trim != std::string::npos && trim_idle != std::string::npos && trim_clear != std::string::npos &&
+             core_clear != std::string::npos && trim < trim_idle && trim_idle < trim_clear && trim_clear < core_clear &&
+             Has(processor, "if (!cache_clear_requested_ && render_target_cache_ &&") &&
+             Has(processor, "xbox360ps5::resolution_scale::NoteTrim("),
+         "fix 117f: the trim waits for the GPU and uses the core's ClearCache, before the core's own clear");
+  Expect(Has(rt_header, "size_t RenderTargetCount() const { return render_targets_.size(); }"),
+         "fix 117f: the render target count");
+  const size_t stop = render_targets.find("if (key.scale_native && IsDrawResolutionScaled() &&\n"
+                                          "      !xbox360ps5::resolution_scale::AdmitAnyRenderTarget(");
+  Expect(stop != std::string::npos && stop > rt_admit && stop < rt_alloc,
+         "fix 117f: a 1x-class render target asks the 512 MiB stop before its allocation");
   const size_t rt_fresh = render_targets.find("xbox360ps5::resolution_scale::DirectFreeFresh(), bytes)");
   Expect(rt_fresh != std::string::npos && rt_fresh > rt_admit && rt_fresh < rt_alloc,
          "render targets ask a fresh reading");
