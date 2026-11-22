@@ -95,6 +95,9 @@ checks=(
   check-unwatched-chunk.cpp        # fix 87
   check-global-lock-callers.cpp    # fix 88
   check-multidisc-library.cpp      # fix 89
+  check-bug-report.cpp             # fix 93
+  check-leaving-notice.cpp         # fix 93b
+  check-boot-notice.cpp            # fix 93c
   check-boost-presets.cpp          # fix 95
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
@@ -112,6 +115,8 @@ declare -A arguments=(
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-multidisc-library.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-bug-report.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-leaving-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -160,6 +165,9 @@ declare -A fix_of=(
   [check-unwatched-chunk.cpp]=87
   [check-global-lock-callers.cpp]=88
   [check-multidisc-library.cpp]=89
+  [check-bug-report.cpp]=93
+  [check-leaving-notice.cpp]=93b
+  [check-boot-notice.cpp]=93c
   [check-boost-presets.cpp]=95
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
