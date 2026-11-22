@@ -8,8 +8,8 @@
   <a href="docs/INSTALLATION.md">Installation guide</a> ·
   <a href="docs/GAME-CONTENT.md">DLC, updates and discs</a> ·
   <a href="https://github.com/grzegorz2047/PS5X360Reloaded/issues">Report an issue</a>
+  <script type='text/javascript' src='https://storage.ko-fi.com/cdn/widget/Widget_2.js'></script><script type='text/javascript'>kofiwidget2.init('Support project', '#72a4f2', 'A0A21SWG1P');kofiwidget2.draw();</script> 
 </p>
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A0A21SWG1P)
 
 # PS5X360Reloaded
 
