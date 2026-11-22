@@ -149,6 +149,7 @@ on:
       - 'tools/check-resolution-scale.cpp'
       - 'tools/check-submit-parts.cpp'
       - 'tools/check-game-language.cpp'
+      - 'tools/check-readback-batching.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

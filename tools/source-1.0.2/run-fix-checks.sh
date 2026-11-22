@@ -144,6 +144,7 @@ checks=(
   check-avatar-skeleton.cpp        # fix 113
   check-submit-parts.cpp           # fix 130
   check-game-language.cpp          # fix 132
+  check-readback-batching.cpp      # fix 133
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -266,6 +267,7 @@ declare -A fix_of=(
   [check-avatar-skeleton.cpp]=113
   [check-submit-parts.cpp]=130
   [check-game-language.cpp]=132
+  [check-readback-batching.cpp]=133
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
