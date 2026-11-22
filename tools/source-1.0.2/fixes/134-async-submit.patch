@@ -198,10 +198,10 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h 
  #include "xenia/gpu/vulkan/deferred_command_buffer.h"
  #include "xenia/gpu/vulkan/readback_slots.h"
 +#include "xenia/gpu/vulkan/async_submit.h"  // fix 134
+ #include "xenia/gpu/vulkan/readback_batching.h"  // fix 133
  #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
  #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
- #include "xenia/gpu/vulkan/vulkan_primitive_processor.h"
-@@ -730,6 +731,32 @@ class VulkanCommandProcessor final : public CommandProcessor {
+@@ -731,6 +732,32 @@ class VulkanCommandProcessor final : public CommandProcessor {
  
    std::unique_ptr<VulkanQueryPool> host_query_pool_;
  
@@ -251,12 +251,12 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
 +              "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
 +              "GPU");
- 
- DEFINE_bool(vulkan_depth_bias_force_unorm, true,
-             "Apply the depth bias in constant units on float depth buffers "
-@@ -1457,7 +1467,209 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -1477,7 +1487,209 @@ readback_batching::SyncPoint VulkanCommandProcessor::ReadbackSyncPoint() const {
+   return point;
  }
- #endif
  
 +// Fix 134 (async_submit.h): the settings, from async-submit.txt in the title folder when it exists
 +// (read again when it changes, at most once a second), else the cvars.
@@ -464,7 +464,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    AwaitAllQueueOperationsCompletion();
    if (readback_read_callback_) {  // fix 91
      memory_->UnregisterPhysicalMemoryReadCallback(readback_read_callback_);
-@@ -2921,6 +3133,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
+@@ -2941,6 +3153,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
                                         uint32_t index_count,
                                         IndexBufferInfo* index_buffer_info,
                                         bool major_mode_explicit) {
@@ -483,7 +483,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    const bool is_copy = register_file_->Get<reg::RB_MODECONTROL>().edram_mode ==
                         xenos::EdramMode::kCopy;
  #if XE_PLATFORM_PS5
-@@ -5341,7 +5565,7 @@ CommandProcessor::QueryOpenResult VulkanCommandProcessor::OpenQuery(
+@@ -5394,7 +5618,7 @@ CommandProcessor::QueryOpenResult VulkanCommandProcessor::OpenQuery(
        xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
            xbox360ps5::frame_cost::kQuery);
  #endif
@@ -492,7 +492,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
        PumpQueryResolves();
      }
  
-@@ -5530,7 +5754,7 @@ bool VulkanCommandProcessor::AwaitQueryResolve(ReportHandle report_handle,
+@@ -5583,7 +5807,7 @@ bool VulkanCommandProcessor::AwaitQueryResolve(ReportHandle report_handle,
      xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
          xbox360ps5::frame_cost::kQuery);
  #endif
@@ -501,7 +501,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    }
  
    PumpQueryResolves();
-@@ -5680,7 +5904,7 @@ void VulkanCommandProcessor::AwaitVIZQueryResolve(
+@@ -5733,7 +5957,7 @@ void VulkanCommandProcessor::AwaitVIZQueryResolve(
      xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
          xbox360ps5::frame_cost::kQuery);
  #endif
@@ -510,7 +510,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    }
  
    PumpQueryResolves();
-@@ -5736,7 +5960,7 @@ void VulkanCommandProcessor::CheckSubmissionCompletionAndDeviceLoss(
+@@ -5789,7 +6013,7 @@ void VulkanCommandProcessor::CheckSubmissionCompletionAndDeviceLoss(
      await_submission = GetCurrentSubmission() - 1;
    }
  
@@ -519,7 +519,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
  
    const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
  
-@@ -6005,6 +6229,9 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+@@ -6058,6 +6282,9 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
  }
  
  bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
@@ -529,7 +529,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
  #if XE_PLATFORM_PS5
    xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
        xbox360ps5::frame_cost::kSubmit);
-@@ -6152,6 +6379,23 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -6205,6 +6432,23 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
  
      SubmitBarriers(true);
  
@@ -553,7 +553,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      assert_false(command_buffers_writable_.empty());
      CommandBuffer command_buffer = command_buffers_writable_.back();
      if (dfn.vkResetCommandPool(device, command_buffer.pool, 0) != VK_SUCCESS) {
-@@ -6256,6 +6500,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+@@ -6309,6 +6553,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
      current_submission_wait_semaphores_.clear();
      command_buffers_submitted_.emplace_back(submission_index, command_buffer);
      command_buffers_writable_.pop_back();

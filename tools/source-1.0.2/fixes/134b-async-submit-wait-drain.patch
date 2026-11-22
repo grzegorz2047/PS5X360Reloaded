@@ -19,7 +19,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h b/.deps/xeni
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
-@@ -750,6 +750,10 @@ class VulkanCommandProcessor final : public CommandProcessor {
+@@ -751,6 +751,10 @@ class VulkanCommandProcessor final : public CommandProcessor {
    std::vector<DeferredCommandBuffer*> async_free_command_buffers_;
    std::mutex async_free_mutex_;
    std::atomic<bool> async_submit_failed_{false};
@@ -33,7 +33,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h 
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-@@ -1542,6 +1542,7 @@ bool VulkanCommandProcessor::HandOffSubmission() {
+@@ -1562,6 +1562,7 @@ bool VulkanCommandProcessor::HandOffSubmission() {
    AsyncSubmitJob job;
    job.command_buffer = command_buffer;
    job.submission = GetCurrentSubmission();
@@ -41,7 +41,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    job.fence = fence_acquisition->GetFenceForSubmitting();
    if (frame_cost_query_pool_ != VK_NULL_HANDLE) {
      // Fix 49's timestamps, written by the worker around the replay.
-@@ -1608,6 +1609,7 @@ void VulkanCommandProcessor::RunAsyncSubmitJob(AsyncSubmitJob& job) {
+@@ -1628,6 +1629,7 @@ void VulkanCommandProcessor::RunAsyncSubmitJob(AsyncSubmitJob& job) {
    if (!ok) {
      async_submit_failed_.store(true, std::memory_order_release);
    }
@@ -49,7 +49,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
    const auto submitted = std::chrono::steady_clock::now();
    xbox360ps5::frame_cost::async_worker_replay_ns.fetch_add(
        uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(replayed - start).count()),
-@@ -1629,6 +1631,10 @@ void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
+@@ -1649,6 +1651,10 @@ void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
    if (async_worker_->Drain()) {
      xbox360ps5::frame_cost::async_drains[std::min<uint32_t>(reason, 4)].fetch_add(
          1, std::memory_order_relaxed);
@@ -60,7 +60,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
      xbox360ps5::frame_cost::async_drain_ns.fetch_add(
          uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
                       std::chrono::steady_clock::now() - start)
-@@ -1643,12 +1649,21 @@ void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
+@@ -1663,12 +1669,21 @@ void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
  }
  
  // Fix 134: a wait for a submission, after the worker has submitted it.
