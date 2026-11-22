@@ -1,3 +1,56 @@
+diff --git a/include/xbox360ps5/tab_pills.hpp b/include/xbox360ps5/tab_pills.hpp
+new file mode 100644
+index 0000000..9313cbb
+--- /dev/null
++++ b/include/xbox360ps5/tab_pills.hpp
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: MIT
++// Fix 109d: the shoulder buttons at the two ends of a tab bar, as the player chose for the library's
++// game sheet and the in-game guide (fix 115c): "< L1   Play  Patches  ...  About   R1 >".
++//   * a pill kHeight high with fully round ends, kFill with kInk (white, near-black) unless the
++//     caller gives its theme's colours; "< L1" at the bar's left edge, "R1 >" right-aligned to its
++//     right edge, the tabs between them;
++//   * the chevron is drawn (two kLine strokes kChevronW wide, 2 * kChevronH tall), not a U+2039
++//     glyph, which the console's fonts may not have; kChevronGap between it and the name;
++//   * value rows of a list draw the same chevrons around their value ("< Fast >").
++// Sizes are 1080p design pixels; Draw takes the caller's scale and the pill's top left in pixels.
++#pragma once
++#include "third_party/imgui/imgui.h"
++
++namespace xbox360ps5::tab_pills {
++inline constexpr float kHeight = 38.0f;     // the pad buttons' circle size in the hints
++inline constexpr float kPad = 14.0f;        // each side
++inline constexpr float kText = 22.0f;       // the name
++inline constexpr float kChevronW = 4.0f;    // the chevron's width
++inline constexpr float kChevronH = 7.0f;    // half its height
++inline constexpr float kChevronGap = 8.0f;  // between the chevron and the name
++inline constexpr float kLine = 2.4f;        // stroke
++inline constexpr ImU32 kFill = IM_COL32(255, 255, 255, 255);
++inline constexpr ImU32 kInk = IM_COL32(16, 18, 22, 255);
++
++// A chevron whose left edge is at x and middle at y (pixels), pointing left or right.
++inline void DrawChevron(ImDrawList* list, float scale, ImVec2 at, bool left, ImU32 ink) {
++  const float w = kChevronW * scale, h = kChevronH * scale;
++  const ImVec2 points[3] = {ImVec2(left ? at.x + w : at.x, at.y - h), ImVec2(left ? at.x : at.x + w, at.y),
++                            ImVec2(left ? at.x + w : at.x, at.y + h)};
++  list->AddPolyline(points, 3, ink, 0, kLine * scale);
++}
++// The pill's width in design pixels.
++inline float Width(ImFont* font, const char* name) {
++  return 2 * kPad + kChevronW + kChevronGap + font->CalcTextSizeA(kText, 1e9f, 0.0f, name).x;
++}
++// The pill for L1 (left: "< L1") or R1 ("R1 >") with its top left at `at` (pixels).
++inline void Draw(ImDrawList* list, ImFont* font, float scale, ImVec2 at, const char* name, bool left,
++                 ImU32 fill = kFill, ImU32 ink = kInk) {
++  const float w = Width(font, name) * scale, h = kHeight * scale, middle = at.y + h / 2;
++  list->AddRectFilled(at, ImVec2(at.x + w, at.y + h), fill, h / 2);
++  const float text_w = font->CalcTextSizeA(kText * scale, 1e9f, 0.0f, name).x;
++  const float chevron_x = left ? at.x + kPad * scale : at.x + kPad * scale + text_w + kChevronGap * scale;
++  const float text_x = left ? chevron_x + (kChevronW + kChevronGap) * scale : at.x + kPad * scale;
++  DrawChevron(list, scale, ImVec2(chevron_x, middle), left, ink);
++  list->AddText(font, kText * scale, ImVec2(text_x, middle - kText * scale * 0.55f), ink, name);
++}
++}  // namespace xbox360ps5::tab_pills
 diff --git a/port/dlc_manager.hpp b/port/dlc_manager.hpp
 index ccc8791..5cc05f1 100644
 --- a/port/dlc_manager.hpp
@@ -225,14 +278,14 @@ index ccc8791..5cc05f1 100644
  
  // Installing copies on a worker thread, with progress.
 diff --git a/src/launcher.cpp b/src/launcher.cpp
-index 734c896..79b3370 100644
+index 734c896..02af8dc 100644
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
 @@ -88,6 +88,7 @@ extern "C" int sceSystemServiceParamGetInt(int parameter_id, int* value);
  #endif
  #include <atomic>
  #include "xbox360ps5/game_info.hpp"
-+#include "xbox360ps5/tab_bar.hpp"  // fix 109d: the tab bar shared with the in-game guide (fix 115c)
++#include "xbox360ps5/tab_pills.hpp"  // fix 109d: the tab bar's L1 / R1, shared with the guide
  #include "xenia/kernel/xam/storage_devices.h"  // fix 27: the save drive setting
  
  namespace xbox360ps5 {
@@ -317,86 +370,55 @@ index 734c896..79b3370 100644
    if (g_confirm_open) {
      // "X is running: close it to open Y?"
      if (key == Key::cross) {
-@@ -1783,9 +1835,55 @@ void Launcher::Press(Key key) {
+@@ -1783,9 +1835,35 @@ void Launcher::Press(Key key) {
        break;
      }
      case Mode::game: {
 -      if (key == Key::l1 || key == Key::r1) { game_info_scroll = 0; game_tab_ = (game_tab_ + (key == Key::r1 ? 1 : 6)) % 7; if (game_tab_ == 3) RefreshAchievements(); if (game_tab_ == 4) RefreshDlcs(); if (game_tab_ == 5) OpenUpdates(Selected() ? &Selected()->path : nullptr, SelectedTitleId(), save_root_, settings_.game_paths, Selected() ? Selected()->name : std::string()); break; }
-       // Closing goes back to where the sheet was opened from.
-       const auto close = [this] { mode_ = game_return_; game_return_ = Mode::shelf; if (mode_ == Mode::settings) RefreshPerGame(); };
-+      // Fix 109d: the pad of the tab bar the in-game guide shares (tab_bar::Press, fix 115c). L1/R1
-+      // always switch tabs (each opens with the bar focused); on the bar left/right switch tabs and
-+      // Down or X enter the list at its first row; in a list Up on the first row goes back to the
-+      // bar, Down stops at the last row, and left/right only change a row that has a value (the
-+      // player's left/right changed an option while reaching for the next tab). Play and About have
-+      // no list: there only L1/R1 and left/right go through it.
-+      const bool list_tab = game_tab_ >= 1 && game_tab_ <= 5;
-+      const bool nav_identified = Selected() && !Selected()->title_id.empty();
-+      int no_row = 0;
-+      int& nav_row = game_tab_ == 1 ? patch_row_ : game_tab_ == 2 ? (game_category_open_ ? game_option_row_ : game_category_)
-+               : game_tab_ == 3 ? achievement_row_ : game_tab_ == 4 ? dlc_row_ : game_tab_ == 5 ? Updates().row : no_row;
-+      const int nav_rows = game_tab_ == 1 ? int(patch_rows_.size())
-+                     : game_tab_ == 2 ? (game_category_open_ ? (nav_identified ? int(game_rows_.size()) : 0)
-+                                                             : int(game_categories_.size()) + (nav_identified ? 1 : 0))
-+                     : game_tab_ == 3 ? int(achievements_.size()) : game_tab_ == 4 ? int(DlcPage().items.size())
-+                     : game_tab_ == 5 ? int(Updates().page.items.size()) : 0;
-+      const bool on_bar = !list_tab || g_list_focus_tab != game_tab_;
-+      if (key == Key::l1 || key == Key::r1 || key == Key::left || key == Key::right ||
-+          (list_tab && (key == Key::up || key == Key::down || (key == Key::cross && on_bar)))) {
-+        using Pad = tab_bar::Key;
-+        const Pad pad = key == Key::l1 ? Pad::l1 : key == Key::r1 ? Pad::r1 : key == Key::left ? Pad::left
-+                      : key == Key::right ? Pad::right : key == Key::up ? Pad::up : key == Key::down ? Pad::down : Pad::cross;
-+        // The rows whose value left and right change: a subject's options, and the bug report row.
-+        const auto has_value = [&](int n) {
-+          return game_tab_ == 2 && (game_category_open_ || (nav_identified && n == int(game_categories_.size())));
-+        };
-+        tab_bar::Nav nav{game_tab_, on_bar, nav_row};
-+        const tab_bar::Effect effect = tab_bar::Press(nav, pad, 7, list_tab ? nav_rows : 0, has_value);
-+        if (effect.tab_changed) {
-+          game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = nav.tab;
-+          if (game_tab_ == 3) RefreshAchievements(); if (game_tab_ == 4) RefreshDlcs(); if (game_tab_ == 5) OpenUpdates(Selected() ? &Selected()->path : nullptr, SelectedTitleId(), save_root_, settings_.game_paths, Selected() ? Selected()->name : std::string());
-+        } else if (list_tab) {
-+          g_list_focus_tab = nav.on_bar ? -1 : game_tab_;
-+          nav_row = nav.row;
-+        }
-+        if (effect.value_step && game_tab_ == 2 && game_category_open_) {
-+          ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], effect.value_step);
-+        } else if (effect.value_step && game_tab_ == 2) {
-+          // The bug report row (fix 93d): left and right turn it on and off, as X does.
-+          if (overrides_.count("bug_report") && overrides_["bug_report"]) overrides_.erase("bug_report");
-+          else overrides_["bug_report"] = 1;
-+          SaveGameOverrides(Selected()->title_id, overrides_);
-+        }
++      // Fix 109d: L1 and R1 always switch tabs; left and right too while the tab bar has the pad (on a
++      // list tab before Down, and on About). In a list, left and right only change the focused row's
++      // value (the player's left/right changed an option while reaching for the next tab).
++      const auto switch_tab = [this](int step) {
++        game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = (game_tab_ + step + 7) % 7;
++        if (game_tab_ == 3) RefreshAchievements(); if (game_tab_ == 4) RefreshDlcs(); if (game_tab_ == 5) OpenUpdates(Selected() ? &Selected()->path : nullptr, SelectedTitleId(), save_root_, settings_.game_paths, Selected() ? Selected()->name : std::string());
++      };
++      if (key == Key::l1 || key == Key::r1) { switch_tab(key == Key::r1 ? 1 : -1); break; }
++      if (game_tab_ != 0 && g_list_focus_tab != game_tab_ && (key == Key::left || key == Key::right)) {
++        switch_tab(key == Key::right ? 1 : -1);
 +        break;
 +      }
-+      // Until a row has the pad, the DLC tab's Triangle (Remove) does nothing.
-+      if (game_tab_ == 4 && on_bar && key == Key::triangle) break;
+       // Closing goes back to where the sheet was opened from.
+       const auto close = [this] { mode_ = game_return_; game_return_ = Mode::shelf; if (mode_ == Mode::settings) RefreshPerGame(); };
++      // Fix 109: the lists (Patches, Settings' subjects and a subject's options, Achievements, DLCs,
++      // Updates) start on the tab bar: Down enters a list at its first row, Up on the first row goes
++      // back to the bar. Until then X and the DLC tab's Triangle do nothing (left and right switch
++      // tabs, above); L1/R1, Circle and the tab's other keys work as before.
++      if (game_tab_ >= 1 && game_tab_ <= 5) {
++        int& first_row = game_tab_ == 1 ? patch_row_ : game_tab_ == 2 ? (game_category_open_ ? game_option_row_ : game_category_)
++                       : game_tab_ == 3 ? achievement_row_ : game_tab_ == 4 ? dlc_row_ : Updates().row;
++        if (g_list_focus_tab != game_tab_) {
++          if (key == Key::down) { g_list_focus_tab = game_tab_; first_row = 0; break; }
++          if (key == Key::up || key == Key::cross || (game_tab_ == 4 && key == Key::triangle)) break;
++        } else if (key == Key::up && first_row == 0) {
++          g_list_focus_tab = -1;
++          break;
++        }
++      }
        if (game_tab_ == 6) {
          if (key == Key::down) ++game_info_scroll;
          if (key == Key::up && game_info_scroll > 0) --game_info_scroll;
-@@ -1806,7 +1904,6 @@ void Launcher::Press(Key key) {
+@@ -1806,6 +1884,8 @@ void Launcher::Press(Key key) {
            launch_ = *Selected(); launch_pending_ = true; loading_ = launch_.name;
            mode_ = Mode::shelf; game_return_ = Mode::shelf;
          }
--        if (key == Key::right) game_tab_ = 1;
++        if (key == Key::right || key == Key::left) g_list_focus_tab = -1;  // fix 109: a new tab starts on the tab bar
++        if (key == Key::left) { game_info_scroll = 0; game_tab_ = 6; }  // fix 109d: left and right switch tabs here
+         if (key == Key::right) game_tab_ = 1;
          if ((key == Key::up || key == Key::down) && Selected() && Selected()->discs.size() > 1)
            StepDisc(key == Key::down ? 1 : -1);  // fix 89: the disc to start
-         if (key == Key::circle || key == Key::triangle) close();
-@@ -1816,8 +1913,6 @@ void Launcher::Press(Key key) {
-         auto& sheet = Updates();
-         const bool busy = tu::copier().Busy();
-         const int rows = int(sheet.page.items.size());
--        if (key == Key::up && rows) sheet.row = (sheet.row + rows - 1) % rows;
--        if (key == Key::down && rows) sheet.row = (sheet.row + 1) % rows;
-         if (!busy && key == Key::square) { sheet.result.clear(); RefreshUpdates(); }
-         if (!busy && key == Key::cross && rows && !save_root_.empty()) {
-           const tu::Item item = sheet.page.items[size_t(sheet.row)];
-@@ -1837,19 +1932,46 @@ void Launcher::Press(Key key) {
-       if (game_tab_ == 4) {
-         const bool busy = dlc2::copier().Busy();
-         const int rows = int(DlcPage().items.size());
--        if (key == Key::up && rows) dlc_row_ = (dlc_row_ + rows - 1) % rows;
--        if (key == Key::down && rows) dlc_row_ = (dlc_row_ + 1) % rows;
+@@ -1840,16 +1920,45 @@ void Launcher::Press(Key key) {
+         if (key == Key::up && rows) dlc_row_ = (dlc_row_ + rows - 1) % rows;
+         if (key == Key::down && rows) dlc_row_ = (dlc_row_ + 1) % rows;
          if (!busy && key == Key::square) RefreshDlcs();
 +        if (!busy && key == Key::triangle && rows) {
 +          // Fix 109: Remove, for a package on a save device (On or Off), after the window.
@@ -442,58 +464,23 @@ index 734c896..79b3370 100644
            }
            dlc_result_ = result;
          }
-@@ -1857,9 +1979,6 @@ void Launcher::Press(Key key) {
-         break;
-       }
-       if (game_tab_ == 3) {
--        const int rows = int(achievements_.size());
--        if (key == Key::up && rows) achievement_row_ = (achievement_row_ + rows - 1) % rows;
--        if (key == Key::down && rows) achievement_row_ = (achievement_row_ + 1) % rows;
-         if (key == Key::triangle) { achievement_player_ = (achievement_player_ + 1) % 4; achievement_row_ = 0; RefreshAchievements(); }
-         if (key == Key::circle) close();
-         break;
-@@ -1870,10 +1989,8 @@ void Launcher::Press(Key key) {
-           // Fix 93d: one more row after the subjects, "Problem with this game? Logs for a bug report".
-           const bool identified = Selected() && !Selected()->title_id.empty();
-           const int categories = int(game_categories_.size()) + (identified ? 1 : 0);
--          if (key == Key::up && categories) game_category_ = (game_category_ + categories - 1) % categories;
--          if (key == Key::down && categories) game_category_ = (game_category_ + 1) % categories;
-           if (identified && game_category_ == int(game_categories_.size())) {
--            if (key == Key::cross || key == Key::left || key == Key::right) {
-+            if (key == Key::cross) {  // fix 109d: left and right through tab_bar::Press (value_step)
-               if (overrides_.count("bug_report") && overrides_["bug_report"]) overrides_.erase("bug_report");
-               else overrides_["bug_report"] = 1;
-               SaveGameOverrides(Selected()->title_id, overrides_);
-@@ -1886,10 +2003,8 @@ void Launcher::Press(Key key) {
-         }
-         // The game's own options: each follows the general one until changed here.
-         const int own_rows = Selected() && !Selected()->title_id.empty() ? int(game_rows_.size()) : 0;
--        if (key == Key::up && own_rows) game_option_row_ = (game_option_row_ + own_rows - 1) % own_rows;
--        if (key == Key::down && own_rows) game_option_row_ = (game_option_row_ + 1) % own_rows;
--        if ((key == Key::left || key == Key::right || key == Key::cross) && own_rows)
--          ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], key == Key::left ? -1 : 1);
-+        if (key == Key::cross && own_rows)  // fix 109d: left and right through tab_bar::Press (value_step)
-+          ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], 1);
-         if (key == Key::triangle && game_categories_.size() > 1) {
-           // The next subject.
-           game_category_ = (game_category_ + 1) % int(game_categories_.size());
-@@ -1905,8 +2020,6 @@ void Launcher::Press(Key key) {
-         break;
-       }
-       const int rows = int(patch_rows_.size());
--      if (key == Key::up && rows) patch_row_ = (patch_row_ + rows - 1) % rows;
--      if (key == Key::down && rows) patch_row_ = (patch_row_ + 1) % rows;
-       if (key == Key::cross && rows) {
-         const PatchRow row = patch_rows_[size_t(patch_row_)];
-         GamePatch& patch = patch_files_[row.file].patches[row.patch];
-@@ -2251,6 +2364,47 @@ struct Launcher::Canvas {
+@@ -2251,6 +2360,56 @@ struct Launcher::Canvas {
      Text(label, x + 38, y + 2, 20, kMuted);
      return x + 38 + Width(label, 20) + 44;
    }
-+  // Fix 109d: a filled triangle, for the painter of the tab bar the in-game guide shares
-+  // (xbox360ps5/tab_bar.hpp: Fill, Text, Width and Triangle).
-+  void Triangle(float ax, float ay, float bx, float by, float cx, float cy, uint32_t rgb, float a = 1.0f) const {
-+    list->AddTriangleFilled(At(ax, ay), At(bx, by), At(cx, cy), Color(rgb, a));
++  // Fix 109d: a shoulder button at an end of the tab bar, drawn by the header the in-game guide
++  // shares (xbox360ps5/tab_pills.hpp): "< L1" (left) or "R1 >", a pill in the theme's text colour
++  // with its name in the sheet's (white and near-black in the dark theme). Dimmed while a list,
++  // not the tab bar, has the pad.
++  float ShoulderWidth(const char* name) const { return tab_pills::Width(Font(tab_pills::kText), name); }
++  float Shoulder(const char* name, float x, float y, bool left, bool lit) const {
++    tab_pills::Draw(list, Font(tab_pills::kText), scale, At(x, y), name, left, Color(kText, lit ? 1.0f : 0.45f),
++                    Color(kSheet, lit ? 1.0f : 0.7f));
++    return ShoulderWidth(name);
++  }
++  // Fix 109d: a value row's chevron ("< value >"), its left edge at x and middle at y.
++  void Chevron(float x, float y, bool left, uint32_t rgb) const {
++    tab_pills::DrawChevron(list, scale, At(x, y), left, Color(rgb));
 +  }
 +  // Fix 109: a raised button, as the guide draws its pad buttons: the button filled in the pad's
 +  // colour with its shape in white, then what it does, on a key that stands off the sheet (a
@@ -534,17 +521,21 @@ index 734c896..79b3370 100644
  };
  
  namespace {
-@@ -2617,7 +2771,8 @@ void DrawBugReportRow(Surface& c, float x, float y, const std::string& label, co
+@@ -2617,7 +2776,12 @@ void DrawBugReportRow(Surface& c, float x, float y, const std::string& label, co
    c.list->AddCircle(c.At(x + 70, y + 20), 12 * c.scale, c.Color(kWarning), 20, 2.0f * c.scale);
    c.Text("!", x + 70, y + 7, 22, kWarning, 1.0f, 1);
    c.Text(label, x + 94, y + 8, 24, focused ? kText : kBody, 1.0f, 0, 520);
 -  c.Text(value, x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, 2, 200);
-+  // Fix 109d: "< value >" (tab_bar::DrawValue): left and right change it.
-+  tab_bar::DrawValue(c, value.c_str(), x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, true);
++  // Fix 109d: "< value >": left and right change it.
++  const uint32_t ink = on ? kWarning : focused ? kAccent : kMuted;
++  const float value_w = std::min(c.Width(value, 24), 200.0f);
++  c.Chevron(x + 776 - value_w - 16, y + 20, true, ink);
++  c.Text(value, x + 776, y + 8, 24, ink, 1.0f, 2, 200);
++  c.Chevron(x + 786, y + 20, false, ink);
  }
  void Launcher::Draw(ImGuiIO& io) {
    ApplyTheme(NxeUi());
-@@ -2772,6 +2927,34 @@ void Launcher::Draw(ImGuiIO& io) {
+@@ -2772,6 +2936,34 @@ void Launcher::Draw(ImGuiIO& io) {
      c.Hint('o', Tr("Cancel"), hint, y + h - 56);
      c.alpha = 1.0f;
    }
@@ -579,36 +570,34 @@ index 734c896..79b3370 100644
    // Fix 57: "<game> requires Kinect", the same kind of window.
    g_kinect_shown = Smooth(g_kinect_shown, g_kinect_open ? 1.0f : 0.0f, dt, 18);
    if (g_kinect_shown > 0.01f) {
-@@ -3370,21 +3553,13 @@ void Launcher::DrawGameSheet(Canvas& c) {
- 
-   // Game pages share the same controller navigation.
-   {
--    const char* const tabs[] = {Tr("Play"), Tr("Patches"), Tr("Settings"), Tr("Achievements"), Tr("DLCs"),
--                                Tr("Updates"), Tr("About")};
--    // Six names do not fit the sheet at full size in every language: they shrink together.
--    float names = 0;
--    for (const char* tab : tabs) names += c.Width(tab, 28);
+@@ -3375,16 +3567,22 @@ void Launcher::DrawGameSheet(Canvas& c) {
+     // Six names do not fit the sheet at full size in every language: they shrink together.
+     float names = 0;
+     for (const char* tab : tabs) names += c.Width(tab, 28);
 -    const float fit = std::min(1.0f, (748 - c.Width("L1 / R1", 20)) / (names + 26 * float(std::size(tabs))));
--    const float size = 28 * fit, gap = 26 * fit;
++    // Fix 109d: "< L1" and "R1 >" at the bar's two outer edges (lit while the bar has the pad), the
++    // tabs between them, as in the in-game guide (fix 115c).
++    const float shoulder = c.ShoulderWidth("L1") + 16;
++    const float fit = std::min(1.0f, (780 - 2 * shoulder) / (names + 26 * float(std::size(tabs) - 1)));
+     const float size = 28 * fit, gap = 26 * fit;
 -    float tab_x = x + 56;
--    for (int n = 0; n < int(std::size(tabs)); ++n) {
--      const float width = c.Width(tabs[n], size);
--      c.Text(tabs[n], tab_x, 272 + (28 - size) * 0.6f, size, n == game_tab_ ? kText : kFaint);
--      if (n == game_tab_) c.Fill(tab_x, 310, width, 3, kAccent, 0.9f, 2);
++    const bool bar = g_list_focus_tab != game_tab_;
++    float tab_x = x + 40;
++    c.Shoulder("L1", tab_x, 266, true, bar);
++    tab_x += shoulder;
+     for (int n = 0; n < int(std::size(tabs)); ++n) {
+       const float width = c.Width(tabs[n], size);
+       c.Text(tabs[n], tab_x, 272 + (28 - size) * 0.6f, size, n == game_tab_ ? kText : kFaint);
+       if (n == game_tab_) c.Fill(tab_x, 310, width, 3, kAccent, 0.9f, 2);
 -      tab_x += width + gap;
--    }
++      tab_x += width + (n + 1 < int(std::size(tabs)) ? gap : 0.0f);
+     }
 -    c.Text("L1 / R1", tab_x, 278, 20, kFaint);
-+    // Fix 109d: the tab bar the in-game guide shares (xbox360ps5/tab_bar.hpp, fix 115c): "< L1" and
-+    // "R1 >" at its ends, the open tab white with a green underline (on the green while the bar has
-+    // the pad), the others grey; on a dark band in both themes, so its fixed white and grey read.
-+    const std::vector<std::string> tabs = {Tr("Play"), Tr("Patches"), Tr("Settings"), Tr("Achievements"), Tr("DLCs"),
-+                                           Tr("Updates"), Tr("About")};
-+    c.Fill(x + 24, 256, 812, tab_bar::kBarHeight, 0x1a1f28, 0.96f, 14);
-+    tab_bar::Draw(c, x + 24, x + 836, 256, tabs, game_tab_, g_list_focus_tab != game_tab_);
++    c.Shoulder("R1", x + 820 - c.ShoulderWidth("R1"), 266, false, bar);
    }
    if (game_tab_ == 0) { DrawGamePlay(c, x); return; }
    if (game_tab_ == 2) { DrawGameOptions(c, x); return; }
-@@ -3407,7 +3582,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+@@ -3407,7 +3605,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
      for (int n = first; n < rows && n < first + shown; ++n) {
        const GamePatch& patch = patch_files_[patch_rows_[size_t(n)].file].patches[patch_rows_[size_t(n)].patch];
        const float y = 336 + (n - first) * 78.0f;
@@ -617,7 +606,7 @@ index 734c896..79b3370 100644
        c.Fill(x + 40, y, 780, 68, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
        if (focused) c.Edge(x + 40, y, 780, 68, kAccent, 0.9f, 12, 2.0f);
        c.Text(patch.name, x + 64, y + 20, 24, focused ? kText : kBody, 1.0f, 0, 620);
-@@ -3427,7 +3602,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+@@ -3427,7 +3625,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
      if (!patch.author.empty()) c.Text(Tr("Author: ") + patch.author, x + 820, 286, 20, kFaint, 1.0f, 2, rows > shown ? 1.0f : 400.0f);
    }
    float hint = x + 56;
@@ -626,7 +615,7 @@ index 734c896..79b3370 100644
    hint = c.Hint('o', Tr("Close"), hint, 1004);
    if (rows > 1) c.Hint('v', Tr("Navigate"), hint, 1004);
  }
-@@ -3449,7 +3624,7 @@ void Launcher::DrawAchievements(Canvas& c, float x) {
+@@ -3449,7 +3647,7 @@ void Launcher::DrawAchievements(Canvas& c, float x) {
    const int first = std::clamp(achievement_row_ - shown / 2, 0, std::max(0, rows - shown));
    for (int n = first; n < std::min(rows, first + shown); ++n) {
      const auto& entry = achievements_[size_t(n)]; const float y = 388 + (n - first) * 56.f;
@@ -635,7 +624,7 @@ index 734c896..79b3370 100644
      c.Text(entry.name, x + 64, y + 12, 22, entry.unlocked ? kAccent : kBody, 1, 0, 520);
      c.Text(std::string(Tr(entry.unlocked ? "Unlocked" : "Locked")) + " · " + std::to_string(entry.score) + "G", x + 796, y + 12, 20, kMuted, 1, 2);
    }
-@@ -3488,7 +3663,7 @@ void Launcher::RefreshDlcs() {
+@@ -3488,7 +3686,7 @@ void Launcher::RefreshDlcs() {
      const fs::path own = fs::path("/app0/assets/dlc") / GameFolderName(game->name);
      std::vector<std::filesystem::path> inboxes = {own, "/app0/assets/dlc", "/app0/dlc", game->path.parent_path() / "dlc"};
      for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
@@ -644,7 +633,7 @@ index 734c896..79b3370 100644
      // What is "ignored" is counted in the game's own folder only: the folders above hold the
      // other games' packages too.
      const dlc2::Found mine = dlc2::Find(title, {}, {own});
-@@ -3540,17 +3715,20 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+@@ -3540,17 +3738,20 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
      x + 56, 330, 21, kMuted, 740);
    const auto& page = DlcPage();
    const int rows = int(page.items.size());
@@ -672,7 +661,7 @@ index 734c896..79b3370 100644
    }
    if (!rows)
      c.Wrapped(SelectedTitleId() ? Tr("No DLC for this game found.")
-@@ -3573,6 +3751,10 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+@@ -3573,6 +3774,10 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
        : dlc_result_ == "disabled" ? Tr("DLC off: the game does not see it; the file is kept.")
        : dlc_result_ == "installed" ? Tr("DLC installed and on.")
        : dlc_result_ == "move-failed" ? Tr("Could not move the DLC file.")
@@ -683,7 +672,7 @@ index 734c896..79b3370 100644
        : Tr("Installing failed: check free space and the file.");
      c.Wrapped(std::string(text) + (dlc_result_.rfind("copy-failed", 0) == 0 ? " (" + dlc_result_.substr(12) + ")" : ""),
                x + 56, 840, 22, kBody, 740);
-@@ -3581,11 +3763,13 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+@@ -3581,11 +3786,13 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
               XBOX360PS5_TITLE_ID "/assets/dlc/" + (Selected() ? GameFolderName(Selected()->name) : std::string()),
           x + 56, 928, 20, kFaint, 1, 0, 740);
    float hint = x + 56;
@@ -698,7 +687,7 @@ index 734c896..79b3370 100644
    if (!busy) hint = c.Hint('s', Tr("Reload list"), hint, 1004);
    c.Hint('o', Tr("Back"), hint, 1004);
  }
-@@ -3610,7 +3794,7 @@ void DrawUpdates(Surface& c, float x) {
+@@ -3610,7 +3817,7 @@ void DrawUpdates(Surface& c, float x) {
    for (int n = first; n < std::min(rows, first + 5); ++n) {
      const auto& item = page.items[size_t(n)];
      const float y = 470 + (n - first) * 56.0f;
@@ -707,7 +696,7 @@ index 734c896..79b3370 100644
      if (selected) c.Fill(x + 48, y, 768, 50, kSurfaceHigh, 1, 8);
      c.Text("v" + tu::VersionText(item.version) + "  ·  " + item.file, x + 64, y + 10, 22, selected ? kText : kBody, 1, 0, 520);
      const bool on = item.state == tu::State::active, off = item.state == tu::State::disabled;
-@@ -3655,7 +3839,7 @@ void DrawUpdates(Surface& c, float x) {
+@@ -3655,7 +3862,7 @@ void DrawUpdates(Surface& c, float x) {
    c.Text(std::string(Tr("This game's folder: ")) +
               XBOX360PS5_TITLE_ID "/assets/updates/" + sheet.folder, x + 56, 928, 20, kFaint, 1, 0, 740);
    float hint = x + 56;
@@ -716,7 +705,7 @@ index 734c896..79b3370 100644
      const auto state = page.items[size_t(std::clamp(sheet.row, 0, rows - 1))].state;
      hint = c.Hint('x', state == tu::State::active ? Tr("Turn off")
                       : state == tu::State::disabled ? Tr("Turn on") : Tr("Install"), hint, 1004);
-@@ -3698,7 +3882,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3698,7 +3905,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
          ++count; if (overrides_.count(option.key)) ++own;
        }
        const float y = 336 + n * 88.0f;
@@ -725,7 +714,7 @@ index 734c896..79b3370 100644
        c.Fill(x + 40, y, 780, 76, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
        if (focused) c.Edge(x + 40, y, 780, 76, kAccent, 0.9f, 12, 2.0f);
        c.Text(Tr(category == 0 ? "Graphics" : kOptionCategories[category]), x + 64, y + 12, 26, focused ? kText : kBody);
-@@ -3713,13 +3897,15 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3713,13 +3920,15 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
        const auto found = overrides_.find("bug_report");
        const bool armed = found != overrides_.end() && found->second;
        const float y = 336 + row * 88.0f + 8;
@@ -744,7 +733,7 @@ index 734c896..79b3370 100644
      c.Hint('o', Tr("Back"), hint, 1004);
      return;
    }
-@@ -3735,7 +3921,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3735,7 +3944,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
    for (int n = first; n < rows && n < first + shown; ++n) {
      const Option& option = options[size_t(game_rows_[size_t(n)])];
      const float y = 384 + (n - first) * 48.0f;
@@ -753,17 +742,21 @@ index 734c896..79b3370 100644
      c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
      if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
      c.Text(Tr(option.label), x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 420);
-@@ -3746,7 +3932,8 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3746,7 +3955,12 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
      const int value = own ? found->second : preset_here ? recommended->second : settings_.*option.field;
      std::string text = Tr(option.choices[size_t(value)]);
      if (!own) text = std::string(preset_here ? Tr("Recommended: ") : Tr("General: ")) + text;
 -    c.Text(text, x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, 2, 360);
-+    // Fix 109d: "< value >" (tab_bar::DrawValue): left and right change it.
-+    tab_bar::DrawValue(c, text.c_str(), x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);
++    // Fix 109d: "< value >": left and right change it.
++    const uint32_t ink = own ? kAccent : preset_here ? kBody : kFaint;
++    const float value_w = std::min(c.Width(text, 22), 330.0f);
++    c.Chevron(x + 776 - value_w - 16, y + 22, true, ink);
++    c.Text(text, x + 776, y + 10, 22, ink, 1.0f, 2, 330);
++    c.Chevron(x + 786, y + 22, false, ink);
    }
    const Option& option = options[size_t(game_rows_[size_t(game_option_row_)])];
    c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
-@@ -3768,7 +3955,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3768,7 +3982,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
    char own_count[64];
    std::snprintf(own_count, sizeof(own_count), Tr("%d settings of this game's own"), int(overrides_.size()));
    c.Text(own_count, x + 56, 966, 20, overrides_.empty() ? kFaint : kAccent);
