@@ -23,6 +23,7 @@
 #include "../port/library_groups.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -250,6 +251,51 @@ std::vector<Found> Walk(const std::filesystem::path& root) {
   return found;
 }
 
+// Fix 112c: the mosaic of a group's folder. Each cover keeps its own proportions (within 1%), stays
+// in the mosaic's area with margins, clear of the name and the badge, and no two overlap; 1 to 5
+// covers (the fifth not shown), three folder shapes, real and unknown cover shapes.
+void CheckMosaic() {
+  const auto overlap = [](const lg::Cell& a, const lg::Cell& b) {
+    return a.u0 < b.u1 && b.u0 < a.u1 && a.v0 < b.v1 && b.v0 < a.v1;
+  };
+  for (const float folder : {385.0f / 545.0f, 0.55f, 1.25f}) {
+    for (size_t games = 1; games <= 5; ++games) {
+      for (const float shape : {0.70f, 0.0f, 1.0f, 0.62f, 3.0f}) {
+        std::vector<float> aspects(games, shape);
+        if (games >= 2) aspects[1] = 0.75f;  // covers of different shapes in one folder
+        const auto cells = lg::MosaicCells(aspects, folder);
+        const std::string what = "mosaic: " + std::to_string(games) + " games, folder " + std::to_string(folder) +
+                                 ", cover " + std::to_string(shape);
+        Expect(cells.size() == std::min<size_t>(games, 4), what + ": up to four covers");
+        for (size_t i = 0; i < cells.size(); ++i) {
+          const auto& m = cells[i];
+          const float wanted = aspects[i] > 0.05f && aspects[i] < 20.0f ? aspects[i] : lg::kDefaultCoverAspect;
+          const float drawn = (m.u1 - m.u0) * folder / (m.v1 - m.v0);
+          Expect(std::fabs(drawn / wanted - 1.0f) < 0.01f, what + ": cover " + std::to_string(i) + " keeps its proportions");
+          Expect(m.u0 >= lg::kMosaicArea.u0 - 1e-4f && m.u1 <= lg::kMosaicArea.u1 + 1e-4f &&
+                     m.v0 >= lg::kMosaicArea.v0 - 1e-4f && m.v1 <= lg::kMosaicArea.v1 + 1e-4f,
+                 what + ": cover " + std::to_string(i) + " inside the mosaic's area");
+          Expect(m.u0 > 0.05f && m.u1 < 0.95f && m.v0 > 0.14f, what + ": yellow margins around it");
+          Expect(!overlap(m, lg::kFolderLabel) && !overlap(m, lg::kFolderBadge), what + ": clear of the name and the badge");
+          for (size_t j = 0; j < i; ++j) Expect(!overlap(m, cells[j]), what + ": covers do not overlap");
+        }
+      }
+    }
+  }
+  // The console's tile: a folder of 385x545 px, two Xbox 360 covers about 110x157 px each.
+  const auto two = lg::MosaicCells({0.70f, 0.70f}, 385.0f / 545.0f);
+  for (const auto& m : two) {
+    const float w = (m.u1 - m.u0) * 385.0f, h = (m.v1 - m.v0) * 545.0f;
+    Expect(w > 95.0f && w < 125.0f && h > 135.0f && h < 180.0f,
+           "two covers about 110x157 px (" + std::to_string(int(w)) + "x" + std::to_string(int(h)) + ")");
+  }
+  Expect(two.size() == 2 && std::fabs((two[0].v0 + two[0].v1) / 2 - (two[1].v0 + two[1].v1) / 2) < 1e-4f &&
+             std::fabs((two[0].u0 + two[1].u1) / 2 - 0.5f) < 1e-3f,
+         "two covers side by side, centred");
+  Expect(lg::MosaicCells({}, 0.7f).empty(), "no cover, no cell");
+  Expect(lg::MosaicCells({0.7f}, 0.0f).size() == 1, "an unknown folder shape still lays out");
+}
+
 void CheckFolders() {
   namespace fs = std::filesystem;
   const fs::path root = fs::temp_directory_path() / ("check-library-groups-" + std::to_string(std::random_device{}()));
@@ -336,6 +382,12 @@ void CheckTree() {
   Expect(Has(launcher, "void DrawGroupFolder(") && Has(launcher, "DrawGroupFolder(c, textures_, arts_, g_group_covers[g]") &&
              Has(launcher, "g_groups.groups[g].games.size(), entry.name, box,"),
          "both shelves draw a group as a folder");
+  // Fix 112c: the covers' places come from MosaicCells, with each texture's own proportions.
+  Expect(Has(launcher, "aspects.push_back(size_t(shown[i]) < arts.size() ? arts[size_t(shown[i])].aspect : 0.0f);") &&
+             Has(launcher, "const auto cells = library_groups::MosaicCells(aspects, folder_h > 0 ? folder_w / folder_h : 0.0f);"),
+         "the mosaic keeps each cover's proportions");
+  Expect(Has(launcher, "Part(q, label.u0, label.v0, label.u1, label.v1)") && Has(launcher, "Part(q, badge.u0, badge.v0, badge.u1, badge.v1)"),
+         "the name and the badge where MosaicCells keeps clear of");
   Expect(Has(launcher, "        DrawCase(c, textures_, arts_, Tile(n), q,"), "a game is still drawn as its case");
   Expect(!Has(launcher, "A group is a little stack"), "no stack of game cases for a group");
   Expect(Has(launcher, "g_group = library_groups::StillThere(g_groups, g_group);"), "a rebuild stays in the group");
@@ -415,6 +467,7 @@ void CheckLanguages(const std::string& folder) {
 
 int main(int argc, char** argv) {
   CheckBuild();
+  CheckMosaic();
   CheckFolders();
   CheckTree();
   if (argc > 1) CheckLanguages(argv[1]);
