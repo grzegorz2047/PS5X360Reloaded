@@ -246,6 +246,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Canto superior direito
 Top left = Canto superior esquerdo
 Distance %.1f m = Distância %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nenhum jogador visto. Segure L3 + R3 para trazer de volta a última pose ou pressione-os rapidamente para recentralizar a câmera do celular daqui. Fique a 2,5-3 m do celular com os quadris visíveis.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Solte L3 + R3 para parar; um corpo vindo do celular assume.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentralizando a câmera do celular em %d... Fique parado no seu lugar.
+Re-centring the phone camera... Stand still at your spot. = Recentralizando a câmera do celular... Fique parado no seu lugar.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -303,6 +308,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Canto superior direito
 Top left = Canto superior esquerdo
 Distance %.1f m = Distância %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nenhum jogador visto. Mantenha L3 + R3 premidos para repor a última pose ou prima-os brevemente para recentrar a câmara do telemóvel daqui. Fique a 2,5-3 m do telemóvel com as ancas visíveis.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Largue L3 + R3 para parar; um corpo vindo do telemóvel toma o lugar.
+Re-centring the phone camera in %d... Stand still at your spot. = A recentrar a câmara do telemóvel em %d... Fique parado no seu lugar.
+Re-centring the phone camera... Stand still at your spot. = A recentrar a câmara do telemóvel... Fique parado no seu lugar.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -360,6 +370,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Arriba a la derecha
 Top left = Arriba a la izquierda
 Distance %.1f m = Distancia %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = No se ve a ningún jugador. Mantén L3 + R3 para recuperar la última postura o púlsalos brevemente para recentrar la cámara del teléfono desde aquí. Colócate a 2,5-3 m del teléfono con las caderas a la vista.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para pararla; un cuerpo del teléfono toma el relevo.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentrando la cámara del teléfono en %d... Quédate quieto en tu sitio.
+Re-centring the phone camera... Stand still at your spot. = Recentrando la cámara del teléfono... Quédate quieto en tu sitio.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -417,6 +432,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Arriba a la derecha
 Top left = Arriba a la izquierda
 Distance %.1f m = Distancia %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = No se ve a ningún jugador. Mantén presionados L3 + R3 para recuperar la última postura o presiónalos brevemente para recentrar la cámara del celular desde aquí. Colócate a 2,5-3 m del celular con la cadera a la vista.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para detenerla; un cuerpo del celular la reemplaza.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentrando la cámara del celular en %d... Quédate quieto en tu lugar.
+Re-centring the phone camera... Stand still at your spot. = Recentrando la cámara del celular... Quédate quieto en tu lugar.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -474,6 +494,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Oben rechts
 Top left = Oben links
 Distance %.1f m = Abstand %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Kein Spieler erkannt. Halte L3 + R3, um die letzte Haltung zurückzuholen, oder drück sie kurz, um die Handykamera von hier aus neu zu zentrieren. Stell dich 2,5-3 m vom Handy entfernt hin, die Hüfte im Bild.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Notfall-Haltung aktiv: Das Spiel sieht die letzte Haltung. Lass L3 + R3 los, um sie zu beenden; ein Körper vom Handy übernimmt.
+Re-centring the phone camera in %d... Stand still at your spot. = Handykamera wird in %d neu zentriert... Bleib still an deinem Platz stehen.
+Re-centring the phone camera... Stand still at your spot. = Handykamera wird neu zentriert... Bleib still an deinem Platz stehen.
 
 [added fr]
 Console storage = Stockage de la console
@@ -531,6 +556,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = En haut à droite
 Top left = En haut à gauche
 Distance %.1f m = Distance %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Aucun joueur détecté. Maintenez L3 + R3 pour rétablir la dernière posture, ou appuyez brièvement dessus pour recentrer la caméra du téléphone d'ici. Placez-vous à 2,5-3 m du téléphone, les hanches visibles.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posture de secours active : le jeu voit la dernière posture. Relâchez L3 + R3 pour l'arrêter ; un corps venant du téléphone prend le relais.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentrage de la caméra du téléphone dans %d... Restez immobile à votre place.
+Re-centring the phone camera... Stand still at your spot. = Recentrage de la caméra du téléphone... Restez immobile à votre place.
 
 [added it]
 Console storage = Memoria della console
@@ -588,6 +618,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = In alto a destra
 Top left = In alto a sinistra
 Distance %.1f m = Distanza %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nessun giocatore rilevato. Tieni premuti L3 + R3 per riportare l'ultima posa, oppure premili brevemente per ricentrare la fotocamera del telefono da qui. Mettiti a 2,5-3 m dal telefono con i fianchi visibili.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posa di emergenza attiva: il gioco vede l'ultima posa. Rilascia L3 + R3 per fermarla; un corpo dal telefono subentra.
+Re-centring the phone camera in %d... Stand still at your spot. = Ricentratura della fotocamera del telefono tra %d... Resta fermo al tuo posto.
+Re-centring the phone camera... Stand still at your spot. = Ricentratura della fotocamera del telefono... Resta fermo al tuo posto.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -645,6 +680,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = 右上
 Top left = 左上
 Distance %.1f m = 距離 %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = プレイヤーが見つかりません。L3 + R3 を長押しすると最後のポーズに戻せます。短く押すと、ここからスマートフォンのカメラを再センタリングできます。腰が映るようにスマートフォンから 2.5-3 m 離れて立ってください。
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急ポーズ中：ゲームには最後のポーズが送られています。L3 + R3 を離すと終了し、スマートフォンで体が見つかると引き継ぎます。
+Re-centring the phone camera in %d... Stand still at your spot. = %d 秒後にスマートフォンのカメラを再センタリングします... その場でじっとしていてください。
+Re-centring the phone camera... Stand still at your spot. = スマートフォンのカメラを再センタリングしています... その場でじっとしていてください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -702,6 +742,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = 오른쪽 위
 Top left = 왼쪽 위
 Distance %.1f m = 거리 %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 플레이어가 보이지 않습니다. L3 + R3를 길게 누르면 마지막 자세를 되돌리고, 짧게 누르면 여기서 휴대폰 카메라를 다시 중앙에 맞춥니다. 엉덩이가 보이도록 휴대폰에서 2.5-3 m 떨어져 서세요.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 비상 자세 사용 중: 게임에 마지막 자세가 전달됩니다. L3 + R3를 놓으면 멈추고, 휴대폰에서 몸이 잡히면 이어받습니다.
+Re-centring the phone camera in %d... Stand still at your spot. = %d초 후 휴대폰 카메라를 다시 중앙에 맞춥니다... 그 자리에 가만히 서 계세요.
+Re-centring the phone camera... Stand still at your spot. = 휴대폰 카메라를 다시 중앙에 맞추는 중... 그 자리에 가만히 서 계세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -759,6 +804,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Rechtsboven
 Top left = Linksboven
 Distance %.1f m = Afstand %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Geen speler gezien. Houd L3 + R3 ingedrukt om de laatste houding terug te halen, of druk ze kort in om de telefooncamera van hieruit opnieuw te centreren. Ga op 2,5-3 m van de telefoon staan met je heupen in beeld.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Noodhouding aan: de game ziet de laatste houding. Laat L3 + R3 los om te stoppen; een lichaam van de telefoon neemt het over.
+Re-centring the phone camera in %d... Stand still at your spot. = De telefooncamera wordt over %d opnieuw gecentreerd... Blijf stil op je plek staan.
+Re-centring the phone camera... Stand still at your spot. = De telefooncamera wordt opnieuw gecentreerd... Blijf stil op je plek staan.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -816,6 +866,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = U góry po prawej
 Top left = U góry po lewej
 Distance %.1f m = Odległość %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nie widać gracza. Przytrzymaj L3 + R3, aby przywrócić ostatnią pozę, albo naciśnij je krótko, aby stąd wyśrodkować kamerę telefonu. Stań 2,5-3 m od telefonu, z biodrami w kadrze.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Poza awaryjna włączona: gra widzi ostatnią pozę. Puść L3 + R3, aby ją wyłączyć; ciało z telefonu przejmie sterowanie.
+Re-centring the phone camera in %d... Stand still at your spot. = Wyśrodkowanie kamery telefonu za %d... Stań nieruchomo w swoim miejscu.
+Re-centring the phone camera... Stand still at your spot. = Wyśrodkowywanie kamery telefonu... Stań nieruchomo w swoim miejscu.
 
 [added ru]
 Console storage = Память консоли
@@ -873,6 +928,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Вверху справа
 Top left = Вверху слева
 Distance %.1f m = Расстояние %.1f м
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Игрок не виден. Удерживайте L3 + R3, чтобы вернуть последнюю позу, или нажмите их коротко, чтобы отсюда заново центрировать камеру телефона. Встаньте в 2,5-3 м от телефона так, чтобы были видны бёдра.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Аварийная поза включена: игра видит последнюю позу. Отпустите L3 + R3, чтобы её выключить; тело с телефона её сменит.
+Re-centring the phone camera in %d... Stand still at your spot. = Камера телефона будет заново центрирована через %d... Стойте неподвижно на своём месте.
+Re-centring the phone camera... Stand still at your spot. = Камера телефона заново центрируется... Стойте неподвижно на своём месте.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -930,6 +990,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = Sağ üst
 Top left = Sol üst
 Distance %.1f m = Mesafe %.1f m
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Oyuncu görünmüyor. Son pozu geri getirmek için L3 + R3'e basılı tutun veya telefon kamerasını buradan yeniden ortalamak için kısa basın. Kalçalarınız görünecek şekilde telefondan 2,5-3 m uzakta durun.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Acil durum pozu açık: oyun son pozu görüyor. Durdurmak için L3 + R3'ü bırakın; telefondan gelen bir vücut devralır.
+Re-centring the phone camera in %d... Stand still at your spot. = Telefon kamerası %d saniye içinde yeniden ortalanacak... Yerinizde hareketsiz durun.
+Re-centring the phone camera... Stand still at your spot. = Telefon kamerası yeniden ortalanıyor... Yerinizde hareketsiz durun.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -987,6 +1052,11 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = 右上
 Top left = 左上
 Distance %.1f m = 距离 %.1f 米
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 未检测到玩家。按住 L3 + R3 可恢复上一个姿势，短按则可在这里重新居中手机摄像头。请站在离手机 2.5-3 米处，让臀部进入画面。
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 紧急姿势已开启：游戏看到的是上一个姿势。松开 L3 + R3 即可停止；手机检测到身体后会接管。
+Re-centring the phone camera in %d... Stand still at your spot. = %d 秒后重新居中手机摄像头... 请站在原地不动。
+Re-centring the phone camera... Stand still at your spot. = 正在重新居中手机摄像头... 请站在原地不动。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1044,3 +1114,8 @@ Where the camera motion panel is drawn over a game (the pose from the phone, wha
 Top right = 右上
 Top left = 左上
 Distance %.1f m = 距離 %.1f 公尺
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 未偵測到玩家。按住 L3 + R3 可恢復上一個姿勢，短按則可在這裡重新置中手機相機。請站在離手機 2.5-3 公尺處，讓臀部進入畫面。
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急姿勢已開啟：遊戲看到的是上一個姿勢。放開 L3 + R3 即可停止；手機偵測到身體後會接手。
+Re-centring the phone camera in %d... Stand still at your spot. = %d 秒後重新置中手機相機... 請站在原地不動。
+Re-centring the phone camera... Stand still at your spot. = 正在重新置中手機相機... 請站在原地不動。

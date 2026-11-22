@@ -79,6 +79,8 @@ on:
       - 'tools/check-kinect-identity.cpp'
       - 'tools/check-kinect-tracker.cpp'
       - 'tools/check-kinect-tracker.mjs'
+      - 'tools/check-kinect-emergency.cpp'
+      - 'tools/check-kinect-recentre.mjs'
       - 'tools/source-1.0.2/fixtures/kinect-1.0.2/**'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:

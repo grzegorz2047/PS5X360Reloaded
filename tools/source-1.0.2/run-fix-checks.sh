@@ -81,6 +81,7 @@ checks=(
   check-avatar-assets.cpp          # fix 99 (1.0.5)
   check-kinect-identity.cpp        # fix 99b (1.0.5)
   check-kinect-tracker.cpp         # fix 106
+  check-kinect-emergency.cpp       # fix 107
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -92,6 +93,7 @@ declare -A arguments=(
   [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-kinect-emergency.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -126,6 +128,7 @@ declare -A fix_of=(
   [check-avatar-assets.cpp]=99
   [check-kinect-identity.cpp]=99b
   [check-kinect-tracker.cpp]=106
+  [check-kinect-emergency.cpp]=107
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -257,6 +260,16 @@ elif node "$repo/tools/check-kinect-tracker.mjs" "$tree"; then
   echo "pass check-kinect-tracker.mjs"
 else
   echo "FAIL check-kinect-tracker.mjs"
+  status=1
+fi
+# Fix 107: re-centring the phone camera from the pad (the page's side), with node.
+echo "=== check-kinect-recentre.mjs"
+if [[ " $skipped_fixes " == *" 107 "* ]]; then
+  echo "skip check-kinect-recentre.mjs (fix 107 left out of this build)"
+elif node "$repo/tools/check-kinect-recentre.mjs" "$tree"; then
+  echo "pass check-kinect-recentre.mjs"
+else
+  echo "FAIL check-kinect-recentre.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"
