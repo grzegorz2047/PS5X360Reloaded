@@ -308,6 +308,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Escala de renderização (teste)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e processamento gráfico; alguns efeitos (brilho, sombras, imagens que o jogo lê de volta) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte para 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas configurações deste jogo.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvo. Os jogos que mostram avatares vão usá-lo a partir da próxima vez que forem iniciados.
+Could not save the avatar. = Não foi possível salvar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = O formato do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por enquanto só o formato: o avatar ainda não tem roupas nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem quadris um pouco mais largos e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -428,6 +441,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Escala de renderização (teste)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e capacidade gráfica; alguns efeitos (brilho, sombras, imagens que o jogo volta a ler) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte a 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas definições deste jogo.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Os jogos que mostram avatares vão usá-lo a partir do próximo arranque.
+Could not save the avatar. = Não foi possível guardar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = A forma do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por agora só a forma: o avatar ainda não tem roupa nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem ancas um pouco mais largas e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -548,6 +574,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Escala de renderizado (prueba)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de vídeo y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, vuelve a 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; pon 1x en los ajustes de este juego.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo usarán a partir de su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -668,6 +707,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Escala de renderizado (prueba)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de video y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, regresa a 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; elige 1x en la configuración de este juego.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo van a usar desde su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -788,6 +840,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Renderskalierung (Test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Zeichnet das Spiel mit der doppelten eigenen Auflösung für ein schärferes Bild. Braucht viel mehr Videospeicher und Grafikleistung; manche Effekte (Leuchten, Schatten, Bilder, die das Spiel zurückliest) können falsch aussehen. Ein Test: Wenn sich das Spiel schließt oder fehlerhaft aussieht, zurück auf 1x stellen.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderskalierung (Test) 2x: Dieses Spiel braucht mehr Speicher, als noch frei ist. Das Bild kann fehlerhaft werden; stelle in den Einstellungen dieses Spiels 1x ein.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar gespeichert. Spiele mit Avataren verwenden ihn ab dem nächsten Start.
+Could not save the avatar. = Der Avatar konnte nicht gespeichert werden.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Die Körperform des Avatars dieses Profils, für Spiele, die den Spieler als Avatar zeigen (Kinect Sports). Vorerst nur die Form: Der Avatar hat noch keine Kleidung und kein Gesicht.
+Body type = Körpertyp
+Female = Weiblich
+Male = Männlich
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Der Körperbau des Avatars: Ein weiblicher Körper hat etwas breitere Hüften und schmalere Schultern.
+Height = Größe
+Shorter or taller limbs and body. = Kürzere oder längere Gliedmaßen und Rumpf.
+Weight = Gewicht
+A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
 
 [added fr]
 Console storage = Stockage de la console
@@ -908,6 +973,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Échelle de rendu (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dessine le jeu au double de sa résolution pour une image plus nette. Utilise beaucoup plus de mémoire vidéo et de puissance graphique ; certains effets (lueurs, ombres, images que le jeu relit) peuvent être incorrects. C'est un test : si le jeu se ferme ou s'affiche mal, revenez à 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Échelle de rendu (test) 2x : ce jeu a besoin de plus de mémoire qu'il n'en reste. L'image peut se dégrader ; choisissez 1x dans les réglages de ce jeu.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar enregistré. Les jeux qui affichent des avatars l'utiliseront à leur prochain lancement.
+Could not save the avatar. = Impossible d'enregistrer l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La silhouette de l'avatar de ce profil, pour les jeux qui montrent le joueur sous forme d'avatar (Kinect Sports). Seulement la silhouette pour l'instant : l'avatar n'a pas encore de vêtements ni de visage.
+Body type = Morphologie
+Female = Femme
+Male = Homme
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La carrure de l'avatar : un corps féminin a des hanches un peu plus larges et des épaules plus étroites.
+Height = Taille
+Shorter or taller limbs and body. = Membres et corps plus courts ou plus longs.
+Weight = Corpulence
+A thinner or heavier build. = Une silhouette plus mince ou plus forte.
 
 [added it]
 Console storage = Memoria della console
@@ -1028,6 +1106,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Scala di rendering (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Disegna il gioco al doppio della sua risoluzione per un'immagine più nitida. Usa molta più memoria video e potenza grafica; alcuni effetti (bagliori, ombre, immagini che il gioco rilegge) possono apparire errati. È un test: se il gioco si chiude o appare difettoso, torna a 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Scala di rendering (test) 2x: questo gioco richiede più memoria di quella rimasta. L'immagine potrebbe guastarsi; imposta 1x nelle impostazioni di questo gioco.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvato. I giochi che mostrano gli avatar lo useranno dal prossimo avvio.
+Could not save the avatar. = Impossibile salvare l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La corporatura dell'avatar di questo profilo, per i giochi che mostrano il giocatore come avatar (Kinect Sports). Per ora solo la corporatura: l'avatar non ha ancora vestiti né volto.
+Body type = Tipo di corpo
+Female = Donna
+Male = Uomo
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La corporatura dell'avatar: un corpo femminile ha fianchi un po' più larghi e spalle più strette.
+Height = Altezza
+Shorter or taller limbs and body. = Arti e corpo più corti o più lunghi.
+Weight = Peso
+A thinner or heavier build. = Una corporatura più magra o più robusta.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1148,6 +1239,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = 描画解像度の倍率（テスト）
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = ゲームを本来の2倍の解像度で描画し、画像を鮮明にします。ビデオメモリとグラフィック性能を大幅に多く使い、一部の効果（光のにじみ、影、ゲームが読み戻す画像）が正しく表示されないことがあります。テスト機能です。ゲームが終了したり表示がおかしくなったりしたら1xに戻してください。
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 描画解像度の倍率（テスト）2x：このゲームには残りより多くのメモリが必要です。画面が崩れることがあります。このゲームの設定で1xにしてください。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = アバター
+Avatar saved. Games that show avatars use it from their next start. = アバターを保存しました。アバターを表示するゲームでは、次回の起動から使われます。
+Could not save the avatar. = アバターを保存できませんでした。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = このプロフィールのアバターの体形です。プレイヤーをアバターで表示するゲーム（Kinect Sports）で使われます。今は体形のみで、服や顔はまだありません。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = アバターの体格：女性の体は腰がやや広く、肩が狭くなります。
+Height = 身長
+Shorter or taller limbs and body. = 手足と胴体を短く、または長くします。
+Weight = 体重
+A thinner or heavier build. = 細め、またはがっしりした体格にします。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1268,6 +1372,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = 렌더링 배율 (테스트)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 게임을 원래 해상도의 두 배로 그려 더 선명한 화면을 만듭니다. 비디오 메모리와 그래픽 성능을 훨씬 많이 사용하며, 일부 효과(빛 번짐, 그림자, 게임이 다시 읽는 이미지)가 잘못 보일 수 있습니다. 테스트 기능입니다. 게임이 종료되거나 화면이 깨지면 1x로 되돌리세요.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 렌더링 배율 (테스트) 2x: 이 게임에는 남은 메모리보다 더 많은 메모리가 필요합니다. 화면이 깨질 수 있으니 이 게임의 설정에서 1x로 바꾸세요.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 아바타
+Avatar saved. Games that show avatars use it from their next start. = 아바타를 저장했습니다. 아바타를 표시하는 게임은 다음 실행부터 사용합니다.
+Could not save the avatar. = 아바타를 저장할 수 없습니다.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 이 프로필 아바타의 체형으로, 플레이어를 아바타로 보여 주는 게임(Kinect Sports)에서 사용됩니다. 지금은 체형만 있으며, 아바타에 아직 옷이나 얼굴이 없습니다.
+Body type = 체형 유형
+Female = 여성
+Male = 남성
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 아바타의 체격: 여성의 몸은 엉덩이가 조금 더 넓고 어깨가 더 좁습니다.
+Height = 키
+Shorter or taller limbs and body. = 팔다리와 몸통을 더 짧게 또는 길게 합니다.
+Weight = 체중
+A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1388,6 +1505,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Renderschaal (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Tekent het spel op twee keer de eigen resolutie voor een scherper beeld. Gebruikt veel meer videogeheugen en grafische kracht; sommige effecten (gloed, schaduwen, beelden die het spel terugleest) kunnen er verkeerd uitzien. Een test: sluit het spel af of ziet het er fout uit, zet het dan terug op 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderschaal (test) 2x: dit spel heeft meer geheugen nodig dan er over is. Het beeld kan fouten tonen; zet het op 1x in de instellingen van dit spel.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar opgeslagen. Games die avatars tonen gebruiken hem vanaf de volgende start.
+Could not save the avatar. = Kan de avatar niet opslaan.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = De lichaamsvorm van de avatar van dit profiel, voor games die de speler als avatar tonen (Kinect Sports). Voorlopig alleen de vorm: de avatar heeft nog geen kleding of gezicht.
+Body type = Lichaamstype
+Female = Vrouw
+Male = Man
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = De bouw van de avatar: een vrouwelijk lichaam heeft iets bredere heupen en smallere schouders.
+Height = Lengte
+Shorter or taller limbs and body. = Kortere of langere ledematen en romp.
+Weight = Gewicht
+A thinner or heavier build. = Een slankere of zwaardere bouw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1508,6 +1638,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Skala renderowania (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Rysuje grę w dwukrotności jej własnej rozdzielczości, dla ostrzejszego obrazu. Zużywa znacznie więcej pamięci wideo i mocy graficznej; niektóre efekty (poświata, cienie, obrazy odczytywane z powrotem przez grę) mogą wyglądać źle. To test: jeśli gra się zamyka lub wygląda źle, wróć do 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Skala renderowania (test) 2x: ta gra potrzebuje więcej pamięci, niż zostało. Obraz może się psuć; ustaw 1x w ustawieniach tej gry.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Awatar
+Avatar saved. Games that show avatars use it from their next start. = Awatar zapisany. Gry z awatarami użyją go od następnego uruchomienia.
+Could not save the avatar. = Nie udało się zapisać awatara.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Sylwetka awatara tego profilu, dla gier, które pokazują gracza jako awatar (Kinect Sports). Na razie tylko sylwetka: awatar nie ma jeszcze ubrań ani twarzy.
+Body type = Budowa ciała
+Female = Kobieta
+Male = Mężczyzna
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Budowa awatara: ciało kobiety ma nieco szersze biodra i węższe ramiona.
+Height = Wzrost
+Shorter or taller limbs and body. = Krótsze lub dłuższe kończyny i tułów.
+Weight = Waga
+A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
 
 [added ru]
 Console storage = Память консоли
@@ -1628,6 +1771,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Масштаб рендеринга (тест)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Рисует игру в двойном разрешении для более чёткой картинки. Требует гораздо больше видеопамяти и графической мощности; некоторые эффекты (свечение, тени, изображения, которые игра считывает обратно) могут выглядеть неправильно. Это тест: если игра закрывается или выглядит неправильно, верните 1x.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Масштаб рендеринга (тест) 2x: этой игре нужно больше памяти, чем осталось. Изображение может испортиться; выберите 1x в настройках этой игры.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Аватар
+Avatar saved. Games that show avatars use it from their next start. = Аватар сохранён. Игры с аватарами будут использовать его со следующего запуска.
+Could not save the avatar. = Не удалось сохранить аватар.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Телосложение аватара этого профиля для игр, в которых игрок показан аватаром (Kinect Sports). Пока только телосложение: у аватара ещё нет одежды и лица.
+Body type = Тип тела
+Female = Женский
+Male = Мужской
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Телосложение аватара: у женского тела чуть шире бёдра и уже плечи.
+Height = Рост
+Shorter or taller limbs and body. = Более короткие или длинные конечности и туловище.
+Weight = Вес
+A thinner or heavier build. = Более худое или более плотное телосложение.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1748,6 +1904,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = Görüntü işleme ölçeği (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Daha net bir görüntü için oyunu kendi çözünürlüğünün iki katında çizer. Çok daha fazla video belleği ve grafik gücü kullanır; bazı efektler (parlama, gölgeler, oyunun geri okuduğu görüntüler) yanlış görünebilir. Bu bir testtir: oyun kapanırsa veya bozuk görünürse 1x'e geri dönün.
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Görüntü işleme ölçeği (test) 2x: bu oyun kalandan daha fazla bellek gerektiriyor. Görüntü bozulabilir; bu oyunun ayarlarında 1x seçin.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar kaydedildi. Avatar gösteren oyunlar onu bir sonraki başlatmadan itibaren kullanır.
+Could not save the avatar. = Avatar kaydedilemedi.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Bu profilin avatarının vücut şekli; oyuncuyu avatar olarak gösteren oyunlar için (Kinect Sports). Şimdilik yalnızca şekil: avatarın henüz kıyafeti veya yüzü yok.
+Body type = Vücut tipi
+Female = Kadın
+Male = Erkek
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Avatarın yapısı: kadın vücudunun kalçaları biraz daha geniş, omuzları daha dardır.
+Height = Boy
+Shorter or taller limbs and body. = Daha kısa veya daha uzun uzuvlar ve gövde.
+Weight = Kilo
+A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1868,6 +2037,19 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = 渲染分辨率倍数（测试）
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以游戏自身分辨率的两倍绘制，画面更清晰。会占用多得多的显存和图形性能；部分效果（光晕、阴影、游戏回读的图像）可能显示错误。这是测试功能：如果游戏关闭或画面异常，请改回 1x。
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染分辨率倍数（测试）2x：此游戏需要的内存超过剩余内存。画面可能出错；请在此游戏的设置中改为 1x。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虚拟形象
+Avatar saved. Games that show avatars use it from their next start. = 虚拟形象已保存。显示虚拟形象的游戏将从下次启动起使用它。
+Could not save the avatar. = 无法保存虚拟形象。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此个人资料的虚拟形象体型，用于以虚拟形象显示玩家的游戏（Kinect Sports）。目前只有体型：虚拟形象还没有衣服和脸。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虚拟形象的体格：女性身体的臀部略宽，肩膀较窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更长的四肢和躯干。
+Weight = 体重
+A thinner or heavier build. = 更瘦或更壮的体格。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1988,3 +2170,16 @@ With a phone as the Kinect, the phone can also send a small picture from its cam
 Resolution scale (test) = 渲染解析度倍數（測試）
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以遊戲本身解析度的兩倍繪製，畫面更清晰。會佔用多得多的顯示記憶體和圖形效能；部分效果（光暈、陰影、遊戲回讀的影像）可能顯示錯誤。這是測試功能：如果遊戲關閉或畫面異常，請改回 1x。
 Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染解析度倍數（測試）2x：此遊戲需要的記憶體超過剩餘記憶體。畫面可能出錯；請在此遊戲的設定中改為 1x。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虛擬人偶
+Avatar saved. Games that show avatars use it from their next start. = 虛擬人偶已儲存。顯示虛擬人偶的遊戲會從下次啟動起使用它。
+Could not save the avatar. = 無法儲存虛擬人偶。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此設定檔的虛擬人偶體型，用於以虛擬人偶顯示玩家的遊戲（Kinect Sports）。目前只有體型：虛擬人偶還沒有衣服和臉。
+Body type = 體型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虛擬人偶的體格：女性身體的臀部稍寬，肩膀較窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更長的四肢和軀幹。
+Weight = 體重
+A thinner or heavier build. = 更瘦或更壯的體格。

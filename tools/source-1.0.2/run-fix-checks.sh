@@ -141,6 +141,7 @@ checks=(
   check-sample-ticket.cpp          # fix 126
   check-vfs-host-ops.cpp           # fix 129
   check-resolution-scale.cpp       # fixes 117 to 117i
+  check-avatar-skeleton.cpp        # fix 113
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -165,6 +166,7 @@ declare -A arguments=(
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-avatar-skeleton.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -259,6 +261,7 @@ declare -A fix_of=(
   [check-sample-ticket.cpp]=126
   [check-vfs-host-ops.cpp]=129
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i"
+  [check-avatar-skeleton.cpp]=113
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -275,6 +275,7 @@ also listed here.
 | 128 (`128-global-lock-holds`) | a 1.0.5 diagnostics fix: the log names the code and thread that hold the global lock for 1 ms or more (Kinect Sports' stutter while it records its replay: the GPU thread waited up to 660 ms/s for it) | host-checked (`tools/check-global-lock-callers.cpp`); console: `1.0.5-work-fix128` |
 | 129 (`129-vfs-host-ops-unlocked`) | a 1.0.5 stutter fix: creating and deleting a game's files on the console's disk no longer holds the emulator's global lock (Kinect Sports' replay recording held it up to a second at a time, freezing the GPU thread) | host-checked (`tools/check-vfs-host-ops.cpp`); console: `1.0.5-work-fix129` |
 | 131 (`131-kinect-sports-readback-preset`) | Kinect Sports gets readback Fast by default (its own setting still wins): its crowd board of flip tiles is a picture it reads back, garbage for a moment with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix131` |
+| 113 (`113-avatar-skeleton`) | issue 15, avatar milestone 1: a generated 71-joint avatar skeleton in `XamAvatarGetAssets`' set, its scales from the profile's body type, height and weight, picked in the launcher's profiles sheet (Triangle) | host-checked (`tools/check-avatar-skeleton.cpp`); console: `1.0.5-work-fix113` |
 
 ## Comparison with the official executable
 
