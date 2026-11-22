@@ -20,12 +20,15 @@
 #include "xenia/gpu/unwatched_lock_free.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -112,6 +115,69 @@ void CheckModel() {
          "ranges that leave it out");
 }
 
+// Another thread changes the bits under the lock while the GPU thread asks without it, as guest
+// write faults (a valid watched unit invalidated, and left unwatched once hot), uploads (valid
+// again) and releases (no longer unwatched) do. Every answer must be the locked path's answer at
+// some moment during the call: the state's generation is read before and after, and the answer
+// must be one the locked predicate had in one of those generations (never a mix that no moment
+// had). The stamps are the GPU thread's own and do not change during a call.
+void CheckRace() {
+  constexpr uint32_t kUnits = 128, kChunk = 7;
+  std::vector<uint64_t> valid(2, ~uint64_t(0)), unwatched(2, 0);
+  std::vector<uint32_t> stamps(kUnits, kChunk);
+  std::mutex lock;  // the global critical region
+  std::vector<uint8_t> history;  // the locked predicate, by generation
+  std::atomic<uint32_t> generation{0};
+  auto predicate = [&]() {
+    return LockedPathUploadsNothing(valid, unwatched, stamps, kChunk, 0, kUnits - 1);
+  };
+  history.push_back(predicate());
+  std::atomic<bool> stop{false};
+  std::thread writer([&] {
+    std::mt19937 random(1110);
+    for (int n = 0; n < 200000; ++n) {
+      std::lock_guard<std::mutex> guard(lock);
+      const uint32_t unit = uint32_t(random() % kUnits);
+      const uint64_t bit = uint64_t(1) << (unit & 63);
+      switch (random() % 4) {
+        case 0:  // a write fault: invalidated
+        case 1:
+          __atomic_fetch_and(&valid[unit >> 6], ~bit, __ATOMIC_RELEASE);
+          if (random() % 3 == 0) __atomic_fetch_or(&unwatched[unit >> 6], bit, __ATOMIC_RELAXED);  // hot
+          break;
+        case 2:  // uploaded: valid again
+          __atomic_fetch_or(&valid[unit >> 6], bit, __ATOMIC_RELEASE);
+          break;
+        default:  // released or reprotected: no longer unwatched
+          __atomic_fetch_and(&unwatched[unit >> 6], ~bit, __ATOMIC_RELAXED);
+          break;
+      }
+      history.push_back(predicate());
+      generation.store(uint32_t(history.size() - 1), std::memory_order_release);
+    }
+    stop.store(true);
+  });
+  int asked = 0, impossible = 0, true_answers = 0;
+  while (!stop.load()) {
+    const uint32_t before = generation.load(std::memory_order_acquire);
+    const bool answer = ulf::NothingToUpload(valid.data(), unwatched.data(), stamps.data(), kChunk, 0, kUnits - 1);
+    const uint32_t after = generation.load(std::memory_order_acquire);
+    std::lock_guard<std::mutex> guard(lock);
+    bool possible = false;
+    for (uint32_t g = before; g <= after && g < history.size(); ++g) possible |= bool(history[g]) == answer;
+    // The writer may have moved on between the last read and `after`: one more generation.
+    if (!possible && after + 1 < history.size()) possible = bool(history[after + 1]) == answer;
+    ++asked;
+    if (answer) ++true_answers;
+    if (!possible) ++impossible;
+  }
+  writer.join();
+  std::printf("   race: %d answers while another thread changed the bits, %d with nothing to upload, %d impossible\n",
+              asked, true_answers, impossible);
+  Expect(impossible == 0, "every lock-free answer is the locked path's answer at some moment of the call");
+  Expect(asked > 1000, "the reader ran alongside the writer");
+}
+
 void CheckTree() {
   const std::string sm = Read(".deps/xenia-canary/src/xenia/gpu/shared_memory.cc");
   const size_t request = sm.find("bool SharedMemory::RequestRange(uint32_t start, uint32_t length,");
@@ -153,6 +219,7 @@ void CheckTree() {
 
 int main() {
   CheckModel();
+  CheckRace();
   CheckTree();
   if (failures) {
     std::printf("check-unwatched-lock-free: %d failure(s)\n", failures);
