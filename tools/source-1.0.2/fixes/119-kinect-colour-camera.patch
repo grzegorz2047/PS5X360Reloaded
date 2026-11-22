@@ -16,10 +16,10 @@ index daf76ca..7a996d9 100644
      if (counter_ptr && IsGuestRange(counter_ptr,4)) {
 diff --git a/include/xbox360ps5/camera_picture.hpp b/include/xbox360ps5/camera_picture.hpp
 new file mode 100644
-index 0000000..5c3d7b2
+index 0000000..26487b7
 --- /dev/null
 +++ b/include/xbox360ps5/camera_picture.hpp
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,238 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 119 (issue 15): the phone's camera picture as the virtual Kinect's colour stream. A Kinect
 +// game that shows its camera (Kinect Sports' Show Off & Share replays, photos) saw a flat grey
@@ -30,8 +30,8 @@ index 0000000..5c3d7b2
 +// keeps the latest one in memory only (never on a drive, never in a log) and gives it to the game as the Kinect colour camera's own
 +// frame: 640x480, one byte a pixel, the sensor's Bayer mosaic (G R / B G rows, as libfreenect and
 +// the USB Kinect path have it, reconstructed/xbox360ps5/usb_kinect.hpp), scaled up from the phone's
-+// picture. Without a picture (either switch off, no picture for a second, a picture that does not
-+// parse) the frame is the grey of before (128); turning the setting off drops the stored picture.
++// picture. Without a picture (either switch off, no picture for 10 s, none yet) the frame is the
++// grey of before (128); turning the setting off drops the stored picture.
 +//
 +// The page's picture ("XPC1", little-endian): 4 bytes magic, u16 width, u16 height, u32 sequence,
 +// u32 reserved (0), then YCbCr 4:2:0 as JPEG has it (full range): width*height Y, then
@@ -54,7 +54,10 @@ index 0000000..5c3d7b2
 +constexpr uint32_t kPictureHeaderBytes = 16;
 +constexpr uint32_t kPictureMinSide = 16, kPictureMaxWidth = 320, kPictureMaxHeight = 240;
 +constexpr size_t kPictureMaxBytes = kPictureHeaderBytes + size_t(kPictureMaxWidth) * kPictureMaxHeight * 3 / 2;
-+constexpr int64_t kPictureFreshMs = 1000;  // older than this, the frame is grey again
++// 1.0.5-work-fix119f: the last picture is the colour frame until a newer one comes, for up to
++// 10 s. With 1 s (119 to 119e) the gaps between pictures (2 to 4 a second, in bursts) gave the
++// game grey frames between them, and Kinect Sports' replay flickered between the player and grey.
++constexpr int64_t kPictureFreshMs = 10000;  // older than this, the frame is grey again
 +constexpr uint32_t kMosaicWidth = 640, kMosaicHeight = 480;
 +constexpr size_t kMosaicBytes = size_t(kMosaicWidth) * kMosaicHeight;
 +constexpr uint8_t kNoPictureLevel = 128;
@@ -318,7 +321,7 @@ index 3236ff2..ffefbc1 100644
   private:
    uint32_t Sequence() const {
 diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
-index 63f2a8b..acc80a7 100644
+index 63f2a8b..d095171 100644
 --- a/port/phone_camera_page.hpp
 +++ b/port/phone_camera_page.hpp
 @@ -49,6 +49,8 @@ button.big{font-size:20px;min-height:64px;flex:1 1 100%}
@@ -405,7 +408,7 @@ index 63f2a8b..acc80a7 100644
    latencyLine.textContent = T('latency', ...summaryValues(report)) + ' · ' + report.fps + ' fps';
    latencyLine.hidden = false;
    if (onConsole && paired && consoleKey)
-@@ -297,10 +312,65 @@ function showPose(pose, extra) {
+@@ -297,6 +312,60 @@ function showPose(pose, extra) {
      }).join('\n');
  }
  
@@ -414,7 +417,7 @@ index 63f2a8b..acc80a7 100644
 +// second, one at a time, and none while pose frames wait or the network is slow. The picture is
 +// made from the camera in memory and not kept.
 +const pictures = new PictureGate();
-+let lastNetworkMs = 0, lastPoseDrop = -Infinity;
++let lastNetworkMs = 0;
 +const pictureCanvas = document.createElement('canvas');
 +pictureCanvas.width = PICTURE_WIDTH; pictureCanvas.height = PICTURE_HEIGHT;
 +const pictureContext = pictureCanvas.getContext('2d', {willReadFrequently: true});
@@ -443,10 +446,9 @@ index 63f2a8b..acc80a7 100644
 +async function sendPicture() {
 +  showPictureNote();
 +  if (!onConsole || !paired || !consoleKey || demo || !stream || video.readyState < 2) return;
-+  // Fix 119d: since the last pose frame the page had to drop (two waiting), not frames in flight:
-+  // that count included the frame whose answer called this, so nearly every picture was skipped.
-+  const now = performance.now();
-+  if (!pictures.due(now, pictureChoice.value === 'on', now - lastPoseDrop, lastNetworkMs)) return;
++  // Fix 119f: the network's delay alone decides (PictureGate.due); frames in flight (119) and
++  // dropped pose frames (119d) are the page's normal pacing and held most pictures back.
++  if (!pictures.due(performance.now(), pictureChoice.value === 'on', lastNetworkMs)) return;
 +  const crop = pictureCrop(video.videoWidth, video.videoHeight);
 +  if (!crop || !pictureContext) return;
 +  pictures.inFlight = true;
@@ -467,12 +469,7 @@ index 63f2a8b..acc80a7 100644
  async function sendPose(pose, queuedSession = null) {
    if (!paired && !queuedSession) return;
    const target = queuedSession || motionSession;
--  if (inFlight >= 2) { if (!pose) pendingLost = target; return; }
-+  if (inFlight >= 2) { lastPoseDrop = performance.now(); if (!pose) pendingLost = target; return; }  // fix 119d: noted
-   if (++target.sequence > 0xffffffff) { if (target === motionSession) setPairing('lost'); return; }
-   inFlight++;
-   try {
-@@ -321,8 +391,15 @@ async function sendPose(pose, queuedSession = null) {
+@@ -321,8 +390,15 @@ async function sendPose(pose, queuedSession = null) {
      }
      if (paired && target === motionSession) sentTimes.push(performance.now());
      if (pose && onConsole) latencyWindow.add('network', (performance.now() - sentAt) / 2);
@@ -489,7 +486,7 @@ index 63f2a8b..acc80a7 100644
    } catch (e) {
      if (target === motionSession) setPairing(afterFrame(state.pairing, 0, ''));
    } finally {
-@@ -804,6 +881,70 @@ export class RecentreState {
+@@ -804,6 +880,73 @@ export class RecentreState {
    }
  }
  
@@ -497,8 +494,9 @@ index 63f2a8b..acc80a7 100644
 +// include/xbox360ps5/camera_picture.hpp). 160x120, 4:3 from the middle of the camera's picture.
 +export const PICTURE_WIDTH = 160, PICTURE_HEIGHT = 120;
 +export const PICTURE_MS = 100;               // at most 10 a second
++export const PICTURE_SLOW_NETWORK_MS = 60;   // above this, at most 4 a second (PICTURE_SLOW_MS)
++export const PICTURE_SLOW_MS = 250;
 +export const PICTURE_MAX_NETWORK_MS = 150;   // none while a pose frame takes longer than this
-+export const PICTURE_AFTER_DROP_MS = 500;    // none this long after a pose frame had to be dropped
 +
 +// The middle 4:3 of a video `width` x `height` (null before the camera has a size).
 +export function pictureCrop(width, height) {
@@ -534,17 +532,19 @@ index 63f2a8b..acc80a7 100644
 +}
 +
 +// When a picture goes: the console wants it ("picture" in its answers), the page's switch is on,
-+// none is on its way, 100 ms since the last try, and the pose frames keep up (no pose frame dropped
-+// for two waiting in the last 500 ms, half a round trip under 150 ms); a picture skipped for the
-+// network waits for the next try. Fix 119d: sinceDropMs replaces a count of frames in flight, which
-+// included the frame just answered and so held back nearly every picture.
++// none is on its way, 100 ms since the last try (250 ms while half a pose frame's round trip is
++// over 60 ms), and that half round trip is under 150 ms; a picture skipped for the network waits
++// for the next try. Fix 119f: the network's delay alone protects the pose frames; 119's count of
++// frames in flight and 119d's dropped pose frames are the page's normal pacing at 45-50 frames a
++// second and held back more than half of the pictures (2 to 4 a second on the console).
 +export class PictureGate {
 +  constructor() { this.wanted = false; this.inFlight = false; this.last = -Infinity; this.sequence = 0; this.sent = 0; this.skipped = 0; this.failed = 0; }
 +  note(json) { if (json && json.picture !== undefined) this.wanted = Number(json.picture) === 1; }
-+  due(now, enabled, sinceDropMs, networkMs) {
-+    if (!enabled || !this.wanted || this.inFlight || now - this.last < PICTURE_MS) return false;
++  due(now, enabled, networkMs) {
++    const interval = networkMs > PICTURE_SLOW_NETWORK_MS ? PICTURE_SLOW_MS : PICTURE_MS;
++    if (!enabled || !this.wanted || this.inFlight || now - this.last < interval) return false;
 +    this.last = now;
-+    if (sinceDropMs < PICTURE_AFTER_DROP_MS || networkMs > PICTURE_MAX_NETWORK_MS) { this.skipped++; return false; }
++    if (networkMs > PICTURE_MAX_NETWORK_MS) { this.skipped++; return false; }
 +    return true;
 +  }
 +  // The console's answer to a picture: 204 taken, 409 its setting is off, anything else failed.
@@ -560,12 +560,12 @@ index 63f2a8b..acc80a7 100644
  // The page's line: the medians, '–' for a stage without samples.
  export function summaryValues(report) {
    return STAGES.map(name => {
-@@ -812,5 +953,5 @@ export function summaryValues(report) {
+@@ -812,5 +955,5 @@ export function summaryValues(report) {
    });
  }
  )LATENCYJS";
 -inline constexpr char kPageVersion[] = "2a2c908b5d1578ff";
-+inline constexpr char kPageVersion[] = "89eed2d843ed6c76";
++inline constexpr char kPageVersion[] = "5a230ffd88a13526";
  }  // namespace xbox360ps5::phone_camera
 diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
 index 34ddd5a..c237bba 100644

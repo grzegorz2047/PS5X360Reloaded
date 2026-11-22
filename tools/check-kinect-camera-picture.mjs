@@ -79,26 +79,35 @@ check('(b) the middle 4:3 of the camera', () => {
   assert.equal(L.pictureCrop(undefined, 480), null);
 });
 check('(c) when a picture goes', () => {
-  // due(now, switch, ms since the page last dropped a pose frame, half a round trip).
-  const never = Infinity;
+  // due(now, switch, half a pose frame's round trip). Fix 119f: the network's delay alone; frames in
+  // flight and dropped pose frames no longer hold pictures back.
   const g = new L.PictureGate();
-  assert.equal(L.PICTURE_AFTER_DROP_MS, 500);
-  assert.equal(g.due(1000, true, never, 10), false);     // the console has not asked
+  assert.equal(L.PICTURE_SLOW_NETWORK_MS, 60);
+  assert.equal(L.PICTURE_SLOW_MS, 250);
+  assert.equal(g.due(1000, true, 10), false);            // the console has not asked
   g.note({ok: true});                                    // an older console: no "picture"
   assert.equal(g.wanted, false);
   g.note({ok: true, picture: 1});
-  assert.equal(g.due(1000, false, never, 10), false);    // the page's switch off
-  assert.equal(g.due(1000, true, never, 10), true);      // fix 119d: frames in flight do not matter
-  assert.equal(g.due(1050, true, never, 10), false);     // under 100 ms
+  assert.equal(g.due(1000, false, 10), false);           // the page's switch off
+  assert.equal(g.due(1000, true, 10), true);
+  assert.equal(g.due(1050, true, 10), false);            // under 100 ms
   g.inFlight = true;
-  assert.equal(g.due(1200, true, never, 10), false);     // one on its way
+  assert.equal(g.due(1200, true, 10), false);            // one on its way
   g.inFlight = false;
-  assert.equal(g.due(1300, true, 499, 10), false);       // a pose frame dropped 0.5 s ago
+  assert.equal(g.due(1300, true, 21), true);             // the console's 21 ms: 10 a second
+  assert.equal(g.due(1400, true, 61), false);            // slower network: 250 ms apart
+  assert.equal(g.skipped, 0);                            // not a skip, only the pace
+  assert.equal(g.due(1550, true, 61), true);
+  assert.equal(g.due(1800, true, 151), false);           // a slow network
   assert.equal(g.skipped, 1);
-  assert.equal(g.due(1350, true, never, 10), false);     // and the next try 100 ms later
-  assert.equal(g.due(1400, true, never, 151), false);    // a slow network
-  assert.equal(g.skipped, 2);
-  assert.equal(g.due(1500, true, 500, 150), true);
+  assert.equal(g.due(1850, true, 10), false);            // and the next try 100 ms later
+  assert.equal(g.due(1900, true, 150), false);           // 150 ms: 250 ms apart
+  assert.equal(g.due(2050, true, 150), true);
+  // Ten a second at the console's pace: one every 100 ms, answered in time.
+  let sent = 0;
+  for (let t = 3000; t < 4000; t += 20) if (g.due(t, true, 21)) sent++;
+  assert.equal(sent, 10);
+  assert.equal(g.due(1500, true, 10), false);            // (older times: not due)
   assert.equal(g.sending(1500), false);                  // none taken yet
   g.answer(204, 1600);
   assert.equal(g.sent, 1);
@@ -115,7 +124,7 @@ check('(c) when a picture goes', () => {
   g.answer(409, 3900);                                   // the console's setting is off
   assert.equal(g.wanted, false);
   assert.equal(g.sending(3900), false);                  // the line goes at once
-  assert.equal(g.due(2000, true, 0, 10), false);
+  assert.equal(g.due(5000, true, 10), false);            // not wanted after the 409
   g.note({picture: 0});
   assert.equal(g.wanted, false);
   g.note(null);
@@ -134,11 +143,12 @@ check('(d) the page', () => {
   assert.ok(page.includes("const text = pictureChoice.value !== 'on' ? T('picture_note_off')\n" +
                           "             : onConsole && paired && !pictures.wanted ? T('picture_note_console_off') : T('picture_note_on');"));
   assert.ok(page.includes("if (!onConsole || !paired || !consoleKey || demo || !stream || video.readyState < 2) return;"));
-  // Fix 119d: the frame just answered is not one that waits (it was always counted: frames at 45-50
-  // fps outrun a 22 ms round trip, so nearly every picture was skipped on 1.0.5-work-fix119).
-  assert.ok(page.includes("if (!pictures.due(now, pictureChoice.value === 'on', now - lastPoseDrop, lastNetworkMs)) return;"));
-  assert.ok(page.includes('let lastNetworkMs = 0, lastPoseDrop = -Infinity;'));
-  assert.ok(page.includes('if (inFlight >= 2) { lastPoseDrop = performance.now(); if (!pose) pendingLost = target; return; }'));
+  // Fix 119f: the network's delay alone (119 counted the frame just answered as waiting; 119d's
+  // dropped pose frames are the page's normal pacing at 45-50 fps and skipped over half of them).
+  assert.ok(page.includes("if (!pictures.due(performance.now(), pictureChoice.value === 'on', lastNetworkMs)) return;"));
+  assert.ok(page.includes('let lastNetworkMs = 0;'));
+  assert.ok(page.includes('if (inFlight >= 2) { if (!pose) pendingLost = target; return; }'));  // as before 119
+  assert.ok(!page.includes('lastPoseDrop'));
   assert.ok(!/pictures\.due\([^)]*inFlight/.test(page), 'frames in flight no longer hold pictures back');
   assert.ok(page.includes("  } catch {\n    pictures.failed++;  // fix 119d"));
   assert.ok(page.includes("await fetch('/api/motion/picture', {method: 'POST', headers: {'X-Key': consoleKey, 'Content-Type': 'application/octet-stream'},"));

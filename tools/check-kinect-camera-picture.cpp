@@ -156,11 +156,18 @@ int main(int argc, char** argv) {
     CHECK(store.Publish("XPC1", 1000, true) == m::PictureResult::malformed);
     CHECK(store.Publish(grey, 1000, true) == m::PictureResult::accepted && store.pictures() == 1);
     CHECK(store.Copy(1500, true, out) && out.size() == m::kMosaicBytes && out[0] == 90 && out[307199] == 90);
+    // 1.0.5-work-fix119f: held until a newer one comes, for up to 10 s (with 1 s the gaps between
+    // pictures gave the game grey frames, and the replay flickered).
+    CHECK(m::kPictureFreshMs == 10000);
+    CHECK(store.Copy(2000, true, out) && out[0] == 90);                    // a second old: still the picture
+    CHECK(store.Copy(10999, true, out) && out[0] == 90);
     out.assign(4, 7);
-    CHECK(!store.Copy(2000, true, out) && out.size() == 4);                // a second old: grey again
-    CHECK(store.Publish(grey, 3000, true) == m::PictureResult::accepted);
-    CHECK(!store.Copy(3100, false, out) && out.size() == 4);               // no longer wanted
-    CHECK(!store.Copy(3200, true, out));                                   // and dropped
+    CHECK(!store.Copy(11000, true, out) && out.size() == 4);               // 10 s old: grey again
+    CHECK(store.Publish(grey, 13000, true) == m::PictureResult::accepted);
+    CHECK(store.Copy(13100, true, out) && out[0] == 90);                   // a new one: the picture again
+    out.assign(4, 7);
+    CHECK(!store.Copy(13100, false, out) && out.size() == 4);              // no longer wanted
+    CHECK(!store.Copy(13200, true, out));                                  // and dropped
     CHECK(store.Publish(grey, 4000, true) == m::PictureResult::accepted);
     CHECK(store.Publish(grey, 4100, false) == m::PictureResult::off);      // off drops it too
     CHECK(!store.Copy(4200, true, out));
