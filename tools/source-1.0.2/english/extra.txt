@@ -305,6 +305,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagem da câmera para o jogo
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
+Resolution scale (test) = Escala de renderização (teste)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e processamento gráfico; alguns efeitos (brilho, sombras, imagens que o jogo lê de volta) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte para 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas configurações deste jogo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -422,6 +425,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagem da câmera para o jogo
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
+Resolution scale (test) = Escala de renderização (teste)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e capacidade gráfica; alguns efeitos (brilho, sombras, imagens que o jogo volta a ler) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas definições deste jogo.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -539,6 +545,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagen de la cámara para el juego
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un móvil como Kinect, el móvil también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del móvil. Desactivada, los juegos ven una imagen gris.
+Resolution scale (test) = Escala de renderizado (prueba)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de vídeo y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, vuelve a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; pon 1x en los ajustes de este juego.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -656,6 +665,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Esta uni
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Imagen de la cámara para el juego
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un celular como Kinect, el celular también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del celular. Desactivada, los juegos ven una imagen gris.
+Resolution scale (test) = Escala de renderizado (prueba)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de video y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, regresa a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; elige 1x en la configuración de este juego.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -773,6 +785,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Dieses L
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Kamerabild für das Spiel
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Mit einem Handy als Kinect kann das Handy auch ein kleines Bild seiner Kamera senden, für Spiele, die die Kamera zeigen (Wiederholungen, Fotos). Es geht nur an diese Konsole, und der Emulator hält es nur im Arbeitsspeicher, nie auf einem Laufwerk; ein Spiel kann trotzdem eigene Fotos in seinen Spielständen behalten. Dazu muss auch Kamerabild für das Spiel auf der Handy-Seite eingeschaltet sein. Aus sehen Spiele ein graues Bild.
+Resolution scale (test) = Renderskalierung (Test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Zeichnet das Spiel mit der doppelten eigenen Auflösung für ein schärferes Bild. Braucht viel mehr Videospeicher und Grafikleistung; manche Effekte (Leuchten, Schatten, Bilder, die das Spiel zurückliest) können falsch aussehen. Ein Test: Wenn sich das Spiel schließt oder fehlerhaft aussieht, zurück auf 1x stellen.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderskalierung (Test) 2x: Dieses Spiel braucht mehr Speicher, als noch frei ist. Das Bild kann fehlerhaft werden; stelle in den Einstellungen dieses Spiels 1x ein.
 
 [added fr]
 Console storage = Stockage de la console
@@ -890,6 +905,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Ce péri
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Image de la caméra pour le jeu
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Avec un téléphone comme Kinect, le téléphone peut aussi envoyer une petite image de sa caméra pour les jeux qui montrent la caméra (replays, photos). Elle ne va qu'à cette console, et l'émulateur la garde seulement en mémoire, jamais sur un disque ; un jeu peut quand même garder ses propres photos dans ses sauvegardes. Il faut aussi activer Image de la caméra pour le jeu sur la page du téléphone. Désactivée, les jeux voient une image grise.
+Resolution scale (test) = Échelle de rendu (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dessine le jeu au double de sa résolution pour une image plus nette. Utilise beaucoup plus de mémoire vidéo et de puissance graphique ; certains effets (lueurs, ombres, images que le jeu relit) peuvent être incorrects. C'est un test : si le jeu se ferme ou s'affiche mal, revenez à 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Échelle de rendu (test) 2x : ce jeu a besoin de plus de mémoire qu'il n'en reste. L'image peut se dégrader ; choisissez 1x dans les réglages de ce jeu.
 
 [added it]
 Console storage = Memoria della console
@@ -1007,6 +1025,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Questa u
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Immagine della fotocamera per il gioco
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un telefono come Kinect, il telefono può anche inviare una piccola immagine della sua fotocamera per i giochi che mostrano la telecamera (replay, foto). Va solo a questa console, e l'emulatore la tiene solo in memoria, mai su un'unità; un gioco può comunque conservare foto proprie nei suoi salvataggi. Serve anche attivare Immagine della fotocamera per il gioco nella pagina del telefono. Disattivata, i giochi vedono un'immagine grigia.
+Resolution scale (test) = Scala di rendering (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Disegna il gioco al doppio della sua risoluzione per un'immagine più nitida. Usa molta più memoria video e potenza grafica; alcuni effetti (bagliori, ombre, immagini che il gioco rilegge) possono apparire errati. È un test: se il gioco si chiude o appare difettoso, torna a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Scala di rendering (test) 2x: questo gioco richiede più memoria di quella rimasta. L'immagine potrebbe guastarsi; imposta 1x nelle impostazioni di questo gioco.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1124,6 +1145,9 @@ This drive has this DLC both On and Off: remove one of the two first. = この�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = ゲーム用のカメラ画像
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = スマートフォンを Kinect として使うとき、カメラを映すゲーム（リプレイ、写真）のために、スマートフォンのカメラの小さな画像も送れます。画像はこの本体にだけ送られ、エミュレーターはメモリーにだけ置き、ドライブには保存しません。ただし、ゲームが自分の写真をセーブデータに残すことはあります。スマートフォンのページでも「ゲーム用のカメラ画像」をオンにする必要があります。オフのとき、ゲームには灰色の画像が映ります。
+Resolution scale (test) = 描画解像度の倍率（テスト）
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = ゲームを本来の2倍の解像度で描画し、画像を鮮明にします。ビデオメモリとグラフィック性能を大幅に多く使い、一部の効果（光のにじみ、影、ゲームが読み戻す画像）が正しく表示されないことがあります。テスト機能です。ゲームが終了したり表示がおかしくなったりしたら1xに戻してください。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 描画解像度の倍率（テスト）2x：このゲームには残りより多くのメモリが必要です。画面が崩れることがあります。このゲームの設定で1xにしてください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1241,6 +1265,9 @@ This drive has this DLC both On and Off: remove one of the two first. = 이 드�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = 게임용 카메라 이미지
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 휴대폰을 Kinect로 쓸 때, 카메라를 보여 주는 게임(리플레이, 사진)을 위해 휴대폰 카메라의 작은 이미지도 보낼 수 있습니다. 이미지는 이 본체로만 가고, 에뮬레이터는 메모리에만 두며 드라이브에 저장하지 않습니다. 다만 게임이 자체 사진을 세이브에 남길 수는 있습니다. 휴대폰 페이지에서도 게임용 카메라 이미지를 켜야 합니다. 끄면 게임에는 회색 이미지가 보입니다.
+Resolution scale (test) = 렌더링 배율 (테스트)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 게임을 원래 해상도의 두 배로 그려 더 선명한 화면을 만듭니다. 비디오 메모리와 그래픽 성능을 훨씬 많이 사용하며, 일부 효과(빛 번짐, 그림자, 게임이 다시 읽는 이미지)가 잘못 보일 수 있습니다. 테스트 기능입니다. 게임이 종료되거나 화면이 깨지면 1x로 되돌리세요.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 렌더링 배율 (테스트) 2x: 이 게임에는 남은 메모리보다 더 많은 메모리가 필요합니다. 화면이 깨질 수 있으니 이 게임의 설정에서 1x로 바꾸세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1358,6 +1385,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Dit stat
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Camerabeeld voor de game
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Met een telefoon als Kinect kan de telefoon ook een klein beeld van zijn camera sturen, voor games die de camera tonen (herhalingen, foto's). Het gaat alleen naar deze console, en de emulator houdt het alleen in het geheugen, nooit op een schijf; een game kan wel eigen foto's in zijn opslag bewaren. Zet ook Camerabeeld voor de game aan op de pagina van de telefoon. Uit zien games een grijs beeld.
+Resolution scale (test) = Renderschaal (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Tekent het spel op twee keer de eigen resolutie voor een scherper beeld. Gebruikt veel meer videogeheugen en grafische kracht; sommige effecten (gloed, schaduwen, beelden die het spel terugleest) kunnen er verkeerd uitzien. Een test: sluit het spel af of ziet het er fout uit, zet het dan terug op 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderschaal (test) 2x: dit spel heeft meer geheugen nodig dan er over is. Het beeld kan fouten tonen; zet het op 1x in de instellingen van dit spel.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1475,6 +1505,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Na tym d
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Obraz z kamery dla gry
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Gdy telefon służy jako Kinect, może też wysyłać mały obraz ze swojej kamery do gier, które pokazują kamerę (powtórki, zdjęcia). Trafia on tylko do tej konsoli, a emulator trzyma go wyłącznie w pamięci, nigdy na dysku; gra może jednak zachować własne zdjęcia w swoich zapisach. Trzeba też włączyć Obraz z kamery dla gry na stronie w telefonie. Wyłączone: gry widzą szary obraz.
+Resolution scale (test) = Skala renderowania (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Rysuje grę w dwukrotności jej własnej rozdzielczości, dla ostrzejszego obrazu. Zużywa znacznie więcej pamięci wideo i mocy graficznej; niektóre efekty (poświata, cienie, obrazy odczytywane z powrotem przez grę) mogą wyglądać źle. To test: jeśli gra się zamyka lub wygląda źle, wróć do 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Skala renderowania (test) 2x: ta gra potrzebuje więcej pamięci, niż zostało. Obraz może się psuć; ustaw 1x w ustawieniach tej gry.
 
 [added ru]
 Console storage = Память консоли
@@ -1592,6 +1625,9 @@ This drive has this DLC both On and Off: remove one of the two first. = На э�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Изображение с камеры для игры
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Когда телефон работает как Kinect, он может также отправлять небольшое изображение со своей камеры для игр, которые показывают камеру (повторы, фото). Оно идёт только на эту консоль, и эмулятор держит его только в памяти, никогда на диске; игра всё же может сохранить собственные фото в своих сохранениях. Нужно также включить «Изображение с камеры для игры» на странице в телефоне. Если выключено, игры видят серое изображение.
+Resolution scale (test) = Масштаб рендеринга (тест)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Рисует игру в двойном разрешении для более чёткой картинки. Требует гораздо больше видеопамяти и графической мощности; некоторые эффекты (свечение, тени, изображения, которые игра считывает обратно) могут выглядеть неправильно. Это тест: если игра закрывается или выглядит неправильно, верните 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Масштаб рендеринга (тест) 2x: этой игре нужно больше памяти, чем осталось. Изображение может испортиться; выберите 1x в настройках этой игры.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1709,6 +1745,9 @@ This drive has this DLC both On and Off: remove one of the two first. = Bu sür�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = Oyun için kamera görüntüsü
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Telefon Kinect olarak kullanılırken, kamerayı gösteren oyunlar (tekrarlar, fotoğraflar) için telefon kamerasından küçük bir görüntü de gönderebilir. Görüntü yalnızca bu konsola gider ve emülatör onu yalnızca bellekte tutar, asla bir sürücüye yazmaz; yine de bir oyun kendi fotoğraflarını kayıtlarında saklayabilir. Telefon sayfasında da Oyun için kamera görüntüsü açık olmalıdır. Kapalıyken oyunlar gri bir görüntü görür.
+Resolution scale (test) = Görüntü işleme ölçeği (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Daha net bir görüntü için oyunu kendi çözünürlüğünün iki katında çizer. Çok daha fazla video belleği ve grafik gücü kullanır; bazı efektler (parlama, gölgeler, oyunun geri okuduğu görüntüler) yanlış görünebilir. Bu bir testtir: oyun kapanırsa veya bozuk görünürse 1x'e geri dönün.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Görüntü işleme ölçeği (test) 2x: bu oyun kalandan daha fazla bellek gerektiriyor. Görüntü bozulabilir; bu oyunun ayarlarında 1x seçin.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1826,6 +1865,9 @@ This drive has this DLC both On and Off: remove one of the two first. = 此驱�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = 供游戏使用的摄像头画面
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手机当作 Kinect 时，手机还可以为显示摄像头画面的游戏（回放、照片）发送一张小的摄像头画面。画面只发送到这台主机，模拟器只把它放在内存中，绝不写入硬盘；不过游戏仍可能在自己的存档中保存照片。还需要在手机页面上打开“供游戏使用的摄像头画面”。关闭时，游戏看到的是灰色画面。
+Resolution scale (test) = 渲染分辨率倍数（测试）
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以游戏自身分辨率的两倍绘制，画面更清晰。会占用多得多的显存和图形性能；部分效果（光晕、阴影、游戏回读的图像）可能显示错误。这是测试功能：如果游戏关闭或画面异常，请改回 1x。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染分辨率倍数（测试）2x：此游戏需要的内存超过剩余内存。画面可能出错；请在此游戏的设置中改为 1x。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1943,3 +1985,6 @@ This drive has this DLC both On and Off: remove one of the two first. = 此磁�
 # Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
 Camera picture for the game = 供遊戲使用的攝影機畫面
 With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手機當作 Kinect 時，手機還可以為顯示攝影機畫面的遊戲（重播、照片）傳送一張小的攝影機畫面。畫面只傳送到這台主機，模擬器只把它放在記憶體中，絕不寫入硬碟；不過遊戲仍可能在自己的存檔中保存照片。還需要在手機頁面上開啟「供遊戲使用的攝影機畫面」。關閉時，遊戲看到的是灰色畫面。
+Resolution scale (test) = 渲染解析度倍數（測試）
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以遊戲本身解析度的兩倍繪製，畫面更清晰。會佔用多得多的顯示記憶體和圖形效能；部分效果（光暈、陰影、遊戲回讀的影像）可能顯示錯誤。這是測試功能：如果遊戲關閉或畫面異常，請改回 1x。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染解析度倍數（測試）2x：此遊戲需要的記憶體超過剩餘記憶體。畫面可能出錯；請在此遊戲的設定中改為 1x。

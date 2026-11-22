@@ -140,6 +140,7 @@ checks=(
   check-content-checked.cpp        # fix 125
   check-sample-ticket.cpp          # fix 126
   check-vfs-host-ops.cpp           # fix 129
+  check-resolution-scale.cpp       # fixes 117 to 117i
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -147,6 +148,7 @@ declare -A arguments=(
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-game-info.cpp]="$repo/tools/source-1.0.2/fixtures/gameinfo-excerpt.txt"
+  [check-resolution-scale.cpp]="$repo/assets/presets.txt"
   [check-guest-crash.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -256,6 +258,7 @@ declare -A fix_of=(
   [check-content-checked.cpp]=125
   [check-sample-ticket.cpp]=126
   [check-vfs-host-ops.cpp]=129
+  [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
