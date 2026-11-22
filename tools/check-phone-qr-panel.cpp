@@ -151,8 +151,7 @@ void CheckLanguages(const std::string& folder) {
   const char* kTexts[] = {"Motion: no phone connected", "Scan with your phone to use it as Kinect.",
                           "Same Wi-Fi, stand 2-3 m back, full body visible.", "Code: ",
                           "Step back", "Step closer", "Show your whole body to the camera",
-                          "Hand reach (the game needs %.2f)", "Motion panel", "Top right", "Top left",
-                          "Distance %.1f m"};
+                          "Hand reach (the game needs %.2f)", "Motion panel", "Top right", "Top left"};
   const char* kLanguages[] = {"de", "en", "es", "es-419", "fr", "it", "ja", "ko", "nl", "pl",
                               "pt", "pt-BR", "ru", "tr", "zh-Hans", "zh-Hant"};
   for (const char* language : kLanguages) {
@@ -187,8 +186,10 @@ void CheckTree() {
   CHECK(game.find("shift_ = motion_panel_ == 1 ? xbox360ps5::motion::kQrPanelLeftShift : 0.0f;") != std::string::npos);
   CHECK(game.find("settings.touchpad_menu,settings.motion_panel)") != std::string::npos);
   CHECK(game.find("} else if (!panel_off) {") != std::string::npos);
-  // The phone's own distance at the panel's top right (amber outside DBZ's zone).
-  CHECK(game.find("Tr(\"Distance %.1f m\")") != std::string::npos);
+  // The phone's own distance (amber outside DBZ's zone): at the panel's top right, then (fix 107)
+  // as "2.6 m" at the skeleton's foot, a number and a unit with nothing to translate.
+  CHECK(game.find("Tr(\"Distance %.1f m\")") != std::string::npos ||
+        game.find("std::snprintf(distance, sizeof(distance), \"%.1f m\", double(metres));") != std::string::npos);
   CHECK(game.find("const auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
   // 1.0.5_candidate_10: the skeleton and the target arms are drawn as a mirror.
   CHECK(game.find("ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale") !=
@@ -208,7 +209,7 @@ void CheckTree() {
   CHECK(game.find("DrawTargetArms(draw, scale, pose, hands)") != std::string::npos);
   CHECK(game.find("DrawReachBars(draw, scale, hands)") != std::string::npos);
   CHECK(game.find("DrawPositionHint(draw, scale, pose)") != std::string::npos ||
-        game.find("DrawPositionHint(draw, scale, pose, lines.hint)") != std::string::npos);  // fix 107: its own line
+        game.find("DrawFootLine(draw, scale, phone, pose, hands.valid)") != std::string::npos);  // fix 107: at the foot
   CHECK(game.find("DrawTargetArms(draw, scale, pose, hands)") < game.find("const int bones[][2]"));  // under it
   for (const char* key : {"Tr(\"Step back\")", "Tr(\"Step closer\")", "Tr(\"Show your whole body to the camera\")",
                           "Tr(\"Hand reach (the game needs %.2f)\")"})

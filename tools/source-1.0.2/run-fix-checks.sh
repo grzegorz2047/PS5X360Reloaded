@@ -122,6 +122,15 @@ checks=(
   check-kinect-tracker.cpp         # fix 106
   check-kinect-emergency.cpp       # fix 107
   check-kinect-diag.cpp            # fix 108
+  check-extent-count.cpp           # fix 110
+  check-unwatched-lock-free.cpp    # fix 111
+  check-swap-pacing.cpp            # fix 112
+  check-osk-keyboard.cpp           # fix 114
+  check-osk-modes.cpp              # fix 114b
+  check-guide-quick.cpp            # fix 115
+  check-swap-pacing.cpp            # fix 116
+  check-nui-hud-check.cpp          # fix 118
+  check-file-sector.cpp            # fix 121
   check-dlc-remove.cpp             # fix 109
 )
 declare -A arguments=(
@@ -141,6 +150,8 @@ declare -A arguments=(
   [check-bug-report-entries.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-report-session.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
@@ -203,7 +214,7 @@ declare -A fix_of=(
   [check-flush-before-restart.cpp]=93g
   [check-leaving-steps.cpp]=93h
   [check-bounded-leave.cpp]=93i
-  [check-boost-presets.cpp]=95
+  [check-boost-presets.cpp]="95 122"
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
   [check-dark-default.cpp]=98
@@ -217,6 +228,15 @@ declare -A fix_of=(
   [check-kinect-tracker.cpp]=106
   [check-kinect-emergency.cpp]=107
   [check-kinect-diag.cpp]=108
+  [check-extent-count.cpp]=110
+  [check-unwatched-lock-free.cpp]=111
+  [check-swap-pacing.cpp]=112
+  [check-osk-keyboard.cpp]=114
+  [check-guide-quick.cpp]=115
+  [check-swap-pacing.cpp]=116
+  [check-nui-hud-check.cpp]=118
+  [check-osk-modes.cpp]="114 114b"
+  [check-file-sector.cpp]=121
   [check-dlc-remove.cpp]=109
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os

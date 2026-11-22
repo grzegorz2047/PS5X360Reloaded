@@ -1,0 +1,223 @@
+diff --git a/include/xbox360ps5/guide_quick.hpp b/include/xbox360ps5/guide_quick.hpp
+new file mode 100644
+index 0000000..31b76fd
+--- /dev/null
++++ b/include/xbox360ps5/guide_quick.hpp
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: MIT
++// Fix 115 (issues #33 and #34): the in-game guide's quick actions.
++//  - "Restart game" on the guide's first page: this game again from its start, as the System
++//    list's "Restart this game with logs for a bug report" (fix 93d) does, but without the logs.
++//    Both go through one helper in canary_game_main.cpp; this says which bug_report value the
++//    restart sets (none for the plain one).
++//  - "Game volume" changed in the guide is kept for this game (its own options), always: until
++//    now it was kept for every game unless the game already had a value of its own or a preset.
++//    Every other option keeps that rule.
++//  - "Mute game sound" on the guide's first page: the Sound option ("mute"), switched at once.
++#ifndef XBOX360PS5_GUIDE_QUICK_HPP_
++#define XBOX360PS5_GUIDE_QUICK_HPP_
++
++#include <string_view>
++
++namespace xbox360ps5::guide_quick {
++
++// Where a value the guide changes is kept.
++enum class Keep { game, general };
++
++// The options the guide keeps for the running game even when it has no value of its own yet.
++inline bool KeptForGame(std::string_view key) { return key == "volume"; }
++
++// own: the game already has its own value of this option; preset: its preset sets it;
++// title_known: the running game has a title ID (its own options can be saved).
++inline Keep WhereToKeep(std::string_view key, bool own, bool preset, bool title_known) {
++  if (own || preset) return Keep::game;  // the rule from before (where the value came from)
++  if (title_known && KeptForGame(key)) return Keep::game;
++  return Keep::general;
++}
++
++// What a restart from the guide writes before it restarts: the bug_report value of this game
++// (the general one for a game without a title ID), or nothing for the plain restart.
++struct BugReportFlags {
++  bool game = false;
++  bool general = false;
++};
++inline BugReportFlags RestartFlags(bool with_logs, bool title_known) {
++  BugReportFlags flags;
++  if (!with_logs) return flags;
++  (title_known ? flags.game : flags.general) = true;
++  return flags;
++}
++
++// The quick mute row's value (the English key): "On" while the game is muted. The row is the
++// Sound option itself (key "mute", 0 sound on, 1 muted), so a press switches it as the option's
++// row on the settings page does, and it is kept by the same rule.
++inline const char* MuteRowValue(int mute) { return mute ? "On" : "Off"; }
++
++}  // namespace xbox360ps5::guide_quick
++
++#endif  // XBOX360PS5_GUIDE_QUICK_HPP_
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index d01f6f3..bee3d78 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -167,6 +167,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/kernel/util/object_table.h"
+ #include "xenia/kernel/xam/xam_state.h"
+ #include "xbox360ps5/global_lock_spin.hpp"  // fix 55: the summary line
++#include "xbox360ps5/guide_quick.hpp"  // fix 115: the guide's quick actions
+ #include "third_party/imgui/imgui.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -505,7 +506,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+ // The emulator's guide over a running game, after the Xbox 360's: a light
+ // panel that unfolds from the middle of the screen, a page of actions and a page
+ // of settings. The loop that reads the pad drives it; the dialog only draws.
+-enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network,
++enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network, restart_game,  // fix 115
+                          bug_report_restart };  // fix 93d
+ struct GuideItem {
+   GuideAction action;
+@@ -530,11 +531,22 @@ struct GuideState {
+ };
+ constexpr const char* kGuidePages[] = {"Game", "Settings"};
+ constexpr int kGuideRows = 6;  // Rows of the settings page on screen at once.
++// Fix 115: rows of the first page on screen at once (the panel holds seven and a half); with
++// "Restart game" and "Mute game sound" it has eight when BACK and the texture capture show too.
++constexpr int kGuideGameRows = 7;
++// Fix 115: "Restart game" is shown over a game, not over the dashboard (set as a game starts).
++bool g_guide_restart = true;
+ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings, int category = -1) {
+   if (page == 0) {
+     std::vector<GuideItem> items = {{GuideAction::resume, Tr("Resume game"), ""},
+                                     {GuideAction::library, Tr("Go to the library (the game stays open)"), ""},
+                                     {GuideAction::shelf, Tr("Close the game and return to the menu"), ""}};
++    // Fix 115 (#33): this game again from its start, without the logs for a bug report.
++    if (g_guide_restart) items.push_back({GuideAction::restart_game, Tr("Restart game"), ""});
++    // Fix 115 (#34): the Sound option as a quick switch ("On" while the game is muted).
++    for (const auto& option : xbox360ps5::Options())
++      if (std::strcmp(option.key, "mute") == 0)
++        items.push_back({GuideAction::option, Tr("Mute game sound"), Tr(xbox360ps5::guide_quick::MuteRowValue(settings.mute)), &option});
+     if (settings.touchpad_menu) items.push_back({GuideAction::back_button, Tr("Press BACK in game"), ""});
+     if (xbox360ps5::TextureCaptureArmed())
+       items.push_back({GuideAction::capture, Tr("Capture textures (diagnostics)"), ""});
+@@ -810,9 +822,11 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const bool button = !items.empty() && items.back().apart;
+     const int listed = int(items.size()) - (button ? 1 : 0);
+     // The settings page is longer than the panel: it scrolls with the focus.
+-    const int first_row = state_.page == 0 ? 0
++    // Fix 115: the first page too, past kGuideGameRows rows.
++    const int first_row = state_.page == 0
++        ? std::clamp(state_.row - kGuideGameRows / 2, 0, std::max(0, listed - kGuideGameRows))
+         : std::clamp(state_.row - kGuideRows / 2, 0, std::max(0, listed - kGuideRows));
+-    const int last_row = state_.page == 0 ? listed : std::min(listed, first_row + kGuideRows);
++    const int last_row = state_.page == 0 ? std::min(listed, first_row + kGuideGameRows) : std::min(listed, first_row + kGuideRows);
+     if (state_.page == 1) {
+       char position[24];
+       std::snprintf(position, sizeof(position), "%d / %d", state_.row + 1, int(items.size()));
+@@ -3011,6 +3025,21 @@ int main(int argc, char** argv) {
+         std::error_code reached_error;
+         std::filesystem::remove(storage / "start-check.txt", reached_error);
+       };
++      // Fix 33: the game that runs now, from its start, after this process: after a title switch
++      // its launch data written back, otherwise launch-once.txt. Fix 115: defined before the launch
++      // loop, so the guide's restarts (fix 93d's, "Restart game") start the same game too.
++      const auto restart_into_game = [&] {
++        if (switched) {
++          xbox360ps5::switch_title::SetRestartGuard(storage / "switch-restart.txt", settings_title);
++          if (!xbox360ps5::switch_title::RestorePending(
++                  std::filesystem::path(std::string(xe::kernel::xam::kXamModuleLoaderDataFileName)),
++                  switch_pending))
++            XELOGW("Title switch: launch data not written back; the restart opens the launcher");
++        } else {
++          std::ofstream(storage / "launch-once.txt", std::ios::trunc)
++              << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
++        }
++      };
+       while (!launched && !restart && !context.HasQuitFromUIThread()) {
+         xbox360ps5::LauncherDialog* dialog = nullptr;
+         if (game.empty()) {
+@@ -3111,18 +3140,6 @@ int main(int argc, char** argv) {
+         // would have been lost). Its start options already are its own (see above).
+         const bool may_restart =
+             xbox360ps5::switch_title::MayRestart(switched, switch_restarted, settings_title);
+-        const auto restart_into_game = [&] {
+-          if (switched) {
+-            xbox360ps5::switch_title::SetRestartGuard(storage / "switch-restart.txt", settings_title);
+-            if (!xbox360ps5::switch_title::RestorePending(
+-                    std::filesystem::path(std::string(xe::kernel::xam::kXamModuleLoaderDataFileName)),
+-                    switch_pending))
+-              XELOGW("Title switch: launch data not written back; the restart opens the launcher");
+-          } else {
+-            std::ofstream(storage / "launch-once.txt", std::ios::trunc)
+-                << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
+-          }
+-        };
+         if (switched) {
+           XELOGW("Title switch: {} uses the options of {}", game.string(),
+                  settings_title.empty() ? std::string("no identified title") : settings_title);
+@@ -3281,6 +3298,26 @@ int main(int argc, char** argv) {
+         ApplyPicture(settings, emulator.graphics_system()->presenter());
+         bool trigger_was = true, swallow = false, quit = false;
+         bool restart_same_game = false;  // fix 93d: the guide restarts this game with logs for a bug report
++        g_guide_restart = !dashboard;  // fix 115
++        // Fix 115: this game again from its start, from the guide: with logs for a bug report (fix
++        // 93d, System's button) or without them ("Restart game", #33). Only the restart with logs
++        // sets a bug_report value (guide_quick.hpp); then the game that runs now (restart_into_game:
++        // after a title switch its launch data again), "Restarting the game..." and fix 93i's way out.
++        const auto restart_this_game = [&](bool with_logs) {
++          const auto flags = xbox360ps5::guide_quick::RestartFlags(with_logs, !settings_title.empty());
++          if (flags.game) {
++            overrides["bug_report"] = 1;
++            xbox360ps5::SaveGameOverrides(settings_title, overrides);
++          }
++          if (flags.general) {
++            global.bug_report = 1;
++            global.Save();
++          }
++          restart_into_game();
++          XELOGW("Guide: restarting {}{}", game_name, with_logs ? " with logs for a bug report" : "");
++          restart_same_game = true;
++          restart = true;
++        };
+         // The library over the running game ("Go to the library (the game stays open)" in the guide).
+         bool library_open = false, close_library = false, create_seen = false;
+         XELOGW("Controller: asked for the system's buttons (Create as BACK), answer {:08X}", unsigned(ps5x360_pad_privilege_answer));
+@@ -3516,7 +3553,10 @@ int main(int argc, char** argv) {
+                   int& value = settings.*option.field;
+                   value = (value + step + count) % count;
+                   // Kept where the value came from: this game's own options, or the general ones.
+-                  if (overrides.count(option.key) || xbox360ps5::GamePreset(settings_title).count(option.key)) {
++                  // Fix 115 (#34): Game volume is always this game's (guide_quick.hpp).
++                  if (xbox360ps5::guide_quick::WhereToKeep(option.key, overrides.count(option.key) != 0,
++                                                           xbox360ps5::GamePreset(settings_title).count(option.key) != 0,
++                                                           !settings_title.empty()) == xbox360ps5::guide_quick::Keep::game) {
+                     overrides[option.key] = value;
+                     xbox360ps5::SaveGameOverrides(settings_title, overrides);
+                   } else {
+@@ -3545,18 +3585,14 @@ int main(int argc, char** argv) {
+                   // again from its start, as a launcher restart into its options does.
+                   changed = false;
+                   if (!(pressed & 0x4000)) break;
+-                  if (!settings_title.empty()) {
+-                    overrides["bug_report"] = 1;
+-                    xbox360ps5::SaveGameOverrides(settings_title, overrides);
+-                  } else {
+-                    global.bug_report = 1;
+-                    global.Save();
+-                  }
+-                  std::ofstream(storage / "launch-once.txt", std::ios::trunc)
+-                      << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
+-                  XELOGW("Guide: restarting {} with logs for a bug report", game_name);
+-                  restart_same_game = true;
+-                  restart = true;
++                  restart_this_game(true);  // fix 115: shared with "Restart game"
++                  break;
++                case GuideAction::restart_game:
++                  // Fix 115 (#33): Cross only, as the restart with logs; this game from its start
++                  // without them.
++                  changed = false;
++                  if (!(pressed & 0x4000)) break;
++                  restart_this_game(false);
+                   break;
+                 case GuideAction::network: {
+                   // Fix 22: Offline, System Link, Online, switched on a thread of its own.

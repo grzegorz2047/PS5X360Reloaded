@@ -10,6 +10,7 @@
 //  (b) memory_boost may be set per game and switches the GPU diagnostics' memory paths
 //      (gpu_diag::enabled), presets sit below the player's own choices for the game;
 //  (c) fix 87 is in the tree: without it Modern Warfare 2 is slower with the preset than without.
+// Fix 122 adds The Sims 3 (454108E2) with readback Fast ({"readback", 1}): six rows.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -68,7 +69,9 @@ void CheckTree() {
   Expect(value("454108D4") == R"({"released_memory", 1}, {"readback", 2}, {"occlusion", 2})",
          "Left 4 Dead 2's row as it was");
   Expect(value("45410950") == R"({"memexport", 1})", "Battlefield 3's row as it was");
-  Expect(rows.size() == 5, "five built-in rows (" + std::to_string(rows.size()) + ")");
+  Expect(value("454108E2") == R"({"readback", 1})",
+         "The Sims 3 is recommended readback Fast alone, fix 122 (" + value("454108E2") + ")");
+  Expect(rows.size() == 6, "six built-in rows (" + std::to_string(rows.size()) + ")");
 
   const std::regex option(R"re(\{"memory_boost", &S::memory_boost, (\d+), W::(\w+), (\d+), (true|false),)re");
   std::smatch m;

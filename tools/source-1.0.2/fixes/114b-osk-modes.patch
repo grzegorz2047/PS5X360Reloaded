@@ -1,0 +1,288 @@
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h b/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h
+index b9e4e65..6550934 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h
+@@ -63,9 +63,31 @@ inline void WriteBE(void* buffer, size_t capacity, std::u16string_view text) {
+ // Fix 114: the on-screen keyboard. The game's VKBD_* flags (xbox.h of the Xbox 360 XDK) that
+ // change how it opens; the others (the Latin/e-mail/gamertag/... layouts) keep the full keyboard.
+ namespace flags {
+-constexpr uint32_t kPhone = 0x00000008, kIpAddress = 0x00000010, kNumeric = 0x00000020,
+-                   kPassword = 0x00000080, kRussian = 0x00008000, kSelectOk = 0x10000000,
+-                   kHighlightText = 0x20000000;
++constexpr uint32_t kEmail = 0x00000002, kGamertag = 0x00000004, kPhone = 0x00000008,
++                   kIpAddress = 0x00000010, kNumeric = 0x00000020, kAlphabet = 0x00000040,
++                   kPassword = 0x00000080, kSubscription = 0x00000100, kRussian = 0x00008000,
++                   kSelectOk = 0x10000000, kHighlightText = 0x20000000;
++// Fix 114b: the modes that limit what may be typed (The Sims 3's file name is gamertag |
++// alphabet, 0x44: letters, digits and spaces; it refuses anything else, and its font has no
++// accented letters). Several together allow what any of them allows.
++constexpr uint32_t kLimiting = kEmail | kGamertag | kPhone | kIpAddress | kNumeric | kAlphabet |
++                               kSubscription;
++}
++// Fix 114b: whether a mode (the game's flags & flags::kLimiting; 0 = any character) allows c.
++inline bool AllowedBy(uint32_t limit, char16_t c) {
++  limit &= flags::kLimiting;
++  if (!limit) return true;
++  const bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
++  const bool digit = c >= '0' && c <= '9';
++  const auto in = [c](std::u16string_view set) { return set.find(c) != std::u16string_view::npos; };
++  if ((limit & flags::kEmail) && (letter || digit || in(u"@.-_+"))) return true;
++  if ((limit & flags::kGamertag) && (letter || digit || c == ' ')) return true;
++  if ((limit & flags::kPhone) && (digit || in(u"+-()*# "))) return true;
++  if ((limit & flags::kIpAddress) && (digit || c == '.')) return true;
++  if ((limit & flags::kNumeric) && digit) return true;
++  if ((limit & flags::kAlphabet) && (letter || c == ' ')) return true;
++  if ((limit & flags::kSubscription) && (letter || digit || c == '-')) return true;
++  return false;
+ }
+ // The buttons as PadSample carries them (ScePad's layout); L2 and R2 are also read from the
+ // triggers' travel.
+@@ -165,9 +187,11 @@ struct Options {
+   bool select_done = false;  // Done selected first
+   bool highlight = false;    // the default text is selected: typing replaces it
+   Page page = Page::letters;
++  uint32_t limit = 0;        // fix 114b: the game's limiting modes (AllowedBy); 0 = any
+ };
+ inline Options OptionsFromFlags(uint32_t game_flags) {
+   Options options;
++  options.limit = game_flags & flags::kLimiting;
+   options.password = game_flags & flags::kPassword;
+   options.select_done = game_flags & flags::kSelectOk;
+   options.highlight = game_flags & flags::kHighlightText;
+@@ -180,8 +204,9 @@ class Editor {
+   Editor(std::u16string text, size_t capacity, Options options = {})
+       : capacity_(capacity), text_(Fit(text, capacity)), cursor_(text_.size()),
+         page_(options.page), password_(options.password),
+-        highlighted_(options.highlight && !text_.empty()) {
++        highlighted_(options.highlight && !text_.empty()), limit_(options.limit) {
+     if (options.select_done) { row_ = kRows - 1; column_ = 8; }
++    if (!Usable(page_)) page_ = Page::letters;
+   }
+   const std::u16string& text() const { return text_; }
+   size_t cursor() const { return cursor_; }
+@@ -197,6 +222,38 @@ class Editor {
+   // How many inserts the length limit refused (the view flashes the counter on a change).
+   uint32_t refused() const { return refused_; }
+   bool upper() const { return shift_ != Shift::off; }
++  uint32_t limit() const { return limit_; }
++  // Fix 114b: what the game's mode allows; a page with no allowed key is skipped, a key the
++  // mode does not allow is shown dimmed and types nothing.
++  bool Allowed(char16_t c) const { return AllowedBy(limit_, c); }
++  bool Enabled(int row, int column) const {
++    const char16_t c = Key(row, column);
++    return c && Allowed(c);
++  }
++  // A page other than the letters counts only with an allowed key the letters page lacks (the
++  // Russian page's . and - do not make it worth a visit in an e-mail field).
++  bool Usable(Page page) const {
++    const auto letters = PageKeys(Page::letters);
++    for (char16_t c : PageKeys(page))
++      if ((Allowed(c) || Allowed(Upper(c))) &&
++          (page == Page::letters || letters.find(c) == std::u16string_view::npos))
++        return true;
++    return false;
++  }
++  // Whether R2 / the page key leads anywhere else.
++  bool CanChangePage() const {
++    for (int step = 1; step < kPages; ++step)
++      if (Usable(Page((int(page_) + step) % kPages))) return true;
++    return false;
++  }
++  // Whether Shift changes any allowed key (not in a digits-only mode).
++  bool CanShift() const {
++    for (int page = 0; page < kPages; ++page)
++      if (Usable(Page(page)))
++        for (char16_t c : PageKeys(Page(page)))
++          if (Upper(c) != c && Allowed(Upper(c))) return true;
++    return false;
++  }
+ 
+   // The character a key types now (with Shift on the letter pages).
+   char16_t Key(int row, int column) const {
+@@ -214,6 +271,8 @@ class Editor {
+   bool Insert(std::u16string_view value) {
+     if (result_ != Result::pending) return false;
+     const auto valid = Fit(value, value.size() + 1);
++    for (char16_t c : valid)
++      if (!Allowed(c)) return false;  // fix 114b: not in the game's mode
+     if (highlighted_) { text_.clear(); cursor_ = 0; highlighted_ = false; }
+     if (valid.size() + text_.size() > max_length()) { ++refused_; return false; }
+     text_.insert(cursor_, valid); cursor_ += valid.size(); return true;
+@@ -236,9 +295,15 @@ class Editor {
+     const size_t old = cursor_; Left(); text_.erase(cursor_, old - cursor_);
+   }
+   void CycleShift() {
++    if (!CanShift()) return;  // fix 114b: nothing to capitalise (digits only)
+     shift_ = shift_ == Shift::off ? Shift::once : shift_ == Shift::once ? Shift::lock : Shift::off;
+   }
+-  void NextPage() { page_ = Page((int(page_) + 1) % kPages); }
++  void NextPage() {
++    for (int step = 1; step < kPages; ++step) {
++      const Page next = Page((int(page_) + step) % kPages);
++      if (Usable(next)) { page_ = next; return; }
++    }
++  }
+   // Moves the selection; it wraps at the edges. In the last row the column is where the
+   // selected key starts, and left/right go key by key.
+   void Move(int rows, int columns) {
+@@ -302,6 +367,7 @@ class Editor {
+   Page page_ = Page::letters;
+   Shift shift_ = Shift::off;
+   bool password_ = false, highlighted_ = false;
++  uint32_t limit_ = 0;
+   uint32_t refused_ = 0;
+   Result result_ = Result::pending;
+ };
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc
+index 2b8b012..e343ecb 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc
+@@ -3,6 +3,7 @@
+ #include <cfloat>
+ #include <cmath>
+ #include <cstdio>
++#include <string_view>
+ #include "xenia/base/string.h"
+ #include "third_party/imgui/imgui.h"
+ 
+@@ -19,6 +20,37 @@ const char* NextPageName(keyboard::Page page) {
+   return "abc";
+ }
+ 
++namespace {
++// The family of a font: its source's name before ", <size>px" (ImFontAtlas names each source so).
++std::string_view Family(const ImFont* font) {
++  const std::string_view name = font ? font->GetDebugName() : "";
++  return name.substr(0, name.find(','));
++}
++bool Covers(ImFont* font, const char* text) {
++  if (!text) return true;
++  for (char16_t c : xe::to_utf16(text))
++    if (c >= 0x20 && !font->FindGlyphNoFallback(ImWchar(c))) return false;
++  return true;
++}
++}  // namespace
++
++ImFont* KeyboardFont(float size, const char* text) {
++  // Fix 114b: the interface's own family (the launcher's FontDefault, which covers the 16
++  // languages), the loaded size nearest; never another family that happens to be loaded at that
++  // size: the core's monospace font has no Polish letters, and the legend read "Usu?". Within the
++  // family, a size that lacks one of the text's letters gives way to the default font.
++  ImGuiIO& io = ImGui::GetIO();
++  ImFont* base = io.FontDefault ? io.FontDefault : ImGui::GetFont();
++  ImFont* best = base;
++  float distance = FLT_MAX;
++  for (ImFont* font : io.Fonts->Fonts) {
++    if (Family(font) != Family(base)) continue;
++    const float d = std::fabs(font->FontSize - size);
++    if (d < distance) { distance = d; best = font; }
++  }
++  return Covers(best, text) ? best : base;
++}
++
+ namespace {
+ // Fix 114: the launcher's dark colours and the guide's raised keys (launcher.cpp's Canvas).
+ constexpr uint32_t kInk = 0x0a0c11, kSheet = 0x12161d, kSurface = 0x1a1f28,
+@@ -36,16 +68,8 @@ struct Canvas {
+   static ImU32 Color(uint32_t rgb, float alpha = 1.0f) {
+     return IM_COL32(rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, int(alpha * 255.0f));
+   }
+-  // The loaded font nearest the size (the launcher loads its fonts at 1080p sizes).
+-  static ImFont* Font(float size) {
+-    ImFont* best = ImGui::GetFont();
+-    float distance = FLT_MAX;
+-    for (ImFont* font : ImGui::GetIO().Fonts->Fonts) {
+-      const float d = std::fabs(font->FontSize - size);
+-      if (d < distance) { distance = d; best = font; }
+-    }
+-    return best;
+-  }
++  // The launcher loads its fonts at 1080p sizes (fix 114b: of its own family, KeyboardFont).
++  static ImFont* Font(float size, const char* text = nullptr) { return KeyboardFont(size, text); }
+   void Fill(float x, float y, float w, float h, uint32_t rgb, float alpha, float round = 0) const {
+     list->AddRectFilled(At(x, y), At(x + w, y + h), Color(rgb, alpha), round * scale);
+   }
+@@ -53,16 +77,16 @@ struct Canvas {
+     list->AddRect(At(x, y), At(x + w, y + h), Color(rgb, alpha), round * scale, 0, thick * scale);
+   }
+   float Width(const std::string& text, float size) const {
+-    return Font(size)->CalcTextSizeA(size * scale, FLT_MAX, 0, text.c_str()).x / scale;
++    return Font(size, text.c_str())->CalcTextSizeA(size * scale, FLT_MAX, 0, text.c_str()).x / scale;
+   }
+   // align: 0 left, 1 centred on x, 2 right-aligned at x.
+   void Text(const std::string& text, float x, float y, float size, uint32_t rgb, int align = 0) const {
+     if (align) x -= Width(text, size) / (align == 1 ? 2.0f : 1.0f);
+-    list->AddText(Font(size), size * scale, At(x, y), Color(rgb), text.c_str());
++    list->AddText(Font(size, text.c_str()), size * scale, At(x, y), Color(rgb), text.c_str());
+   }
+   float Wrapped(const std::string& text, float x, float y, float size, uint32_t rgb, float width) const {
+     if (text.empty()) return 0;
+-    ImFont* font = Font(size);
++    ImFont* font = Font(size, text.c_str());
+     list->AddText(font, size * scale, At(x, y), Color(rgb), text.c_str(), nullptr, width * scale);
+     return font->CalcTextSizeA(size * scale, FLT_MAX, width * scale, text.c_str()).y / scale;
+   }
+@@ -144,7 +168,7 @@ void DrawControllerKeyboard(const keyboard::Editor& editor,
+     const float sheet_w = 1240, x = (1920 - sheet_w) / 2, inner = sheet_w - 96;
+     const std::string heading = title.empty() ? labels.keyboard : title;
+     const float description_h = description.empty() ? 0.0f :
+-        std::min(Canvas::Font(24)->CalcTextSizeA(24 * scale, FLT_MAX, inner * scale,
++        std::min(Canvas::Font(24, description.c_str())->CalcTextSizeA(24 * scale, FLT_MAX, inner * scale,
+                                                  description.c_str()).y / scale, 120.0f);
+     const float key_h = 78, gap = 12, grid_h = keyboard::kRows * key_h + (keyboard::kRows - 1) * gap;
+     const float sheet_h = 40 + 50 + (description_h ? description_h + 14 : 0) + 18 + 84 + 40 +
+@@ -198,10 +222,16 @@ void DrawControllerKeyboard(const keyboard::Editor& editor,
+       for (int column = 0; column < keyboard::kColumns; ++column) {
+         const float kx = grid_x + column * (key_w + gap), ky = at + row * (key_h + gap);
+         const bool selected = row == editor.row() && column == editor.column();
+-        c.Raised(kx, ky, key_w, key_h, selected ? 0x323b4a : kSurfaceHigh, selected);
++        // Fix 114b: a key the game's mode does not allow is flat and dim.
++        const bool enabled = editor.Enabled(row, column);
++        if (enabled) c.Raised(kx, ky, key_w, key_h, selected ? 0x323b4a : kSurfaceHigh, selected);
++        else {
++          c.Fill(kx, ky, key_w, key_h - 6, kSurface, 0.7f, 12);
++          if (selected) c.Edge(kx - 2, ky - 2, key_w + 4, key_h, kAccent, 0.5f, 14, 2.0f);
++        }
+         const char16_t key = editor.Key(row, column);
+         c.Text(xe::to_utf8(std::u16string(1, key)), kx + key_w / 2, ky + 16, 36,
+-               selected ? kText : kBody, 1);
++               !enabled ? kFaint : selected ? kText : kBody, 1);
+       }
+     }
+     const float action_y = at + keyboard::kCharacterRows * (key_h + gap);
+@@ -211,6 +241,13 @@ void DrawControllerKeyboard(const keyboard::Editor& editor,
+       const float kw = key.span * key_w + (key.span - 1) * gap;
+       const bool selected = editor.row() == keyboard::kRows - 1 && key.column == selected_action;
+       uint32_t face = selected ? 0x323b4a : kSurfaceHigh, ink = selected ? kText : kBody;
++      // Fix 114b: Shift with nothing to capitalise, the page key with no other page, Space where
++      // the mode allows no space: dim.
++      const bool enabled = key.action == keyboard::Action::shift ? editor.CanShift()
++                         : key.action == keyboard::Action::page  ? editor.CanChangePage()
++                         : key.action == keyboard::Action::space ? editor.Allowed(u' ')
++                                                                  : true;
++      if (!enabled) { face = kSurface; ink = kFaint; }
+       std::string label;
+       switch (key.action) {
+         case keyboard::Action::shift:
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h
+index addbdc4..c27df78 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h
+@@ -4,6 +4,7 @@
+ #include <string>
+ #include "xenia/ui/controller_keyboard.h"
+ struct ImGuiIO;
++struct ImFont;
+ namespace xe::ui {
+ // Fix 114: the keyboard's own words, in the interface's language (xam_ui.cc asks the title's
+ // translation, CoreUiText, for each).
+@@ -13,6 +14,9 @@ struct KeyboardLabels {
+               other = "Other characters", cursor = "Move cursor",
+               full = "Maximum length reached";
+ };
++// Fix 114b: the font the keyboard draws a text with: the interface's own family (ImGui's
++// FontDefault), the loaded size nearest to size, and one with every glyph of text when given.
++ImFont* KeyboardFont(float size, const char* text = nullptr);
+ // The page key shows the page it goes to.
+ const char* NextPageName(controller_keyboard::Page page);
+ // Actual grid renderer, also exercised by the offline ImGui frame test. time: seconds, for the
