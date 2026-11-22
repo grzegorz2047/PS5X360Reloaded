@@ -1,0 +1,114 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 0c80de0..9f7f828 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -3292,41 +3292,37 @@ void DrawGroupFolder(const Launcher::Canvas& c, const std::vector<std::unique_pt
+   for (const int cover : covers)
+     if (cover >= 0 && size_t(cover) < textures.size()) shown.push_back(cover);
+   const size_t count = std::min<size_t>(shown.size(), 4);
+-  const float u0 = 0.10f, u1 = 0.90f, v0 = 0.22f, v1 = 0.80f, gap = 0.025f;
+-  for (size_t i = 0; i < count; ++i) {
+-    float a0 = u0, a1 = u1, b0 = v0, b1 = v1;
+-    if (count == 1) {
+-      a0 = 0.28f; a1 = 0.72f;
+-    } else if (count == 2) {
+-      const float half = (u0 + u1) / 2;
+-      a0 = i == 0 ? u0 : half + gap / 2; a1 = i == 0 ? half - gap / 2 : u1;
+-    } else {
+-      const float hu = (u0 + u1) / 2, hv = (v0 + v1) / 2;
+-      a0 = i % 2 == 0 ? u0 : hu + gap / 2; a1 = i % 2 == 0 ? hu - gap / 2 : u1;
+-      b0 = i < 2 ? v0 : hv + gap / 2; b1 = i < 2 ? hv - gap / 2 : v1;
+-    }
+-    const Quad cell = Part(q, a0, b0, a1, b1);
+-    fill(Part(q, a0 + 0.012f, b0 + 0.012f, a1 + 0.012f, b1 + 0.012f), 0x000000, 0.30f);  // a little shadow
++  // Fix 112c: each cover in its own proportions (its front's width over height, from the texture;
++  // 0.70 when unknown), fitted into a smaller slot with yellow margins (library_groups::MosaicCells).
++  const auto length = [](ImVec2 a, ImVec2 b) { return std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)); };
++  const float folder_w = (length(q.tl, q.tr) + length(q.bl, q.br)) / 2, folder_h = (length(q.tl, q.bl) + length(q.tr, q.br)) / 2;
++  std::vector<float> aspects;
++  for (size_t i = 0; i < count; ++i) aspects.push_back(size_t(shown[i]) < arts.size() ? arts[size_t(shown[i])].aspect : 0.0f);
++  const auto cells = library_groups::MosaicCells(aspects, folder_h > 0 ? folder_w / folder_h : 0.0f);
++  for (size_t i = 0; i < cells.size(); ++i) {
++    const auto& m = cells[i];
++    const Quad cell = Part(q, m.u0, m.v0, m.u1, m.v1);
++    fill(Part(q, m.u0 + 0.010f, m.v0 + 0.008f, m.u1 + 0.010f, m.v1 + 0.008f), 0x000000, 0.30f);  // a little shadow
+     const CoverArt art = size_t(shown[i]) < arts.size() ? arts[size_t(shown[i])] : CoverArt{};
+     CoverImage(list, reinterpret_cast<ImTextureID>(textures[size_t(shown[i])].get()), cell, art.front_u0, 0, art.front_u1, 1,
+                shade(0xffffff));
+     list->AddQuad(cell.tl, cell.tr, cell.br, cell.bl, shade(0xffffff, 0.55f), 1.0f * c.scale);
+   }
+-  if (count == 3) fill(Part(q, (u0 + u1) / 2 + gap / 2, (v0 + v1) / 2 + gap / 2, u1, v1), kFolderBack, 0.55f);
+   if (!count) {
+     // No cover yet: a second sheet peeking out of the folder.
+     fill(Part(q, 0.14f, 0.08f, 0.86f, 0.30f), 0xf4efe2);
+     fill(Part(q, 0.0f, 0.24f, 1.0f, 1.0f), kFolderFront);
+   }
+   // The name at the foot, left of the badge; the badge with the number of games at the right.
+-  const ImVec2 foot_l = Part(q, 0.07f, 0.84f, 0.70f, 0.97f).tl, foot_r = Part(q, 0.07f, 0.84f, 0.70f, 0.97f).br;
++  constexpr auto label = library_groups::kFolderLabel, badge = library_groups::kFolderBadge;
++  const ImVec2 foot_l = Part(q, label.u0, label.v0, label.u1, label.v1).tl, foot_r = Part(q, label.u0, label.v0, label.u1, label.v1).br;
+   const float height = std::max(8.0f, (foot_r.y - foot_l.y));
+   const float size = std::clamp(height * 0.80f, 8.0f, 30.0f * c.scale);
+   list->PushClipRect(foot_l, foot_r, true);
+   list->AddText(c.Font(std::max(16.0f, size / c.scale)), size, ImVec2(foot_l.x, foot_l.y + (height - size) * 0.35f),
+                 shade(kFolderInk), name.c_str());
+   list->PopClipRect();
+-  const Quad badge_quad = Part(q, 0.74f, 0.82f, 0.96f, 0.98f);
++  const Quad badge_quad = Part(q, badge.u0, badge.v0, badge.u1, badge.v1);
+   const ImVec2 centre = Mix(Mix(badge_quad.tl, badge_quad.tr, 0.5f), Mix(badge_quad.bl, badge_quad.br, 0.5f), 0.5f);
+   const float radius = std::max(6.0f, std::min(badge_quad.br.x - badge_quad.bl.x, badge_quad.bl.y - badge_quad.tl.y) * 0.55f);
+   list->AddCircleFilled(centre, radius, shade(nxe ? 0x4b9a16 : 0x1d2a14), 28);
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+index cd8b41a..600b45c 100644
+--- a/port/library_groups.hpp
++++ b/port/library_groups.hpp
+@@ -187,6 +187,49 @@ inline const char* CountKey(size_t n) {
+   return "%d games";
+ }
+ 
++// Fix 112c: where a group's folder tile puts its games' covers. Coordinates are fractions of the
++// folder's width (u) and height (v), the folder's front starting at v = 0.14. The covers stay in
++// the mosaic's area, clear of the folder's edges, its name at the foot and the badge.
++struct Cell {
++  float u0, v0, u1, v1;
++};
++inline constexpr Cell kMosaicArea{0.10f, 0.18f, 0.90f, 0.80f};   // The covers stay inside.
++inline constexpr Cell kFolderLabel{0.07f, 0.84f, 0.70f, 0.97f};  // The folder's name.
++inline constexpr Cell kFolderBadge{0.74f, 0.82f, 0.96f, 0.98f};  // The number of games.
++inline constexpr float kDefaultCoverAspect = 0.70f;              // An Xbox 360 case's front, width over height.
++
++// Up to four covers' places: one in the middle, two side by side, three or four in a 2x2 square,
++// centred in the mosaic's area with yellow margins around them (a group of 5 or more shows its
++// first four). Each cover keeps its own proportions: `aspects` are the covers' widths over their
++// heights as drawn (0 or a wild value: kDefaultCoverAspect); `folder_aspect` is the folder's width
++// over its height on the screen. A cover is fitted into its slot (never stretched) and centred.
++inline std::vector<Cell> MosaicCells(const std::vector<float>& aspects, float folder_aspect) {
++  const size_t count = std::min<size_t>(aspects.size(), 4);
++  std::vector<Cell> cells;
++  if (!count) return cells;
++  if (!(folder_aspect > 0.05f && folder_aspect < 20.0f)) folder_aspect = kDefaultCoverAspect;
++  // Each slot's size, and the gaps between slots.
++  float slot_w = 0.42f, slot_h = 0.46f, gap_u = 0.0f, gap_v = 0.0f;
++  size_t columns = 1, rows = 1;
++  if (count == 2) { slot_w = 0.30f; slot_h = 0.40f; gap_u = 0.04f; columns = 2; }
++  if (count >= 3) { slot_w = 0.28f; slot_h = 0.27f; gap_u = 0.04f; gap_v = 0.03f; columns = 2; rows = 2; }
++  const float total_w = slot_w * float(columns) + gap_u * float(columns - 1);
++  const float total_h = slot_h * float(rows) + gap_v * float(rows - 1);
++  const float left = (kMosaicArea.u0 + kMosaicArea.u1 - total_w) / 2;
++  const float top = (kMosaicArea.v0 + kMosaicArea.v1 - total_h) / 2;
++  for (size_t i = 0; i < count; ++i) {
++    float aspect = aspects[i];
++    if (!(aspect > 0.05f && aspect < 20.0f)) aspect = kDefaultCoverAspect;
++    const float su = left + float(i % columns) * (slot_w + gap_u), sv = top + float(i / columns) * (slot_h + gap_v);
++    // In the slot's own proportions on the screen (slot_w * folder_aspect wide for slot_h high).
++    float w = slot_w, h = slot_w * folder_aspect / aspect;
++    if (h > slot_h) { h = slot_h; w = slot_h * aspect / folder_aspect; }
++    const float u0 = su + (slot_w - w) / 2, v0 = sv + (slot_h - h) / 2;
++    cells.push_back({u0, v0, u0 + w, v0 + h});
++  }
++  return cells;
++}
++
+ // The group to stay in when the library is built again: `key`, else the nearest of its parent
+ // folders that is still a group, else the library ("").
+ inline std::string StillThere(const Layout& layout, std::string key) {
