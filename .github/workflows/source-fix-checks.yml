@@ -140,6 +140,7 @@ on:
       - 'tools/check-swap-pacing.cpp'
       - 'tools/check-dynamic-constants.cpp'
       - 'tools/check-content-checked.cpp'
+      - 'tools/check-sample-ticket.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

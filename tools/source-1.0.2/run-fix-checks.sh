@@ -137,6 +137,7 @@ checks=(
   check-dynamic-constants.cpp      # fix 120
   check-file-sector.cpp            # fix 121
   check-content-checked.cpp        # fix 125
+  check-sample-ticket.cpp          # fix 126
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -248,6 +249,7 @@ declare -A fix_of=(
   [check-dynamic-constants.cpp]=120
   [check-file-sector.cpp]=121
   [check-content-checked.cpp]=125
+  [check-sample-ticket.cpp]=126
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
