@@ -108,9 +108,12 @@ void CheckGame() {
   Expect(Has(page, "if (std::strcmp(option.key, \"mute\") == 0)"), "(d) the mute row is the Sound option");
   Expect(Has(main, "bool g_guide_restart = true;") && Has(main, "g_guide_restart = !dashboard;"),
          "(d) no restart over the dashboard");
-  Expect(Has(main, "constexpr int kGuideGameRows = 7;") &&
-             Has(main, "std::clamp(state_.row - kGuideGameRows / 2, 0, std::max(0, listed - kGuideGameRows))") &&
-             Has(main, "std::min(listed, first_row + kGuideGameRows)"),
+  Expect((Has(main, "constexpr int kGuideGameRows = 7;") &&
+              Has(main, "std::clamp(state_.row - kGuideGameRows / 2, 0, std::max(0, listed - kGuideGameRows))") &&
+              Has(main, "std::min(listed, first_row + kGuideGameRows)")) ||
+             // Fix 115c (check-guide-tabs.cpp): both pages scroll the same way below the tab bar.
+             (Has(main, "const int first_row = std::clamp(state_.row - shown_rows / 2, 0, std::max(0, listed - shown_rows));") &&
+              Has(main, "const int last_row = std::min(listed, first_row + shown_rows);")),
          "(d) the first page scrolls past seven rows (the panel holds seven and a half)");
   // (e)
   Expect(Has(main, "measure, capture, network, restart_game,"), "(e) the restart action");

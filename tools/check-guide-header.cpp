@@ -86,7 +86,8 @@ void CheckFit() {
 void CheckGuide() {
   const std::string main = Read("src/canary_game_main.cpp");
   // (a)
-  const std::string header = Between(main, "fade(210, 216, 224), who.c_str());", "// The page that is not open");
+  std::string header = Between(main, "fade(210, 216, 224), who.c_str());", "// The page that is not open");
+  if (header.empty()) header = Between(main, "fade(210, 216, 224), who.c_str());", "// Fix 115c: the pages are tabs");  // fix 115c
   Expect(Has(header, "if (!game_.empty()) {") &&
              Has(header, "large->CalcTextSizeA(36 * scale, 4096.0f, 0.0f, Tr(\"PS5X360Reloaded Guide\")).x") &&
              Has(header, "xbox360ps5::guide_quick::FitText(") && Has(header, "Tr(\"Playing: \") + game_") &&
@@ -96,6 +97,15 @@ void CheckGuide() {
   Expect(!Has(main, "at(page_left + strip + 24, bottom - 44), fade(96, 102, 110), running.c_str()"),
          "(a) no longer faint at the bottom of the list");
   // (b)
+  if (Has(main, "#include \"xbox360ps5/tab_bar.hpp\"")) {
+    // Fix 115c (check-guide-tabs.cpp): L1 and R1 are white pills at the ends of a tab bar along the
+    // panel's top; the legend has neither.
+    const std::string legend = Between(main, "const bool in_category = state_.page == 1 && state_.category >= 0;", "kBuildVersionLabel");
+    Expect(!Has(legend, "Shoulder(") && Has(main, "tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar);"),
+           "(b) fix 115c: L1 and R1 on the tab bar, not in the legend");
+    Expect(!Has(main, "? \"L1 R1\" :"), "(b) no squeezed \"L1 R1\" circle any more");
+    return;
+  }
   const std::string shoulder = Between(main, "static void Shoulder(", "\n  }\n");
   Expect(Has(shoulder, "const float width = size.x + 24 * scale, height = 30 * scale;") &&
              Has(shoulder, "colour, height / 2);") && Has(shoulder, "IM_COL32(255, 255, 255,"),
