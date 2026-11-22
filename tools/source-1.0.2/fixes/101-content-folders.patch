@@ -1,0 +1,265 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h
+@@ -31,6 +31,10 @@ class VirtualFileSystem {
+   void Clear();
+ 
+   Device* RegisterDevice(std::unique_ptr<Device> device);
++  // Xbox360PS5 (fix 101): a device found before those registered earlier, for
++  // a mount under one of theirs (\Device\Harddisk0\Partition1\Content\...
++  // under \Device\Harddisk0 and a game's \Device\Harddisk0\Partition1).
++  Device* RegisterDeviceFirst(std::unique_ptr<Device> device);
+   bool UnregisterDevice(const std::string_view path);
+   // Atomic disc replacement; old entries remain alive until Clear.
+   bool ReplaceDeviceRetainingOld(std::unique_ptr<Device> device);
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+@@ -66,6 +66,11 @@ Device* VirtualFileSystem::RegisterDevice(std::unique_ptr<Device> device) {
+   return devices_.emplace_back(std::move(device)).get();
+ }
+ 
++Device* VirtualFileSystem::RegisterDeviceFirst(std::unique_ptr<Device> device) {
++  auto global_lock = global_critical_region_.Acquire();
++  return devices_.insert(devices_.begin(), std::move(device))->get();
++}
++
+ bool VirtualFileSystem::UnregisterDevice(const std::string_view path) {
+   auto global_lock = global_critical_region_.Acquire();
+   for (auto it = devices_.begin(); it != devices_.end(); ++it) {
+@@ -361,8 +366,17 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry,
+   }
+   if (!entry) {
+     // Create if needed (either new or as a replacement).
+-    entry = CreatePath(
+-        path, !is_directory ? kFileAttributeNormal : kFileAttributeDirectory);
++    // Xbox360PS5 (fix 101): in the parent resolved above. CreatePath walks the
++    // path again from its first part, which is no device for a mount such as
++    // \Device\PS5X360Content4\... ("ResolvePath(Device) failed - device not
++    // found"), and ignores root_entry; the create then failed with
++    // ACCESS_DENIED (Battlefield 3's HD content, 11 times).
++    const uint32_t attributes =
++        !is_directory ? kFileAttributeNormal : kFileAttributeDirectory;
++    entry = parent_entry
++                ? parent_entry->CreateEntry(
++                      xe::utf8::find_name_from_guest_path(path), attributes)
++                : CreatePath(path, attributes);
+     if (!entry) {
+       return X_STATUS_ACCESS_DENIED;
+     }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
+@@ -136,6 +136,17 @@ class ContentManager {
+   std::vector<storage::Skipped> SkippedDrives() const;
+   // The saves root of a device (storage::RootFor).
+   std::filesystem::path DeviceRoot(uint32_t device_id) const;
++  // Xbox360PS5 (fix 101): the guest folder XamContentResolve gives for a
++  // device's packages of one profile, title and content type:
++  // \Device\Harddisk0\Partition1\Content\<xuid>\<title>\<type> for the
++  // internal device, \Device\PS5X360Content<id>\<xuid>\<title>\<type> for
++  // a drive. It is a writable host folder, the one the packages are opened
++  // from (DeviceRoot / PackageRoot), created and mounted ahead of every other
++  // device the first time it is asked for: a game may create the package file
++  // there itself (Battlefield 3's HD content). Empty for a device that is not
++  // there.
++  std::string MountPackageFolder(uint32_t device_id, uint64_t xuid,
++                                 uint32_t title_id, uint32_t content_type);
+ 
+   X_STATUS InstallContentPackage(const ContentPackage* package,
+                                  const std::filesystem::path& installation_path,
+@@ -181,6 +192,10 @@ class ContentManager {
+   mutable std::vector<storage::Device> storage_devices_;
+   mutable std::vector<storage::Skipped> skipped_drives_;
+   void ScanStorageDevicesLocked() const;
++  // Fix 101: the folders MountPackageFolder mounted (each once: a device is
++  // never replaced while a file of it may be open).
++  std::mutex package_folders_mutex_;
++  std::unordered_set<std::string> package_folders_;
+ };
+ 
+ }  // namespace xam
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+@@ -547,6 +547,8 @@ X_RESULT ContentManager::CreateContent(const std::string_view root_name,
+   if (!CreateAndMountPackage(package_path, root_name, data)) {
+     return X_ERROR_ACCESS_DENIED;
+   }
++  XELOGW("Content (fix 101): {} is a new folder {}", root_name,
++         package_path.string());
+ 
+   return X_ERROR_SUCCESS;
+ }
+@@ -574,6 +576,14 @@ X_RESULT ContentManager::OpenContent(const std::string_view root_name,
+ 
+   // Open package.
+   auto package = OpenAndMountPackage(package_path, root_name, root_path);
++  // Xbox360PS5 (fix 101): a folder or a package file (STFS/SVOD), and where.
++  XELOGW("Content (fix 101): {} is {} {}{}", root_name,
++         std::filesystem::is_directory(package_path) ? "the folder"
++                                                     : "the package file",
++         package_path.string(),
++         !package        ? ", not mountable"
++         : root_path.empty() ? ""
++                             : fmt::format(" (from its {})", root_path));
+   if (!package) {
+     return X_ERROR_FILE_NOT_FOUND;
+   }
+@@ -943,6 +953,42 @@ std::vector<storage::Skipped> ContentManager::SkippedDrives() const {
+   return skipped_drives_;
+ }
+ 
++std::string ContentManager::MountPackageFolder(uint32_t device_id,
++                                               uint64_t xuid,
++                                               uint32_t title_id,
++                                               uint32_t content_type) {
++  std::string root;
++  if (device_id == storage::kInternalDeviceId) {
++    root = "\\Device\\Harddisk0\\Partition1\\Content";
++  } else if (storage::FindSlot(device_id) &&
++             storage::Find(StorageDevices(), device_id)) {
++    root = fmt::format("\\Device\\PS5X360Content{}", device_id);
++  } else {
++    return {};
++  }
++  const std::string folder = fmt::format("{}\\{:016X}\\{:08X}\\{:08X}", root,
++                                         xuid, title_id, content_type);
++  std::lock_guard<std::mutex> lock(package_folders_mutex_);
++  if (package_folders_.count(folder)) {
++    return folder;
++  }
++  const std::filesystem::path host =
++      storage::PackageRoot(DeviceRoot(device_id), xuid, title_id, content_type);
++  std::error_code error;
++  std::filesystem::create_directories(host, error);
++  auto device = std::make_unique<vfs::HostPathDevice>(folder, host, false);
++  if (error || !device->Initialize()) {
++    XELOGE("Storage (fix 101): cannot make {} for {} ({})", host.string(),
++           folder, error.message());
++    return {};
++  }
++  kernel_state_->file_system()->RegisterDeviceFirst(std::move(device));
++  package_folders_.insert(folder);
++  XELOGW("Storage (fix 101): {} is {} (device {}), writable", folder,
++         host.string(), device_id);
++  return folder;
++}
++
+ std::filesystem::path ContentManager::DeviceRoot(uint32_t device_id) const {
+   // The hard drive and IDs of no drive slot need no scan (profiles and title
+   // updates are read before any game asks for a drive).
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+@@ -126,8 +126,23 @@ dword_result_t xeXamContentResolve(
+       // Unsupported for now.
+       return X_ERROR_INVALID_PARAMETER;
+     } else {
+-      if (content_data.device_id == static_cast<uint32_t>(DummyDeviceId::HDD)) {
+-        root_device_path = "\\Device\\Harddisk0\\Partition1\\Content\\";
++      if (content_data.device_id != static_cast<uint32_t>(DummyDeviceId::ODD)) {
++        // Xbox360PS5 (fix 101): the internal device and each drive, as a
++        // writable folder that exists and is where the package is opened
++        // from. Battlefield 3 creates its HD content package itself there;
++        // \Device\Harddisk0\Partition1 was not mounted for a disc image
++        // (C000003A, the install asked again at every press), and a drive's
++        // content had no guest path at all.
++        const std::string folder =
++            kernel_state()->content_manager()->MountPackageFolder(
++                content_data.device_id, xuid, kernel_state()->title_id(),
++                static_cast<uint32_t>(content_data.content_type.get()));
++        if (folder.empty()) {
++          return X_ERROR_INVALID_PARAMETER;
++        }
++        string_util::copy_truncating(
++            path_ptr, folder + "\\" + content_data.file_name(), path_size);
++        return X_ERROR_SUCCESS;
+       } else if (content_data.device_id ==
+                  static_cast<uint32_t>(DummyDeviceId::ODD)) {
+         // Or GAME, but D: usually means DVD drive meanwhile GAME always
+@@ -449,6 +464,17 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+     if (license_mask_ptr && XSUCCEEDED(result)) {
+       *license_mask_ptr = content_license;
+     }
++    // Xbox360PS5 (fix 101): what each content request got (Battlefield 3
++    // installs its HD content itself, restarts, and found its content root
++    // empty).
++    XELOGW("Content (fix 101): {} {} for device {}, type {:08X}, file \"{}\" "
++           "(flags {:X}): result {:08X}",
++           disposition == kDispositionState::Create  ? "create"
++           : disposition == kDispositionState::Open ? "open"
++                                                    : "refuse",
++           root_name, uint32_t(content_data.device_id),
++           uint32_t(content_data.content_type.get()), content_data.file_name(),
++           uint32_t(flags & 0xF), uint32_t(result));
+ 
+     extended_error = X_HRESULT_FROM_WIN32(result);
+     length = static_cast<uint32_t>(disposition);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+@@ -56,13 +56,17 @@ static const DummyDeviceInfo* dummy_device_infos_[] = {
+ #undef ONE_GB
+ 
+ // Xbox360PS5 (fix 27): one device per drive slot (storage::kSlots), with the
+-// slot's fixed ID and name. Shown to the game as memory units, the type of an
+-// Xbox 360's USB storage; sizes come from the drive itself.
++// slot's fixed ID and name; sizes come from the drive itself. Fix 101: the
++// PS5's extended storage is shown as a hard drive, USB drives as memory units
++// (an Xbox 360's USB storage). Battlefield 3 installs its HD content on a hard
++// drive only ("Device Not Allowed" for ext1 as a memory unit).
+ template <size_t... I>
+ static constexpr std::array<DummyDeviceInfo, sizeof...(I)> MakeDriveInfos(
+     std::index_sequence<I...>) {
+   return {DummyDeviceInfo{
+-      static_cast<DummyDeviceId>(storage::kSlots[I].device_id), DeviceType::MU,
++      static_cast<DummyDeviceId>(storage::kSlots[I].device_id),
++      storage::kSlots[I].kind == storage::Kind::kExtended ? DeviceType::HDD
++                                                          : DeviceType::MU,
+       0, 0, storage::kSlots[I].guest_name}...};
+ }
+ static constexpr auto drive_device_infos_ =
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/kernel/xam/xam_ui.h"
+ 
+ #include <algorithm>
++#include <chrono>  // fix 101
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/title_switch.hpp"
+ #include "xbox360ps5/crash_report.hpp"
+@@ -830,7 +831,31 @@ dword_result_t XamShowDeviceSelectorUI_entry(
+       cvars::saved_storage_device, uint64_t(total_requested),
+       external_storage_root ? std::filesystem::path(external_storage_root)
+                             : std::filesystem::path());
++  // Fix 101: a game that refuses the drive asks again at once (Battlefield 3
++  // with ext1 as a memory unit for its HD content: ten answers in a few
++  // seconds, the same refusal each time). After kSavedRepeats answers less
++  // than kSavedRepeatWindow apart, the window is shown instead.
++  constexpr uint32_t kSavedRepeats = 3;
++  constexpr auto kSavedRepeatWindow = std::chrono::seconds(30);
++  static uint32_t saved_answers = 0;
++  static std::chrono::steady_clock::time_point saved_answered_at{};
++  bool saved_refused = false;
+   if (saved.state == storage::Saved::kUse) {
++    const auto now = std::chrono::steady_clock::now();
++    saved_answers = saved_answers &&
++                            now - saved_answered_at < kSavedRepeatWindow
++                        ? saved_answers + 1
++                        : 1;
++    saved_answered_at = now;
++    if (saved_answers > kSavedRepeats) {
++      XELOGW("Storage (fix 101): the game asked again {} times in a row for "
++             "the drive from the settings; asking instead",
++             saved_answers - 1);
++      saved_answers = 0;
++      saved_refused = true;
++    }
++  }
++  if (saved.state == storage::Saved::kUse && !saved_refused) {
+     const storage::Device drive = drives[saved.index];
+     XELOGW("Storage: the game asked where to save (user {}); {} {} from the "
+            "settings",

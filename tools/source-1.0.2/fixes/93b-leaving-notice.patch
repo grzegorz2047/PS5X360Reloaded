@@ -1,0 +1,195 @@
+diff --git a/include/xbox360ps5/leaving_notice.hpp b/include/xbox360ps5/leaving_notice.hpp
+new file mode 100644
+index 0000000..0308225
+--- /dev/null
++++ b/include/xbox360ps5/leaving_notice.hpp
+@@ -0,0 +1,51 @@
++// SPDX-License-Identifier: MIT
++// Fix 93b: a message while a game is left. Closing a game (the guide's "Close the game and
++// return to the menu", after a crash of the game too), exiting the emulator, or a game starting
++// another of its executables (a title switch, fix 85's path) used to leave the screen black or
++// frozen for seconds: the Vulkan cache checkpoint (fix 07, up to 30 s), the network settings'
++// change and the online sessions' removal (fix 22, 3 s) run on the UI thread before the title
++// restarts with LoadExec. Now the screen says what is happening, with dots turning beside it, and
++// the UI thread keeps drawing while those steps run on another thread (WhilePainting). The last
++// frame drawn stays on screen through the restart.
++// Header-only, no Xenia headers: the host check (tools/check-leaving-notice.cpp) builds it as it is.
++#pragma once
++#include <atomic>
++#include <chrono>
++#include <cmath>
++#include <thread>
++#include <utility>
++namespace xbox360ps5::leaving_notice {
++enum class Kind : int { none, menu, restart_game, closing };
++// What is shown, set from any thread (a title switch comes from a guest thread); the overlay
++// (canary_game_main.cpp's LeavingNoticeOverlay, which has the texts) reads it each frame.
++inline std::atomic<int> current{int(Kind::none)};
++inline void Show(Kind kind) { current.store(int(kind), std::memory_order_release); }
++inline Kind Current() { return Kind(current.load(std::memory_order_acquire)); }
++// The turning dots: `dots` around a circle, the brightest going round once a second, each one
++// after it a little dimmer. Between 0.15 and 1.
++inline float DotAlpha(int dot, int dots, double seconds) {
++  if (dots <= 0) return 0.0f;
++  const double head = std::fmod(seconds, 1.0) * dots;  // Where the brightest dot is.
++  double behind = head - double(dot);
++  behind -= std::floor(behind / dots) * dots;           // 0 .. dots: how far the dot trails it.
++  return float(0.15 + 0.85 * std::pow(1.0 - behind / dots, 2.0));
++}
++// Runs `task` on a thread of its own and calls `paint` (one frame) on the calling thread until
++// the task has ended, so the screen keeps moving; then returns. Every frame waits for the
++// display, so the loop sleeps only when painting returned at once.
++template <class Task, class Paint>
++void WhilePainting(Task&& task, Paint&& paint) {
++  std::atomic<bool> done{false};
++  std::thread worker([&task, &done] {
++    task();
++    done.store(true, std::memory_order_release);
++  });
++  while (!done.load(std::memory_order_acquire)) {
++    const auto frame = std::chrono::steady_clock::now();
++    paint();
++    const auto spent = std::chrono::steady_clock::now() - frame;
++    if (spent < std::chrono::milliseconds(16)) std::this_thread::sleep_for(std::chrono::milliseconds(16) - spent);
++  }
++  worker.join();
++}
++}  // namespace xbox360ps5::leaving_notice
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index ae3b7d5..b038b1c 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -25,6 +25,7 @@ bool LauncherShelfFocused();  // launcher.cpp
+ void LauncherSetRunningGame(const std::string& path, const std::string& name);  // launcher.cpp
+ }
+ #include "xbox360ps5/bug_report.hpp"  // fix 93: logs for a bug report
++#include "xbox360ps5/leaving_notice.hpp"  // fix 93b: "Returning to the menu..."
+ namespace xbox360ps5 {
+ void LauncherShowBugReport(bug_report::Report report, std::function<void()> closed);  // launcher.cpp, fix 93
+ bool TextureCaptureArmed();    // core vulkan_texture_cache.cc: texture-capture.txt in the title folder
+@@ -571,6 +572,40 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+   }
+   return items;
+ }
++// Fix 93b: what happens while a game is left, over everything, with dots turning beside it
++// (leaving_notice.hpp). Drawn only while leaving_notice::Current() says so.
++class LeavingNoticeOverlay final : public xe::ui::ImGuiDialog {
++ public:
++  explicit LeavingNoticeOverlay(xe::ui::ImGuiDrawer* drawer) : ImGuiDialog(drawer) {}
++ protected:
++  void OnDraw(ImGuiIO& io) override {
++    namespace notice = xbox360ps5::leaving_notice;
++    const notice::Kind kind = notice::Current();
++    if (kind == notice::Kind::none) return;
++    const char* text = kind == notice::Kind::restart_game ? Tr("Restarting the game...")
++                     : kind == notice::Kind::closing ? Tr("Closing the emulator...")
++                                                     : Tr("Returning to the menu...");
++    const char* wait = Tr("Please wait, this can take a few seconds.");
++    ImDrawList* list = ImGui::GetForegroundDrawList();
++    ImFont* font = ImGui::GetFont();
++    const float scale = io.DisplaySize.y / 1080.0f;
++    list->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(6, 7, 10, 235));
++    const float big = 40 * scale, small = 24 * scale, radius = 26 * scale, gap = 30 * scale;
++    const ImVec2 size = font->CalcTextSizeA(big, 1e9f, 0.0f, text);
++    const float left = (io.DisplaySize.x - (2 * radius + gap + size.x)) / 2, middle = io.DisplaySize.y / 2;
++    const double seconds =
++        std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++    for (int dot = 0; dot < 8; ++dot) {
++      const float angle = float(dot) * 6.2831853f / 8.0f - 1.5707963f;
++      const ImVec2 at(left + radius + std::cos(angle) * radius, middle + std::sin(angle) * radius);
++      list->AddCircleFilled(at, 5 * scale, IM_COL32(53, 208, 127, int(255 * notice::DotAlpha(dot, 8, seconds))), 12);
++    }
++    list->AddText(font, big, ImVec2(left + 2 * radius + gap, middle - size.y / 2), IM_COL32(243, 245, 248, 255), text);
++    const ImVec2 wait_size = font->CalcTextSizeA(small, 1e9f, 0.0f, wait);
++    list->AddText(font, small, ImVec2((io.DisplaySize.x - wait_size.x) / 2, middle + 64 * scale),
++                  IM_COL32(160, 168, 182, 255), wait);
++  }
++};
+ class Guide final : public xe::ui::ImGuiDialog {
+  public:
+   Guide(xe::ui::ImGuiDrawer* drawer, GuideState& state, const xbox360ps5::Settings& settings, const std::string& profile,
+@@ -2701,9 +2736,14 @@ int main(int argc, char** argv) {
+       // to the dashboard: Canary saves what to run next in launch_data.bin (in
+       // the working folder) and this restarts the title, which carries on from it.
+       auto xam = emulator.kernel_state()->GetKernelModule<xe::kernel::xam::XamModule>("xam.xex");
+-      xe::kernel::xam::XamModule::restart_hook = [exit_cache] {
++      xe::kernel::xam::XamModule::restart_hook = [exit_cache, xam] {
+         // Fix 47: each step straight to hang-watch.txt as well; the restart replaces the process.
+         xbox360ps5::hang_watch::Raw("Title switch: the game ends or relaunches the title; Vulkan cache checkpoint");
++        // Fix 93b: said on screen (another executable of the game, or back to the menu); the UI
++        // thread still draws the game loop's frames meanwhile.
++        xbox360ps5::leaving_notice::Show(xam->loader_data().launch_path.empty()
++                                             ? xbox360ps5::leaving_notice::Kind::menu
++                                             : xbox360ps5::leaving_notice::Kind::restart_game);
+         const auto checkpoint_start = std::chrono::steady_clock::now();
+         CheckpointExitCache(exit_cache);
+         xbox360ps5::hang_watch::Raw(fmt::format("Title switch: checkpoint done after {} ms; restarting the title",
+@@ -3040,6 +3080,7 @@ int main(int argc, char** argv) {
+         if (autotest.active) guide.hint = 0.0f;
+         const std::string game_name = emulator.title_name().empty() ? chosen.name : emulator.title_name();
+         new Guide(&drawer, guide, settings, profile_name, game_name, fps, fonts.f24, fonts.f28, fonts.f36, web_hint);
++        new LeavingNoticeOverlay(&drawer);  // fix 93b: over the guide and the game
+         show_web_address();
+         publish_web(settings_title, game_name);
+         ApplyPicture(settings, emulator.graphics_system()->presenter());
+@@ -3590,6 +3631,12 @@ int main(int argc, char** argv) {
+           }
+         }
+         hang_watch_thread.reset();  // fix 47
++        // Fix 93b: from here to the restart the screen says what happens, and keeps moving while
++        // the steps below run (leaving_notice.hpp); the last frame stays through the restart.
++        namespace leaving = xbox360ps5::leaving_notice;
++        leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);
++        const auto paint_notice = [&context, &window] { context.Tick(); window.Paint(); };
++        paint_notice();
+         if (xbox360ps5::bug_report::Active()) {
+           // Fix 93: what the game asked of the system last, for the bug report.
+           XELOGW("Bug report: the game loop ended; the game's recent system calls, oldest first:");
+@@ -3609,9 +3656,11 @@ int main(int argc, char** argv) {
+           // is already the native title's normal restart path.
+           XELOGW("Keyboard cancellation pending; restarting the native title");
+           restart = true;
++          if (!quit) leaving::Show(leaving::Kind::menu);  // fix 93b
+         }
+         // Fix 22: a network change from the guide uses the emulator; let it finish first.
+-        xbox360ps5::guide_network::WaitIdle(std::chrono::seconds(25));
++        leaving::WhilePainting([] { xbox360ps5::guide_network::WaitIdle(std::chrono::seconds(25)); },
++                               paint_notice);  // fix 93b
+         if (cvars::network_mode == 2) {
+           // As the desktop build does on exit: this console's sessions off the Xenia server
+           // (others would find a game that is gone) and the router's ports closed. At most
+@@ -3623,12 +3672,13 @@ int main(int argc, char** argv) {
+             done->store(true);
+           }).detach();
+           const auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+-          while (!done->load() && std::chrono::steady_clock::now() < limit) usleep(20000);
++          while (!done->load() && std::chrono::steady_clock::now() < limit) paint_notice();  // fix 93b
+           XELOGW("Network: sessions removed and ports closed{}", done->load() ? "" : " (timed out)");
+         }
+         if (quit) {
+           // "Exit emulator": the system ends the title.
+-          CheckpointExitCache(exit_cache);
++          leaving::Show(leaving::Kind::closing);  // fix 93b
++          leaving::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); }, paint_notice);
+           XELOGW("Menu: closing the title");
+           xe::FlushLog();
+           xbox360ps5::DrainNetLog();
+@@ -3637,10 +3687,16 @@ int main(int argc, char** argv) {
+         }
+         // Every launcher/settings/guide restart passes here before LoadExec.
+         // Normal quit is also saved before TerminateTitle tears down storage.
+-        if (!restart) CheckpointExitCache(exit_cache);
++        if (!restart) leaving::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); }, paint_notice);  // fix 93b
+         if (!restart && emulator.is_title_open()) emulator.TerminateTitle();
+       }
+-      if (restart) CheckpointExitCache(exit_cache);
++      if (restart && xbox360ps5::leaving_notice::Current() != xbox360ps5::leaving_notice::Kind::none) {
++        // Fix 93b: back from a game, the notice keeps moving while the cache is saved.
++        xbox360ps5::leaving_notice::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); },
++                                                  [&context, &window] { context.Tick(); window.Paint(); });
++      } else if (restart) {
++        CheckpointExitCache(exit_cache);
++      }
+       if (!restart) context.ExecutePendingFunctionsFromUIThread();
+     }
+     if (restart) {

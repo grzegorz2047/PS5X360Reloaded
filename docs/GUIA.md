@@ -1,22 +1,24 @@
-# PS5X360 — guia de uso
+> Translated from the original author's Portuguese text.
 
-Emulador experimental de Xbox 360 para PlayStation 5, baseado no Xenia Canary.
-Nenhum jogo, BIOS ou chave acompanha o emulador: use cópias dos seus próprios jogos.
+# PS5X360 — user guide
 
-## O que é preciso
+Experimental Xbox 360 emulator for PlayStation 5, based on Xenia Canary.
+No games, BIOS or keys come with the emulator: use copies of your own games.
 
-- PS5 com acesso a homebrew (testado no firmware 13.60 com etaHEN, ShadowMountPlus e kstuff).
-- Um cliente FTP no computador (o PS5 com etaHEN abre FTP na porta 2121).
+## What you need
 
-## Instalação
+- A PS5 with homebrew access (tested on firmware 13.60 with etaHEN, ShadowMountPlus and kstuff).
+- An FTP client on your computer (a PS5 running etaHEN opens FTP on port 2121).
 
-1. Copie a pasta `PPSA50011` para `/data/homebrew/PPSA50011` no PS5.
-2. O ShadowMountPlus registra o título sozinho; ele aparece no menu como
+## Installation
+
+1. Copy the `PPSA50011` folder to `/data/homebrew/PPSA50011` on the PS5.
+2. ShadowMountPlus registers the title on its own; it shows up in the menu as
    **PS5X360**.
 
-## Jogos
+## Games
 
-Cada jogo fica na sua própria pasta, dentro de
+Each game goes in its own folder, inside
 `/data/homebrew/PPSA50011/assets/roms/`:
 
 ```
@@ -25,112 +27,112 @@ roms/Outro Jogo/default.xex
 roms/Mais Um/jogo.iso
 ```
 
-Formatos aceitos:
+Supported formats:
 
-- **Pasta extraída**: `default.xex` com as pastas de dados do jogo.
-- **Imagem de disco** `.iso`.
-- **Pacote GOD/STFS** (Games on Demand, Xbox Live Arcade): o arquivo de cabeçalho
-  com a pasta `.data` ao lado, como vêm do console.
+- **Extracted folder**: `default.xex` together with the game's data folders.
+- **Disc image** `.iso`.
+- **GOD/STFS package** (Games on Demand, Xbox Live Arcade): the header file
+  with the `.data` folder next to it, as they come from the console.
 
-O emulador só enxerga `assets/roms` dentro da pasta do título. Pastas em outros
-lugares do PS5 ou em USB não aparecem.
+The emulator only sees `assets/roms` inside the title folder. Folders elsewhere
+on the PS5 or on USB do not show up.
 
-Depois de copiar, abra o emulador, ou use **Quadrado → Atualizar lista de jogos**.
+After copying, open the emulator, or use **Square → Refresh game list**.
 
-## Controles na prateleira
+## Shelf controls
 
-| Botão | Ação |
+| Button | Action |
 | --- | --- |
-| Direcional / analógico | Escolher o jogo |
-| X | Jogar |
-| Triângulo | Detalhes e patches do jogo |
-| Quadrado | Configurações |
-| L1 / R1 | Filtros (Todos, Recentes, Pastas, ISO, Arcade e GOD) |
-| Círculo | Fechar o painel aberto |
+| D-pad / stick | Choose a game |
+| X | Play |
+| Triangle | Game details and patches |
+| Square | Settings |
+| L1 / R1 | Filters (All, Recent, Folders, ISO, Arcade & GOD) |
+| Circle | Close the open panel |
 
-Durante o jogo, **clique no touchpad** para abrir o guia do emulador (no
-estilo do guia do Xbox 360). Ele tem duas páginas, trocadas com L1/R1:
+While playing, **click the touchpad** to open the emulator guide (styled
+after the Xbox 360 guide). It has two pages, switched with L1/R1:
 
-- **Jogo**: continuar, voltar para o menu de jogos (para trocar de jogo),
-  apertar o botão BACK do Xbox no jogo e fechar o emulador.
-- **Configurações**: mostrar FPS, som, filtro de imagem (Simples, CAS ou FSR)
-  e o que o clique do touchpad faz.
+- **Game**: resume, return to the game library (to switch games),
+  press the Xbox BACK button in the game, and exit the emulator.
+- **Settings**: show FPS, sound, image filter (Basic, CAS or FSR)
+  and what the touchpad click does.
 
-Se preferir o touchpad como botão BACK, troque em "Clique do touchpad"; o guia
-passa a abrir com OPTIONS + touchpad. O jogo continua rodando por baixo do
-guia, mas não recebe os botões enquanto ele está aberto. O botão PS fecha o
-emulador como qualquer jogo.
+If you prefer the touchpad as the BACK button, change it in "Touchpad click"; the guide
+then opens with OPTIONS + touchpad. The game keeps running underneath the
+guide, but does not receive button presses while the guide is open. The PS button closes the
+emulator like any game.
 
-## Perfis
+## Profiles
 
-Os jogos de Xbox 360 gravam saves e conquistas no perfil (gamertag) conectado.
-Na primeira vez o emulador cria o perfil "Player". Em **Configurações → Perfil
-do jogador** você escolhe qual perfil usar ou cria outro (até 15 letras e
-números, começando por uma letra). O perfil escolhido fica valendo para os
-próximos jogos, e cada perfil tem os seus próprios saves.
+Xbox 360 games save progress and achievements to the signed-in profile (gamertag).
+The first time, the emulator creates the profile "Player". In **Settings → Player
+profile** you choose which profile to use or create another one (up to 15 letters and
+digits, starting with a letter). The chosen profile stays in effect for
+subsequent games, and each profile has its own saves.
 
-No jogo, o DualSense vira um controle de Xbox 360: X = A, Círculo = B,
-Quadrado = X, Triângulo = Y, OPTIONS = Start, clique do touchpad = Back.
+In game, the DualSense becomes an Xbox 360 controller: X = A, Circle = B,
+Square = X, Triangle = Y, OPTIONS = Start, touchpad click = Back.
 
-## Capas
+## Covers
 
-Em **Quadrado → Baixar capas**, o emulador baixa do XboxUnity (o mesmo serviço
-que o Aurora usa) a capa de cada jogo que ainda não tem uma. O PS5 precisa estar
-conectado à internet. As capas ficam guardadas e aparecem assim que o download
-termina.
+With **Square → Download covers**, the emulator downloads from XboxUnity (the same service
+Aurora uses) the cover for each game that does not have one yet. The PS5 must be
+connected to the internet. Covers are stored and appear as soon as the download
+finishes.
 
-Uma capa própria sempre tem prioridade: coloque `cover.png` (ou `.jpg`) na pasta
-do jogo, ou `nome-do-arquivo.png` ao lado de um `.iso`.
+Your own cover always takes priority: put `cover.png` (or `.jpg`) in the game's
+folder, or `nome-do-arquivo.png` (file-name.png) next to an `.iso`.
 
-## Coletâneas
+## Collections
 
-Jogos que abrem outro jogo pelo próprio menu (por exemplo, a Dragon Ball Z
-Budokai HD Collection, que abre o Budokai 1 ou o 3) fazem o emulador reiniciar
-direto no jogo escolhido. A tela pisca e volta já no jogo; isso é esperado.
-Quando o jogo volta ao painel do console, o emulador volta à prateleira.
+Games that launch another game from their own menu (for example, the Dragon Ball Z
+Budokai HD Collection, which launches Budokai 1 or 3) make the emulator restart
+straight into the chosen game. The screen flickers and comes back already in the game; this is expected.
+When the game returns to the console dashboard, the emulator returns to the shelf.
 
 ## Patches
 
-O emulador traz o pacote de patches da comunidade do Xenia Canary (60 FPS,
-resolução, desligar efeitos e outros), em `assets/patches`. Todos vêm
-desligados. Para ligar: Triângulo no jogo → escolha o patch → X.
+The emulator ships with the Xenia Canary community patch pack (60 FPS,
+resolution, disabling effects and others), in `assets/patches`. All of them come
+disabled. To enable one: Triangle on the game → choose the patch → X.
 
-- O emulador identifica o jogo pelo próprio executável (ou pela imagem `.iso`),
-  então os patches aparecem antes mesmo da primeira vez que ele abre.
-- Um patch só é aplicado se foi feito para a mesma versão do executável do seu
-  jogo; se não for, o painel avisa.
-- Patches de 60 FPS podem mudar a velocidade do jogo ou causar problemas em
-  algumas cenas. Se algo der errado, desligue o patch.
+- The emulator identifies the game by its own executable (or by the `.iso` image),
+  so patches show up even before the game is launched for the first time.
+- A patch is only applied if it was made for the same executable version as your
+  game; if not, the panel warns you.
+- 60 FPS patches can change the game speed or cause problems in
+  some scenes. If something goes wrong, disable the patch.
 
-## Configurações (Quadrado)
+## Settings (Square)
 
-- **Idioma**: Automático usa o idioma do PS5. A interface tem português, inglês e espanhol; sem uma tradução disponível, usa inglês. Também é possível escolher manualmente. A seleção informa o idioma ao próximo jogo iniciado, desde que o jogo tenha essa tradução. Preferências antigas de idioma dos jogos são preservadas até uma nova seleção.
-- **Som**: ligado ou mudo.
-- **Registros detalhados**: grava cada chamada do jogo ao sistema. Deixa o jogo
-  mais lento; use só para investigar um problema.
-- **Mostrar FPS no jogo**: contador de quadros por segundo no canto da tela.
-- **VSync**: ligado/desligado, salvo nas preferências. Ao fechar as configurações,
-  reinicia para aplicar a mudança antes de inicializar o vídeo. Controla o VSync
-  emulado; não desliga a sincronização da tela do PS5. Padrão ligado.
-- **Pastas de jogos**: adicione vários locais, inclusive dispositivos externos.
-  Quadrado abre o seletor; X entra na pasta; Círculo sobe um nível; Triângulo
-  adiciona a pasta atual. Na lista de locais, Triângulo remove o local sem apagar
-  jogos. Pastas desconectadas ficam salvas e só locais acessíveis são lidos.
+- **Language**: Automatic uses the PS5 language. The interface has Portuguese, English and Spanish; when no translation is available, it uses English. You can also choose one manually. The selection passes the language to the next game started, as long as the game has that translation. Older per-game language preferences are kept until a new selection is made.
+- **Sound**: on or muted.
+- **Detailed logs**: records every system call the game makes. Makes the game
+  slower; use it only to investigate a problem.
+- **Show FPS in game**: frames-per-second counter in the corner of the screen.
+- **VSync**: on/off, saved in the preferences. When you close the settings,
+  the emulator restarts to apply the change before initializing video. It controls the emulated
+  VSync; it does not turn off the PS5's display synchronization. On by default.
+- **Game folders**: add several locations, including external devices.
+  Square opens the picker; X enters the folder; Circle goes up one level; Triangle
+  adds the current folder. In the list of locations, Triangle removes the location without deleting
+  games. Disconnected folders stay saved and only accessible locations are read.
 
-## Quando algo dá errado
+## When something goes wrong
 
-- Cada execução cria um arquivo com o nome do jogo e a data em
-  `/download0/xbox360ps5/LOGS`. Execuções antigas ficam preservadas. Sessões
-  grandes usam também três arquivos `.partN.log`; envie o conjunto da sessão.
-- Com o aplicativo aberto, o FTP acessa normalmente
-  `/mnt/sandbox/PPSA50011_000/download0/xbox360ps5/LOGS`. O sufixo pode variar.
-- `python tools/console.py game-logs --host IP_DO_PS5` baixa os registros e monta
-  um ZIP em `build`, pronto para compartilhar.
-- No Windows com Python instalado, também pode abrir
-  `tools/Download PS5 logs.bat` no source e informar o IP do PS5.
-- A cada 30 segundos de jogo o registro anota a média de quadros por segundo.
-- Ao relatar um problema, diga o jogo, a versão (região), o que aparece na tela e
-  se algum patch estava ligado.
+- Each run creates a file named after the game and the date in
+  `/download0/xbox360ps5/LOGS`. Older runs are preserved. Large
+  sessions also use three `.partN.log` files; send the whole set for the session.
+- With the app open, FTP normally reaches
+  `/mnt/sandbox/PPSA50011_000/download0/xbox360ps5/LOGS`. The suffix may vary.
+- `python tools/console.py game-logs --host IP_DO_PS5` downloads the logs and builds
+  a ZIP in `build`, ready to share (`IP_DO_PS5` = the PS5's IP address).
+- On Windows with Python installed, you can also open
+  `tools/Download PS5 logs.bat` in the source tree and enter the PS5's IP address.
+- Every 30 seconds of gameplay, the log records the average frames per second.
+- When reporting a problem, state the game, the version (region), what appears on the screen and
+  whether any patch was enabled.
 
-A compatibilidade varia de jogo para jogo. Alguns jogos podem não abrir, travar
-ou ter falhas gráficas e de som.
+Compatibility varies from game to game. Some games may not open, may freeze
+or may have graphics and sound glitches.

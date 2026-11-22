@@ -1,0 +1,118 @@
+diff --git a/include/xbox360ps5/pending_resume.hpp b/include/xbox360ps5/pending_resume.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/pending_resume.hpp
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: MIT
++// Fix 71 (tools/source-1.0.2/fixes/71-pending-resume.patch): a resume that reaches a thread just
++// before it suspends itself is kept for that suspension.
++//
++// Ninja Gaiden II on 1.0.4_candidate_26 went black after 203 s: two job threads were suspended by
++// their own NtSuspendThread and the main thread spun on a flag only they clear. A worker that
++// says it is idle and then suspends itself, and a thread that sees it idle and resumes it, race:
++// when the resume comes between the two, it finds a suspend count of 0 and does nothing, and the
++// worker then sleeps with no one left to wake it. The console's timing makes that window small;
++// here a kernel call costs more (the trampoline, SelfSuspend's lock and condition variable), and
++// tools/check-pending-resume.cpp reproduces the hang within a fraction of a second.
++//
++// A resume that finds a count of 0 now leaves a credit on the thread (Note); a suspension of the
++// thread by itself within kWindowNs of it takes the credit (Take) and returns at once, as if it had
++// been suspended and resumed. Remote suspensions and resumes of suspended threads are unchanged.
++// A credit is taken once and lapses after the window, so a thread that suspends itself later
++// still sleeps until resumed.
++#pragma once
++#include <atomic>
++#include <cstdint>
++
++namespace xbox360ps5::pending_resume {
++
++inline constexpr int64_t kWindowNs = 10'000'000;  // 10 ms: a thread preempted between saying it is idle and suspending still gets it
++
++class Credit {
++ public:
++  void Note(int64_t now_ns) { at_.store(now_ns ? now_ns : 1, std::memory_order_release); }
++  // A resume noted within kWindowNs before now, taken once.
++  bool Take(int64_t now_ns) {
++    const int64_t at = at_.exchange(0, std::memory_order_acq_rel);
++    return at && now_ns >= at && now_ns - at <= kWindowNs;
++  }
++
++ private:
++  std::atomic<int64_t> at_{0};
++};
++
++}  // namespace xbox360ps5::pending_resume
+diff --git a/include/xbox360ps5/suspend_trace.hpp b/include/xbox360ps5/suspend_trace.hpp
+--- a/include/xbox360ps5/suspend_trace.hpp
++++ b/include/xbox360ps5/suspend_trace.hpp
+@@ -27,6 +27,7 @@ enum Kind : uint8_t {
+   kSuspendedBy,      // by another thread
+   kResumedBy,        // by another thread, count before (>0)
+   kResumeFoundRunning,  // a resume found count 0: nothing happened
++  kSuspendCancelled,    // fix 71: its own suspension took that resume's credit
+ };
+ inline const char* KindName(uint8_t kind) {
+   switch (kind) {
+@@ -35,6 +36,7 @@ inline const char* KindName(uint8_t kind) {
+     case kSuspendedBy: return "suspended by";
+     case kResumedBy: return "resumed by";
+     case kResumeFoundRunning: return "EARLY resume (count 0) by";
++    case kSuspendCancelled: return "suspension cancelled by the early resume";
+     default: return "?";
+   }
+ }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.h b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+@@ -29,6 +29,7 @@
+ #include "xenia/kernel/xobject.h"
+ #include "xenia/xbox.h"
+ #include "xbox360ps5/suspend_trace.hpp"  // fix 69
++#include "xbox360ps5/pending_resume.hpp"  // fix 71
+ 
+ namespace xe {
+ namespace kernel {
+@@ -566,6 +567,8 @@ class XThread : public XObject, public cpu::Thread {
+   // Fix 69: suspension changes, and whether the thread is entering its own suspension.
+   xbox360ps5::suspend_trace::Ring suspend_trace_;
+   std::atomic<bool> entering_self_suspend_{false};
++  // Fix 71: a resume that found no suspension, kept for a suspension of the thread by itself.
++  xbox360ps5::pending_resume::Credit pending_resume_;
+ 
+   // Reentry mechanism for fiber-based stack switching.
+   // On Linux, C++ exceptions are used instead of setjmp/longjmp so that
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -1090,6 +1090,10 @@ X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
+       const uint64_t now = xbox360ps5::suspend_trace::NowMs();
+       if (previous == 0) {
+         suspend_trace_.Note(xbox360ps5::suspend_trace::kResumeFoundRunning, resumer, 0, now);
++        // Fix 71: kept for a suspension of the thread by itself that follows within 10 ms.
++        pending_resume_.Note(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                 std::chrono::steady_clock::now().time_since_epoch())
++                                 .count());
+         const std::string line = xbox360ps5::suspend_trace::EarlyResumeLine(
+             resumer, handle(), entering_self_suspend_.load(std::memory_order_relaxed), now);
+         if (!line.empty()) XELOGW("{}", line);
+@@ -1210,6 +1214,20 @@ uint32_t XThread::SelfSuspend() {
+                       xbox360ps5::suspend_trace::NowMs());
+   {
+     std::unique_lock<std::mutex> lock(suspend_mutex_);
++    // Fix 71: a resume that came before the count was raised (it found 0, under this lock) left a
++    // credit: this suspension took place and ended at once, instead of sleeping with no one left
++    // to wake the thread. Checked after raising the count and under the lock Resume holds while it
++    // reads the count, so a resume either finds the count raised or leaves the credit seen here.
++    if (pending_resume_.Take(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                 std::chrono::steady_clock::now().time_since_epoch())
++                                 .count())) {
++      suspend_count.fetch_sub(1);
++      lock.unlock();
++      suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendCancelled, 0, uint8_t(previous),
++                          xbox360ps5::suspend_trace::NowMs());
++      xe::threading::Thread::DeferSuspension(false);
++      return previous;
++    }
+     suspend_cv_.wait(lock,
+                      [&suspend_count]() { return suspend_count.load() == 0; });
+   }

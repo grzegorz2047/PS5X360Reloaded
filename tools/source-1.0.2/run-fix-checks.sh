@@ -30,19 +30,13 @@ checks=(
   check-english-fallback.cpp       # fixes 23 and 25
   check-stall-dump.cpp             # fix 24
   check-label-owner.cpp            # fix 24, candidate 21
-  check-memexport-merge.cpp        # fix 30
-  check-notify-first-poll.cpp      # fix 28
-  check-net-conf.cpp               # fix 29
   check-xtl-locale.cpp             # fix 26
   check-system-ui.cpp              # fix 26
   check-fix26-tree.cpp             # fix 26
   check-save-devices.cpp           # fix 27
-  check-home-hints.cpp             # fix 40 (reconstructed files)
-  check-cover-fallback.cpp         # fix 41
-  check-network-self-test.cpp      # fix 42
-  check-ui-lang-overlay.cpp        # fix 43
-  check-game-info.cpp              # fix 43
-  check-kinect-usb.cpp             # fix 44
+  check-notify-first-poll.cpp      # fix 28
+  check-net-conf.cpp               # fix 29
+  check-memexport-merge.cpp        # fix 30
   check-media-voice.cpp            # fix 32
   check-switch-title.cpp           # fix 33
   check-pipeline-claim.cpp         # fix 34
@@ -51,6 +45,12 @@ checks=(
   check-exact-unwatch.cpp          # fix 37
   check-jit-backports.cpp          # fix 38
   check-net-log-drain.cpp          # fix 39
+  check-home-hints.cpp             # fix 40 (reconstructed files)
+  check-cover-fallback.cpp         # fix 41
+  check-network-self-test.cpp      # fix 42
+  check-ui-lang-overlay.cpp        # fix 43
+  check-game-info.cpp              # fix 43
+  check-kinect-usb.cpp             # fix 44
   check-review-fix30.cpp           # fixes 35-37 with fix 30
   check-guest-crash.cpp            # fix 45
   check-app-identity.cpp           # fix 46
@@ -58,31 +58,66 @@ checks=(
   check-hang-watch.cpp             # fix 47
   check-memexport-loss.cpp         # fix 48
   check-frame-cost.cpp             # fix 49
-  check-measure-10s.cpp            # fix 54
-  check-global-lock-spin.cpp       # fix 55
   check-save-folder.cpp            # fix 50
   check-multidisc-source.cpp       # fix 51
   check-library-disc.cpp           # fix 52
+  check-measure-10s.cpp            # fix 54
+  check-global-lock-spin.cpp       # fix 55
   check-kinect-pairing.cpp         # fix 56
+  check-nui-image-scan.cpp         # fix 57
   check-gpu-wait-lines.cpp         # fix 58
   check-fast-readback.cpp          # fix 59
   check-library-folders.cpp        # fix 60
   check-fault-stack.cpp            # fix 61
   check-upload-cost.cpp            # fix 62
-  check-fault-path.cpp             # fix 65
-  check-nui-image-scan.cpp         # fix 57
-  check-motion-replay.cpp          # fix 57 (1.0.5)
   check-phone-qr-panel.cpp         # fix 63
   check-native-mutant.cpp          # fix 64
+  check-fault-path.cpp             # fix 65
   check-phone-latency.cpp          # fix 66
   check-xma-unwatch.cpp            # fix 67
-  check-deferred-watches.cpp       # fix 68
+  check-motion-replay.cpp          # fix 57 (1.0.5)
   check-xctd-query.cpp             # fix 90 (1.0.5)
   check-avatar-assets.cpp          # fix 99 (1.0.5)
   check-kinect-identity.cpp        # fix 99b (1.0.5)
   check-kinect-tracker.cpp         # fix 106
   check-kinect-emergency.cpp       # fix 107
   check-kinect-diag.cpp            # fix 108
+  check-suspend-trace.cpp          # fix 69
+  check-pending-resume.cpp         # fix 71
+  check-page-version.cpp           # fix 72
+  check-draw-cost.cpp              # fix 73
+  check-watch-arming.cpp           # fix 74
+  check-packet-cost.cpp            # fix 75
+  check-alloc-failure-lines.cpp    # fix 76
+  check-wait-reg.cpp               # fix 77
+  check-hot-memory.cpp             # fix 78
+  check-system-heap.cpp            # fix 79
+  check-enumerator-release.cpp     # fix 80
+  check-enum-trace.cpp             # fix 81
+  check-enumerator-buffers.cpp     # fix 82
+  check-wait-reg-wakeup.cpp        # fix 83
+  check-arming-one-lock.cpp        # fix 84
+  check-default-app-relaunch.cpp   # fix 85
+  check-draw-lock-deferred.cpp     # fix 86
+  check-unwatched-chunk.cpp        # fix 87
+  check-global-lock-callers.cpp    # fix 88
+  check-multidisc-library.cpp      # fix 89
+  check-readback-repeat.cpp        # fix 91
+  check-readback-keys.cpp          # fix 91 (diagnostic)
+  check-bug-report.cpp             # fix 93
+  check-leaving-notice.cpp         # fix 93b
+  check-boot-notice.cpp            # fix 93c
+  check-bug-report-entries.cpp     # fix 93d
+  check-recent-calls.cpp           # fix 93e
+  check-report-session.cpp         # fix 93f
+  check-flush-before-restart.cpp   # fix 93g
+  check-leaving-steps.cpp          # fix 93h
+  check-bounded-leave.cpp          # fix 93i
+  check-boost-presets.cpp          # fix 95
+  check-event-writes.cpp           # fix 96
+  check-timer-apc.cpp              # fix 97
+  check-dark-default.cpp           # fix 98
+  check-content-folders.cpp        # fix 101
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -95,6 +130,12 @@ declare -A arguments=(
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-emergency.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-multidisc-library.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-bug-report.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-leaving-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-bug-report-entries.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-report-session.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -106,31 +147,66 @@ declare -A fix_of=(
   [check-hang-watch.cpp]=47
   [check-memexport-loss.cpp]=48
   [check-frame-cost.cpp]=49
-  [check-measure-10s.cpp]=54
-  [check-global-lock-spin.cpp]=55
   [check-save-folder.cpp]=50
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52
+  [check-measure-10s.cpp]=54
+  [check-global-lock-spin.cpp]=55
   [check-kinect-pairing.cpp]=56
+  [check-nui-image-scan.cpp]=57
   [check-gpu-wait-lines.cpp]=58
   [check-fast-readback.cpp]=59
   [check-library-folders.cpp]=60
   [check-fault-stack.cpp]=61
   [check-upload-cost.cpp]=62
-  [check-fault-path.cpp]=65
-  [check-nui-image-scan.cpp]=57
-  [check-motion-replay.cpp]=57
   [check-phone-qr-panel.cpp]=63
   [check-native-mutant.cpp]=64
+  [check-fault-path.cpp]=65
   [check-phone-latency.cpp]=66
   [check-xma-unwatch.cpp]=67
-  [check-deferred-watches.cpp]=68
+  [check-motion-replay.cpp]=57
   [check-xctd-query.cpp]=90
   [check-avatar-assets.cpp]=99
   [check-kinect-identity.cpp]=99b
   [check-kinect-tracker.cpp]=106
   [check-kinect-emergency.cpp]=107
   [check-kinect-diag.cpp]=108
+  [check-suspend-trace.cpp]=69
+  [check-pending-resume.cpp]=71
+  [check-page-version.cpp]=72
+  [check-draw-cost.cpp]=73
+  [check-watch-arming.cpp]=74
+  [check-packet-cost.cpp]=75
+  [check-alloc-failure-lines.cpp]=76
+  [check-wait-reg.cpp]=77
+  [check-hot-memory.cpp]=78
+  [check-system-heap.cpp]=79
+  [check-enumerator-release.cpp]=80
+  [check-enum-trace.cpp]=81
+  [check-enumerator-buffers.cpp]=82
+  [check-wait-reg-wakeup.cpp]=83
+  [check-arming-one-lock.cpp]=84
+  [check-default-app-relaunch.cpp]=85
+  [check-draw-lock-deferred.cpp]=86
+  [check-unwatched-chunk.cpp]=87
+  [check-global-lock-callers.cpp]=88
+  [check-multidisc-library.cpp]=89
+  [check-readback-repeat.cpp]=91
+  [check-readback-keys.cpp]=91
+  [check-bug-report.cpp]=93
+  [check-leaving-notice.cpp]=93b
+  [check-boot-notice.cpp]=93c
+  [check-bug-report-entries.cpp]=93d
+  [check-recent-calls.cpp]=93e
+  [check-report-session.cpp]=93f
+  [check-flush-before-restart.cpp]=93g
+  [check-leaving-steps.cpp]=93h
+  [check-bounded-leave.cpp]=93i
+  [check-boost-presets.cpp]=95
+  [check-event-writes.cpp]=96
+  [check-timer-apc.cpp]=97
+  [check-dark-default.cpp]=98
+  [check-content-folders.cpp]=101
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -254,6 +330,16 @@ else
   echo "FAIL check-phone-latency.mjs"
   status=1
 fi
+# Fix 72: the phone page's version and its one reload, with node.
+echo "=== check-page-version.mjs"
+if [[ " $skipped_fixes " == *" 72 "* ]]; then
+  echo "skip check-page-version.mjs (fix 72 left out of this build)"
+elif node "$repo/tools/check-page-version.mjs" "$tree"; then
+  echo "pass check-page-version.mjs"
+else
+  echo "FAIL check-page-version.mjs"
+  status=1
+fi
 # Fix 106: the phone's Kinect tracker (port/phone_camera_tracker.hpp) and the page's reasons, with node.
 echo "=== check-kinect-tracker.mjs"
 if [[ " $skipped_fixes " == *" 106 "* ]]; then
@@ -279,6 +365,16 @@ if bash "$repo/tools/check-gdfx-names.sh" "$tree"; then
   echo "pass check-gdfx-names.sh"
 else
   echo "FAIL check-gdfx-names.sh"
+  status=1
+fi
+# Fix 101: a file created through a package folder mounted at \Device\... (left out with the fix).
+echo "=== check-content-create.sh"
+if ! grep -q 'fix 101' "$tree/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc"; then
+  echo "skip check-content-create.sh (fix 101 left out)"
+elif bash "$repo/tools/check-content-create.sh" "$tree"; then
+  echo "pass check-content-create.sh"
+else
+  echo "FAIL check-content-create.sh"
   status=1
 fi
 exit $status

@@ -1,123 +1,125 @@
-# M8: integração do núcleo e entrada nativa de jogo
+> Translated from the original author's Portuguese text.
 
-Estado em 2026-10-02. Projeto separado do Castation. O teste M4 confirmado
-no console e o pacote M7 permanecem preservados. M8 não tem confirmação de
-execução de jogo no PS5; não é uma promessa de compatibilidade ou desempenho.
+# M8: core integration and native game entry
 
-## Componentes implementados
+Status as of 2026-10-02. Project separate from Castation. The M4 test confirmed
+on the console and the M7 package remain preserved. M8 has no confirmation of
+game execution on the PS5; it is not a promise of compatibility or performance.
 
-- CPU: Processor, frontend PPC/VMX128, passes HIR e backend x64 reais do Xenia,
-  com fronteira System V e memória virtual guest existentes desde M5.
-- Kernel: módulos xboxkrnl/xam/xbdm, objetos, módulos de usuário, exports,
-  gerenciamento de threads e coordenador Emulator originais.
-- VFS: host paths, imagens de disco, STFS e dispositivo null upstream.
-  Arquivos de jogo são montados somente para leitura; saves ficam separados.
-- Threads: implementação POSIX adaptada ao BSD, eventos, semáforos, timers,
-  suspensão inicial e fila de APC por thread. APCs são executadas em espera
-  alertável fora de locks e handlers de sinal, permitindo enqueue reentrante.
-- Controle: driver real InputDriver/XInput, botões, sticks, gatilhos, packets,
-  conexão e keystrokes. A entrada nativa adquire scePad e envia amostras ao
-  driver. Rumble e repetição de keystrokes ainda não foram implementados.
-- GPU: CommandProcessor, tradutor Xenos/SPIR-V, caches de textura/render target,
-  VulkanGraphicsSystem, VulkanProvider e Presenter originais; despacho estático
-  RADV e superfície KHR_display da mesma instância/dispositivo usados pelo Xenia.
-- Áudio: FFmpeg fixado no fork do Xenia, incluindo o decoder XMAFRAMES realmente
-  consumido pelo núcleo; XMA1/XMA2 também habilitados. Conversão de 6 canais
-  float big-endian para estéreo S16 e AudioOut nativo a 48 kHz, fila limitada,
-  consumo sincronizado por semáforo e liberação de clients/ports no shutdown.
-- Aplicativo: contexto de UI nativo, window fullscreen, ImGui para diálogos,
-  fábricas de GPU/áudio/input, carregamento real via LaunchXexFile, loop de pad,
-  pintura, troca de título solicitada pelo guest e encerramento.
+## Implemented components
 
-## Correções encontradas pela integração
+- CPU: Xenia's real Processor, PPC/VMX128 frontend, HIR passes and x64 backend,
+  with the System V boundary and guest virtual memory in place since M5.
+- Kernel: original xboxkrnl/xam/xbdm modules, objects, user modules, exports,
+  thread management and Emulator coordinator.
+- VFS: upstream host paths, disc images, STFS and null device.
+  Game files are mounted read-only; saves are kept separate.
+- Threads: POSIX implementation adapted to BSD, events, semaphores, timers,
+  initial suspension and a per-thread APC queue. APCs run during alertable
+  waits outside of locks and signal handlers, allowing reentrant enqueue.
+- Controller: real InputDriver/XInput driver, buttons, sticks, triggers, packets,
+  connection and keystrokes. The native entry acquires scePad and sends samples
+  to the driver. Rumble and keystroke repeat are not implemented yet.
+- GPU: original CommandProcessor, Xenos/SPIR-V translator, texture/render target
+  caches, VulkanGraphicsSystem, VulkanProvider and Presenter; static RADV dispatch
+  and a KHR_display surface from the same instance/device used by Xenia.
+- Audio: FFmpeg pinned to the Xenia fork, including the XMAFRAMES decoder actually
+  consumed by the core; XMA1/XMA2 are enabled as well. Conversion from 6-channel
+  big-endian float to stereo S16 and native AudioOut at 48 kHz, bounded queue,
+  semaphore-synchronized consumption and release of clients/ports at shutdown.
+- Application: native UI context, fullscreen window, ImGui for dialogs,
+  GPU/audio/input factories, real loading via LaunchXexFile, pad loop,
+  painting, guest-requested title change and shutdown.
 
-O VFS upstream abria leitura/escrita como O_WRONLY, permitia certos acessos de
-escrita em devices readonly e publicava contagem negativa em erros de I/O.
-O overlay corrige essas três fronteiras. A inicialização de memória no
-Emulator retornava false, equivalente a X_STATUS_SUCCESS: agora retorna erro.
+## Fixes found through integration
 
-APCs não usam execução de callback em signal handler. A criação de threads
-publica o ID e o estado de suspensão antes de acordar quem cria a thread.
-A chamada sigaction tinha teste de sucesso invertido na adaptação inicial.
+The upstream VFS opened read/write as O_WRONLY, allowed certain write accesses
+on readonly devices and published a negative count on I/O errors.
+The overlay fixes these three boundaries. Memory initialization in
+Emulator returned false, which is equivalent to X_STATUS_SUCCESS: it now returns an error.
 
-A ligação conjunta encontrou AES, LZX/mspack, bitmaps, bitstreams, ringbuffer,
-UI e frontend PPC que não eram exigidos pelos probes separados. Eles agora
-participam da integração, sem substituir o kernel ou o GPU por mocks.
+APCs do not execute callbacks inside a signal handler. Thread creation
+publishes the ID and the suspension state before waking the creating thread.
+The sigaction call had an inverted success check in the initial adaptation.
 
-Habilitar XMA1/XMA2 sozinho não basta: XmaContext procura AV_CODEC_ID_XMAFRAMES.
-O codec foi habilitado, o teste verifica os três decoders e falha de Setup
-de contexto é propagada em release. Packets FFmpeg são liberados na destruição.
+Linking everything together surfaced AES, LZX/mspack, bitmaps, bitstreams, ringbuffer,
+UI and the PPC frontend, which the separate probes did not require. They now
+take part in the integration, without replacing the kernel or the GPU with mocks.
 
-Thread::current_thread_ é TLS com inicialização constante nullptr. constinit
-explicita isso aos demais translation units, evitando importar um thunk fraco
-de inicialização que não existe. Os objetos dependem explicitamente desse
-overlay, inclusive quando depfiles antigos apontavam ao header upstream.
+Enabling XMA1/XMA2 alone is not enough: XmaContext looks for AV_CODEC_ID_XMAFRAMES.
+The codec was enabled, the test checks all three decoders, and a context Setup
+failure is propagated in release. FFmpeg packets are freed on destruction.
 
-O aplicativo usa CRT de título nativo e mmap/mprotect/munmap ordinários do
-próprio processo. A receita rejeita helpers de alteração de privilégios.
-Os stubs AGC são apenas metadados de ligação com os módulos reais do console;
-não são implementações de GPU e não entram na pasta distribuída.
+Thread::current_thread_ is TLS with constant initialization to nullptr. constinit
+makes this explicit to the other translation units, avoiding the import of a weak
+initialization thunk that does not exist. The objects depend explicitly on this
+overlay, including when old depfiles pointed to the upstream header.
 
-## Evidência e limites
+The application uses the native title CRT and the process's own ordinary
+mmap/mprotect/munmap. The recipe rejects privilege-changing helpers.
+The AGC stubs are only link metadata for the real console modules;
+they are not GPU implementations and are not included in the distributed folder.
 
-`build/kernel-host/integration-tests.xml`: 16 suítes, zero falhas, incluindo
-execução PPC/x64, VFS, threads/APCs, input, módulos SPIR-V aceitos pelo Vulkan,
-dispositivo Xenia real, codecs/PCM e lifecycle conjunto do Emulator.
-`build/integration-vulkan-transfer.txt`: transferência real no Vulkan do PC.
-Também passaram os 12 testes Python das ferramentas anteriores.
-Os quatro testes novos de ligação fraca elevam a suíte Python a 16 testes:
-imports fortes e símbolos externos ao Mesa nunca são convertidos para null.
+## Evidence and limits
 
-`build/game-module-load.txt`: o default.xex do Sonic fornecido pelo usuário
-foi montado readonly, carregado pelo UserModule real com imports resolvidos,
-e entry 82537AE0. Nenhum entry point guest foi chamado nesse diagnóstico.
-O dump upstream aponta cinco imports sem implementação completa: XamShowMessageBoxUIEx,
-RtlUnwind, RtlCaptureContext, ExThreadObjectType e __C_specific_handler. Portanto,
-carregar o módulo não comprova que todos os serviços usados pelo jogo estão prontos.
+`build/kernel-host/integration-tests.xml`: 16 suites, zero failures, including
+PPC/x64 execution, VFS, threads/APCs, input, SPIR-V modules accepted by Vulkan,
+real Xenia device, codecs/PCM and the combined Emulator lifecycle.
+`build/integration-vulkan-transfer.txt`: real transfer on the PC's Vulkan.
+The 12 Python tests of the earlier tools also passed.
+The four new weak-linking tests bring the Python suite to 16 tests:
+strong imports and symbols external to Mesa are never converted to null.
 
-O RADV usa Mesa 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8, referência PS5_Vulkan
-3f3ee69607013b345d2baa6d6a37c86745649a08 e SDK fork
-95c08f27386fc698f6bbe21dde3030140a41d10b. Xenia permanece em
-95a5c3ee250f80c3b9d139658649d9ffb6db3eec, FFmpeg em
-15ece0882e8d5875051ff5b73c5a8326f7cee9f5. Receitas não modificam o checkout do Xenia.
+`build/game-module-load.txt`: the Sonic default.xex supplied by the user
+was mounted readonly, loaded by the real UserModule with imports resolved,
+and entry 82537AE0. No guest entry point was called in this diagnostic.
+The upstream dump points to five imports without a complete implementation: XamShowMessageBoxUIEx,
+RtlUnwind, RtlCaptureContext, ExThreadObjectType and __C_specific_handler. Therefore,
+loading the module does not prove that all services used by the game are ready.
 
-Ainda precisam de teste no PS5: startup e permissões do título, layout de
-signal context/MMIO, memória JIT, apresentação de frames do guest, acesso aos
-arquivos em app0, AudioOut, controle no jogo e teardown com jogo aberto.
-O backend Vulkan deste Xenia é descrito upstream como incompleto; o port não
-torna automaticamente todos os seus recursos/exports compatíveis. A entrada
-nativa mapeia direcional/X/O/quadrado para navegação, confirmação, cancelamento
-e Tab nos diálogos ImGui; esse caminho ainda precisa de confirmação no hardware.
+RADV uses Mesa 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8, PS5_Vulkan reference
+3f3ee69607013b345d2baa6d6a37c86745649a08 and SDK fork
+95c08f27386fc698f6bbe21dde3030140a41d10b. Xenia remains at
+95a5c3ee250f80c3b9d139658649d9ffb6db3eec, FFmpeg at
+15ece0882e8d5875051ff5b73c5a8326f7cee9f5. Recipes do not modify the Xenia checkout.
 
-FTP 192.168.0.19:2121 e API 10101 recusaram conexão neste turno. Nenhuma nova
-instalação ou execução no console foi feita. Resultado de hardware não deve
-ser inferido das compilações, da aprovação no Lavapipe ou do carregamento do XEX.
+Still needing testing on the PS5: title startup and permissions, signal
+context/MMIO layout, JIT memory, presentation of guest frames, access to the
+files in app0, AudioOut, controller in game and teardown with a game open.
+The Vulkan backend of this Xenia is described upstream as incomplete; the port does not
+automatically make all of its features/exports compatible. The native entry
+maps D-pad/X/O/square to navigation, confirm, cancel
+and Tab in the ImGui dialogs; this path still needs confirmation on hardware.
 
-## Reprodução
+FTP 192.168.0.19:2121 and API 10101 refused connections during this turn. No new
+installation or execution on the console was done. A hardware result must not
+be inferred from the builds, from passing on Lavapipe or from loading the XEX.
 
-`./build.ps1 IntegrationHost`: compila e testa a integração no PC.
-`./build.ps1 IntegrationPS5`: compila archives e probes PS5.
-`./build.ps1 RADV`: driver real em imagem Docker própria e cache Linux.
-`./build.ps1 NativeGame`: compila os objetos da entrada nativa e gera
-`dist/PPSA50011` e `dist/Xbox360PS5-M8-experimental-game-test.zip` se todas as
-verificações estruturais passarem. A receita depende do SDK e das referências
-fixados e do runtime libc reproduzível já validado em M7. Não inclui jogos.
+## Reproduction
 
-O jogo extraído deve ficar em `assets/roms`, preservando default.xex e dados.
-O caminho padrão é `/app0/assets/roms/default.xex`. Para uma subpasta, escrever
-o caminho completo em `assets/game.txt`. Um override persistente pode ficar
-em `/download0/xbox360ps5/game.txt`, e argumentos também são aceitos.
-Logs ficam em `/download0/xbox360ps5/engine.log`.
-Para publicar a nova pasta depois das verificações: `python tools/deploy-native-probe.py
---game --host IP_DO_PS5`. O script confere bytes locais/remotos antes de registrar
-o novo título e recusa sobrescrever uma pasta existente. Não envia dados do jogo.
+`./build.ps1 IntegrationHost`: builds and tests the integration on the PC.
+`./build.ps1 IntegrationPS5`: builds the PS5 archives and probes.
+`./build.ps1 RADV`: real driver in its own Docker image and Linux cache.
+`./build.ps1 NativeGame`: builds the native entry objects and generates
+`dist/PPSA50011` and `dist/Xbox360PS5-M8-experimental-game-test.zip` if all
+structural checks pass. The recipe depends on the pinned SDK and references
+and on the reproducible libc runtime already validated in M7. It does not include games.
 
-## Fontes e licenças
+The extracted game must be placed in `assets/roms`, preserving default.xex and its data.
+The default path is `/app0/assets/roms/default.xex`. For a subfolder, write
+the full path in `assets/game.txt`. A persistent override can be placed
+in `/download0/xbox360ps5/game.txt`, and arguments are also accepted.
+Logs are written to `/download0/xbox360ps5/engine.log`.
+To publish the new folder after the checks: `python tools/deploy-native-probe.py
+--game --host IP_DO_PS5`. The script compares local/remote bytes before registering
+the new title and refuses to overwrite an existing folder. It does not send game data.
 
-Xenia é BSD; as ferramentas/startup de título nativo e PS5_Vulkan são GPL-3.0
-ou posterior. FFmpeg e mspack mantêm LGPL e avisos originais. O pacote combinado
-inclui os avisos em licenses. O código do port, overlays e receitas fornecem
-as modificações; os commits exatos dos componentes upstream acima identificam
-suas fontes. As bibliotecas não foram editadas dentro dos checkouts, exceto
-pelos overlays de build explicitamente gerados pelas ferramentas do port.
-Não são distribuídos jogos, BIOS, chaves ou implementações proprietárias.
+## Sources and licenses
+
+Xenia is BSD; the native title tools/startup and PS5_Vulkan are GPL-3.0
+or later. FFmpeg and mspack keep LGPL and their original notices. The combined package
+includes the notices in licenses. The port's code, overlays and recipes provide
+the modifications; the exact commits of the upstream components above identify
+their sources. The libraries were not edited inside the checkouts, except
+for the build overlays explicitly generated by the port's tools.
+No games, BIOS, keys or proprietary implementations are distributed.

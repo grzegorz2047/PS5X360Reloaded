@@ -1,0 +1,113 @@
+diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.hpp
+--- a/include/xbox360ps5/hang_watch.hpp
++++ b/include/xbox360ps5/hang_watch.hpp
+@@ -391,8 +391,35 @@ struct GuestMemory {
+ };
+ inline GuestMemory guest_memory;
+ inline constexpr uint32_t kBigAllocation = 8u << 20;
++// Fix 76: a raw line for the first kFailureLines failed allocations of a run only, then one that
++// says no more follow; the beat still counts them all. Each raw line is a write and an fsync
++// (milliseconds on the console), and Fable II (4D5307F1) looks for room by asking for a reserve
++// at every 64 KiB from 0x40000000 until one is free: thousands of failures by design, a few
++// milliseconds in 1.0.3 and over a minute with a line each on the 1.0.4 draft.
++inline constexpr uint32_t kFailureLines = 16;
++inline std::atomic<uint32_t> failure_lines{0};
+ inline uint64_t MiB(uint64_t bytes) { return bytes >> 20; }
+-// One allocation; returns the raw line written for it ("" when none: small and successful).
++// Fix 76: the stall capture's log of every system call (log level 3 for 3 s) takes at most
++// kCaptureDebugLines debug lines. On the draft, Fable II's two idle threads asked for the time
++// about 20,000 times a second: 33,000 lines in under 2 s, which the log writer took over a minute
++// to write while the game's own log lines waited for room. -1: no capture running, debug lines
++// go by the log level alone (the "detailed logs" setting).
++inline constexpr int32_t kCaptureDebugLines = 1000;
++inline std::atomic<int32_t> capture_debug_lines{-1};
++// Whether a debug line may still go to the log (the check before a line is formatted).
++inline bool CaptureDebugLeft() { return capture_debug_lines.load(std::memory_order_relaxed) != 0; }
++// One debug line going to the log: false once the capture's lines are spent; the last one taken
++// writes a raw line saying so.
++inline bool TakeCaptureDebugLine() {
++  int32_t left = capture_debug_lines.load(std::memory_order_relaxed);
++  while (left > 0 && !capture_debug_lines.compare_exchange_weak(left, left - 1, std::memory_order_relaxed)) {
++  }
++  if (left == 1)
++    Raw(Format("STALL capture: %d system-call lines logged, no more until the next capture", kCaptureDebugLines));
++  return left != 0;
++}
++// One allocation; returns the raw line written for it ("" when none: small and successful, or a
++// failure after the first kFailureLines).
+ inline std::string GuestAllocation(const char* what, bool physical, uint32_t address, uint32_t bytes,
+                                    uint32_t type, bool ok) {
+   if (ok) {
+@@ -400,6 +427,10 @@ inline std::string GuestAllocation(const char* what, bool physical, uint32_t add
+     (physical ? guest_memory.physical_bytes : guest_memory.virtual_bytes).fetch_add(bytes, std::memory_order_relaxed);
+   } else {
+     guest_memory.failures.fetch_add(1, std::memory_order_relaxed);
++    const uint32_t n = failure_lines.fetch_add(1, std::memory_order_relaxed);
++    if (n == kFailureLines)
++      Raw(Format("GUEST failed allocations: %u lines written, the rest only counted in the beat", kFailureLines));
++    if (n >= kFailureLines) return std::string();
+   }
+   if (ok && bytes < kBigAllocation) return std::string();
+   const std::string line = Format(
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.cc b/.deps/xenia-canary/src/xenia/base/logging.cc
+--- a/.deps/xenia-canary/src/xenia/base/logging.cc
++++ b/.deps/xenia-canary/src/xenia/base/logging.cc
+@@ -527,6 +527,12 @@ size_t recent_end_ = 0;
+ bool recent_wrapped_ = false;
+ 
+ bool GoesToLog(LogLevel log_level, uint32_t log_mask) {
++#if XE_PLATFORM_PS5
++  // Fix 76: no more debug lines once the stall capture's are spent.
++  if (log_level == LogLevel::Debug && !xbox360ps5::hang_watch::CaptureDebugLeft()) {
++    return false;
++  }
++#endif
+   return static_cast<int32_t>(log_level) <= cvars::log_level &&
+          (log_mask & cvars::log_mask) == 0;
+ }
+@@ -640,6 +646,11 @@ void logging::internal::AppendLogLine(LogLevel log_level,
+   if (!GoesToLog(log_level, LogSrc::Uncategorized)) {
+     return;
+   }
++#if XE_PLATFORM_PS5
++  if (log_level == LogLevel::Debug && !xbox360ps5::hang_watch::TakeCaptureDebugLine()) {
++    return;  // fix 76
++  }
++#endif
+   logger_->AppendLine(xe::threading::current_thread_id(), prefix_char,
+                       thread_log_buffer_, written);
+ }
+@@ -655,6 +666,11 @@ void logging::AppendLogLine(LogLevel log_level, const char prefix_char,
+   if (!GoesToLog(log_level, log_mask)) {
+     return;
+   }
++#if XE_PLATFORM_PS5
++  if (log_level == LogLevel::Debug && !xbox360ps5::hang_watch::TakeCaptureDebugLine()) {
++    return;  // fix 76
++  }
++#endif
+   logger_->AppendLine(xe::threading::current_thread_id(), prefix_char,
+                       str.data(), str.size());
+ }
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3357,14 +3357,18 @@ int main(int argc, char** argv) {
+                 XELOGW("STALL recent lines, oldest first:");
+                 xe::logging::WriteRecentLines();
+                 XELOGW("STALL recent lines end");
++                // Fix 76: at most kCaptureDebugLines of them.
++                xbox360ps5::hang_watch::capture_debug_lines.store(xbox360ps5::hang_watch::kCaptureDebugLines);
+                 cvars::log_level = 3;  // Every system call, for a moment.
+                 break;
+               case xbox360ps5::FrameWatch::finish_capture:
+                 cvars::log_level = usual_log_level;
++                xbox360ps5::hang_watch::capture_debug_lines.store(-1);  // fix 76
+                 ReportStall(emulator, 2);
+                 break;
+               case xbox360ps5::FrameWatch::recovered:
+                 XELOGW("STALL over: frames again"); cvars::log_level=usual_log_level;
++                xbox360ps5::hang_watch::capture_debug_lines.store(-1);  // fix 76
+                 break;
+               default: break;
+             }

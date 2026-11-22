@@ -1,0 +1,100 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xenumerator.h b/.deps/xenia-canary/src/xenia/kernel/xenumerator.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xenumerator.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xenumerator.h
+@@ -73,6 +73,14 @@ class XEnumerator : public XObject {
+                       uint32_t open_message, uint32_t close_message,
+                       uint32_t flags);
+ 
++  // Xbox360PS5 (fix 80): the enumerator whose guest object is at guest_ptr,
++  // retained, or null. An enumerator has no dispatch header: Initialize writes
++  // close_message and user_index over the handle SetNativePointer stamped where
++  // a dispatch header's wait list would be, so GetNativeObject cannot find it
++  // by its stamp. Called with the global critical region held; only an
++  // enumerator that still has a handle is given out.
++  static XObject* RetainByGuestObject(uint32_t guest_ptr);
++
+   template <typename T>
+   X_STATUS Initialize(uint32_t user_index, uint32_t app_id,
+                       uint32_t open_message, uint32_t close_message,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc b/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
+@@ -9,6 +9,8 @@
+ 
+ #include "xenia/kernel/xenumerator.h"
+ 
++#include <unordered_map>
++
+ namespace xe {
+ namespace kernel {
+ 
+@@ -18,7 +20,37 @@ XEnumerator::XEnumerator(KernelState* kernel_state, size_t items_per_enumerate,
+       items_per_enumerate_(items_per_enumerate),
+       item_size_(item_size) {}
+ 
+-XEnumerator::~XEnumerator() = default;
++// Xbox360PS5 (fix 80): this emulator's enumerators by their guest object.
++// Battlefield 3 makes one about 15 times a second, takes it with
++// XamGetPrivateEnumStructureFromHandle (a handle reference) and gives it back
++// with ObDereferenceObject; that found no enumerator at the address (its stamp
++// overwritten), so the reference was never given back, the game's close never
++// freed it, and after about 14 minutes the guest's 4 KiB heap was full.
++namespace {
++std::unordered_map<uint32_t, XEnumerator*>& OwnedEnumerators() {
++  static std::unordered_map<uint32_t, XEnumerator*> owned;
++  return owned;
++}
++}  // namespace
++
++XObject* XEnumerator::RetainByGuestObject(uint32_t guest_ptr) {
++  auto global_lock = xe::global_critical_region::AcquireDirect();
++  const auto it = OwnedEnumerators().find(guest_ptr);
++  if (it == OwnedEnumerators().end() || it->second->handles().empty()) {
++    return nullptr;
++  }
++  return retain_object<XObject>(it->second).release();
++}
++
++XEnumerator::~XEnumerator() {
++  if (const uint32_t guest_ptr = guest_object()) {
++    auto global_lock = xe::global_critical_region::AcquireDirect();
++    const auto it = OwnedEnumerators().find(guest_ptr);
++    if (it != OwnedEnumerators().end() && it->second == this) {
++      OwnedEnumerators().erase(it);
++    }
++  }
++}
+ 
+ X_STATUS XEnumerator::Initialize(uint32_t user_index, uint32_t app_id,
+                                  uint32_t open_message, uint32_t close_message,
+@@ -42,6 +74,10 @@ X_STATUS XEnumerator::Initialize(uint32_t user_index, uint32_t app_id,
+   }
+ 
+   extra_size_ = extra_size;
++  {
++    auto global_lock = xe::global_critical_region::AcquireDirect();
++    OwnedEnumerators()[this->guest_object()] = this;  // fix 80
++  }
+   return X_STATUS_SUCCESS;
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+@@ -514,6 +514,16 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+       kernel_state->memory()->HostToGuestVirtual(native_ptr);
+   const uint32_t guest_signal_state = header->signal_state;
+ 
++  // Xbox360PS5 (fix 80): an enumerator this emulator made keeps no stamp (see
++  // XEnumerator::RetainByGuestObject); find it by its address, before the
++  // resolver takes its fields for a dispatch header.
++  if (XObject* owned = XEnumerator::RetainByGuestObject(guest_ptr)) {
++    if (!already_locked) {
++      global_critical_region::mutex().unlock();
++    }
++    return object_ref<XObject>(owned);
++  }
++
+   // Xbox360PS5 (fix 20): the decisions are xbox360ps5::native_object::Resolve
+   // (native_object_resolve.h, checked on the host by
+   // tools/check-stale-dispatch-header.cpp); this is the kernel side of them.

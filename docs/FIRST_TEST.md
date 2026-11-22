@@ -1,45 +1,47 @@
-# Primeiro teste Xbox360PS5 (M1)
+> Translated from the original author's Portuguese text.
 
-Este aplicativo testa no PS5 o decoder de instruções do Xenia, a apresentação
-VideoOut e o controle DualSense. Ainda não carrega jogos e não inicializa JIT,
-Vulkan ou o kernel guest do Xbox 360.
+# First Xbox360PS5 test (M1)
 
-Extrair `PPSA50008` para `/data/homebrew/PPSA50008` e registrar a pasta com o
-ShadowMountPlus. Abrir **Xbox360PS5 Platform Test** pelo menu do PS5.
+This application tests, on the PS5, the Xenia instruction decoder, VideoOut
+presentation and the DualSense controller. It does not load games yet and does not
+initialize the JIT, Vulkan or the Xbox 360 guest kernel.
 
-Conferir:
+Extract `PPSA50008` to `/data/homebrew/PPSA50008` and register the folder with
+ShadowMountPlus. Open **Xbox360PS5 Platform Test** from the PS5 menu.
 
-1. Aparece a tela `XBOX360PS5 M1`.
-2. Os nove casos mostram `PASS`; `FAILURES` é zero.
-3. O status mostra `DUALSENSE READY`.
-4. Pressionar X aumenta `CROSS PRESSES` e `RUNS`.
-5. Mover o analógico esquerdo altera os dois valores em `LEFT STICK`.
-6. Fechar o aplicativo pelo menu do PS5.
+Check:
 
-O diagnóstico fica em `/download0/xbox360ps5-m1.log`, dentro do sandbox do
-título. Isso permite recuperar os resultados mesmo se a apresentação falhar.
-O teste usa um title ID próprio e não substitui o Castation.
+1. The `XBOX360PS5 M1` screen appears.
+2. All nine cases show `PASS`; `FAILURES` is zero.
+3. The status shows `DUALSENSE READY`.
+4. Pressing X increases `CROSS PRESSES` and `RUNS`.
+5. Moving the left analog stick changes both values under `LEFT STICK`.
+6. Close the application from the PS5 menu.
 
-Passar neste teste comprova apenas os componentes acima. A emulação do
-processador, a GPU Xenos, o carregamento XEX e a execução de jogos continuam
-pendentes.
+The diagnostics are written to `/download0/xbox360ps5-m1.log`, inside the title's
+sandbox. This makes it possible to recover the results even if presentation fails.
+The test uses its own title ID and does not replace Castation.
 
-## Implantação inicial
+Passing this test proves only the components above. Emulation of the
+processor, the Xenos GPU, XEX loading and running games remain
+pending.
 
-Em 2026-10-01, o teste foi enviado para `192.168.0.19` e registrado como
-`source_type=folder`, `installed=true`, `source_available=true`, sem erro de
-registro. O usuário confirmou abertura, imagem e resposta do controle. O título usa
+## Initial deployment
+
+On 2026-10-01, the test was sent to `192.168.0.19` and registered as
+`source_type=folder`, `installed=true`, `source_available=true`, with no
+registration error. The user confirmed that it opens, shows an image and responds to the controller. The title uses
 `/data/homebrew/PPSA50008`.
 
-O FTP do console expõe SELF como ELF e zera alguns metadados não mapeados.
-A verificação compara o cabeçalho, a tabela de segmentos e todos os segmentos
-mapeados/dinâmicos; tolera somente notas de versão fora dos segmentos de
-memória que o FTP tenha zerado integralmente. Código modificado ou cabeçalho
-divergente são rejeitados. Os testes dessa verificação estão em
-`tools/test_deploy_verify.py`. Ícone e param.json são conferidos byte a byte.
+The console's FTP exposes the SELF as an ELF and zeroes some unmapped metadata.
+The verification compares the header, the segment table and all
+mapped/dynamic segments; it tolerates only version notes outside the memory
+segments that the FTP has zeroed entirely. Modified code or a mismatching
+header is rejected. The tests for this verification are in
+`tools/test_deploy_verify.py`. The icon and param.json are checked byte for byte.
 
-O log foi lido pelo FTP com o aplicativo aberto: 53 execuções dos nove casos,
-sempre com zero falhas. O handle do pad foi aberto com sucesso. O usuário
-confirmou que a tela, o contador de X e os valores do analógico respondem.
-Esse resultado valida o marco M1, sem atestar execução de jogos, JIT ou Vulkan.
-O registro vinculado ao hash do executável está em `docs/evidence/M1_HARDWARE.json`.
+The log was read over FTP with the application open: 53 runs of the nine cases,
+always with zero failures. The pad handle was opened successfully. The user
+confirmed that the screen, the X counter and the analog stick values respond.
+This result validates milestone M1, without attesting to game execution, the JIT or Vulkan.
+The record tied to the executable's hash is in `docs/evidence/M1_HARDWARE.json`.

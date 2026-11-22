@@ -1,0 +1,229 @@
+diff --git a/include/xbox360ps5/enum_trace.hpp b/include/xbox360ps5/enum_trace.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/enum_trace.hpp
+@@ -0,0 +1,99 @@
++// SPDX-License-Identifier: MIT
++#pragma once
++// Fix 81: the life of the emulator's enumerators, by kind (app id and open message).
++// Battlefield 3 keeps about 15 enumerators a second and one XamAlloc buffer with each (fix 79 on
++// 1.0.5_candidate_55); fix 80 (ObDereferenceObject finding an enumerator by its address) did not
++// change that on 1.0.4_candidate_34. Each step of an enumerator is counted for its kind: made,
++// enumerated (and what that returned), taken with XamGetPrivateEnumStructureFromHandle, given back
++// with ObDereferenceObject, closed with NtClose, destroyed; the summary line says which step the
++// kept ones never reach.
++#include <cstdint>
++#include <cstdio>
++#include <map>
++#include <mutex>
++#include <string>
++#include <unordered_map>
++
++namespace xbox360ps5 {
++namespace enum_trace {
++
++struct Kind {
++  uint64_t made = 0, enumerated = 0, items = 0, no_more = 0, failed = 0, taken = 0, given_back = 0, closed = 0,
++           destroyed = 0;
++  uint32_t close_message = 0, extra_size = 0, items_per_enumerate = 0, flags = 0;
++};
++struct State {
++  std::mutex mutex;
++  std::map<uint64_t, Kind> kinds;                    // (app id << 32) | open message
++  std::unordered_map<uint32_t, uint64_t> by_object;  // guest object -> kind
++};
++inline State& Get() {
++  static State state;
++  return state;
++}
++inline uint64_t KindKey(uint32_t app_id, uint32_t open_message) { return (uint64_t(app_id) << 32) | open_message; }
++
++// A new enumerator; true for the first 4 of its kind (the caller logs those).
++inline bool Made(uint32_t guest_object, uint32_t app_id, uint32_t open_message, uint32_t close_message,
++                 uint32_t extra_size, uint32_t items_per_enumerate, uint32_t flags) {
++  State& s = Get();
++  std::lock_guard<std::mutex> lock(s.mutex);
++  const uint64_t key = KindKey(app_id, open_message);
++  s.by_object[guest_object] = key;
++  Kind& k = s.kinds[key];
++  k.close_message = close_message;
++  k.extra_size = extra_size;
++  k.items_per_enumerate = items_per_enumerate;
++  k.flags = flags;
++  return ++k.made <= 4;
++}
++enum Step { kEnumerated, kTaken, kGivenBack, kClosed, kDestroyed };
++inline constexpr uint32_t kNoMoreFiles = 18;  // X_ERROR_NO_MORE_FILES
++inline void Note(uint32_t guest_object, Step step, uint32_t result = 0, uint32_t items = 0) {
++  State& s = Get();
++  std::lock_guard<std::mutex> lock(s.mutex);
++  const auto it = s.by_object.find(guest_object);
++  if (it == s.by_object.end()) return;
++  Kind& k = s.kinds[it->second];
++  switch (step) {
++    case kEnumerated:
++      ++k.enumerated;
++      k.items += items;
++      if (result == kNoMoreFiles) ++k.no_more;
++      else if (result) ++k.failed;
++      break;
++    case kTaken: ++k.taken; break;
++    case kGivenBack: ++k.given_back; break;
++    case kClosed: ++k.closed; break;
++    case kDestroyed:
++      ++k.destroyed;
++      s.by_object.erase(it);
++      break;
++  }
++}
++
++// "Enumerators by kind (app/open message): 000000FB/00058039 made n, enumerated e (items i, no more
++// m, failed f), taken t, given back g, closed c, destroyed d, alive a; ..." since the start.
++inline std::string Line() {
++  State& s = Get();
++  std::lock_guard<std::mutex> lock(s.mutex);
++  std::string text = "Enumerators by kind (app/open message, since the start): ";
++  bool first = true;
++  for (const auto& [key, k] : s.kinds) {
++    char item[320];
++    std::snprintf(item, sizeof(item),
++                  "%s%08X/%08X (close %08X, extra %u, %u per call, flags %X) made %llu, enumerated %llu (items %llu, "
++                  "no more %llu, failed %llu), taken %llu, given back %llu, closed %llu, destroyed %llu, alive %llu",
++                  first ? "" : "; ", uint32_t(key >> 32), uint32_t(key), k.close_message, k.extra_size,
++                  k.items_per_enumerate, k.flags, (unsigned long long)k.made, (unsigned long long)k.enumerated,
++                  (unsigned long long)k.items, (unsigned long long)k.no_more, (unsigned long long)k.failed,
++                  (unsigned long long)k.taken, (unsigned long long)k.given_back, (unsigned long long)k.closed,
++                  (unsigned long long)k.destroyed, (unsigned long long)(k.made - k.destroyed));
++    text += item;
++    first = false;
++  }
++  return first ? text + "none" : text;
++}
++
++}  // namespace enum_trace
++}  // namespace xbox360ps5
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc b/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
+@@ -11,6 +11,9 @@
+ 
+ #include <unordered_map>
+ 
++#include "xbox360ps5/enum_trace.hpp"  // fix 81: the enumerators' lives by kind
++#include "xenia/base/logging.h"
++
+ namespace xe {
+ namespace kernel {
+ 
+@@ -49,6 +52,7 @@ XEnumerator::~XEnumerator() {
+     if (it != OwnedEnumerators().end() && it->second == this) {
+       OwnedEnumerators().erase(it);
+     }
++    xbox360ps5::enum_trace::Note(guest_ptr, xbox360ps5::enum_trace::kDestroyed);  // fix 81
+   }
+ }
+ 
+@@ -78,6 +82,16 @@ X_STATUS XEnumerator::Initialize(uint32_t user_index, uint32_t app_id,
+     auto global_lock = xe::global_critical_region::AcquireDirect();
+     OwnedEnumerators()[this->guest_object()] = this;  // fix 80
+   }
++  // Fix 81: the first few of each kind in the log.
++  if (xbox360ps5::enum_trace::Made(this->guest_object(), app_id, open_message,
++                                   close_message, extra_size,
++                                   uint32_t(items_per_enumerate_), flags)) {
++    XELOGW(
++        "Enumerator {:08X}: app {:08X}, open message {:08X}, close message "
++        "{:08X}, user {}, {} per call, {} extra bytes, flags {:08X}",
++        this->guest_object(), app_id, open_message, close_message, user_index,
++        items_per_enumerate_, extra_size, flags);
++  }
+   return X_STATUS_SUCCESS;
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_enum.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_enum.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_enum.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_enum.cc
+@@ -16,6 +16,7 @@
+ #include "xenia/kernel/xam/xam_private.h"
+ #include "xenia/kernel/xenumerator.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/enum_trace.hpp"  // fix 81
+ 
+ namespace xe {
+ namespace kernel {
+@@ -43,6 +44,9 @@ uint32_t xeXamEnumerate(uint32_t handle, uint32_t flags, lpvoid_t buffer_ptr,
+       result =
+           e->WriteItems(buffer_ptr.as<uint8_t*>(), buffer_size, &item_count);
+     }
++    xbox360ps5::enum_trace::Note(e->guest_object(),
++                                 xbox360ps5::enum_trace::kEnumerated, result,
++                                 item_count);  // fix 81
+     extended_error = X_HRESULT_FROM_WIN32(result);
+     length = item_count;
+     if (result && overlapped_ptr) {
+@@ -272,6 +276,8 @@ dword_result_t XamGetPrivateEnumStructureFromHandle_entry(
+   // Caller takes the reference.
+   // It's released in ObDereferenceObject.
+   e->RetainHandle();
++  xbox360ps5::enum_trace::Note(e->guest_object(),
++                               xbox360ps5::enum_trace::kTaken);  // fix 81
+ 
+   if (out_object_ptr.guest_address()) {
+     *out_object_ptr = e->guest_object();
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc
+@@ -15,6 +15,7 @@
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
+ #include "xenia/kernel/xthread.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/enum_trace.hpp"  // fix 81
+ 
+ namespace xe {
+ namespace kernel {
+@@ -325,6 +326,10 @@ void xeObDereferenceObject(PPCContext* context, uint32_t native_ptr) {
+   auto object = XObject::GetNativeObject<XObject>(
+       kernel_state(), kernel_memory()->TranslateVirtual(native_ptr));
+   if (object) {
++    if (object->type() == XObject::Type::Enumerator) {  // fix 81
++      xbox360ps5::enum_trace::Note(object->guest_object(),
++                                   xbox360ps5::enum_trace::kGivenBack);
++    }
+     object->ReleaseHandle();
+ 
+   } else {
+@@ -421,6 +426,14 @@ dword_result_t NtDuplicateObject_entry(dword_t handle, lpdword_t new_handle_ptr,
+ DECLARE_XBOXKRNL_EXPORT1(NtDuplicateObject, kNone, kImplemented);
+ 
+ uint32_t NtClose(uint32_t handle) {
++  // Fix 81: an enumerator's close, counted for its kind.
++  if (auto object =
++          kernel_state()->object_table()->LookupObject<XObject>(handle)) {
++    if (object->type() == XObject::Type::Enumerator) {
++      xbox360ps5::enum_trace::Note(object->guest_object(),
++                                   xbox360ps5::enum_trace::kClosed);
++    }
++  }
+   return kernel_state()->object_table()->ReleaseHandle(handle);
+ }
+ 
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -130,6 +130,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by holder
++#include "xbox360ps5/enum_trace.hpp"  // fix 81: the enumerators' lives by kind
+ #include "xbox360ps5/autotest.hpp"
+ #include "xbox360ps5/launcher.hpp"
+ #include "xbox360ps5/forward.hpp"
+@@ -3467,6 +3468,8 @@ int main(int argc, char** argv) {
+                 XELOGW("{}", frame_cost_hot.Line(double(summary_samples)));
+                 // Fix 79: the emulator's allocations in the guest's 4 KiB heap, by holder.
+                 XELOGW("{}", xbox360ps5::system_heap::Line());
++                // Fix 81: the enumerators' lives by kind.
++                XELOGW("{}", xbox360ps5::enum_trace::Line());
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

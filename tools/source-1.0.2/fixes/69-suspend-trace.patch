@@ -1,0 +1,229 @@
+diff --git a/include/xbox360ps5/suspend_trace.hpp b/include/xbox360ps5/suspend_trace.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/suspend_trace.hpp
+@@ -0,0 +1,127 @@
++// SPDX-License-Identifier: MIT
++// Fix 69 (tools/source-1.0.2/fixes/69-suspend-trace.patch): a diagnostic for lost wake-ups of
++// threads that suspend themselves. Ninja Gaiden II on 1.0.4_candidate_26 went black after 203 s:
++// two job threads (F8000164, F8000194) were suspended by their own NtSuspendThread, and the main
++// thread spun on a flag only they clear. A resume that reaches a thread before it has suspended
++// itself finds a count of 0 and does nothing (as on the console); the thread then suspends with
++// no one left to wake it.
++//  - Each guest thread keeps its last kEvents suspension changes (Ring): who suspended or resumed
++//    it, the count before, when. The STALL report prints them for every suspended thread.
++//  - A resume that finds a count of 0 is counted (early_resumes), the first kRawLines written at
++//    once with the resumer, the target and whether the target was entering its own suspension
++//    then; afterwards one line every 30 s while more come.
++#pragma once
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xbox360ps5::suspend_trace {
++
++enum Kind : uint8_t {
++  kNone = 0,
++  kSuspendedItself,  // NtSuspendThread on itself, count before
++  kWokeItself,       // its own suspension ended
++  kSuspendedBy,      // by another thread
++  kResumedBy,        // by another thread, count before (>0)
++  kResumeFoundRunning,  // a resume found count 0: nothing happened
++};
++inline const char* KindName(uint8_t kind) {
++  switch (kind) {
++    case kSuspendedItself: return "suspended itself";
++    case kWokeItself: return "woke";
++    case kSuspendedBy: return "suspended by";
++    case kResumedBy: return "resumed by";
++    case kResumeFoundRunning: return "EARLY resume (count 0) by";
++    default: return "?";
++  }
++}
++inline uint64_t NowMs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
++struct Event {
++  uint64_t ms = 0;
++  uint32_t other = 0;  // the other thread's handle (0: the thread itself or a host thread)
++  uint8_t kind = kNone;
++  uint8_t previous = 0;  // the suspend count before
++};
++
++// Written by the thread itself and by those that suspend or resume it (a slot each, by an
++// atomic index); read by the STALL report. A torn event only garbles one diagnostic line.
++class Ring {
++ public:
++  static constexpr size_t kEvents = 16;
++  void Note(uint8_t kind, uint32_t other, uint8_t previous, uint64_t ms) {
++    const uint64_t n = next_.fetch_add(1, std::memory_order_relaxed);
++    Event& e = events_[n % kEvents];
++    e.ms = ms;
++    e.other = other;
++    e.kind = kind;
++    e.previous = previous;
++  }
++  uint64_t count() const { return next_.load(std::memory_order_relaxed); }
++  // "-76012 ms resumed by F8000008 (1->0); -76010 ms suspended itself (0->1); ..." newest first.
++  std::string Line(uint64_t now_ms) const {
++    const uint64_t n = next_.load(std::memory_order_relaxed);
++    const uint64_t shown = n < kEvents ? n : kEvents;
++    std::string out;
++    for (uint64_t k = 0; k < shown; ++k) {
++      const Event& e = events_[(n - 1 - k) % kEvents];
++      char item[96];
++      const int after = e.kind == kSuspendedItself || e.kind == kSuspendedBy ? e.previous + 1
++                        : e.kind == kResumedBy                              ? e.previous - 1
++                                                                            : e.previous;
++      const long long ago = now_ms >= e.ms ? (long long)(now_ms - e.ms) : 0;
++      if (e.kind == kWokeItself)
++        std::snprintf(item, sizeof(item), "%s-%lld ms woke", k ? "; " : "", ago);
++      else if (e.other)
++        std::snprintf(item, sizeof(item), "%s-%lld ms %s %08X (%u->%d)", k ? "; " : "", ago, KindName(e.kind),
++                      e.other, unsigned(e.previous), after);
++      else
++        std::snprintf(item, sizeof(item), "%s-%lld ms %s (%u->%d)", k ? "; " : "", ago, KindName(e.kind),
++                      unsigned(e.previous), after);
++      out += item;
++    }
++    return out.empty() ? std::string("none") : out;
++  }
++
++ private:
++  std::array<Event, kEvents> events_{};
++  std::atomic<uint64_t> next_{0};
++};
++
++// Resumes that found a count of 0.
++inline constexpr uint64_t kRawLines = 20;
++inline std::atomic<uint64_t> early_resumes{0};
++inline std::atomic<uint64_t> early_reported{0}, early_reported_ms{0};
++// The line to write for this early resume ("" for none): the first kRawLines each, then at most
++// one every 30 s with the count since the last.
++inline std::string EarlyResumeLine(uint32_t resumer, uint32_t target, bool entering, uint64_t now_ms) {
++  const uint64_t n = early_resumes.fetch_add(1, std::memory_order_relaxed) + 1;
++  char text[200];
++  if (n <= kRawLines) {
++    std::snprintf(text, sizeof(text),
++                  "Suspend: EARLY resume #%llu: %08X resumed %08X while its suspend count was 0 (%s); "
++                  "the resume did nothing",
++                  (unsigned long long)n, resumer, target,
++                  entering ? "it was entering its own suspension" : "it was running");
++    early_reported.store(n, std::memory_order_relaxed);
++    early_reported_ms.store(now_ms, std::memory_order_relaxed);
++    return text;
++  }
++  uint64_t last_ms = early_reported_ms.load(std::memory_order_relaxed);
++  if (now_ms - last_ms < 30000 ||
++      !early_reported_ms.compare_exchange_strong(last_ms, now_ms, std::memory_order_relaxed))
++    return std::string();
++  const uint64_t before = early_reported.exchange(n, std::memory_order_relaxed);
++  std::snprintf(text, sizeof(text), "Suspend: %llu more early resumes (count 0) in %.0f s, %llu in all",
++                (unsigned long long)(n - before), double(now_ms - last_ms) / 1000.0, (unsigned long long)n);
++  return text;
++}
++
++}  // namespace xbox360ps5::suspend_trace
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.h b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+@@ -28,6 +28,7 @@
+ #include "xenia/kernel/xmutant.h"
+ #include "xenia/kernel/xobject.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/suspend_trace.hpp"  // fix 69
+ 
+ namespace xe {
+ namespace kernel {
+@@ -493,6 +494,8 @@ class XThread : public XObject, public cpu::Thread {
+   bool SetTLSValue(uint32_t slot, uint32_t value);
+ 
+   uint32_t suspend_count();
++  // Fix 69: this thread's last suspension changes (who, the count before, when).
++  const xbox360ps5::suspend_trace::Ring& suspend_trace() const { return suspend_trace_; }
+   X_FILETIME creation_time();
+   uint32_t start_address();
+ 
+@@ -560,6 +563,9 @@ class XThread : public XObject, public cpu::Thread {
+   // steady clock in nanoseconds (see XThread::Suspend).
+   std::atomic<int64_t> released_at_{0};
+ #endif
++  // Fix 69: suspension changes, and whether the thread is entering its own suspension.
++  xbox360ps5::suspend_trace::Ring suspend_trace_;
++  std::atomic<bool> entering_self_suspend_{false};
+ 
+   // Reentry mechanism for fiber-based stack switching.
+   // On Linux, C++ exceptions are used instead of setjmp/longjmp so that
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -1084,6 +1084,19 @@ X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
+     if (out_suspend_count) {
+       *out_suspend_count = previous;
+     }
++    {  // Fix 69: who resumed it; a resume that finds no suspension is a lost wake-up candidate.
++      XThread* caller = XThread::GetCurrentThread();
++      const uint32_t resumer = caller ? caller->handle() : 0;
++      const uint64_t now = xbox360ps5::suspend_trace::NowMs();
++      if (previous == 0) {
++        suspend_trace_.Note(xbox360ps5::suspend_trace::kResumeFoundRunning, resumer, 0, now);
++        const std::string line = xbox360ps5::suspend_trace::EarlyResumeLine(
++            resumer, handle(), entering_self_suspend_.load(std::memory_order_relaxed), now);
++        if (!line.empty()) XELOGW("{}", line);
++      } else {
++        suspend_trace_.Note(xbox360ps5::suspend_trace::kResumedBy, resumer, previous, now);
++      }
++    }
+     // The host count increases on every remote Suspend, including nested
+     // suspensions. Balance each decrement, rather than only the final one.
+     if (previous > 0) thread_->Resume(&unused_host_suspend_count);
+@@ -1146,6 +1159,11 @@ X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
+   if (out_suspend_count) {
+     *out_suspend_count = previous_suspend_count;
+   }
++  {  // Fix 69: suspended by another thread.
++    XThread* caller = XThread::GetCurrentThread();
++    suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendedBy, caller ? caller->handle() : 0,
++                        previous_suspend_count, xbox360ps5::suspend_trace::NowMs());
++  }
+   // If we are suspending ourselves, we can't hold the lock.
+   uint32_t unused_host_suspend_count = 0;
+ 
+@@ -1185,12 +1203,17 @@ uint32_t XThread::SelfSuspend() {
+   xe::threading::Thread::DeferSuspension(true);
+   auto& suspend_count =
+       *reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count);
++  entering_self_suspend_.store(true, std::memory_order_relaxed);  // fix 69
+   const uint32_t previous = suspend_count.fetch_add(1);
++  entering_self_suspend_.store(false, std::memory_order_relaxed);
++  suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendedItself, 0, uint8_t(previous),
++                      xbox360ps5::suspend_trace::NowMs());
+   {
+     std::unique_lock<std::mutex> lock(suspend_mutex_);
+     suspend_cv_.wait(lock,
+                      [&suspend_count]() { return suspend_count.load() == 0; });
+   }
++  suspend_trace_.Note(xbox360ps5::suspend_trace::kWokeItself, 0, 0, xbox360ps5::suspend_trace::NowMs());
+   xe::threading::Thread::DeferSuspension(false);
+   return previous;
+ }
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -998,6 +998,10 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+            thread->suspend_count(), uint32_t(context->lr), uint32_t(context->ctr), uint32_t(context->r[1]),
+            uint32_t(context->r[3]), uint32_t(context->r[4]), uint32_t(context->r[5]));
+     if (!thread->is_guest_thread()) continue;
++    // Fix 69: a thread that was ever suspended or resumed: its last changes, newest first.
++    if (thread->suspend_trace().count())
++      XELOGW("STALL thread {:08X} suspend history (newest first): {}", thread->handle(),
++             thread->suspend_trace().Line(xbox360ps5::suspend_trace::NowMs()));
+     // Fix 24: for a guest thread, its KTHREAD (what a wait on the thread names), the code around
+     // lr and ctr (64 bytes each, lr's own word the ninth) with the imports it calls, its stack
+     // frames, and for one in no wait the memory its registers point at (the registers as last

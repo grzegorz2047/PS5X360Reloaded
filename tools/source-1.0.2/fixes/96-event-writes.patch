@@ -1,0 +1,208 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -633,6 +633,43 @@ inline uint32_t PacketKindOf(uint32_t packet) {
+   }
+ }
+ inline std::array<std::atomic<uint64_t>, kPacketKinds> packet_ticks{}, packet_counts{};
++// Fix 96: EVENT_WRITE* by opcode and event type. Red Dead Redemption on the 1.0.5 perf builds:
++// 233,490 a second (about 1.4 per draw), 64.5 ms/s of the GPU command thread's own time, 0.28 us
++// each against 0.08 for a register write; Modern Warfare 2 sends 2,400 a second. Every event
++// packet is counted by opcode and VGT_EVENT_INITIATOR type (the GPU thread's own counters); the
++// packets fix 75 times give each opcode's own time.
++enum EventOpcode : uint32_t { kEventWrite = 0, kEventWriteShd, kEventWriteExt, kEventWriteZpd, kEventOpcodes };
++inline constexpr uint32_t kEventTypes = 64;  // VGT_EVENT_INITIATOR & 0x3F
++inline uint32_t EventOpcodeOf(uint32_t packet) {
++  if (packet >> 30 != 3) return kEventOpcodes;
++  switch ((packet >> 8) & 0x7F) {
++    case 0x46: return kEventWrite;     // PM4_EVENT_WRITE
++    case 0x58: return kEventWriteShd;  // PM4_EVENT_WRITE_SHD
++    case 0x5A: return kEventWriteExt;  // PM4_EVENT_WRITE_EXT
++    case 0x5B: return kEventWriteZpd;  // PM4_EVENT_WRITE_ZPD
++    default: return kEventOpcodes;
++  }
++}
++inline const char* EventOpcodeName(uint32_t opcode) {
++  static const char* const names[] = {"EVENT_WRITE", "EVENT_WRITE_SHD", "EVENT_WRITE_EXT", "EVENT_WRITE_ZPD"};
++  return opcode < kEventOpcodes ? names[opcode] : "?";
++}
++// xenos::Event (xenia/gpu/xenos.h); null for a type it does not name.
++inline const char* EventTypeName(uint32_t type) {
++  static const char* const names[] = {
++      "VS_DEALLOC", "PS_DEALLOC", "VS_DONE_TS", "PS_DONE_TS", "CACHE_FLUSH_TS", "CONTEXT_DONE", "CACHE_FLUSH",
++      "VIZQUERY_START", "VIZQUERY_END", "SC_WAIT_WC", "MPASS_PS_CP_REFETCH", "MPASS_PS_RST_START",
++      "MPASS_PS_INCR_START", "RST_PIX_CNT", "RST_VTX_CNT", "TILE_FLUSH", nullptr, nullptr, nullptr, nullptr,
++      "CACHE_FLUSH_AND_INV_TS_EVENT", "ZPASS_DONE", "CACHE_FLUSH_AND_INV_EVENT", "PERFCOUNTER_START",
++      "PERFCOUNTER_STOP", "SCREEN_EXT_INIT", "SCREEN_EXT_RPT", "VS_FETCH_DONE_TS"};
++  return type < sizeof(names) / sizeof(names[0]) ? names[type] : nullptr;
++}
++inline std::array<std::array<std::atomic<uint64_t>, kEventTypes>, kEventOpcodes> event_types{};
++inline std::array<std::atomic<uint64_t>, kEventOpcodes> event_ticks{}, event_timed{};
++// Called by each EVENT_WRITE* handler with the initiator it read.
++inline void CountEvent(uint32_t opcode, uint32_t initiator) {
++  if (opcode < kEventOpcodes && OnGpuThread()) AddOwn(event_types[opcode][initiator % kEventTypes], 1);
++}
+ inline std::atomic<uint64_t> packet_top{0}, packet_top_sampled{0};
+ inline std::atomic<uint32_t> packet_sample_every{16};
+ // Packets run on the GPU thread alone: plain variables (not thread_local, emulated on the console).
+@@ -653,6 +690,7 @@ class PacketTimer {
+     if (!packet_sampling) return;
+     active_ = true;
+     kind_ = PacketKindOf(packet);
++    event_ = EventOpcodeOf(packet);  // fix 96
+     start_ = Ticks();
+     other_ = OtherSectionTicks() + OwnSectionTicks();
+     nested_before_ = packet_nested_ticks;
+@@ -666,6 +704,10 @@ class PacketTimer {
+     const uint64_t own = wall > sections + nested ? wall - sections - nested : 0;
+     AddOwn(packet_ticks[kind_], own);
+     AddOwn(packet_counts[kind_], 1);
++    if (event_ < kEventOpcodes) {  // fix 96: each event opcode's own time
++      AddOwn(event_ticks[event_], own);
++      AddOwn(event_timed[event_], 1);
++    }
+     // The enclosing packet takes this one's whole time out of its own.
+     packet_nested_ticks = nested_before_ + wall - sections;
+     if (packet_depth == 0) packet_sampling = false;
+@@ -678,6 +720,7 @@ class PacketTimer {
+   static uint64_t OwnSectionTicks() { return section_ticks[kDraw].load(std::memory_order_relaxed); }
+   bool entered_ = false, active_ = false;
+   uint32_t kind_ = kPacketOther;
++  uint32_t event_ = kEventOpcodes;  // fix 96
+   uint64_t start_ = 0, other_ = 0, nested_before_ = 0;
+ };
+ // "Frame time packets (GPU thread, own time by kind): kind x ms/s in n/s, ..." largest first,
+@@ -725,6 +768,77 @@ class PacketReporter {
+   uint64_t last_top_ = 0, last_sampled_ = 0, last_ticks_ = 0, last_ns_ = 0;
+   double last_ns_per_tick_ = 0;
+ };
++// Fix 96: "Performance events (GPU thread, every EVENT_WRITE* packet): EVENT_WRITE n/s, x us each
++// (CACHE_FLUSH_AND_INV_EVENT n/s, ...); ..." since its previous line: the opcodes sent most first,
++// each with its own time per timed packet and its kEventTypesShown commonest types.
++inline constexpr uint32_t kEventTypesShown = 4;
++class EventReporter {
++ public:
++  std::string Line(double seconds) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    struct Opcode {
++      uint32_t opcode = 0;
++      uint64_t count = 0, ticks = 0, timed = 0;
++      std::array<std::pair<uint64_t, uint32_t>, kEventTypes> types{};
++    };
++    std::array<Opcode, kEventOpcodes> opcodes{};
++    for (uint32_t o = 0; o < kEventOpcodes; ++o) {
++      opcodes[o].opcode = o;
++      for (uint32_t t = 0; t < kEventTypes; ++t) {
++        const uint64_t now = event_types[o][t].load(std::memory_order_relaxed);
++        opcodes[o].types[t] = {now - last_types_[o][t], t};
++        opcodes[o].count += now - last_types_[o][t];
++        last_types_[o][t] = now;
++      }
++      const uint64_t ticks = event_ticks[o].load(std::memory_order_relaxed);
++      const uint64_t timed = event_timed[o].load(std::memory_order_relaxed);
++      opcodes[o].ticks = ticks - last_ticks_by_[o];
++      opcodes[o].timed = timed - last_timed_[o];
++      last_ticks_by_[o] = ticks;
++      last_timed_[o] = timed;
++    }
++    std::sort(opcodes.begin(), opcodes.end(), [](const Opcode& a, const Opcode& b) { return a.count > b.count; });
++    std::string parts;
++    for (Opcode& op : opcodes) {
++      if (!op.count) continue;
++      std::sort(op.types.begin(), op.types.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++      char item[128];
++      if (op.timed)
++        std::snprintf(item, sizeof(item), "%s%s %.0f/s, %.2f us each (", parts.empty() ? "" : "; ",
++                      EventOpcodeName(op.opcode), double(op.count) / s,
++                      double(op.ticks) * ns_per_tick / 1e3 / double(op.timed));
++      else
++        std::snprintf(item, sizeof(item), "%s%s %.0f/s, untimed (", parts.empty() ? "" : "; ",
++                      EventOpcodeName(op.opcode), double(op.count) / s);
++      parts += item;
++      for (uint32_t i = 0; i < kEventTypesShown && op.types[i].first; ++i) {
++        const char* name = EventTypeName(op.types[i].second);
++        if (name)
++          std::snprintf(item, sizeof(item), "%s%s %.0f/s", i ? ", " : "", name, double(op.types[i].first) / s);
++        else
++          std::snprintf(item, sizeof(item), "%stype %u %.0f/s", i ? ", " : "", op.types[i].second,
++                        double(op.types[i].first) / s);
++        parts += item;
++      }
++      parts += ")";
++    }
++    return "Performance events (GPU thread, every EVENT_WRITE* packet): " +
++           (parts.empty() ? std::string("none") : parts);
++  }
++
++ private:
++  std::array<std::array<uint64_t, kEventTypes>, kEventOpcodes> last_types_{};
++  std::array<uint64_t, kEventOpcodes> last_ticks_by_{}, last_timed_{};
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++};
+ 
+ // Fix 77: how the GPU thread waits in WAIT_REG_MEM (a guest memory word or register reaching a
+ // value): Tekken Tag Tournament 2 and DBZ spend most of their "rest of executing" there. Every
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -960,6 +960,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE(
+   // Writeback initiator.
+ 
+   COMMAND_PROCESSOR::WriteEventInitiator(initiator & 0x3f);
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::CountEvent(xbox360ps5::frame_cost::kEventWrite, initiator);  // fix 96
++#endif
+   if (count == 1) {
+     // Just an event flag? Where does this write?
+   } else {
+@@ -978,6 +981,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(
+   uint32_t value = reader_.ReadAndSwap<uint32_t>();
+   // Writeback initiator.
+   COMMAND_PROCESSOR::WriteEventInitiator(initiator & 0x3F);
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::CountEvent(xbox360ps5::frame_cost::kEventWriteShd, initiator);  // fix 96
++#endif
+   uint32_t data_value;
+   if ((initiator >> 31) & 0x1) {
+     // Write counter (GPU vblank counter?).
+@@ -1016,6 +1022,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(
+   uint32_t address = reader_.ReadAndSwap<uint32_t>();
+   // Writeback initiator.
+   COMMAND_PROCESSOR::WriteEventInitiator(initiator & 0x3F);
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::CountEvent(xbox360ps5::frame_cost::kEventWriteExt, initiator);  // fix 96
++#endif
+   auto endianness = static_cast<xenos::Endian>(address & 0x3);
+   address &= ~0x3;
+   xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kEventExt, address,
+@@ -1054,6 +1063,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_ZPD(
+   uint32_t initiator = reader_.ReadAndSwap<uint32_t>();
+   // Writeback initiator.
+   COMMAND_PROCESSOR::WriteEventInitiator(initiator & 0x3F);
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::CountEvent(xbox360ps5::frame_cost::kEventWriteZpd, initiator);  // fix 96
++#endif
+ 
+   uint32_t report_address =
+       register_file_->values[XE_GPU_REG_RB_SAMPLE_COUNT_ADDR];
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3466,6 +3466,9 @@ int main(int argc, char** argv) {
+                 // Fix 75: the rest of executing by PM4 packet kind.
+                 static xbox360ps5::frame_cost::PacketReporter frame_cost_packets;
+                 XELOGW("{}", frame_cost_packets.Line(double(summary_samples)));
++                // Fix 96: EVENT_WRITE* by opcode and event type.
++                static xbox360ps5::frame_cost::EventReporter frame_cost_events;
++                XELOGW("{}", frame_cost_events.Line(double(summary_samples)));
+                 // Fix 77: how the GPU thread waits in WAIT_REG_MEM.
+                 static xbox360ps5::frame_cost::WaitRegReporter frame_cost_wait_reg;
+                 XELOGW("{}", frame_cost_wait_reg.Line(double(summary_samples)));

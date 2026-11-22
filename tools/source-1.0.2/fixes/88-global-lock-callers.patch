@@ -1,0 +1,168 @@
+diff --git a/include/xbox360ps5/global_lock_spin.hpp b/include/xbox360ps5/global_lock_spin.hpp
+--- a/include/xbox360ps5/global_lock_spin.hpp
++++ b/include/xbox360ps5/global_lock_spin.hpp
+@@ -18,6 +18,8 @@
+ // ones, those won while spinning and those that slept, the time spent waiting (TSC ticks), and
+ // the shared-memory requests answered without the lock (all pages valid, RequestRange).
+ #pragma once
++#include <algorithm>
++#include <array>
+ #include <atomic>
+ #include <cstdint>
+ #include <cstdio>
+@@ -48,31 +50,119 @@ inline void Add(std::atomic<uint64_t>& counter, uint64_t value = 1) {
+   counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
+ }
+ 
++// Fix 88: which code the GPU thread takes the lock for. Modern Warfare 2 on the 1.0.5 perf builds
++// with fix 87: 102,775 locks a second, 91.8 ms/s waiting, after draws (fix 86) and arming
++// (fix 84) no longer take it per call; the known callers explain only part of it. One in
++// kCallerSampleEvery of the GPU thread's locks is counted for its caller (the return address
++// into the code that asked for the lock), with whether it waited and how long; the summary gives
++// the callers that took it most, scaled back. The anchor's address at run time, with its address
++// in the build's eboot-symbols.txt, places the callers.
++inline constexpr uint32_t kCallerSampleEvery = 64;
++inline constexpr uint32_t kCallerSlots = 256;
++struct CallerSlot {
++  std::atomic<uintptr_t> caller{0};
++  std::atomic<uint64_t> taken{0}, contended{0}, wait_ticks{0};
++};
++inline std::array<CallerSlot, kCallerSlots> callers;
++inline std::atomic<uint64_t> callers_dropped{0};  // samples with no free slot
++inline uint32_t caller_sample_counter = 0;        // the GPU thread's alone
++inline void Anchor() { asm volatile(""); }
++// The caller's slot (claimed on first use), or null when the table is full.
++inline CallerSlot* SlotFor(uintptr_t caller) {
++  uint32_t index = uint32_t((caller >> 2) * 0x9E3779B1u) % kCallerSlots;
++  for (uint32_t probe = 0; probe < kCallerSlots; ++probe, index = (index + 1) % kCallerSlots) {
++    const uintptr_t held = callers[index].caller.load(std::memory_order_relaxed);
++    if (held == caller) return &callers[index];
++    if (!held) {
++      callers[index].caller.store(caller, std::memory_order_relaxed);
++      return &callers[index];
++    }
++  }
++  Add(callers_dropped);
++  return nullptr;
++}
++
+ // Locks `mutex` (a std::recursive_mutex): plainly on every thread but the spinning one; that one
+-// tries first, then between pauses, and sleeps only after kSpinPauses.
++// tries first, then between pauses, and sleeps only after kSpinPauses. `caller`: the code that
++// asked for the lock (fix 88), or null.
+ template <class Mutex>
+-inline void Lock(Mutex& mutex) {
++inline void Lock(Mutex& mutex, const void* caller = nullptr) {
+   if (!SpinsHere()) {
+     mutex.lock();
+     return;
+   }
+   Add(stats.taken);
++  CallerSlot* slot = nullptr;
++  if (caller && ++caller_sample_counter % kCallerSampleEvery == 0) {
++    slot = SlotFor(reinterpret_cast<uintptr_t>(caller));
++    if (slot) Add(slot->taken);
++  }
+   if (mutex.try_lock()) return;
+   Add(stats.contended);
++  if (slot) Add(slot->contended);
+   const uint64_t start = __rdtsc();
+   for (uint32_t pauses = 1; pauses <= kSpinPauses; ++pauses) {
+     _mm_pause();
+     if (pauses % kTryEvery == 0 && mutex.try_lock()) {
+       Add(stats.won_spinning);
+       Add(stats.wait_ticks, __rdtsc() - start);
++      if (slot) Add(slot->wait_ticks, __rdtsc() - start);
+       return;
+     }
+   }
+   mutex.lock();
+   Add(stats.slept);
+   Add(stats.wait_ticks, __rdtsc() - start);
++  if (slot) Add(slot->wait_ticks, __rdtsc() - start);
+ }
+ 
++// "Performance: global lock callers (GPU thread, 1 in 64 sampled and scaled): 0x... n/s taken,
++// c/s contended, w ms/s waiting; ...; anchor 0x..." for the period since the previous line, the
++// kCallersShown callers that took it most.
++inline constexpr uint32_t kCallersShown = 8;
++class CallerReporter {
++ public:
++  std::string Line(double seconds, double ticks_per_ms,
++                   uintptr_t anchor = reinterpret_cast<uintptr_t>(&Anchor)) {
++    if (seconds <= 0) seconds = 1;
++    struct Row {
++      uintptr_t caller;
++      uint64_t taken, contended, wait_ticks;
++    };
++    std::array<Row, kCallerSlots> rows{};
++    for (uint32_t i = 0; i < kCallerSlots; ++i) {
++      const uint64_t taken = callers[i].taken.load(std::memory_order_relaxed);
++      const uint64_t contended = callers[i].contended.load(std::memory_order_relaxed);
++      const uint64_t wait = callers[i].wait_ticks.load(std::memory_order_relaxed);
++      rows[i] = {callers[i].caller.load(std::memory_order_relaxed), taken - last_[i][0], contended - last_[i][1],
++                 wait - last_[i][2]};
++      last_[i][0] = taken;
++      last_[i][1] = contended;
++      last_[i][2] = wait;
++    }
++    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.taken > b.taken; });
++    const double scale = double(kCallerSampleEvery) / seconds;
++    std::string text = "Performance: global lock callers (GPU thread, 1 in 64 sampled and scaled): ";
++    uint32_t shown = 0;
++    for (const Row& row : rows) {
++      if (shown == kCallersShown || !row.taken) break;
++      char item[160];
++      std::snprintf(item, sizeof(item), "%s0x%llx %.0f/s taken, %.0f/s contended, %.1f ms/s waiting", shown ? "; " : "",
++                    (unsigned long long)row.caller, double(row.taken) * scale, double(row.contended) * scale,
++                    ticks_per_ms > 0 ? double(row.wait_ticks) / ticks_per_ms * scale : 0.0);
++      text += item;
++      ++shown;
++    }
++    char tail[96];
++    std::snprintf(tail, sizeof(tail), "%s%llu samples without a slot; anchor 0x%llx", shown ? "; " : "",
++                  (unsigned long long)callers_dropped.load(std::memory_order_relaxed), (unsigned long long)anchor);
++    return text + tail;
++  }
++
++ private:
++  std::array<std::array<uint64_t, 3>, kCallerSlots> last_{};
++};
++
+ struct Snapshot {
+   uint64_t taken = 0, contended = 0, won_spinning = 0, slept = 0, wait_ticks = 0, lock_free_requests = 0;
+   uint64_t tsc = 0;
+diff --git a/.deps/xenia-canary/src/xenia/base/mutex.cc b/.deps/xenia-canary/src/xenia/base/mutex.cc
+--- a/.deps/xenia-canary/src/xenia/base/mutex.cc
++++ b/.deps/xenia-canary/src/xenia/base/mutex.cc
+@@ -296,7 +296,7 @@ void xe_global_mutex::lock() {
+   if (!ps5_spin_mutexes.load(std::memory_order_relaxed)) {
+     // Fix 55: the GPU command thread tries on its own core for ~37 us before it sleeps; every
+     // other thread locks as before.
+-    xbox360ps5::global_lock::Lock(blocking_);
++    xbox360ps5::global_lock::Lock(blocking_, __builtin_return_address(0));  // fix 88: by caller
+     return;
+   }
+   const uint64_t self = ps5_thread_id();
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3400,9 +3400,15 @@ int main(int argc, char** argv) {
+                 static auto lock_at = std::chrono::steady_clock::now();
+                 const auto lock_now = xbox360ps5::global_lock::Take();
+                 const auto lock_time = std::chrono::steady_clock::now();
+-                if (lock_started)
+-                  XELOGW("{}", xbox360ps5::global_lock::Line(
+-                                   lock_before, lock_now, std::chrono::duration<double>(lock_time - lock_at).count()));
++                if (lock_started) {
++                  const double lock_seconds = std::chrono::duration<double>(lock_time - lock_at).count();
++                  XELOGW("{}", xbox360ps5::global_lock::Line(lock_before, lock_now, lock_seconds));
++                  // Fix 88: the code the GPU thread took it for.
++                  static xbox360ps5::global_lock::CallerReporter lock_callers;
++                  XELOGW("{}", lock_callers.Line(lock_seconds, lock_seconds > 0 ? double(lock_now.tsc - lock_before.tsc) /
++                                                                                     (lock_seconds * 1000.0)
++                                                                               : 0.0));
++                }
+                 lock_started = true;
+                 lock_before = lock_now;
+                 lock_at = lock_time;

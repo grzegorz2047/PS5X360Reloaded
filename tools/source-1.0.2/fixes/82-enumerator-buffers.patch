@@ -1,0 +1,166 @@
+diff --git a/include/xbox360ps5/xam_buffers.hpp b/include/xbox360ps5/xam_buffers.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/xam_buffers.hpp
+@@ -0,0 +1,74 @@
++// SPDX-License-Identifier: MIT
++#pragma once
++// Fix 82: the XamAlloc buffers an enumerator's private area points to, freed when the enumerator
++// goes. On a console, closing an enumerator made with XamCreateEnumeratorHandle sends its close
++// message to its XAM app, which frees what the title library allocated for it; Xenia has no such
++// handler. Battlefield 3 (1.0.5_candidate_57, with fix 80 freeing the enumerators): about 15
++// XamAlloc buffers of about 21 KiB a second kept, 3,768 allocated and 5 freed, until the guest's
++// 4 KiB heap is full after about 14 minutes.
++// The emulator keeps the live XamAlloc blocks; when an enumerator is destroyed, a block whose
++// start address is a word of the enumerator's object (its fields and private area) is freed,
++// unless another live enumerator's object also holds it. XamFree of a block freed that way does
++// nothing (the console's XAM app would have freed it too); XamFree of anything else is as before.
++#include <cstdint>
++#include <mutex>
++#include <unordered_map>
++#include <unordered_set>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace xam_buffers {
++
++struct State {
++  std::mutex mutex;
++  std::unordered_map<uint32_t, uint32_t> live;  // XamAlloc block -> size
++  std::unordered_set<uint32_t> freed_with_enumerator;
++};
++inline State& Get() {
++  static State state;
++  return state;
++}
++
++inline void Allocated(uint32_t address, uint32_t size) {
++  if (!address) return;
++  State& s = Get();
++  std::lock_guard<std::mutex> lock(s.mutex);
++  s.live[address] = size;
++  s.freed_with_enumerator.erase(address);  // the address is a new block's now
++}
++// XamFree: whether to free the block; false only for one freed with its enumerator (any other
++// address, even one this does not know, is freed as before).
++inline bool Freeing(uint32_t address) {
++  State& s = Get();
++  std::lock_guard<std::mutex> lock(s.mutex);
++  if (s.freed_with_enumerator.erase(address)) return false;
++  s.live.erase(address);
++  return true;
++}
++
++struct Held {
++  uint32_t address, size, offset;
++};
++// The live XamAlloc blocks the words of an enumerator's object point to (each once, by offset),
++// leaving out those another live enumerator's words point to; taken out of the live set, to be
++// freed by the caller.
++inline std::vector<Held> TakeHeld(const std::vector<uint32_t>& words, const std::vector<uint32_t>& others) {
++  State& s = Get();
++  std::lock_guard<std::mutex> lock(s.mutex);
++  std::vector<Held> held;
++  for (uint32_t i = 0; i < words.size(); ++i) {
++    const uint32_t word = words[i];
++    const auto it = s.live.find(word);
++    if (it == s.live.end()) continue;
++    bool shared = false;
++    for (uint32_t other : others) shared |= other == word;
++    if (shared) continue;
++    held.push_back({word, it->second, i * 4});
++    s.live.erase(it);
++    s.freed_with_enumerator.insert(word);
++  }
++  return held;
++}
++
++}  // namespace xam_buffers
++}  // namespace xbox360ps5
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc b/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xenumerator.cc
+@@ -7,6 +7,13 @@
+  ******************************************************************************
+  */
+ 
++// Fix 82: what an enumerator's close message would free.
++#include <atomic>
++#include <vector>
++
++#include "xbox360ps5/xam_buffers.hpp"
++#include "xenia/base/logging.h"
++
+ #include "xenia/kernel/xenumerator.h"
+ 
+ #include <unordered_map>
+@@ -43,6 +50,39 @@ XObject* XEnumerator::RetainByGuestObject(uint32_t guest_ptr) {
+ }
+ 
+ XEnumerator::~XEnumerator() {
++  // Xbox360PS5 (fix 82): on a console, closing an enumerator sends its close
++  // message to its XAM app, which frees the buffers the title library
++  // XamAlloc'd for it (Battlefield 3: one of about 21 KiB with each of about 15
++  // enumerators a second). Free the XamAlloc blocks this enumerator's object
++  // points to, unless another live enumerator's object points to them too.
++  if (const uint32_t object = guest_object()) {
++    auto global_lock = xe::global_critical_region::AcquireDirect();
++    const auto words_of = [this](uint32_t at, size_t extra) {
++      std::vector<uint32_t> words;
++      const auto* w = memory()->TranslateVirtual<xe::be<uint32_t>*>(at);
++      for (size_t i = 0; i < (sizeof(X_KENUMERATOR) + extra) / 4; ++i) {
++        words.push_back(w[i]);
++      }
++      return words;
++    };
++    std::vector<uint32_t> others;
++    for (const auto& [at, enumerator] : OwnedEnumerators()) {
++      if (enumerator == this) continue;
++      const auto theirs = words_of(at, enumerator->extra_size_);
++      others.insert(others.end(), theirs.begin(), theirs.end());
++    }
++    for (const auto& held : xbox360ps5::xam_buffers::TakeHeld(
++             words_of(object, extra_size_), others)) {
++      memory()->SystemHeapFree(held.address);
++      static std::atomic<uint32_t> said{0};
++      if (said.fetch_add(1) < 8) {
++        XELOGW(
++            "Enumerator {:08X} gone: freed the XamAlloc buffer {:08X} ({} "
++            "bytes) it held at +{:X}, as its close message would",
++            object, held.address, held.size, held.offset);
++      }
++    }
++  }
+   if (const uint32_t guest_ptr = guest_object()) {
+     auto global_lock = xe::global_critical_region::AcquireDirect();
+     const auto it = OwnedEnumerators().find(guest_ptr);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
+@@ -31,6 +31,7 @@
+ #include "xenia/ui/window.h"
+ #include "xenia/ui/windowed_app_context.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/xam_buffers.hpp"  // fix 82
+ 
+ #include "third_party/fmt/include/fmt/format.h"
+ #if XE_PLATFORM_PS5
+@@ -697,6 +698,7 @@ uint32_t XamAllocImpl(uint32_t flags, uint32_t size,
+   // top 4 bits of the 32 bit flags seems to select the heap
+   uint32_t ptr = kernel_state()->memory()->SystemHeapAlloc(size);
+   *out_ptr = ptr;
++  xbox360ps5::xam_buffers::Allocated(ptr, size);  // fix 82
+ 
+   return X_ERROR_SUCCESS;
+ }
+@@ -743,6 +745,10 @@ dword_result_t XamQueryLiveHiveW_entry(lpu16string_t name, lpvoid_t out_buf,
+ DECLARE_XAM_EXPORT1(XamQueryLiveHiveW, kNone, kStub);
+ 
+ dword_result_t XamFree_entry(lpdword_t ptr) {
++  // Fix 82: a block freed with its enumerator is not freed again.
++  if (!xbox360ps5::xam_buffers::Freeing(ptr.guest_address())) {
++    return X_ERROR_SUCCESS;
++  }
+   kernel_state()->memory()->SystemHeapFree(ptr.guest_address());
+ 
+   return X_ERROR_SUCCESS;

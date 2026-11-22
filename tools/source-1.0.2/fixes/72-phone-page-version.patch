@@ -1,0 +1,77 @@
+diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
+--- a/port/phone_camera_tls.cpp
++++ b/port/phone_camera_tls.cpp
+@@ -286,6 +286,9 @@ std::string Route(const std::string& method, std::string target, const std::stri
+     const std::string marker = "<meta name=\"ps5x360-host\" content=\"relay\">";
+     if (const size_t at = page.find(marker); at != std::string::npos)
+       page.replace(at, marker.size(), "<meta name=\"ps5x360-host\" content=\"ps5\">");
++    // Fix 72: the page knows its version, to reload once when the app was updated under it.
++    if (const size_t at = page.find("__PAGE_VERSION__"); at != std::string::npos)
++      page.replace(at, sizeof("__PAGE_VERSION__") - 1, phone_camera::kPageVersion);
+     return Response("200 OK", "text/html; charset=utf-8", page);
+   }
+   if (method == "GET" && target == "/pairing.mjs")  // fix 56
+@@ -303,7 +306,9 @@ std::string Route(const std::string& method, std::string target, const std::stri
+   std::string given = Header(head, "X-Key");
+   for (char& c : given) c = char(std::tolower(static_cast<unsigned char>(c)));
+   if (given != key) return Response("403 Forbidden", "application/json", "{\"error\":\"key\"}");
+-  if (method == "GET" && target == "/api/motion/status") return Response("200 OK", "application/json", motion::Status());
++  if (method == "GET" && target == "/api/motion/status")  // fix 72: with the page's version
++    return Response("200 OK", "application/json", motion::Status(),
++                    (std::string("X-Page-Version: ") + phone_camera::kPageVersion + "\r\n").c_str());
+   if (method == "POST" && target == "/api/motion/latency") {
+     // Fix 66: the page's delay by stage, every 2 s while paired; one game log line at most every 1.5 s.
+     if (phone_latency::Due(phone_latency::NowMs()))
+diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
+--- a/port/phone_camera_page.hpp
++++ b/port/phone_camera_page.hpp
+@@ -10,6 +10,8 @@
+ // portrait and landscape; Polish is added to English, Portuguese and Spanish.
+ // Fix 66: the page's delay by stage (latency.mjs), shown under the banner and posted to the
+ // console every 2 s (/api/motion/latency, logged as "Motion: phone stages").
++// Fix 72: kPageVersion (a hash of the three) goes into the page and every status answer; an open
++// page of another version (the app was updated) reloads once.
+ // pose.mjs, kinect_tracker.mjs and demo_body.mjs still come from the package's assets/kinect/.
+ #pragma once
+ 
+@@ -170,6 +172,25 @@ status.textContent = demo ? T('demo') : T('camera_off');
+ // Opened from the TV's QR code the key is in the address and the page connects by itself; it then
+ // waits for the Kinect game, pairs when the game turns the camera on, opens the camera (or asks
+ // for one tap when the browser wants it) and reconnects by itself when the console restarts.
++// fix 72 begin: the app on the console was updated while this page stayed open (it reconnects by
++// itself): the console names its page's version in every status answer, and a page of another
++// version reloads once, keeping a typed key, to run the console's current page.
++const PAGE_VERSION = '__PAGE_VERSION__';
++function reloadIfUpdated(served, typed, storage, reload) {
++  if (!served || served === PAGE_VERSION || PAGE_VERSION.startsWith('__')) return false;
++  let done = '';
++  try { done = storage.getItem('ps5x360-reloaded-for') || ''; } catch {}
++  if (done === served) return false;  // once per version: no reload loop
++  try { storage.setItem('ps5x360-reloaded-for', served); if (typed) storage.setItem('ps5x360-key', typed); } catch {}
++  reload();
++  return true;
++}
++// fix 72 end
++try {
++  const kept = sessionStorage.getItem('ps5x360-key');
++  if (kept && !$('key').value.trim()) $('key').value = kept;
++  sessionStorage.removeItem('ps5x360-key');
++} catch {}
+ const state = {pairing: $('key').value.trim() ? 'connecting' : 'need_key', camera: 'off', body: false, sending: 0,
+   cameraError: '', userStopped: false, autoTried: false};
+ const step = $('step'), detail = $('detail'), banner = $('banner');
+@@ -206,6 +227,8 @@ async function ask(quiet) {
+   try {
+     const response = await fetch('/api/motion/status', {headers: {'X-Key': typed}, cache: 'no-store'});
+     http = response.status;
++    // Fix 72: an updated app's page is loaded instead of this one.
++    if (reloadIfUpdated(response.headers.get('X-Page-Version'), typed, sessionStorage, () => location.reload())) return;
+     if (response.ok) json = await response.json();
+   } catch {}
+   asking = false;
+@@ -727,4 +750,5 @@ export function summaryValues(report) {
+   });
+ }
+ )LATENCYJS";
++inline constexpr char kPageVersion[] = "9b57511490962e37";
+ }  // namespace xbox360ps5::phone_camera

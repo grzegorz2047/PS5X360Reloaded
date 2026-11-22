@@ -1,93 +1,95 @@
-# CPU: componentes HIR iniciais
+> Translated from the original author's Portuguese text.
 
-## Continuação M4: tradução de instruções sintéticas
+# CPU: initial HIR components
 
-Emissores PowerPC originais agora estão ligados em um probe com ADDI, ORI,
-LWZ e STW. Um programa sintético de nove palavras passa por esses emissores;
-24 verificações no host comparam registradores e bytes guest, sinal de imediato,
-RA=0, deslocamento negativo e estados antes/depois da otimização. A sexta suite
-passou, totalizando 98 casos de host. Ver [CPU_NATIVE_TEST.md](CPU_NATIVE_TEST.md)
-para o teste nativo separado. Esse caminho não inicia o frontend/Processor
-completo nem executa JIT.
+## M4 continuation: translating synthetic instructions
 
-## Continuação M3: frontend e backend compilados
+The original PowerPC emitters are now linked into a probe covering ADDI, ORI,
+LWZ and STW. A synthetic nine-word program runs through these emitters;
+24 host checks compare registers and guest bytes, immediate sign extension,
+RA=0, negative displacement and the before/after optimization states. The sixth
+suite passed, bringing the total to 98 host cases. See [CPU_NATIVE_TEST.md](CPU_NATIVE_TEST.md)
+for the separate native test. This path does not start the full
+frontend/Processor and does not run the JIT.
 
-O build agora também produz `libxenia_ppc_frontend.a`,
-`libxenia_cpu_compiler.a`, `libxenia_x64_backend.a` e `libxenia_capstone.a`,
-tanto no host quanto no alvo Prospero. O frontend inclui scanner, tradutor,
-builder PPC e as cinco categorias de emissores. Os passes de compilador e
-os arquivos comuns/POSIX do backend x64 entram como componentes upstream.
-O cache POSIX compilado não é ainda um adapter de memória PS5 validado.
+## M3 continuation: frontend and backend compiled
 
-O bloqueio de `base/atomic.h` foi resolvido com um overlay PS5 explícito:
-operações Clang `__atomic` com consistência sequencial, exchange/fetch-add
-retornando o valor anterior e CAS forte. Nenhuma outra plataforma foi alterada.
-O ramo PS5 é exercitado no host por definição explícita no target de teste.
+The build now also produces `libxenia_ppc_frontend.a`,
+`libxenia_cpu_compiler.a`, `libxenia_x64_backend.a` and `libxenia_capstone.a`,
+both on the host and for the Prospero target. The frontend includes the scanner,
+translator, PPC builder and all five emitter categories. The compiler passes and
+the common/POSIX files of the x64 backend are included as upstream components.
+The compiled POSIX cache is not yet a validated PS5 memory adapter.
 
-Foram executadas cinco suites no host com zero falhas:
+The `base/atomic.h` blocker was resolved with an explicit PS5 overlay:
+Clang `__atomic` operations with sequential consistency, exchange/fetch-add
+returning the previous value, and strong CAS. No other platform was changed.
+The PS5 branch is exercised on the host through an explicit define in the test target.
 
-| Suite | Casos | O que verifica |
+Five suites were run on the host with zero failures:
+
+| Suite | Cases | What it checks |
 |---|---:|---|
-| Decoder PowerPC | 9 | Instruções escalares/VMX/VMX128 e opcode inválido |
-| HIR | 20 | Valores, blocos, operandos e montagem de operações |
-| Atômicos PS5 | 13 | Retornos, CAS, wrappers e atualizações concorrentes |
-| Otimizador | 24 | Três construções/otimizações, swaps redundantes e código morto, preservando store e seu operando |
-| Xbyak/Capstone | 8 | Geração e decodificação x64, imediato e resolução de label |
+| PowerPC decoder | 9 | Scalar/VMX/VMX128 instructions and invalid opcode |
+| HIR | 20 | Values, blocks, operands and building operations |
+| PS5 atomics | 13 | Return values, CAS, wrappers and concurrent updates |
+| Optimizer | 24 | Three builds/optimizations, redundant swaps and dead code, preserving the store and its operand |
+| Xbyak/Capstone | 8 | x64 generation and decoding, immediate and label resolution |
 
-O teste Xbyak usa buffer de dados fornecido pelo chamador e não executa o
-código gerado. Não reserva memória executável. Todos os cinco probes foram
-ligados para PS5 e tiveram estrutura ELF verificada; os novos probes não foram
-executados no console. `build/host/cpu-tests.xml` guarda o resultado de host.
+The Xbyak test uses a caller-provided data buffer and does not execute the
+generated code. It does not reserve executable memory. All five probes were
+linked for PS5 and had their ELF structure verified; the new probes were not
+run on the console. `build/host/cpu-tests.xml` stores the host result.
 
-`python tools/package-cpu-probe.py` valida os objetos ELF64 x86-64 dentro das
-seis bibliotecas, gera hashes/revisões em `build/ps5/cpu-receipt.json` e cria
-`dist/Xbox360PS5-M3-CPU-development-probe.zip` com os probes, arquivos e avisos.
-É um pacote de desenvolvimento, não um aplicativo instalável.
+`python tools/package-cpu-probe.py` validates the ELF64 x86-64 objects inside the
+six libraries, generates hashes/revisions in `build/ps5/cpu-receipt.json` and creates
+`dist/Xbox360PS5-M3-CPU-development-probe.zip` with the probes, files and notices.
+It is a development package, not an installable application.
 
-Compilar um arquivo estático não resolve sua ligação completa. O levantamento
-de símbolos mostra dependências de Processor, memória guest/host, config/logs,
-thread state e exception handling. Elas precisam de implementações reais antes
-de iniciar o frontend ou o JIT. Não foram ocultadas por stubs. Próximo passo:
-integrar esses serviços e ligar um teste sintético PPC -> HIR, depois validar
-a execução x64 dentro do runtime nativo.
+Compiling a static archive does not resolve all of its linkage. The symbol
+survey shows dependencies on the Processor, guest/host memory, config/logs,
+thread state and exception handling. These need real implementations before
+the frontend or the JIT can be started. They were not hidden behind stubs. Next step:
+integrate these services and link a synthetic PPC -> HIR test, then validate
+x64 execution inside the native runtime.
 
-## Evidência anterior M2
+## Earlier M2 evidence
 
-Atualizado em 2026-10-01. O título M1 validado no console continua separado.
+Updated on 2026-10-01. The M1 title validated on the console remains separate.
 
-Entraram no build os arquivos upstream `arena.cc`, `hir_builder.cc`,
-`block.cc`, `instr.cc`, `opcodes.cc` e `value.cc`. Nenhum comportamento de CPU
-foi substituído por stub e o checkout do Xenia não foi modificado.
+The upstream files `arena.cc`, `hir_builder.cc`, `block.cc`, `instr.cc`,
+`opcodes.cc` and `value.cc` were added to the build. No CPU behavior
+was replaced with a stub and the Xenia checkout was not modified.
 
-`src/hir_smoke.cpp` liga esses componentes em um executável e verifica 20
-casos. Além da avaliação de constantes, constrói uma operação de soma a
-partir de um registrador de contexto, grava o resultado, finaliza o bloco e
-verifica o dump de tradução. Também verifica a manutenção das listas de
-consumidores ao substituir operandos e remover instruções.
+`src/hir_smoke.cpp` links these components into an executable and checks 20
+cases. In addition to constant evaluation, it builds an add operation
+from a context register, stores the result, finalizes the block and
+checks the translation dump. It also checks that the consumer lists are
+maintained when operands are replaced and instructions are removed.
 
-## Evidência
+## Evidence
 
-- `./build.ps1 Host`: duas suites aprovadas, decoder e HIR; HIR com 20 casos
-  e zero falhas. Executado em Linux dentro do Docker, não no PS5.
-- `./build.ps1 PS5`: bibliotecas e executáveis ligados com o SDK Prospero.
-- `tools/verify.py xenia-hir-smoke`: ELF64 x86-64, segmentos dentro do arquivo,
-  alinhamento dos segmentos de carga e entry point executável verificados.
-- SHA256 do ELF HIR: `be5a941fe6174146c26e7c158dd75ab414c36ffebfb1fc680b92f865ec1b2cfe`.
+- `./build.ps1 Host`: two suites passed, decoder and HIR; HIR with 20 cases
+  and zero failures. Run on Linux inside Docker, not on the PS5.
+- `./build.ps1 PS5`: libraries and executables linked with the Prospero SDK.
+- `tools/verify.py xenia-hir-smoke`: ELF64 x86-64, segments within the file,
+  load segment alignment and executable entry point verified.
+- SHA256 of the HIR ELF: `be5a941fe6174146c26e7c158dd75ab414c36ffebfb1fc680b92f865ec1b2cfe`.
 
-O ELF HIR é um artefato do SDK de payload, não um título nativo instalável.
-Ele não foi enviado ao console. A evidência M1 de vídeo/input/decoder não
-valida este componente novo. O pacote M2 é somente para desenvolvimento.
+The HIR ELF is a payload SDK artifact, not an installable native title.
+It was not sent to the console. The M1 video/input/decoder evidence does not
+validate this new component. The M2 package is for development only.
 
-## O que falta nesta fase
+## What is missing in this phase
 
-O teste não traduz bytes PowerPC nem executa código guest. Faltam integrar
-`PPCHIRBuilder`, scanner/frontend, passes do compilador e o backend x64.
-O builder PPC inclui Processor, flags, logging e memória; não é suficiente
-compilar os emitters isoladamente para obter uma CPU funcional. O backend
-x64 acrescenta Xbyak, Capstone, cache de código e transições host/guest.
+The test does not translate PowerPC bytes or execute guest code. Still to be
+integrated: `PPCHIRBuilder`, scanner/frontend, compiler passes and the x64 backend.
+The PPC builder pulls in Processor, flags, logging and memory; compiling the
+emitters in isolation is not enough to obtain a working CPU. The x64 backend
+adds Xbyak, Capstone, the code cache and host/guest transitions.
 
-A próxima verificação deve ligar um caminho PPC -> HIR com programa sintético,
-depois testar a geração x64 e adaptar memória/TLS/threads. A estratégia de
-memória executável deve ser validada especificamente para o runtime nativo.
-Construir HIR não exige nem comprova disponibilidade de JIT. Vulkan e jogos
-permanecem pendentes.
+The next verification should link a PPC -> HIR path with a synthetic program,
+then test x64 generation and adapt memory/TLS/threads. The executable memory
+strategy must be validated specifically for the native runtime.
+Building HIR neither requires nor proves that a JIT is available. Vulkan and games
+remain pending.

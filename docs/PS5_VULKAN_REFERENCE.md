@@ -1,48 +1,50 @@
-# Driver de referência: Mihawk PS5_Vulkan
+> Translated from the original author's Portuguese text.
 
-Fonte consultada em 2026-10-01:
+# Reference driver: Mihawk PS5_Vulkan
+
+Source consulted on 2026-10-01:
 https://github.com/mihawk-99/PS5_Vulkan
 
-O projeto contém duas rotas diferentes: RADV/Mesa como driver principal e
-ps5vk como implementação anterior. A documentação anuncia Vulkan 1.4 para
-RADV, mas mantém `conformanceVersion` em zero enquanto a qualificação completa
-não estiver concluída. Não tratar o número de versão como comprovação de que
-todas as funcionalidades necessárias ao Xenia estão disponíveis.
+The project contains two different routes: RADV/Mesa as the main driver and
+ps5vk as an earlier implementation. The documentation advertises Vulkan 1.4 for
+RADV, but keeps `conformanceVersion` at zero until full qualification
+is complete. Do not treat the version number as proof that
+all the features Xenia needs are available.
 
-## Pontos úteis ao Xbox360PS5
+## Points relevant to Xbox360PS5
 
-- RADV é construído a partir de PS5_Mesa com winsys PS5. Não basta ligar uma
-  biblioteca Vulkan desktop: alocação, submissão e apresentação são nativas.
-- Apresentação por `VK_KHR_display` e VideoOut. O Xenia desta revisão tem
-  superfícies desktop/Android em `ui/vulkan/vulkan_instance.cc`; precisará de
-  um caminho de instância, superfície e presenter específico para PS5.
-- `tools/radv-link.sh` reúne driver, runtime C++, unwind, emulated TLS e
-  camada de plataforma do SDK. A receita também trata heap e threads. O SDK
-  usado hoje pelo nosso probe não foi verificado contra essa receita.
-- A ligação whole-archive do RADV preserva entradas referenciadas fracamente
-  pelas tabelas de dispatch. Não reproduzir isso indiscriminadamente para
-  todas as bibliotecas.
-- Testes CTS e os registros de gaps ajudam a escolher casos de regressão.
-  Resultados reportados pelo autor são evidência do driver de referência,
-  não testes executados por este projeto no console do usuário.
+- RADV is built from PS5_Mesa with a PS5 winsys. Linking a desktop Vulkan
+  library is not enough: allocation, submission and presentation are native.
+- Presentation through `VK_KHR_display` and VideoOut. Xenia at this revision has
+  desktop/Android surfaces in `ui/vulkan/vulkan_instance.cc`; it will need
+  a PS5-specific instance, surface and presenter path.
+- `tools/radv-link.sh` combines the driver, the C++ runtime, unwind, emulated TLS and
+  the SDK platform layer. The recipe also handles the heap and threads. The SDK
+  currently used by our probe has not been checked against this recipe.
+- The whole-archive linking of RADV preserves entries referenced weakly
+  by the dispatch tables. Do not reproduce this indiscriminately for
+  all libraries.
+- The CTS tests and the gap records help choose regression cases.
+  Results reported by the author are evidence about the reference driver,
+  not tests run by this project on the user's console.
 
-## Verificação necessária para Xenos
+## Verification required for Xenos
 
-No Xenia fixado em `95a5c3ee`, `VulkanDevice::CreateIfSupported` exige
-`independentBlend` para emulação de GPU. Essa é apenas uma verificação inicial;
-o command processor e o texture cache também consultam recursos, limites e
-formatos. Consultar capacidades efetivas no console antes de iniciar Xenos.
+In Xenia pinned at `95a5c3ee`, `VulkanDevice::CreateIfSupported` requires
+`independentBlend` for GPU emulation. This is only an initial check;
+the command processor and the texture cache also query features, limits and
+formats. Query the effective capabilities on the console before starting Xenos.
 
-Sequência de integração: fixar revisões do driver/Mesa/SDK compatíveis,
-compilar e ligar uma aplicação Vulkan mínima, enumerar recursos e formatos,
-validar clear/readback e apresentação, depois integrar provider e renderer
-do Xenia. CPU PowerPC, kernel guest e carregador de jogos continuam trabalhos
-separados. Nenhum driver foi compilado, instalado ou habilitado nesta revisão
-de referência.
+Integration sequence: pin compatible driver/Mesa/SDK revisions,
+compile and link a minimal Vulkan application, enumerate features and formats,
+validate clear/readback and presentation, then integrate the Xenia provider and renderer.
+The PowerPC CPU, guest kernel and game loader remain separate
+work. No driver was compiled, installed or enabled in this reference
+revision.
 
-## Fontes
+## Sources
 
 - https://github.com/mihawk-99/PS5_Vulkan
 - https://github.com/mihawk-99/PS5_Vulkan/blob/main/tools/radv-link.sh
 - https://github.com/mihawk-99/PS5_Vulkan/blob/main/docs/CTS_GAPS.md
-- Xenia local: `src/xenia/ui/vulkan/vulkan_device.cc` e `vulkan_instance.cc`.
+- Local Xenia: `src/xenia/ui/vulkan/vulkan_device.cc` and `vulkan_instance.cc`.

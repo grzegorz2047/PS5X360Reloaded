@@ -1,0 +1,31 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc
+@@ -606,6 +606,27 @@ void XamLoaderLaunchTitle_entry(lpstring_t raw_name_ptr, dword_t flags) {
+     message =
+         "Title closed with new launch data. \nPlease restart Xenia. "
+         "Game will be loaded automatically.";
++#if XE_PLATFORM_PS5
++  } else if (raw_name_ptr && !loader_data.host_path.empty()) {
++    // Xbox360PS5 (fix 85): an empty name is XLAUNCH_KEYWORD_DEFAULT_APP, the
++    // title's own default executable again; a null one is the dashboard. Red
++    // Dead Redemption starts itself again so after the storage device is
++    // chosen; taken for the dashboard, the restart opened the launcher. The
++    // launched game is written as what to run next: an image or a folder as
++    // it is, an executable by its file name.
++    const std::filesystem::path launched(loader_data.host_path);
++    loader_data.launch_path =
++        launched.extension() == ".xex"
++            ? xe::path_to_utf8(launched.filename())
++            : std::string();
++    xam->SaveLoaderData();
++    XELOGW(
++        "XamLoaderLaunchTitle with an empty name: {} starts again (the "
++        "title's default executable)",
++        loader_data.host_path);
++    title = "Title was restarted";
++    message = "Title restarts itself.";
++#endif
+   } else {
+     title = "Title terminated";
+     message = "Game requested exit to dashboard.";

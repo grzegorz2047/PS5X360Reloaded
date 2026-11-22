@@ -1,37 +1,39 @@
+> Translated from the original author's Portuguese text.
+
 # Xbox360PS5
 
-Port experimental do Xenia para PS5, iniciado em 2026-10-01. Projeto separado
-do Castation. O núcleo vem do Xenia; o trabalho aqui adapta a plataforma PS5.
+Experimental port of Xenia to the PS5, started on 2026-10-01. Project separate
+from Castation. The core comes from Xenia; the work here adapts the PS5 platform.
 
-**O emulador já executa jogos no PS5; a compatibilidade está em desenvolvimento.**
-A versão atual usa Xenia Canary com renderizador Xenos/Vulkan pelo RADV,
-controle DualSense, áudio e biblioteca de jogos. O usuário confirmou execução
-no console e enviou um vídeo com regressões: tela preta no Sonic ao avançar
-para o jogo e flashes verdes na abertura do Budokai. A correção de uploads da
-GPU e seus limites de validação estão em
+**The emulator already runs games on the PS5; compatibility is under development.**
+The current version uses Xenia Canary with the Xenos/Vulkan renderer through RADV,
+DualSense controller, audio and a game library. The user confirmed execution
+on the console and sent a video showing regressions: a black screen in Sonic when advancing
+into the game and green flashes in the Budokai intro. The GPU upload fix
+and its validation limits are in
 [docs/GRAPHICS_2026-10-03.md](docs/GRAPHICS_2026-10-03.md).
-Os marcos M0–M8 abaixo registram o histórico do port, não o estado atual.
-Builds e limites em [docs/ENGINE_INTEGRATION.md](docs/ENGINE_INTEGRATION.md).
-A análise dos cinco emuladores de referência está em
+The M0–M8 milestones below record the history of the port, not the current state.
+Builds and limits in [docs/ENGINE_INTEGRATION.md](docs/ENGINE_INTEGRATION.md).
+The analysis of the five reference emulators is in
 [docs/PS5_REFERENCES.md](docs/PS5_REFERENCES.md).
 
-M7 gera **Xbox360PS5 Actual CPU Runtime Test**, PPSA50010, em pasta nativa,
-com o runtime PPC/x64 real e logs persistentes. Corrige a ligação de memória
-do título para usar APIs normais do próprio processo. No host, os 50 casos
-executam duas vezes com limpeza e reinicialização. O aplicativo ainda aguarda
-validação no PS5 e não carrega jogos. Build: `./build.ps1 NativeRuntime`, depois
-de `./build.ps1 RuntimeHost`. Consulte
+M7 produces **Xbox360PS5 Actual CPU Runtime Test**, PPSA50010, in a native folder,
+with the real PPC/x64 runtime and persistent logs. It fixes the title's memory
+linking to use the process's own normal APIs. On the host, the 50 cases
+run twice with cleanup and reinitialization. The application still awaits
+validation on the PS5 and does not load games. Build: `./build.ps1 NativeRuntime`, after
+`./build.ps1 RuntimeHost`. See
 [docs/ACTUAL_CPU_NATIVE_TEST.md](docs/ACTUAL_CPU_NATIVE_TEST.md).
 
-O núcleo atual Canary está fixado em `b083312b8b18e07e6e410b82104191f126722794`;
-o núcleo original dos marcos M0–M8 usa `95a5c3ee250f80c3b9d139658649d9ffb6db3eec`.
-`tools/prepare.py` gera um overlay de `platform.h` que reconhece
-`__PROSPERO__` como `XE_PLATFORM_PS5`. A plataforma não se apresenta como Linux.
-O checkout do Xenia fica intacto em `.deps/xenia`.
+The current Canary core is pinned at `b083312b8b18e07e6e410b82104191f126722794`;
+the original core of milestones M0–M8 uses `95a5c3ee250f80c3b9d139658649d9ffb6db3eec`.
+`tools/prepare.py` generates a `platform.h` overlay that recognizes
+`__PROSPERO__` as `XE_PLATFORM_PS5`. The platform does not present itself as Linux.
+The Xenia checkout stays untouched in `.deps/xenia`.
 
-## Compilar
+## Building
 
-No Windows, com Docker e a imagem local `castation-buildenv`:
+On Windows, with Docker and the local `castation-buildenv` image:
 
 ```powershell
 python tools/prepare.py --fetch
@@ -41,8 +43,8 @@ python tools/prepare.py --fetch
 ./build.ps1 NativeCPU
 ```
 
-O script PS5 usa o SDK já presente no workspace. Pode-se indicar outro caminho
-com `-Sdk`. No Linux:
+The PS5 script uses the SDK already present in the workspace. Another path can be given
+with `-Sdk`. On Linux:
 
 ```bash
 python3 tools/prepare.py --fetch
@@ -50,74 +52,74 @@ bash tools/build.sh host
 PS5_PAYLOAD_SDK=/caminho/ps5-payload-sdk bash tools/build.sh ps5
 ```
 
-Saídas:
+Outputs:
 
-- `build/host/xenia-platform-smoke`: teste executável no computador.
-- `build/ps5/libxenia_ppc_decoder.a`: primeiros componentes reais do núcleo.
-- `build/ps5/xenia-platform-smoke`: ELF de teste do SDK PS5.
-- `build/ps5/receipt.json`: hash, revisão, formato e status de validação.
-- `build/ps5/libxenia_hir_values.a`: builder, blocos, instruções e valores HIR upstream.
-- `build/ps5/xenia-hir-smoke`: teste de desenvolvimento desses componentes.
-- `build/ps5/hir-receipt.json`: validação estrutural e hash do novo ELF.
+- `build/host/xenia-platform-smoke`: executable test on the computer.
+- `build/ps5/libxenia_ppc_decoder.a`: first real components of the core.
+- `build/ps5/xenia-platform-smoke`: PS5 SDK test ELF.
+- `build/ps5/receipt.json`: hash, revision, format and validation status.
+- `build/ps5/libxenia_hir_values.a`: upstream HIR builder, blocks, instructions and values.
+- `build/ps5/xenia-hir-smoke`: development test for these components.
+- `build/ps5/hir-receipt.json`: structural validation and hash of the new ELF.
 
-O teste HIR tem 20 casos aprovados no host: aritmética, ordem dos bytes,
-vetores, gestão de operandos, construção e limpeza de blocos de tradução.
-Os mesmos componentes e o teste foram compilados e ligados para PS5.
-Esse teste HIR ainda não foi executado no console. Ver
+The HIR test has 20 cases passing on the host: arithmetic, byte order,
+vectors, operand management, construction and cleanup of translation blocks.
+The same components and the test were compiled and linked for the PS5.
+This HIR test has not yet been run on the console. See
 [docs/CPU_TRANSLATION.md](docs/CPU_TRANSLATION.md).
 
-A continuação M3 compila frontend PPC, passes de otimização e backend x64
-como bibliotecas para PS5. Cinco suites de host (74 casos ao todo) passaram.
-Incluem testes dos atômicos PS5 e comparação Xbyak/Capstone; ainda não há
-execução guest/JIT. O pacote de desenvolvimento pode ser gerado com
-`python tools/package-cpu-probe.py`, após os builds Host e PS5.
+The M3 continuation compiles the PPC frontend, optimization passes and x64 backend
+as libraries for the PS5. Five host suites (74 cases in total) passed.
+They include tests of the PS5 atomics and an Xbyak/Capstone comparison; there is no
+guest/JIT execution yet. The development package can be generated with
+`python tools/package-cpu-probe.py`, after the Host and PS5 builds.
 
-M4 acrescenta uma sexta suite, com 24 verificações de tradução dos emissores
-PPC originais e comparação por avaliador HIR de teste (98 casos de host no
-total). `NativeCPU` gera **Xbox360PS5 CPU Translation Test**, PPSA50009,
-separado do M1. Instruções e limites em [docs/CPU_NATIVE_TEST.md](docs/CPU_NATIVE_TEST.md).
-O M4 também foi confirmado no PS5: o log recolhido registra 41 execuções com
-24 casos de tradução e zero falhas. A evidência fixa os hashes do executável
-e do módulo libc. Nesse aplicativo M4 não há execução x64 gerada nem renderer Vulkan.
+M4 adds a sixth suite, with 24 translation checks of the original PPC
+emitters and comparison through a test HIR evaluator (98 host cases in
+total). `NativeCPU` produces **Xbox360PS5 CPU Translation Test**, PPSA50009,
+separate from M1. Instructions and limits in [docs/CPU_NATIVE_TEST.md](docs/CPU_NATIVE_TEST.md).
+M4 was also confirmed on the PS5: the collected log records 41 runs with
+24 translation cases and zero failures. The evidence pins the hashes of the executable
+and of the libc module. That M4 application has no generated x64 execution and no Vulkan renderer.
 
-M5 integra o runtime CPU original e corrige as fronteiras System V do
-recompilador. Oito suites de host passaram: 98 verificações anteriores,
-39 de memória/arquivos e 50 de execução real PPC/x64. O runtime também foi compilado
-e ligado para PS5, mas ainda não foi executado no console nem inicia jogos.
-`RuntimeHost` e `RuntimePS5` reproduzem os builds; veja
-[docs/RUNTIME_INTEGRATION.md](docs/RUNTIME_INTEGRATION.md) para evidências,
-artefatos, inspeção do Sonic e dependências ainda necessárias.
+M5 integrates the original CPU runtime and fixes the recompiler's System V
+boundaries. Eight host suites passed: 98 earlier checks,
+39 memory/file checks and 50 real PPC/x64 execution checks. The runtime was also compiled
+and linked for the PS5, but has not yet been run on the console and does not start games.
+`RuntimeHost` and `RuntimePS5` reproduce the builds; see
+[docs/RUNTIME_INTEGRATION.md](docs/RUNTIME_INTEGRATION.md) for evidence,
+artifacts, the Sonic inspection and dependencies still required.
 
-O ELF é um probe de componentes, não um pacote instalável nem um emulador
-jogável. O ELF isolado M0 não foi executado no console.
+The ELF is a component probe, not an installable package nor a playable
+emulator. The standalone M0 ELF was not run on the console.
 
-O target `Native` produz o primeiro teste de hardware em
-`dist/Xbox360PS5-M1-native-platform-test.zip`, com uma pasta `PPSA50008`
-registrável no ShadowMountPlus. Ele apresenta os resultados do decoder do
-Xenia e os valores do DualSense na TV. Ver [docs/FIRST_TEST.md](docs/FIRST_TEST.md).
-O runtime de título é gerado a partir do toolchain local do Castation na
-revisão `94dfef7`; a tela usa o renderer mínimo do PS5 Native App Boilerplate
-na revisão `470695e0c557f99ff2df0e36e4df713c5e636526`, com atualização dos buffers.
+The `Native` target produces the first hardware test in
+`dist/Xbox360PS5-M1-native-platform-test.zip`, with a `PPSA50008` folder
+that can be registered in ShadowMountPlus. It shows the results of the Xenia
+decoder and the DualSense values on the TV. See [docs/FIRST_TEST.md](docs/FIRST_TEST.md).
+The title runtime is generated from Castation's local toolchain at
+revision `94dfef7`; the screen uses the minimal renderer of the PS5 Native App Boilerplate
+at revision `470695e0c557f99ff2df0e36e4df713c5e636526`, with buffer updates.
 
-## Arquitetura e próximos marcos
+## Architecture and next milestones
 
-Ver [docs/PORTING.md](docs/PORTING.md). Cada componente entra no build com
-validação própria antes da integração ao aplicativo. O objetivo gráfico é
-usar o renderizador Vulkan do Xenia no driver PS5, com AudioOut e DualSense
-como serviços nativos.
-O teste nativo M1 foi validado no PS5: imagem e controle confirmados pelo
-usuário; o log registrou 53 execuções de nove casos com zero falhas. Isso
-valida os componentes iniciais, não a emulação de jogos.
+See [docs/PORTING.md](docs/PORTING.md). Each component enters the build with
+its own validation before being integrated into the application. The graphics goal is
+to use Xenia's Vulkan renderer on the PS5 driver, with AudioOut and DualSense
+as native services.
+The M1 native test was validated on the PS5: image and controller confirmed by the
+user; the log recorded 53 runs of nine cases with zero failures. This
+validates the initial components, not game emulation.
 
-Xenia é experimental e sua compatibilidade varia entre jogos. A potência do
-PS5 por si só não garante compatibilidade, resolução ou 60 FPS. Essas métricas
-precisam ser medidas depois de CPU e GPU funcionarem corretamente.
+Xenia is experimental and its compatibility varies between games. The PS5's
+power alone does not guarantee compatibility, resolution or 60 FPS. These metrics
+need to be measured after the CPU and GPU work correctly.
 
-## Licenças
+## Licenses
 
-Código original deste projeto: MIT. Xenia: BSD de três cláusulas; fmt: licença
-MIT e exceção indicada em sua licença. O renderer e as ferramentas do runtime
-nativo mantêm GPL-3.0-or-later; os aplicativos M1 e M4 combinados são distribuídos sob
-essa licença, mantendo os avisos de seus componentes. As cópias dos avisos
-estão em `licenses/`, incluindo a licença LLVM do runtime C++ do SDK usado no
-M4. Nenhum jogo, BIOS ou chave é distribuído.
+Original code of this project: MIT. Xenia: three-clause BSD; fmt: MIT
+license and the exception stated in its license. The renderer and the native runtime tools
+keep GPL-3.0-or-later; the combined M1 and M4 applications are distributed under
+that license, keeping the notices of their components. Copies of the notices
+are in `licenses/`, including the LLVM license of the C++ runtime of the SDK used in
+M4. No game, BIOS or key is distributed.
