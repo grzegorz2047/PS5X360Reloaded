@@ -1,12 +1,37 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-index 99968ca..6650ba2 100644
+index 99968ca..0dd48a9 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
-@@ -542,8 +542,11 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -24,6 +24,7 @@
+ #include "xenia/base/png_utils.h"
+ #include "xenia/base/system.h"
+ #include "xenia/hid/input_system.h"
++#include "xenia/cpu/thread_state.h"  // fix 114: the keyboard request's caller
+ #include "xenia/kernel/XLiveAPI.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+@@ -542,8 +543,28 @@ dword_result_t XamShowKeyboardUI_entry(
      dword_t buffer_length, pointer_t<XAM_OVERLAPPED> overlapped) {
    // Opaque pointer parameters deliberately prevent the shim call trace from
    // recording default, output or description strings (including passwords).
 -  if (!buffer || !buffer_length || user_index >= 4 ||
++  // Fix 114: every request in the log at warning level, before anything can refuse it: who
++  // called (the guest's return address), the player, the flags, the buffer and its size, the
++  // game's texts' addresses and how it waits for the answer. (1.0.2 logged nothing: The Sims 3's
++  // "Edit Text" left no line at all.)
++  {
++    auto* caller_state = xe::cpu::ThreadState::Get();
++    const uint32_t caller = caller_state ? uint32_t(caller_state->context()->lr) : 0;
++    const std::string player =
++        user_index < 4 ? std::to_string(uint32_t(user_index) + 1) : fmt::format("any ({:02X})", uint32_t(user_index));
++    XELOGW("Keyboard (fix 114): the game asks for text from {:08X}: player {}, flags {:08X}, "
++           "buffer {:08X} for {} characters and its NUL, default text {:08X}, title {:08X}, "
++           "description {:08X}, XOVERLAPPED {:08X} ({})",
++           caller, player, uint32_t(flags), buffer.guest_address(),
++           buffer_length ? uint32_t(buffer_length) - 1 : 0, default_text.guest_address(),
++           title.guest_address(), description.guest_address(), overlapped.guest_address(),
++           overlapped ? "answered when the keyboard closes" : "none: the game waits");
++  }
 +  // Fix 114: any player index is accepted (XUSER_INDEX_ANY and the like let every controller
 +  // type); 1.0.2 refused all but 0-3 and the game waited for a keyboard that never came.
 +  if (!buffer || !buffer_length ||
@@ -15,7 +40,7 @@ index 99968ca..6650ba2 100644
      return X_ERROR_INVALID_PARAMETER;
    }
  
-@@ -551,10 +554,19 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -551,10 +572,19 @@ dword_result_t XamShowKeyboardUI_entry(
    // pointers into the caller's stack to the async worker.
  #if XE_PLATFORM_PS5
    namespace keyboard = xe::ui::controller_keyboard;
@@ -35,7 +60,7 @@ index 99968ca..6650ba2 100644
    // The shim translates addresses but does not validate allocation/access.
    // Check every 4 KiB page, including a final partial page and range overflow.
    const auto valid_range = [state](uint32_t address, uint64_t bytes, uint32_t access) {
-@@ -567,11 +579,12 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -567,11 +597,12 @@ dword_result_t XamShowKeyboardUI_entry(
    };
    constexpr uint32_t kMaximumUnits = 65536;
    if ((buffer.guest_address() & 1) || buffer_length > kMaximumUnits ||
@@ -52,7 +77,7 @@ index 99968ca..6650ba2 100644
    const auto read_bounded = [&](uint32_t address, size_t limit, std::u16string& text) {
      return keyboard::ReadText(address, limit, [&](uint32_t at, char16_t& c) {
        if (!valid_range(at, 2, kMemoryProtectRead)) return false;
-@@ -584,52 +597,98 @@ dword_result_t XamShowKeyboardUI_entry(
+@@ -584,52 +615,107 @@ dword_result_t XamShowKeyboardUI_entry(
    if (!read_bounded(default_text.guest_address(), kMaximumUnits, initial_text) ||
        !read_bounded(title.guest_address(), 4096, guest_title) ||
        !read_bounded(description.guest_address(), 4096, guest_description))
@@ -89,12 +114,16 @@ index 99968ca..6650ba2 100644
 +  labels.cursor = text("Move cursor");
 +  labels.full = text("Maximum length reached");
 +  const uint32_t user = user_index;
-+  // Fix 114: what the game asked for, without any of its text.
-+  const std::string player = user < 4 ? std::to_string(user + 1) : std::string("any");
-+  XELOGW("Keyboard (fix 114): the game asks for text: player {}, flags {:08X}, up to {} "
-+         "characters, {} characters given, {}",
-+         player, uint32_t(flags), uint32_t(buffer_length) - 1, initial_text.size(),
-+         overlapped ? "completed through its XOVERLAPPED" : "the game waits for it");
++  // Fix 114: the game's own texts (never what the player types; no default text for a password).
++  const auto shorten = [](std::string text) {
++    if (text.size() > 160) text = text.substr(0, 160) + "...";
++    return text;
++  };
++  XELOGW("Keyboard (fix 114): title \"{}\", description \"{}\", default text {} ({} characters)",
++         shorten(title_text), shorten(description_text),
++         options.password ? std::string("not logged (a password)")
++                          : "\"" + shorten(xe::to_utf8(initial_text)) + "\"",
++         initial_text.size());
    // Capture the HOST output address, not a reference to a shim parameter.
    void* output = buffer;
    const uint32_t capacity = buffer_length;
@@ -144,6 +173,9 @@ index 99968ca..6650ba2 100644
 -    if (!valid_range(output_address, uint64_t(capacity) * 2, kMemoryProtectWrite)) {
 -      extended_error = X_ERROR_INVALID_PARAMETER;
 -      return X_ERROR_INVALID_PARAMETER;
+-    }
+-    keyboard::WriteBE(output, capacity, completion->text);
+-    extended_error = X_ERROR_SUCCESS;
 +    // Fix 114: the game hears ERROR_CANCELLED for Cancel, as from the console's own keyboard:
 +    // XGetOverlappedResult returns it and the extended error is its HRESULT (1.0.2 answered
 +    // success with the cancellation only in the extended error, so games took a cancelled
@@ -162,10 +194,13 @@ index 99968ca..6650ba2 100644
 +    } else {
 +      XELOGW("Keyboard (fix 114): closed with Cancel{}",
 +             completion->shown ? "" : " before it was drawn");
-     }
--    keyboard::WriteBE(output, capacity, completion->text);
--    extended_error = X_ERROR_SUCCESS;
++    }
 +    if (outcome.cancel_request) state->CancelOverlapped(overlapped_address, false);
++    XELOGW("Keyboard (fix 114): the game is told {:08X}, extended error {:08X}, {}", outcome.result,
++           outcome.extended_error,
++           !asynchronous ? "returned to the waiting call"
++           : outcome.cancel_request ? "its XOVERLAPPED completed as cancelled"
++                                    : "its XOVERLAPPED completed");
 +    extended_error = outcome.extended_error;
      // Keep XAM's existing convention: InternalHigh is not a string length.
 -    return X_ERROR_SUCCESS;

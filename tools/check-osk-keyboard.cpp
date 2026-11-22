@@ -369,6 +369,21 @@ void CheckCompletion(const std::filesystem::path& tree) {
          "the game's flags and the labels reach the dialog");
   Expect(Has(entry, "Keyboard (fix 114): the game asks for text") && Has(entry, "closed with Done, {} characters"),
          "the log says what happened (never the text)");
+  const size_t asks_at = entry.find("Keyboard (fix 114): the game asks for text from {:08X}");
+  Expect(asks_at != std::string::npos && asks_at < entry.find("return X_") && asks_at < entry.find("return refuse("),
+         "every request is logged before anything can refuse it");
+  Expect(Has(Between(entry, "XELOGW(\"Keyboard (fix 114): the game asks for text from", ");"), "caller") &&
+             Has(Between(entry, "XELOGW(\"Keyboard (fix 114): the game asks for text from", ");"), "overlapped.guest_address()"),
+         "the request line names the caller and the XOVERLAPPED");
+  Expect(Has(entry, "options.password ? std::string(\"not logged (a password)\")"),
+         "a password's default text is not logged");
+  Expect(Has(entry, "Keyboard (fix 114): the game is told {:08X}, extended error {:08X}, {}"),
+         "the answer and how it reached the game are logged");
+  for (size_t at = entry.find("XELOGW("); at != std::string::npos; at = entry.find("XELOGW(", at + 1)) {
+    const std::string call = entry.substr(at, entry.find(");", at) - at);
+    Expect(!Has(call, "completion->text") || Has(call, "completion->text.size()"),
+           "no log line prints what the player typed");
+  }
   Expect(!Has(Between(entry, "XELOGW(\"Keyboard (fix 114): closed with Done, {} characters\"", ";"), "completion->text)"),
          "the log gives the text's length, never the text");
   const std::string dialog = Read(core / "ui/controller_keyboard_dialog.cc");
