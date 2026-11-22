@@ -175,6 +175,58 @@ int main(int argc, char** argv) {
     CHECK(!m::picture_wanted.load());  // off by default
   }
 
+  // (d0) 1.0.5-work-fix119i: the JPEG picture: its header, the decoder hook (a fake one here: the
+  // console's is the build's stb_image), the mosaic straight from RGB.
+  {
+    auto jpeg_body = [](uint32_t width, uint32_t height, uint32_t sequence, std::string jpeg) {
+      std::string body = "XPJ1";
+      auto put16 = [&](uint32_t v) { body += char(v & 255); body += char(v >> 8 & 255); };
+      put16(width); put16(height); put16(sequence & 0xFFFF); put16(sequence >> 16);
+      put16(uint32_t(jpeg.size()) & 0xFFFF); put16(uint32_t(jpeg.size()) >> 16);
+      return body + jpeg;
+    };
+    const std::string fake = "\xFF\xD8" "fake jpeg" "\xFF\xD9";
+    m::JpegPicture j;
+    CHECK(m::ParseJpegPicture(jpeg_body(160, 120, 9, fake), j) && j.width == 160 && j.height == 120 && j.sequence == 9 &&
+          j.size == fake.size() && std::memcmp(j.jpeg, fake.data(), fake.size()) == 0);
+    CHECK(!m::ParseJpegPicture(jpeg_body(160, 120, 9, fake) + "x", j));        // the size does not match
+    CHECK(!m::ParseJpegPicture(jpeg_body(160, 120, 9, ""), j));                // empty
+    CHECK(!m::ParseJpegPicture(jpeg_body(8, 8, 9, fake), j) && !m::ParseJpegPicture(jpeg_body(330, 120, 9, fake), j));
+    CHECK(!m::ParseJpegPicture(jpeg_body(160, 120, 9, std::string(m::kJpegMaxBytes + 1, 'x')), j));
+    uint32_t w = 0, h = 0, s = 0;
+    CHECK(m::PictureHeader(jpeg_body(64, 48, 77, fake), w, h, s) && w == 64 && h == 48 && s == 77);
+    CHECK(!m::PictureHeader("XPJ1", w, h, s));
+    // The RGB mosaic: red gives red sites, white on the left half and black on the right stays so.
+    std::vector<uint8_t> rgb(160 * 120 * 3), out;
+    for (size_t n = 0; n < 160 * 120; ++n) rgb[n * 3] = 255;
+    m::PictureMosaicRgb(rgb.data(), 160, 120, out);
+    bool red_ok = out.size() == m::kMosaicBytes;
+    for (uint32_t y = 0; y < 480; ++y)
+      for (uint32_t x = 0; x < 640; ++x) red_ok &= out[y * 640 + x] == (m::MosaicChannel(x, y) == 0 ? 255 : 0);
+    CHECK(red_ok);
+    for (uint32_t y = 0; y < 120; ++y)
+      for (uint32_t x = 0; x < 160; ++x)
+        for (int c = 0; c < 3; ++c) rgb[(y * 160 + x) * 3 + c] = x < 80 ? 255 : 0;
+    m::PictureMosaicRgb(rgb.data(), 160, 120, out);
+    CHECK(out[100 * 640 + 10] == 255 && out[100 * 640 + 630] == 0 && out[100 * 640 + 316] == 255 && out[100 * 640 + 324] == 0);
+    // The store with the hook: none set, nothing shown; a decoder of the wrong size, refused.
+    m::PictureStore store;
+    CHECK(m::jpeg_decoder.load() == nullptr);
+    CHECK(store.Publish(jpeg_body(16, 16, 1, fake), 1000, true) == m::PictureResult::malformed);
+    m::jpeg_decoder.store([](const uint8_t* data, size_t size, std::vector<uint8_t>& pixels, uint32_t& width, uint32_t& height) {
+      if (size < 2 || data[0] != 0xFF || data[1] != 0xD8) return false;
+      width = 16, height = 16;
+      pixels.assign(16 * 16 * 3, 120);  // grey
+      return true;
+    });
+    CHECK(store.Publish(jpeg_body(16, 16, 2, fake), 1000, true) == m::PictureResult::accepted);
+    CHECK(store.Copy(1010, true, out) && out[0] == 120 && out[307199] == 120);
+    CHECK(store.Publish(jpeg_body(32, 16, 3, fake), 1020, true) == m::PictureResult::malformed);   // decoded 16x16
+    CHECK(store.Publish(jpeg_body(16, 16, 4, "not a jpeg"), 1030, true) == m::PictureResult::malformed);
+    CHECK(store.Publish(jpeg_body(16, 16, 1, fake), 1040, true) == m::PictureResult::accepted);    // older: taken, not shown
+    m::jpeg_decoder.store(nullptr);
+  }
+
   // (d1) 1.0.5-work-fix119g: with two on their way the newest shown; a new page counts from 1.
   {
     m::PictureStore store;
@@ -285,7 +337,14 @@ int main(int argc, char** argv) {
   CHECK(tls.find("\"Virtual Kinect: the phone sends its camera picture for the game's colour camera (fix 119)\"") !=
         std::string::npos);
   CHECK(tls.find("motion::PictureJson(motion::picture_wanted.load()) + \"}\");") != std::string::npos);
-  CHECK(tls.find("motion::picture_stats.Received(taken.width, taken.height);") != std::string::npos);
+  CHECK(tls.find("motion::picture_stats.Received(taken_width, taken_height);") != std::string::npos);  // 119i: either kind
+  // Fix 119i: the JPEG decoder is the build's stb_image, set when the server starts.
+  CHECK(tls.find("#include \"third_party/stb/stb_image.h\"") != std::string::npos);
+  CHECK(tls.find("#define STB_IMAGE_IMPLEMENTATION") == std::string::npos);  // xenia/ui/imgui_drawer.cc has it
+  CHECK(tls.find("stbi_uc* pixels = stbi_load_from_memory(jpeg, int(size), &w, &h, &channels, 3);") != std::string::npos);
+  CHECK(tls.find("stbi_image_free(pixels);") != std::string::npos);
+  CHECK(tls.find("motion::jpeg_decoder.store(&DecodeJpeg);  // fix 119i") != std::string::npos);
+  CHECK(tls.find("motion::PictureHeader(body, taken_width, taken_height, taken_sequence)") != std::string::npos);
   // Fix 119h: the POST's receive and answer timed; answers not held back (TCP_NODELAY where known).
   CHECK(tls.find("const auto head_at = std::chrono::steady_clock::now();") < tls.find("const auto body_at = std::chrono::steady_clock::now();"));
   CHECK(tls.find("motion::picture_stats.Served(us(body_at - head_at), us(std::chrono::steady_clock::now() - body_at));") !=

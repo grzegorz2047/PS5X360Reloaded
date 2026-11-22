@@ -81,9 +81,10 @@ check('(b) the middle 4:3 of the camera', () => {
 check('(c) when a picture goes', () => {
   // due(now, switch, half a pose frame's round trip). Fix 119f: the network's delay alone; frames in
   // flight and dropped pose frames no longer hold pictures back.
-  // Fix 119g: 20 a second (50 ms), 8 a second over 60 ms (125 ms), two on their way at most.
+  // Fix 119g: 8 a second over 60 ms (125 ms), two on their way at most. Fix 119i: 20 ms apart at
+  // most; the page sends one picture per new camera frame, so 30 a second at most in practice.
   const g = new L.PictureGate();
-  assert.equal(L.PICTURE_MS, 50);
+  assert.equal(L.PICTURE_MS, 20);
   assert.equal(L.PICTURE_SLOW_NETWORK_MS, 60);
   assert.equal(L.PICTURE_SLOW_MS, 125);
   assert.equal(L.PICTURE_IN_FLIGHT, 2);
@@ -94,7 +95,7 @@ check('(c) when a picture goes', () => {
   g.note({ok: true, picture: 1});
   assert.equal(g.due(1000, false, 10), false);           // the page's switch off
   assert.equal(g.due(1000, true, 10), true);
-  assert.equal(g.due(1040, true, 10), false);            // under 50 ms
+  assert.equal(g.due(1015, true, 10), false);            // under 20 ms
   g.inFlight = 1;
   assert.equal(g.due(1100, true, 10), true);             // one on its way: a second may go
   g.inFlight = 2;
@@ -106,17 +107,28 @@ check('(c) when a picture goes', () => {
   assert.equal(g.due(1425, true, 61), true);
   assert.equal(g.due(1600, true, 151), false);           // a slow network
   assert.equal(g.skipped, 1);
-  assert.equal(g.due(1640, true, 10), false);            // and the next try 50 ms later
+  assert.equal(g.due(1610, true, 10), false);            // and the next try 20 ms later
   assert.equal(g.due(1700, true, 150), false);           // 150 ms: 125 ms apart
   assert.equal(g.due(1725, true, 150), true);
-  // Twenty a second at most when tried often enough; the page tries after each pose frame's answer
-  // (every 20 ms at 50 frames a second), which gives 17 (one every 60 ms).
+  // The gate alone: 50 a second when tried every 10 ms; the page's tries come after pose answers
+  // and only for a new camera frame (checked in (d)).
   let sent = 0;
   for (let t = 3000; t < 4000; t += 10) if (g.due(t, true, 21)) sent++;
-  assert.equal(sent, 20);
+  assert.equal(sent, 50);
   sent = 0;
-  for (let t = 5000; t < 6000; t += 20) if (g.due(t, true, 21)) sent++;
-  assert.equal(sent, 17);
+  for (let t = 5000; t < 6000; t += 33) if (g.due(t, true, 21)) sent++;
+  assert.equal(sent, 31);                                // a 30 fps camera's frames: each one
+  // Fix 119i: the JPEG picture's bytes.
+  const jpeg = new Uint8Array([0xFF, 0xD8, 1, 2, 3, 0xFF, 0xD9]);
+  const packed = new Uint8Array(L.packJpegPicture(jpeg, 160, 120, 0x0A0B0C0D));
+  assert.equal(packed.length, 16 + 7);
+  assert.equal(String.fromCharCode(...packed.slice(0, 4)), 'XPJ1');
+  const pv = new DataView(packed.buffer);
+  assert.deepEqual([pv.getUint16(4, true), pv.getUint16(6, true), pv.getUint32(8, true), pv.getUint32(12, true)],
+                   [160, 120, 0x0A0B0C0D, 7]);
+  assert.deepEqual([...packed.slice(16)], [...jpeg]);
+  assert.equal(L.PICTURE_JPEG_QUALITY, 0.7);
+  assert.equal(g.jpeg, true);                            // tried first on every page
   // The times: averages since the last report, in whole ms; none timed, nothing.
   assert.deepEqual(g.takeTimes(), {});
   g.time(10, 2, 30);
@@ -161,17 +173,26 @@ check('(d) the page', () => {
   // Fix 119f: the network's delay alone (119 counted the frame just answered as waiting; 119d's
   // dropped pose frames are the page's normal pacing at 45-50 fps and skipped over half of them).
   assert.ok(page.includes("if (!pictures.due(performance.now(), pictureChoice.value === 'on', lastNetworkMs)) return;"));
-  assert.ok(page.includes('let lastNetworkMs = 0;'));
+  assert.ok(page.includes('let lastNetworkMs = 0, lastPictureFrame = -1;'));
   assert.ok(page.includes('if (inFlight >= 2) { if (!pose) pendingLost = target; return; }'));  // as before 119
   assert.ok(!page.includes('lastPoseDrop'));
   assert.ok(!/pictures\.due\([^)]*inFlight/.test(page), 'frames in flight no longer hold pictures back');
   assert.ok(page.includes("  } catch {\n    pictures.failed++;  // fix 119d"));
   assert.ok(page.includes("await fetch('/api/motion/picture', {method: 'POST', headers: {'X-Key': consoleKey, 'Content-Type': 'application/octet-stream'},"));
-  assert.ok(page.includes('const body = packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence);'));
+  // Fix 119i: JPEG from the small canvas where the browser makes it, else the YCbCr picture (and
+  // not JPEG again on this page); one picture per new camera frame.
+  assert.ok(page.includes("pictureCanvas.toBlob(done, 'image/jpeg', PICTURE_JPEG_QUALITY);"));
+  assert.ok(page.includes("if (jpeg && jpeg.type === 'image/jpeg') {\n      body = packJpegPicture(new Uint8Array(await jpeg.arrayBuffer()), PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence);"));
+  assert.ok(page.includes('pictures.jpeg = false;  // not again on this page'));
+  assert.ok(page.includes('body = packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence);'));
+  assert.ok(page.includes('if (video.currentTime === lastPictureFrame) return;'));
+  assert.ok(page.indexOf('if (video.currentTime === lastPictureFrame) return;') < page.indexOf('if (!pictures.due(') &&
+            page.indexOf('lastPictureFrame = video.currentTime;') > page.indexOf('if (!pictures.due('));
+  assert.ok(page.includes("import {packJpegPicture, PICTURE_JPEG_QUALITY} from './latency.mjs?v=119';  // fix 119i"));
   // Fix 119g: two on their way at most, each stage timed, the averages in the 2 s report.
   assert.ok(page.includes('pictures.inFlight++;  // fix 119g') && page.includes('    pictures.inFlight--;\n'));
   assert.ok(page.includes('pictures.time(captured - started, packed - captured, answered - packed);'));
-  assert.ok(page.indexOf('const captured = performance.now();') > page.indexOf('getImageData(0, 0, PICTURE_WIDTH, PICTURE_HEIGHT)') &&
+  assert.ok(page.indexOf('const captured = performance.now();') > page.indexOf('pictureContext.drawImage(video, crop.x, crop.y') &&
             page.indexOf('const answered = performance.now();') > page.indexOf("await fetch('/api/motion/picture'"));
   assert.ok(page.includes('Object.assign(report, pictures.takeTimes());  // fix 119g'));
   assert.ok(page.includes("const pictureCanvas = document.createElement('canvas');"));  // not in the page, not kept
