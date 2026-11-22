@@ -138,6 +138,7 @@ checks=(
   check-file-sector.cpp            # fix 121
   check-content-checked.cpp        # fix 125
   check-sample-ticket.cpp          # fix 126
+  check-kinect-camera-picture.cpp  # fix 119
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -159,6 +160,7 @@ declare -A arguments=(
   [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -208,7 +210,7 @@ declare -A fix_of=(
   [check-unwatched-chunk.cpp]=87
   [check-global-lock-callers.cpp]=88
   [check-multidisc-library.cpp]=89
-  [check-xctd-query.cpp]=90
+  [check-xctd-query.cpp]="90 90b"
   [check-readback-repeat.cpp]=91
   [check-readback-keys.cpp]=91
   [check-bug-report.cpp]=93
@@ -250,6 +252,7 @@ declare -A fix_of=(
   [check-file-sector.cpp]=121
   [check-content-checked.cpp]=125
   [check-sample-ticket.cpp]=126
+  [check-kinect-camera-picture.cpp]=119
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -401,6 +404,16 @@ elif node "$repo/tools/check-kinect-recentre.mjs" "$tree"; then
   echo "pass check-kinect-recentre.mjs"
 else
   echo "FAIL check-kinect-recentre.mjs"
+  status=1
+fi
+# Fix 119: the phone page's camera picture for the game, with node.
+echo "=== check-kinect-camera-picture.mjs"
+if [[ " $skipped_fixes " == *" 119 "* ]]; then
+  echo "skip check-kinect-camera-picture.mjs (fix 119 left out of this build)"
+elif node "$repo/tools/check-kinect-camera-picture.mjs" "$tree"; then
+  echo "pass check-kinect-camera-picture.mjs"
+else
+  echo "FAIL check-kinect-camera-picture.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

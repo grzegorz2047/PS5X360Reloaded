@@ -302,6 +302,9 @@ DLC removed. = DLC removido.
 Could not remove the DLC file. = Não foi possível remover o arquivo do DLC.
 Close the game first: DLC can't be changed while a game is running. = Feche o jogo primeiro: o DLC não pode ser alterado enquanto um jogo estiver aberto.
 This drive has this DLC both On and Off: remove one of the two first. = Esta unidade tem este DLC Ativada e Desativada: remova uma das duas cópias primeiro.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagem da câmera para o jogo
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -416,6 +419,9 @@ DLC removed. = DLC removido.
 Could not remove the DLC file. = Não foi possível remover o ficheiro do DLC.
 Close the game first: DLC can't be changed while a game is running. = Feche primeiro o jogo: o DLC não pode ser alterado enquanto um jogo estiver aberto.
 This drive has this DLC both On and Off: remove one of the two first. = Esta unidade tem este DLC Ativada e Desativada: remova primeiro uma das duas cópias.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagem da câmera para o jogo
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -530,6 +536,9 @@ DLC removed. = DLC quitado.
 Could not remove the DLC file. = No se pudo quitar el archivo del DLC.
 Close the game first: DLC can't be changed while a game is running. = Cierra antes el juego: el DLC no se puede cambiar mientras hay un juego abierto.
 This drive has this DLC both On and Off: remove one of the two first. = Esta unidad tiene este DLC Activada y Desactivada: quita antes una de las dos copias.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagen de la cámara para el juego
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un móvil como Kinect, el móvil también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del móvil. Desactivada, los juegos ven una imagen gris.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -644,6 +653,9 @@ DLC removed. = DLC quitado.
 Could not remove the DLC file. = No se pudo quitar el archivo del DLC.
 Close the game first: DLC can't be changed while a game is running. = Cierra primero el juego: el DLC no se puede cambiar mientras hay un juego abierto.
 This drive has this DLC both On and Off: remove one of the two first. = Esta unidad tiene este DLC Activado y Desactivado: quita primero una de las dos copias.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagen de la cámara para el juego
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un celular como Kinect, el celular también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del celular. Desactivada, los juegos ven una imagen gris.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -758,6 +770,9 @@ DLC removed. = DLC entfernt.
 Could not remove the DLC file. = Die DLC-Datei konnte nicht entfernt werden.
 Close the game first: DLC can't be changed while a game is running. = Schließe zuerst das Spiel: DLC kann nicht geändert werden, während ein Spiel läuft.
 This drive has this DLC both On and Off: remove one of the two first. = Dieses Laufwerk hat diesen DLC als Ein und als Aus: Entferne zuerst eine der beiden Kopien.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Kamerabild für das Spiel
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Mit einem Handy als Kinect kann das Handy auch ein kleines Bild seiner Kamera senden, für Spiele, die die Kamera zeigen (Wiederholungen, Fotos). Es geht nur an diese Konsole, und der Emulator hält es nur im Arbeitsspeicher, nie auf einem Laufwerk; ein Spiel kann trotzdem eigene Fotos in seinen Spielständen behalten. Dazu muss auch Kamerabild für das Spiel auf der Handy-Seite eingeschaltet sein. Aus sehen Spiele ein graues Bild.
 
 [added fr]
 Console storage = Stockage de la console
@@ -872,6 +887,9 @@ DLC removed. = DLC retiré.
 Could not remove the DLC file. = Impossible de retirer le fichier du DLC.
 Close the game first: DLC can't be changed while a game is running. = Fermez d'abord le jeu : un DLC ne peut pas être modifié pendant qu'un jeu est en cours.
 This drive has this DLC both On and Off: remove one of the two first. = Ce périphérique contient ce DLC Activé et Désactivé : retirez d'abord l'une des deux copies.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Image de la caméra pour le jeu
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Avec un téléphone comme Kinect, le téléphone peut aussi envoyer une petite image de sa caméra pour les jeux qui montrent la caméra (replays, photos). Elle ne va qu'à cette console, et l'émulateur la garde seulement en mémoire, jamais sur un disque ; un jeu peut quand même garder ses propres photos dans ses sauvegardes. Il faut aussi activer Image de la caméra pour le jeu sur la page du téléphone. Désactivée, les jeux voient une image grise.
 
 [added it]
 Console storage = Memoria della console
@@ -986,6 +1004,9 @@ DLC removed. = DLC rimosso.
 Could not remove the DLC file. = Impossibile rimuovere il file del DLC.
 Close the game first: DLC can't be changed while a game is running. = Chiudi prima il gioco: il DLC non si può modificare mentre un gioco è in esecuzione.
 This drive has this DLC both On and Off: remove one of the two first. = Questa unità ha questo DLC sia Attivo sia Spento: rimuovi prima una delle due copie.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Immagine della fotocamera per il gioco
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un telefono come Kinect, il telefono può anche inviare una piccola immagine della sua fotocamera per i giochi che mostrano la telecamera (replay, foto). Va solo a questa console, e l'emulatore la tiene solo in memoria, mai su un'unità; un gioco può comunque conservare foto proprie nei suoi salvataggi. Serve anche attivare Immagine della fotocamera per il gioco nella pagina del telefono. Disattivata, i giochi vedono un'immagine grigia.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1100,6 +1121,9 @@ DLC removed. = DLC を削除しました。
 Could not remove the DLC file. = DLC ファイルを削除できませんでした。
 Close the game first: DLC can't be changed while a game is running. = 先にゲームを閉じてください。ゲームの実行中は DLC を変更できません。
 This drive has this DLC both On and Off: remove one of the two first. = このドライブにはこの DLC がオンとオフの両方にあります。先にどちらかを削除してください。
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = ゲーム用のカメラ画像
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = スマートフォンを Kinect として使うとき、カメラを映すゲーム（リプレイ、写真）のために、スマートフォンのカメラの小さな画像も送れます。画像はこの本体にだけ送られ、エミュレーターはメモリーにだけ置き、ドライブには保存しません。ただし、ゲームが自分の写真をセーブデータに残すことはあります。スマートフォンのページでも「ゲーム用のカメラ画像」をオンにする必要があります。オフのとき、ゲームには灰色の画像が映ります。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1214,6 +1238,9 @@ DLC removed. = DLC를 제거했습니다.
 Could not remove the DLC file. = DLC 파일을 제거할 수 없습니다.
 Close the game first: DLC can't be changed while a game is running. = 먼저 게임을 닫으세요. 게임이 실행 중일 때는 DLC를 변경할 수 없습니다.
 This drive has this DLC both On and Off: remove one of the two first. = 이 드라이브에 이 DLC가 켜기와 끄기 양쪽에 있습니다. 먼저 둘 중 하나를 제거하세요.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = 게임용 카메라 이미지
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 휴대폰을 Kinect로 쓸 때, 카메라를 보여 주는 게임(리플레이, 사진)을 위해 휴대폰 카메라의 작은 이미지도 보낼 수 있습니다. 이미지는 이 본체로만 가고, 에뮬레이터는 메모리에만 두며 드라이브에 저장하지 않습니다. 다만 게임이 자체 사진을 세이브에 남길 수는 있습니다. 휴대폰 페이지에서도 게임용 카메라 이미지를 켜야 합니다. 끄면 게임에는 회색 이미지가 보입니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1328,6 +1355,9 @@ DLC removed. = DLC verwijderd.
 Could not remove the DLC file. = Het DLC-bestand kon niet worden verwijderd.
 Close the game first: DLC can't be changed while a game is running. = Sluit eerst de game: DLC kan niet worden gewijzigd terwijl er een game actief is.
 This drive has this DLC both On and Off: remove one of the two first. = Dit station heeft deze DLC zowel Aan als Uit: verwijder eerst een van de twee.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Camerabeeld voor de game
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Met een telefoon als Kinect kan de telefoon ook een klein beeld van zijn camera sturen, voor games die de camera tonen (herhalingen, foto's). Het gaat alleen naar deze console, en de emulator houdt het alleen in het geheugen, nooit op een schijf; een game kan wel eigen foto's in zijn opslag bewaren. Zet ook Camerabeeld voor de game aan op de pagina van de telefoon. Uit zien games een grijs beeld.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1442,6 +1472,9 @@ DLC removed. = DLC usunięto.
 Could not remove the DLC file. = Nie można usunąć pliku DLC.
 Close the game first: DLC can't be changed while a game is running. = Najpierw zamknij grę: podczas działania gry nie można zmieniać DLC.
 This drive has this DLC both On and Off: remove one of the two first. = Na tym dysku to DLC jest jednocześnie Włączone i Wyłączone: najpierw usuń jedną z dwóch kopii.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Obraz z kamery dla gry
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Gdy telefon służy jako Kinect, może też wysyłać mały obraz ze swojej kamery do gier, które pokazują kamerę (powtórki, zdjęcia). Trafia on tylko do tej konsoli, a emulator trzyma go wyłącznie w pamięci, nigdy na dysku; gra może jednak zachować własne zdjęcia w swoich zapisach. Trzeba też włączyć Obraz z kamery dla gry na stronie w telefonie. Wyłączone: gry widzą szary obraz.
 
 [added ru]
 Console storage = Память консоли
@@ -1556,6 +1589,9 @@ DLC removed. = DLC удалено.
 Could not remove the DLC file. = Не удалось удалить файл DLC.
 Close the game first: DLC can't be changed while a game is running. = Сначала закройте игру: DLC нельзя изменить, пока запущена игра.
 This drive has this DLC both On and Off: remove one of the two first. = На этом накопителе это DLC есть и как Вкл., и как Выкл.: сначала удалите одну из двух копий.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Изображение с камеры для игры
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Когда телефон работает как Kinect, он может также отправлять небольшое изображение со своей камеры для игр, которые показывают камеру (повторы, фото). Оно идёт только на эту консоль, и эмулятор держит его только в памяти, никогда на диске; игра всё же может сохранить собственные фото в своих сохранениях. Нужно также включить «Изображение с камеры для игры» на странице в телефоне. Если выключено, игры видят серое изображение.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1670,6 +1706,9 @@ DLC removed. = DLC kaldırıldı.
 Could not remove the DLC file. = DLC dosyası kaldırılamadı.
 Close the game first: DLC can't be changed while a game is running. = Önce oyunu kapatın: Bir oyun çalışırken DLC değiştirilemez.
 This drive has this DLC both On and Off: remove one of the two first. = Bu sürücüde bu DLC hem Açık hem Kapalı olarak var: önce ikisinden birini kaldırın.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Oyun için kamera görüntüsü
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Telefon Kinect olarak kullanılırken, kamerayı gösteren oyunlar (tekrarlar, fotoğraflar) için telefon kamerasından küçük bir görüntü de gönderebilir. Görüntü yalnızca bu konsola gider ve emülatör onu yalnızca bellekte tutar, asla bir sürücüye yazmaz; yine de bir oyun kendi fotoğraflarını kayıtlarında saklayabilir. Telefon sayfasında da Oyun için kamera görüntüsü açık olmalıdır. Kapalıyken oyunlar gri bir görüntü görür.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1784,6 +1823,9 @@ DLC removed. = DLC 已移除。
 Could not remove the DLC file. = 无法移除 DLC 文件。
 Close the game first: DLC can't be changed while a game is running. = 请先关闭游戏：游戏运行时无法更改 DLC。
 This drive has this DLC both On and Off: remove one of the two first. = 此驱动器上的这个 DLC 同时处于开启和关闭状态：请先移除其中一个。
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = 供游戏使用的摄像头画面
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手机当作 Kinect 时，手机还可以为显示摄像头画面的游戏（回放、照片）发送一张小的摄像头画面。画面只发送到这台主机，模拟器只把它放在内存中，绝不写入硬盘；不过游戏仍可能在自己的存档中保存照片。还需要在手机页面上打开“供游戏使用的摄像头画面”。关闭时，游戏看到的是灰色画面。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1898,3 +1940,6 @@ DLC removed. = DLC 已移除。
 Could not remove the DLC file. = 無法移除 DLC 檔案。
 Close the game first: DLC can't be changed while a game is running. = 請先關閉遊戲：遊戲執行時無法變更 DLC。
 This drive has this DLC both On and Off: remove one of the two first. = 此磁碟機上的這個 DLC 同時為開啟與關閉：請先移除其中一個。
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = 供遊戲使用的攝影機畫面
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手機當作 Kinect 時，手機還可以為顯示攝影機畫面的遊戲（重播、照片）傳送一張小的攝影機畫面。畫面只傳送到這台主機，模擬器只把它放在記憶體中，絕不寫入硬碟；不過遊戲仍可能在自己的存檔中保存照片。還需要在手機頁面上開啟「供遊戲使用的攝影機畫面」。關閉時，遊戲看到的是灰色畫面。
