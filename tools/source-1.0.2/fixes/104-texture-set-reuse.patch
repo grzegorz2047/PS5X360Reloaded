@@ -1,0 +1,403 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/texture_set_reuse.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/texture_set_reuse.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/texture_set_reuse.h
+@@ -0,0 +1,92 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 104, a draw's texture descriptor set reused when unchanged.*
++ ******************************************************************************
++ * VulkanCommandProcessor::UpdateBindings allocated, wrote
++ * (vkUpdateDescriptorSets) and bound a new descriptor set of textures and
++ * samplers for each shader stage of every draw ("TODO(Triang3l): Reuse texture
++ * and sampler bindings if not changed"). Bindings are the largest part of a
++ * draw's own time: Grand Theft Auto IV 177 ms/s of the GPU command thread in
++ * 196,000 draws a second (1.0.5-work-fix93e), Modern Warfare 2 156 ms/s.
++ *
++ * A stage's set written in the current frame is reused for a later draw of
++ * the same frame when that draw would write exactly the same descriptors: the
++ * same descriptor set layout, the same numbers of textures and samplers, the
++ * same image views (in the shader's binding order) and the same samplers.
++ * Transient sets are recycled only once their frame has completed on the GPU,
++ * so a set of the current frame is still alive. A handle is a descriptor's
++ * whole content only while its object lives: `epoch` changes whenever the
++ * texture cache may have destroyed an image view or a sampler (texture
++ * bindings reset: a texture destroyed, a new frame, the cache cleared; a
++ * sampler destroyed) or the transient pools were cleared, and a set written
++ * in another epoch is not reused.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_VULKAN_TEXTURE_SET_REUSE_H_
++#define XENIA_GPU_VULKAN_TEXTURE_SET_REUSE_H_
++
++#include <cstdint>
++#include <vector>
++
++namespace xe {
++namespace gpu {
++namespace vulkan {
++namespace texture_set_reuse {
++
++// View and Sampler are VkImageView and VkSampler (any comparable handle).
++template <typename Layout, typename View, typename Sampler, typename Set>
++struct Written {
++  bool valid = false;
++  uint64_t frame = 0;
++  uint64_t epoch = 0;
++  Layout layout{};
++  std::vector<View> views;
++  std::vector<Sampler> samplers;
++  Set set{};
++
++  // Whether a draw that would write `views` and `samplers` (count of each) with
++  // `layout` in `frame` and `epoch` may bind `set` instead.
++  bool Matches(uint64_t frame_now, uint64_t epoch_now, Layout layout_now,
++               const View* views_now, uint32_t view_count,
++               const Sampler* samplers_now, uint32_t sampler_count) const {
++    if (!valid || frame != frame_now || epoch != epoch_now ||
++        layout != layout_now || views.size() != view_count ||
++        samplers.size() != sampler_count) {
++      return false;
++    }
++    for (uint32_t i = 0; i < view_count; ++i) {
++      if (views[i] != views_now[i]) {
++        return false;
++      }
++    }
++    for (uint32_t i = 0; i < sampler_count; ++i) {
++      if (samplers[i] != samplers_now[i]) {
++        return false;
++      }
++    }
++    return true;
++  }
++
++  void Remember(uint64_t frame_now, uint64_t epoch_now, Layout layout_now,
++                const View* views_now, uint32_t view_count,
++                const Sampler* samplers_now, uint32_t sampler_count,
++                Set set_now) {
++    valid = true;
++    frame = frame_now;
++    epoch = epoch_now;
++    layout = layout_now;
++    views.assign(views_now, views_now + view_count);
++    samplers.assign(samplers_now, samplers_now + sampler_count);
++    set = set_now;
++  }
++
++  void Forget() { valid = false; }
++};
++
++}  // namespace texture_set_reuse
++}  // namespace vulkan
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_TEXTURE_SET_REUSE_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.h b/.deps/xenia-canary/src/xenia/gpu/texture_cache.h
+--- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.h
+@@ -119,6 +119,14 @@ class TextureCache {
+   void TextureFetchConstantWritten(uint32_t index) {
+     texture_bindings_in_sync_ &= ~(UINT32_C(1) << index);
+   }
++#if XE_PLATFORM_PS5
++  // Fix 104: changes whenever an image view or a sampler a binding gave out
++  // may have been destroyed (textures destroyed for memory or all of them, a
++  // sampler destroyed for another), so a descriptor set written from those
++  // handles in another epoch is not reused. A texture only outdated keeps its
++  // image views (its data is loaded again into the same image).
++  uint64_t binding_epoch() const { return binding_epoch_; }
++#endif
+   void TextureFetchConstantsWritten(uint32_t first_index, uint32_t last_index) {
+     // generate a mask of all bits from before the first index, and xor it with
+     // all bits before the last index this produces a mask covering only the
+@@ -688,6 +696,9 @@ class TextureCache {
+   // this will cause another attempt to create a texture or to untile it if
+   // there was an error.
+   void ResetTextureBindings(bool from_destructor = false);
++#if XE_PLATFORM_PS5
++  void NoteBindingObjectsDestroyed() { ++binding_epoch_; }  // fix 104
++#endif
+ 
+   const TextureBinding* GetValidTextureBinding(
+       uint32_t fetch_constant_index) const {
+@@ -770,6 +781,9 @@ class TextureCache {
+   // Bit vector with bits reset on fetch constant writes to avoid parsing fetch
+   // constants again and again.
+   uint32_t texture_bindings_in_sync_ = 0;
++#if XE_PLATFORM_PS5
++  uint64_t binding_epoch_ = 1;  // fix 104
++#endif
+ };
+ 
+ }  // namespace gpu
+diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+@@ -239,6 +239,11 @@ void TextureCache::CompletedSubmissionUpdated(
+     }
+     if (!destroyed_any) {
+       destroyed_any = true;
++#if XE_PLATFORM_PS5
++      // Fix 104: the image views of the textures destroyed here may be given
++      // to new ones.
++      NoteBindingObjectsDestroyed();
++#endif
+       // The texture being destroyed might have been bound in the previous
+       // submissions, and nothing has overwritten the binding yet, so completion
+       // of the submission where the texture was last actually used on the GPU
+@@ -796,6 +801,9 @@ void TextureCache::WatchCallback(const global_unique_lock_type& global_lock,
+ }
+ 
+ void TextureCache::DestroyAllTextures(bool from_destructor) {
++#if XE_PLATFORM_PS5
++  NoteBindingObjectsDestroyed();  // fix 104
++#endif
+   ResetTextureBindings(from_destructor);
+   textures_.clear();
+   COUNT_profile_set("gpu/texture_cache/textures", 0);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -840,6 +840,9 @@ VkSampler VulkanTextureCache::UseSampler(SamplerParameters parameters,
+     }
+     auto it_reuse = samplers_.find(sampler_used_first_->first);
+     dfn.vkDestroySampler(device, sampler_used_first_->second.sampler, nullptr);
++#if XE_PLATFORM_PS5
++    NoteBindingObjectsDestroyed();  // fix 104: its handle may come back
++#endif
+     if (sampler_used_first_->second.used_next) {
+       sampler_used_first_->second.used_next->second.used_previous =
+           sampler_used_first_->second.used_previous;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -38,6 +38,9 @@
+ #include "xenia/gpu/vulkan/vulkan_shader.h"
+ #include "xenia/gpu/vulkan/vulkan_shared_memory.h"
+ #include "xenia/gpu/vulkan/vulkan_texture_cache.h"
++#if XE_PLATFORM_PS5
++#include "xenia/gpu/vulkan/texture_set_reuse.h"  // fix 104
++#endif
+ #include "xenia/gpu/xenos.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/ui/vulkan/linked_type_descriptor_set_allocator.h"
+@@ -867,6 +870,15 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // Whether descriptor sets in current_graphics_descriptor_sets_ point to
+   // up-to-date data.
+   uint32_t current_graphics_descriptor_set_values_up_to_date_;
++#if XE_PLATFORM_PS5
++  // Fix 104: each stage's texture descriptor set written last (vertex, pixel),
++  // reused by a later draw of the same frame with the same descriptors.
++  texture_set_reuse::Written<VkDescriptorSetLayout, VkImageView, VkSampler,
++                             VkDescriptorSet>
++      texture_sets_written_[2];
++  std::vector<VkImageView> texture_set_views_;
++  std::vector<VkSampler> texture_set_samplers_;
++#endif
+   // Whether the descriptor sets currently bound to the command buffer - only
+   // low bits for the descriptor set layouts that remained the same are kept
+   // when changing the pipeline layout. May be out of sync with
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -5824,6 +5824,10 @@ bool VulkanCommandProcessor::CanEndSubmissionImmediately() const {
+ }
+ 
+ void VulkanCommandProcessor::ClearTransientDescriptorPools() {
++#if XE_PLATFORM_PS5
++  texture_sets_written_[0].Forget();  // fix 104: the sets go back to the pools
++  texture_sets_written_[1].Forget();
++#endif
+   texture_transient_descriptor_sets_free_.clear();
+   texture_transient_descriptor_sets_used_.clear();
+   transient_descriptor_allocator_textures_.Reset();
+@@ -6984,6 +6988,14 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     sampler_count_pixel = 0;
+     texture_count_pixel = 0;
+   }
++#if XE_PLATFORM_PS5
++  // Fix 104: the image infos of both stages are filled first (as before for a
++  // set to write), and a stage whose descriptors equal those of its set
++  // written last in this frame binds that set again instead of a new one
++  // (xenia/gpu/vulkan/texture_set_reuse.h).
++  bool write_vertex_textures = texture_count_vertex || sampler_count_vertex;
++  bool write_pixel_textures = texture_count_pixel || sampler_count_pixel;
++#else
+   // TODO(Triang3l): Reuse texture and sampler bindings if not changed.
+   current_graphics_descriptor_set_values_up_to_date_ &=
+       ~((UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesVertex) |
+@@ -7004,6 +7016,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       (texture_count_pixel || sampler_count_pixel) &&
+       !(current_graphics_descriptor_set_values_up_to_date_ &
+         (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesPixel));
++#endif
+   descriptor_write_image_info_.clear();
+   descriptor_write_image_info_.reserve(
+       (write_vertex_textures ? texture_count_vertex + sampler_count_vertex
+@@ -7055,6 +7068,76 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       descriptor_image_info.sampler = sampler_pair.second;
+     }
+   }
++#if XE_PLATFORM_PS5
++  // Fix 104: reuse or write, for each stage.
++  const uint64_t texture_set_epoch = texture_cache_->binding_epoch();
++  uint32_t texture_sets_reused = 0;
++  auto texture_set_handles = [this](size_t texture_offset,
++                                    uint32_t texture_count,
++                                    size_t sampler_offset,
++                                    uint32_t sampler_count) {
++    texture_set_views_.clear();
++    texture_set_samplers_.clear();
++    for (uint32_t i = 0; i < texture_count; ++i) {
++      texture_set_views_.push_back(
++          descriptor_write_image_info_[texture_offset + i].imageView);
++    }
++    for (uint32_t i = 0; i < sampler_count; ++i) {
++      texture_set_samplers_.push_back(
++          descriptor_write_image_info_[sampler_offset + i].sampler);
++    }
++  };
++  for (uint32_t stage = 0; stage < 2; ++stage) {
++    const bool is_vertex = stage == 0;
++    bool& write = is_vertex ? write_vertex_textures : write_pixel_textures;
++    const uint32_t set_index =
++        is_vertex ? SpirvShaderTranslator::kDescriptorSetTexturesVertex
++                  : SpirvShaderTranslator::kDescriptorSetTexturesPixel;
++    const uint32_t set_bit = UINT32_C(1) << set_index;
++    if (!write) {
++      // No textures or samplers: nothing bound for this stage, as before.
++      current_graphics_descriptor_set_values_up_to_date_ &= ~set_bit;
++      current_graphics_descriptor_sets_bound_up_to_date_ &= ~set_bit;
++      continue;
++    }
++    const uint32_t texture_count =
++        is_vertex ? texture_count_vertex : texture_count_pixel;
++    const uint32_t sampler_count =
++        is_vertex ? sampler_count_vertex : sampler_count_pixel;
++    texture_set_handles(
++        is_vertex ? vertex_texture_image_info_offset
++                  : pixel_texture_image_info_offset,
++        texture_count,
++        is_vertex ? vertex_sampler_image_info_offset
++                  : pixel_sampler_image_info_offset,
++        sampler_count);
++    const VkDescriptorSetLayout layout =
++        is_vertex ? current_guest_graphics_pipeline_layout_
++                        ->descriptor_set_layout_textures_vertex_ref()
++                  : current_guest_graphics_pipeline_layout_
++                        ->descriptor_set_layout_textures_pixel_ref();
++    const auto& written = texture_sets_written_[stage];
++    if (written.Matches(frame_current_, texture_set_epoch, layout,
++                        texture_set_views_.data(), texture_count,
++                        texture_set_samplers_.data(), sampler_count)) {
++      write = false;
++      ++texture_sets_reused;
++      if (current_graphics_descriptor_sets_[set_index] != written.set) {
++        current_graphics_descriptor_sets_[set_index] = written.set;
++        current_graphics_descriptor_sets_bound_up_to_date_ &= ~set_bit;
++      }
++      current_graphics_descriptor_set_values_up_to_date_ |= set_bit;
++    } else {
++      current_graphics_descriptor_set_values_up_to_date_ &= ~set_bit;
++      current_graphics_descriptor_sets_bound_up_to_date_ &= ~set_bit;
++    }
++  }
++  current_graphics_descriptor_sets_bound_up_to_date_ &=
++      current_graphics_descriptor_set_values_up_to_date_;
++  xbox360ps5::frame_cost::CountTextureSets(
++      texture_sets_reused,
++      uint32_t(write_vertex_textures) + uint32_t(write_pixel_textures));
++#endif
+ 
+   // Write the new descriptor sets.
+ 
+@@ -7133,6 +7216,18 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     current_graphics_descriptor_sets_
+         [SpirvShaderTranslator::kDescriptorSetTexturesVertex] =
+             write_textures[0].dstSet;
++#if XE_PLATFORM_PS5
++    texture_set_handles(vertex_texture_image_info_offset, texture_count_vertex,
++                        vertex_sampler_image_info_offset,
++                        sampler_count_vertex);
++    texture_sets_written_[0].Remember(
++        frame_current_, texture_set_epoch,
++        current_guest_graphics_pipeline_layout_
++            ->descriptor_set_layout_textures_vertex_ref(),
++        texture_set_views_.data(), texture_count_vertex,
++        texture_set_samplers_.data(), sampler_count_vertex,
++        write_textures[0].dstSet);  // fix 104
++#endif
+   }
+   // Pixel shader textures and samplers.
+   if (write_pixel_textures) {
+@@ -7154,6 +7249,17 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     current_graphics_descriptor_sets_
+         [SpirvShaderTranslator::kDescriptorSetTexturesPixel] =
+             write_textures[0].dstSet;
++#if XE_PLATFORM_PS5
++    texture_set_handles(pixel_texture_image_info_offset, texture_count_pixel,
++                        pixel_sampler_image_info_offset, sampler_count_pixel);
++    texture_sets_written_[1].Remember(
++        frame_current_, texture_set_epoch,
++        current_guest_graphics_pipeline_layout_
++            ->descriptor_set_layout_textures_pixel_ref(),
++        texture_set_views_.data(), texture_count_pixel,
++        texture_set_samplers_.data(), sampler_count_pixel,
++        write_textures[0].dstSet);  // fix 104
++#endif
+   }
+   // Write.
+   if (write_descriptor_set_count) {
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1131,5 +1131,33 @@ class Reporter {
+   Snapshot last_{};  // the first line covers the time since the game started
+ };
+ 
++// Fix 104: the draws' texture descriptor sets, reused (the same descriptors as the stage's set
++// written last in the frame) or written, counted on the GPU thread; "Performance texture sets
++// (GPU thread, fix 104): n/s reused, m/s written (x% reused)" since its previous line.
++inline std::atomic<uint64_t> texture_sets_reused{0}, texture_sets_written{0};
++inline void CountTextureSets(uint32_t reused, uint32_t written) {
++  if (!OnGpuThread()) return;
++  if (reused) AddOwn(texture_sets_reused, reused);
++  if (written) AddOwn(texture_sets_written, written);
++}
++class TextureSetReporter {
++ public:
++  std::string Line(double seconds) {
++    const double s = seconds > 0 ? seconds : 1;
++    const uint64_t reused = texture_sets_reused.load(std::memory_order_relaxed);
++    const uint64_t written = texture_sets_written.load(std::memory_order_relaxed);
++    const uint64_t dr = reused - last_reused_, dw = written - last_written_;
++    last_reused_ = reused;
++    last_written_ = written;
++    char line[160];
++    std::snprintf(line, sizeof(line), "Performance texture sets (GPU thread, fix 104): %.0f/s reused, %.0f/s written (%.0f%% reused)",
++                  double(dr) / s, double(dw) / s, dr + dw ? 100.0 * double(dr) / double(dr + dw) : 0.0);
++    return line;
++  }
++
++ private:
++  uint64_t last_reused_ = 0, last_written_ = 0;
++};
++
+ }  // namespace frame_cost
+ }  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3480,6 +3480,9 @@ int main(int argc, char** argv) {
+                 XELOGW("{}", xbox360ps5::system_heap::Line());
+                 // Fix 81: the enumerators' lives by kind.
+                 XELOGW("{}", xbox360ps5::enum_trace::Line());
++                // Fix 104: the draws' texture descriptor sets, reused or written.
++                static xbox360ps5::frame_cost::TextureSetReporter frame_cost_texture_sets;
++                XELOGW("{}", frame_cost_texture_sets.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game
