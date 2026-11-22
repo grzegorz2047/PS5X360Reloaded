@@ -69,6 +69,10 @@
 // Fix 117i (117i-resolution-scale-bf3.patch): Battlefield 3's threshold, 640, compiled in (its scene is
 // 1280 pixels of pitch; its half-resolution particle and smoke passes 640 and below).
 //  (r) the header: Battlefield 3 compiled in at 640, Tekken Tag Tournament 2 kept at 1040.
+// Fix 117j (117j-resolution-scale-rdr.patch): Red Dead Redemption's threshold, 800, compiled in (its
+// scene and post-processing are 1280 pixels of pitch; its shadow cascade 800 and smaller passes below).
+//  (s) the header: Red Dead Redemption compiled in at 800, below its 1280-pixel scene; the start line
+//      names it.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -285,6 +289,14 @@ void CheckHeader() {
   Expect(rs::CompiledThreshold("45410950") == 640 && rs::CompiledThreshold("45410950") < 1280 &&
              rs::ThresholdFor(2, rs::CompiledThreshold("45410950")) == 640,
          "fix 117i: Battlefield 3 compiled in at 640, below its 1280-pixel scene");
+  Expect(rs::CompiledThreshold("5454082B") == 800 && rs::CompiledThreshold("5454082b") == 800 &&
+             rs::CompiledThreshold("5454082B") < 1280 && rs::ThresholdFor(2, rs::CompiledThreshold("5454082B")) == 800 &&
+             rs::ThresholdFor(1, rs::CompiledThreshold("5454082B")) == 0,
+         "fix 117j: Red Dead Redemption compiled in at 800, below its 1280-pixel scene, only at 2x");
+  Expect(rs::ThresholdLine(800, "5454082B", "compiled-in") ==
+             "Resolution scale (fix 117e): surfaces up to 800 pixels of pitch render at 1x (preset of 5454082B, "
+             "compiled-in)",
+         "fix 117j: Red Dead Redemption's start line");
   Expect(rs::CompiledThreshold("545407F2") == 0 && rs::CompiledThreshold("") == 0 &&
              rs::CompiledThreshold("4E4D08590") == 0,
          "no other title, nor a malformed id");

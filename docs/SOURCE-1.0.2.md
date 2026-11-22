@@ -266,6 +266,7 @@ also listed here.
 | 117g (`117g-resolution-scale-idle-trim`) | the 2x trim destroys only render targets unused for 300 frames that own no EDRAM data and are not bound (Battlefield 3 showed screen noise after 117f's trims, which also destroyed per-frame aliases) | host-checked (`tools/check-resolution-scale.cpp`); console: Battlefield 3 at 2x, a trim line with no noise after it |
 | 117h (`117h-resolution-scale-key-log`) | a diagnostic: at 2x each render target made is logged once (size, pitch, EDRAM base, MSAA, format, class), at most 64 lines a session, to choose Battlefield 3's threshold | host-checked (`tools/check-resolution-scale.cpp`); console: Battlefield 3 at 2x, the `Resolution scale (fix 117h)` lines |
 | 117i (`117i-resolution-scale-bf3`) | Battlefield 3's threshold compiled in at 640: at 2x its half-resolution particle and smoke passes (640 pixels of pitch and below) render at 1x, the 1280-pixel scene at 2x (smoke was drawn as dark discs) | host-checked (`tools/check-resolution-scale.cpp`); console: Battlefield 3 at 2x, smoke near the horizon, the scene sharp |
+| 117j (`117j-resolution-scale-rdr`) | Red Dead Redemption's threshold compiled in at 800: at 2x its shadow cascade and smaller passes render at 1x, the 1280-pixel scene and post-processing at 2x (it reached the memory floor and fell back to 1x in parts mid-session) | host-checked (`tools/check-resolution-scale.cpp`); console: Red Dead Redemption at 2x, no fallbacks, the roof, free memory |
 
 ## Comparison with the official executable
 
