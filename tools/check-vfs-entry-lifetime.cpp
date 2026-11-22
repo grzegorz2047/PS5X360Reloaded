@@ -11,8 +11,11 @@
 //  (b) a file replaced (overwrite) while another handle of it is open, then that handle closed;
 //  (c) a directory deleted while a delete-on-close file in it is open, then the file closed;
 //  (d) fix 129's window (the host delete made slow, 300 ms, as the console's disk took up to
-//      948 ms): an open of the same name meanwhile waits for the delete and gets a new entry
-//      (create, open-if), or finds no file (open), never the entry being deleted.
+//      948 ms), with fix 139b: through a delete-on-close close and through DeletePath, the global
+//      lock is free meanwhile (1.0.5-work-fix139 held it in Entry::Delete(): Kinect Sports'
+//      replay files, holds of up to 949 ms), and an open of the same name goes on at once with a
+//      new entry (create, open-if) or finds no file (open), never the entry being deleted; the
+//      file renamed for the delete is gone afterwards.
 // tools/check-vfs-entry-lifetime.sh also runs (a)-(c) on the tree without fix 139, where the
 // sanitizer must report the use of a freed entry (the console's crash).
 #include <atomic>
@@ -25,6 +28,7 @@
 #include <thread>
 
 #include "xenia/vfs/devices/host_path_device.h"
+#include "xenia/vfs/devices/host_path_entry.h"
 #include "xenia/vfs/entry.h"
 #include "xenia/vfs/entry_io.h"
 #include "xenia/vfs/virtual_file_system.h"
@@ -141,50 +145,75 @@ void DirectoryWithOpenFile(vfs::VirtualFileSystem& fs) {
          "cache1\\cache010.map: not found afterwards");
 }
 
-#ifdef XE_VFS_ENTRY_IO_TEST_HOOK
+#if defined(XE_VFS_ENTRY_IO_TEST_HOOK) && defined(XE_VFS_ENTRY_DETACH)
 std::atomic<bool> in_delete{false};
 void SlowDelete(vfs::entry_io::Kind kind) {
   if (kind != vfs::entry_io::kDelete) return;
   in_delete = true;
   std::this_thread::sleep_for(std::chrono::milliseconds(300));
 }
+double MsSince(std::chrono::steady_clock::time_point start) {
+  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+}
+bool AnyRenamedLeft() {
+  std::error_code error;
+  for (const auto& item : std::filesystem::directory_iterator(host, error))
+    if (item.path().filename().string().rfind(vfs::HostPathEntry::kDeletedPrefix, 0) == 0) return true;
+  return false;
+}
 
-// (d) Fix 129's window: an open of the name being deleted.
-void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition disposition, const char* what) {
-  const std::string name = std::string("window_") + what + ".temp";
+// (d) Fix 129's window, with fix 139b: the host delete made slow (300 ms). The global lock is free
+// meanwhile (taken at once by another thread; fix 139 held it through a delete on close), and an
+// open of the same name goes on at once: a new entry and file (create, open-if), or no file
+// (open). The delete comes from a delete-on-close close (Entry::Delete()) or a DeletePath.
+void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition disposition, const char* what,
+                          bool by_close) {
+  const std::string name = std::string("window_") + what + (by_close ? "_close" : "_path") + ".temp";
   vfs::File* made = Open(fs, name, vfs::FileDisposition::kOverwriteIf);
   Expect(made && Write(made, 5), name + ": created");
   if (!made) return;
   vfs::Entry* dying = made->entry();
-  made->Destroy();
+  if (!by_close) made->Destroy();
   in_delete = false;
   vfs::entry_io::test_hook = SlowDelete;
-  std::thread deleter([&] { fs.DeletePath(kMount + "\\" + name); });
+  std::thread deleter([&] {
+    if (by_close) {
+      made->entry()->SetForDeletion(true);
+      made->Destroy();
+    } else {
+      fs.DeletePath(kMount + "\\" + name);
+    }
+  });
   while (!in_delete) std::this_thread::yield();
-  const auto start = std::chrono::steady_clock::now();
+  auto start = std::chrono::steady_clock::now();
+  { auto lock = xe::global_critical_region::Acquire(); }
+  const double lock_ms = MsSince(start);
+  start = std::chrono::steady_clock::now();
   X_STATUS status = 0;
   vfs::File* file = Open(fs, name, disposition, &status);
-  const double waited_ms =
-      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+  const double open_ms = MsSince(start);
+  const bool deleting = in_delete;  // still in the slow part
   deleter.join();
   vfs::entry_io::test_hook = nullptr;
-  char ms[32];
-  std::snprintf(ms, sizeof(ms), "%.0f ms", waited_ms);
+  char ms[96];
+  std::snprintf(ms, sizeof(ms), "lock taken in %.1f ms, open in %.1f ms", lock_ms, open_ms);
+  Expect(lock_ms < 100, name + ": the global lock is free during the slow delete (" + ms + ")");
+  Expect(!AnyRenamedLeft(), name + ": the renamed file deleted afterwards");
   if (disposition == vfs::FileDisposition::kOpen) {
-    Expect(!file && status == X_STATUS_OBJECT_NAME_NOT_FOUND && waited_ms >= 150,
-           name + ": open waited for the delete (" + ms + ") and found no file (status " + Hex(status) + ")");
+    Expect(!file && status == X_STATUS_OBJECT_NAME_NOT_FOUND && open_ms < 150 && deleting,
+           name + ": open during the delete finds no file at once (" + ms + ", status " + Hex(status) + ")");
     if (file) file->Destroy();
     return;
   }
-  Expect(file && waited_ms >= 150,
-         name + ": waited for the delete (" + ms + ") and opened (status " + Hex(status) + ")");
+  Expect(file && open_ms < 150 && deleting,
+         name + ": opened during the delete, at once (" + ms + ", status " + Hex(status) + ")");
   if (!file) return;
   Expect(file->entry() != dying && !file->entry()->is_deleting() && !file->entry()->is_removed(),
          name + ": a new entry, not the one being deleted");
   Expect(Write(file, 6) && OnHost(name), name + ": the new file is on the host after the delete");
   file->entry()->SetForDeletion(true);
   file->Destroy();
-  Expect(!OnHost(name), name + ": deleted at its close");
+  Expect(!OnHost(name) && !AnyRenamedLeft(), name + ": deleted at its close");
 }
 #endif
 
@@ -204,10 +233,12 @@ int main() {
     TwoHandles(fs);
     ReplacedWhileOpen(fs);
     DirectoryWithOpenFile(fs);
-#ifdef XE_VFS_ENTRY_IO_TEST_HOOK
-    OpenDuringSlowDelete(fs, vfs::FileDisposition::kCreate, "create");
-    OpenDuringSlowDelete(fs, vfs::FileDisposition::kOpenIf, "openif");
-    OpenDuringSlowDelete(fs, vfs::FileDisposition::kOpen, "open");
+#if defined(XE_VFS_ENTRY_IO_TEST_HOOK) && defined(XE_VFS_ENTRY_DETACH)
+    for (bool by_close : {false, true}) {
+      OpenDuringSlowDelete(fs, vfs::FileDisposition::kCreate, "create", by_close);
+      OpenDuringSlowDelete(fs, vfs::FileDisposition::kOpenIf, "openif", by_close);
+      OpenDuringSlowDelete(fs, vfs::FileDisposition::kOpen, "open", by_close);
+    }
 #endif
   }
   std::error_code error;

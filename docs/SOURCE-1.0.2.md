@@ -292,6 +292,7 @@ also listed here.
 | 134c (`134c-async-submit-resolves`) | in fix 134's mode 1, a chunk with occlusion query results to copy goes to the submit worker too (in Red Dead Redemption most chunks stayed on the GPU thread); the log says why a submission stays there | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134c` |
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
 | 139 (`139-vfs-entry-lifetime`) | a 1.0.5 crash fix: Halo: Reach crashed when it closed a temporary file that another handle of it, or its folder, had already deleted; a file system entry now stays until its last file is closed, and opening a name that is being deleted waits for the delete | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.5-work-fix139` |
+| 139b (`139b-vfs-delete-unlocked`) | fix 139 brought back the Kinect Sports stutter of fix 129 (a file delete held a lock the whole emulator needs, up to about a second); the delete no longer holds it, and a file of the same name can be made again at once | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.5-work-fix139b` |
 
 ## Comparison with the official executable
 

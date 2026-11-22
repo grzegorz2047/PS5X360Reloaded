@@ -61,8 +61,11 @@ orig=$(mktemp -d)
 trap 'rm -rf "$orig"' EXIT
 mkdir -p "$orig/.deps/xenia-canary/src/xenia"
 cp -r "$core/src/xenia/base" "$core/src/xenia/vfs" "$orig/.deps/xenia-canary/src/xenia/"
-(cd "$orig" && GIT_CEILING_DIRECTORIES="$orig/.." git -c core.autocrlf=false apply -R \
-  --include='.deps/xenia-canary/src/xenia/vfs/*' "$repo/tools/source-1.0.2/fixes/139-vfs-entry-lifetime.patch")
+# Fix 139 and its follow-ups (139b, ...), taken out newest first.
+for patch in $(ls "$repo"/tools/source-1.0.2/fixes/139*-*.patch | sort -r); do
+  (cd "$orig" && GIT_CEILING_DIRECTORIES="$orig/.." git -c core.autocrlf=false apply -R \
+    --include='.deps/xenia-canary/src/xenia/vfs/*' "$patch")
+done
 build "$orig/.deps/xenia-canary" "$out/check-before"
 set +e
 ASAN_OPTIONS=detect_leaks=0 "$out/check-before" > "$out/before.log" 2>&1

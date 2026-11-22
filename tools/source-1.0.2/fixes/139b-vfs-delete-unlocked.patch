@@ -1,0 +1,198 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/entry.h b/.deps/xenia-canary/src/xenia/vfs/entry.h
+--- a/.deps/xenia-canary/src/xenia/vfs/entry.h
++++ b/.deps/xenia-canary/src/xenia/vfs/entry.h
+@@ -10,6 +10,7 @@
+ #ifndef XENIA_VFS_ENTRY_H_
+ #define XENIA_VFS_ENTRY_H_
+ 
++#include <functional>  // fix 139b
+ #include <memory>
+ #include <string>
+ #include <vector>
+@@ -157,6 +158,10 @@ class Entry {
+     return nullptr;
+   }
+   virtual bool DeleteEntryInternal(Entry* entry) = 0;
++  // Xbox360PS5, fix 139b: the host file gets a name of its own first (a rename, quick), so the
++  // name is free again at once; returns what deletes the renamed file (slow, without the global
++  // lock), or nothing where it cannot (DeleteEntryInternal then runs as before).
++  virtual std::function<bool()> DetachEntryInternal(Entry* entry) { return {}; }
+   virtual void RenameEntryInternal(
+       const std::vector<std::string_view>& path_parts) {}
+   // Fix 139: taken out of its parent: marked removed with its children, freed now or, while
+diff --git a/.deps/xenia-canary/src/xenia/vfs/entry.cc b/.deps/xenia-canary/src/xenia/vfs/entry.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/entry.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/entry.cc
+@@ -247,9 +247,16 @@ bool Entry::Delete(Entry* entry) {
+   // Fix 139: both kept while the lock is let go (also if this directory is deleted meanwhile).
+   AddUser();
+   entry->AddUser();
+-  const bool deleted = entry_io::OutsideLock(
+-      global_lock, entry_io::kDelete,
+-      [&] { return DeleteEntryInternal(entry); });
++  // Fix 139b: the host file renamed first (quick), so the entry leaves its parent and the name is
++  // free at once (Kinect Sports makes a replay file of the same name again right after deleting
++  // it, and fix 139 had it wait for the slow delete); the renamed file is deleted after, still
++  // without the lock. Where the device cannot, the host file is deleted as before.
++  std::function<bool()> delete_renamed = entry_io::OutsideLock(
++      global_lock, entry_io::kDetach, [&] { return DetachEntryInternal(entry); });
++  const bool deleted =
++      delete_renamed ? true
++                     : entry_io::OutsideLock(global_lock, entry_io::kDelete,
++                                             [&] { return DeleteEntryInternal(entry); });
+   if (!deleted) {
+     entry->deleting_ = false;
+   } else if (!removed_) {
+@@ -264,19 +271,32 @@ bool Entry::Delete(Entry* entry) {
+     }
+     Touch();
+   }
++  if (delete_renamed) {
++    entry_io::OutsideLock(global_lock, entry_io::kDelete, [&] { return delete_renamed(); });
++  }
+   ReleaseUser(entry);
+   ReleaseUser(this);  // fix 139: nothing of this entry is used after
+   return deleted;
+ }
+ 
+ bool Entry::Delete() {
+-  auto global_lock = global_critical_region_.Acquire();
+-  // Fix 139: deleted already (by another file's delete on close, or with its directory).
+-  if (removed_) {
+-    return false;
++  // Fix 139b: the lock only to look at the entry and keep its parent; held across
++  // parent_->Delete (fix 139 did), it stayed held while the host file was deleted (Kinect
++  // Sports: holds of up to 949 ms here, 165-205 ms/s, the output down from 59 to 37-50).
++  Entry* parent;
++  {
++    auto global_lock = global_critical_region_.Acquire();
++    // Fix 139: deleted already (by another file's delete on close, or with its directory).
++    if (removed_) {
++      return false;
++    }
++    assert_not_null(parent_);
++    parent = parent_;
++    parent->AddUser();
+   }
+-  assert_not_null(parent_);
+-  return parent_->Delete(this);
++  const bool deleted = parent->Delete(this);
++  ReleaseUser(parent);
++  return deleted;
+ }
+ 
+ void Entry::Touch() {
+diff --git a/.deps/xenia-canary/src/xenia/vfs/entry_io.h b/.deps/xenia-canary/src/xenia/vfs/entry_io.h
+--- a/.deps/xenia-canary/src/xenia/vfs/entry_io.h
++++ b/.deps/xenia-canary/src/xenia/vfs/entry_io.h
+@@ -24,7 +24,8 @@ namespace xe {
+ namespace vfs {
+ namespace entry_io {
+ 
+-enum Kind : int { kCreate = 0, kDelete = 1, kKinds };
++enum Kind : int { kCreate = 0, kDelete = 1, kDetach = 2, kKinds };  // kDetach: fix 139b
++#define XE_VFS_ENTRY_DETACH 1  // fix 139b
+ 
+ // Fix 139: tools/check-vfs-entry-lifetime.cpp makes a host operation slow (the console's disk
+ // took up to 948 ms to delete a file); null otherwise.
+@@ -87,6 +88,13 @@ class Reporter {
+                   "%llu deletes (%.1f ms, longest %.1f ms)",
+                   (unsigned long long)count[kCreate], double(total[kCreate]) / 1e6, double(max[kCreate]) / 1e6,
+                   (unsigned long long)count[kDelete], double(total[kDelete]) / 1e6, double(max[kDelete]) / 1e6);
++    if (count[kDetach]) {  // fix 139b: the renames before the deletes
++      char renames[128];
++      std::snprintf(renames, sizeof(renames), "; %llu renamed first (%.1f ms, longest %.1f ms)",
++                    (unsigned long long)count[kDetach], double(total[kDetach]) / 1e6,
++                    double(max[kDetach]) / 1e6);
++      return std::string(line) + renames;
++    }
+     return line;
+   }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.h b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.h
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.h
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.h
+@@ -31,6 +31,8 @@ class HostPathEntry : public Entry {
+                                xe::filesystem::FileInfo file_info);
+ 
+   const std::filesystem::path& host_path() const { return host_path_; }
++  // Fix 139b: what a host file deleted through the guest is renamed to before it is deleted.
++  static constexpr const char* kDeletedPrefix = ".xe-deleted-";
+ 
+   X_STATUS Open(uint32_t desired_access, File** out_file) override;
+ 
+@@ -51,6 +53,7 @@ class HostPathEntry : public Entry {
+   std::unique_ptr<Entry> CreateEntryInternal(const std::string_view name,
+                                              uint32_t attributes) override;
+   bool DeleteEntryInternal(Entry* entry) override;
++  std::function<bool()> DetachEntryInternal(Entry* entry) override;  // fix 139b
+   void RenameEntryInternal(
+       const std::vector<std::string_view>& path_parts) override;
+ 
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
+@@ -180,6 +180,45 @@ bool HostPathEntry::DeleteEntryInternal(Entry* entry) {
+   }
+ }
+ 
++// Xbox360PS5, fix 139b: the host file renamed in its directory (the same file system), then
++// deleted by the function returned, which Entry::Delete runs once the name is free again.
++std::function<bool()> HostPathEntry::DetachEntryInternal(Entry* entry) {
++  static std::atomic<uint64_t> next{0};
++  const auto full_path = host_path_ / xe::to_path(entry->name());
++  const bool directory = entry->attributes() & kFileAttributeDirectory;
++  std::error_code ec;
++  if (!directory && std::filesystem::is_directory(full_path, ec)) {
++    return {};  // DeleteEntryInternal refuses it
++  }
++  if (!std::filesystem::exists(full_path, ec)) {
++    return [] { return true; };  // nothing on the host (as DeleteEntryInternal)
++  }
++  const auto renamed =
++      host_path_ / xe::to_path(std::string(kDeletedPrefix) +
++                               std::to_string(next.fetch_add(1)) + "-" +
++                               std::string(entry->name()));
++  std::filesystem::rename(full_path, renamed, ec);
++  if (ec) {
++    return {};
++  }
++  return [renamed, directory] {
++    std::error_code error;
++    bool removed;
++    if (directory) {
++      const auto count = std::filesystem::remove_all(renamed, error);
++      removed = !error && count != static_cast<std::uintmax_t>(-1);
++    } else {
++      std::filesystem::remove(renamed, error);
++      removed = !error;
++    }
++    if (!removed) {
++      XELOGE("HostPathEntry: cannot delete {}: {}", xe::path_to_utf8(renamed),
++             error.message());
++    }
++    return removed;
++  };
++}
++
+ void HostPathEntry::RenameEntryInternal(
+     const std::vector<std::string_view>& path_parts) {
+   const std::string relative_path = xe::utf8::join_paths(path_parts);
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.cc
+@@ -91,6 +91,14 @@ void HostPathDevice::PopulateEntry(
+ 
+   auto child_infos = xe::filesystem::ListFiles(parent_entry->host_path());
+   for (auto& child_info : child_infos) {
++    // Xbox360PS5, fix 139b: a file renamed for its delete that was not deleted (the emulator
++    // ended first): deleted now, never shown to the game.
++    if (xe::path_to_utf8(child_info.name).rfind(HostPathEntry::kDeletedPrefix, 0) == 0) {
++      std::error_code removed;
++      std::filesystem::remove_all(parent_entry->host_path() / child_info.name,
++                                  removed);
++      continue;
++    }
+     auto child = HostPathEntry::Create(
+         this, parent_entry, parent_entry->host_path() / child_info.name,
+         child_info);
