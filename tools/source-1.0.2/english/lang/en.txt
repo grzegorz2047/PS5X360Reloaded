@@ -17,6 +17,10 @@
 \swithout\sa\scover\son\sXboxUnity = \swithout\sa\scover\son\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft
 %d\schanged\s\s> = %d\schanged\s\s>
+%d\sgame = %d\sgame
+%d\sgames = %d\sgames
+%d\sgames||few = %d\sgames
+%d\sgames||one = %d\sgames
 %d\sof\s%d = %d\sof\s%d
 %d\sof\s%d\spatches\senabled = %d\sof\s%d\spatches\senabled
 %d\sown\ssetting = %d\sown\ssetting

@@ -14,7 +14,10 @@
 //      the order, the view holds groups as -1 - n, the shelf draws Tile(n), X opens a group,
 //      Circle leaves it, the game sheet and game settings are only for games, a game shown from
 //      elsewhere (the home's slots, the per-game list) opens in its group;
-//  (d) every language file (argument: tools/source-1.0.2/english/lang) translates "Group".
+//  (d) every language file (argument: tools/source-1.0.2/english/lang) translates "Group" and the
+//      four forms of a group's number of games (fix 112b: "%d game", "%d games", "||few", "||one").
+// Fix 112b: a group's tile is a folder (DrawGroupFolder: a mosaic of up to four covers, the name, a
+// badge with the number), never one game's cover; CountKey picks the number's form.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/library_groups.hpp"
@@ -168,6 +171,15 @@ void CheckBuild() {
     Expect(lg::StillThere(layout, "racing/rally/old") == "racing/rally", "StillThere: its nearest group");
     Expect(lg::StillThere(layout, "gone/away") == "", "StillThere: else the library");
   }
+  // Fix 112b: the number's form.
+  Expect(std::string(lg::CountKey(1)) == "%d game" && std::string(lg::CountKey(2)) == "%d games||few" &&
+             std::string(lg::CountKey(4)) == "%d games||few" && std::string(lg::CountKey(5)) == "%d games" &&
+             std::string(lg::CountKey(11)) == "%d games" && std::string(lg::CountKey(12)) == "%d games" &&
+             std::string(lg::CountKey(14)) == "%d games" && std::string(lg::CountKey(21)) == "%d games||one" &&
+             std::string(lg::CountKey(22)) == "%d games||few" && std::string(lg::CountKey(111)) == "%d games" &&
+             std::string(lg::CountKey(112)) == "%d games" && std::string(lg::CountKey(101)) == "%d games||one" &&
+             std::string(lg::CountKey(0)) == "%d games",
+         "CountKey: 1 / 2-4, 22-24 / 21, 31 / the rest");
   // FoldersBelow and EntryFolders.
   Expect(lg::FoldersBelow("/mnt/ext1/xbox360", "/mnt/ext1/xbox360/Racing/Rally") ==
              std::vector<std::string>{"Racing", "Rally"}, "FoldersBelow: two folders");
@@ -315,7 +327,17 @@ void CheckTree() {
          "the groups are made after the shelf's order, before the view");
   Expect(Has(launcher, "folders[n] = library_groups::EntryFolders(root->second, first.kind, first.path.string(), first.folder);"),
          "an entry (a set by its first disc) is placed by EntryFolders");
-  Expect(Has(launcher, "if (tile.cover < 0) tile.cover = games_[n].cover;"), "a group's tile has its first game's cover");
+  // Fix 112b: no game's cover on a group's tile; up to four covers for its folder; its number of games.
+  Expect(!Has(launcher, "tile.cover = games_[n].cover"), "a group's tile has no game's cover of its own");
+  Expect(Has(launcher, "if (cover >= 0 && covers.size() < 4 && std::find(covers.begin(), covers.end(), cover) == covers.end())"),
+         "up to four different covers for the folder");
+  Expect(Has(launcher, "Tr(library_groups::CountKey(group.games.size())), int(group.games.size())"),
+         "the number of games in the number's form");
+  Expect(Has(launcher, "void DrawGroupFolder(") && Has(launcher, "DrawGroupFolder(c, textures_, arts_, g_group_covers[g]") &&
+             Has(launcher, "g_groups.groups[g].games.size(), entry.name, box,"),
+         "both shelves draw a group as a folder");
+  Expect(Has(launcher, "        DrawCase(c, textures_, arts_, Tile(n), q,"), "a game is still drawn as its case");
+  Expect(!Has(launcher, "A group is a little stack"), "no stack of game cases for a group");
   Expect(Has(launcher, "g_group = library_groups::StillThere(g_groups, g_group);"), "a rebuild stays in the group");
   Expect(Has(launcher, "return item < 0 ? nullptr : &games_[size_t(item)];"), "a group's tile is no Selected() game");
   Expect(Has(launcher, "if (g_groups.groups[g].parent == g_group) view_.push_back(-1 - int(g));"),
@@ -371,6 +393,20 @@ void CheckLanguages(const std::string& folder) {
     const size_t start = at + 9;
     const std::string value = text.substr(start, text.find('\n', start) - start);
     Expect(!value.empty() && value.find('%') == std::string::npos, name + ": Group has a text: " + value);
+    // Fix 112b: the four forms, each with one %d.
+    for (const char* key : {R"(%d\sgame)", R"(%d\sgames)", R"(%d\sgames||few)", R"(%d\sgames||one)"}) {
+      const size_t found = text.find("\n" + std::string(key) + " = ");
+      Expect(found != std::string::npos, name + " translates " + key);
+      if (found == std::string::npos) continue;
+      const size_t from = found + 1 + std::string(key).size() + 3;
+      const std::string form = text.substr(from, text.find('\n', from) - from);
+      const size_t d = form.find("%d");
+      Expect(d != std::string::npos && form.find('%', d + 1) == std::string::npos, name + ": " + key + " has one %d: " + form);
+    }
+    if (name == "pl.txt")
+      Expect(Has(text, "\n" R"(%d\sgames||few = %d\sgry)" "\n") && Has(text, "\n" R"(%d\sgames = %d\sgier)" "\n") &&
+                 Has(text, "\n" R"(%d\sgame = %d\sgra)" "\n"),
+             "pl.txt: 1 gra, 2 gry, 5 gier");
   }
   Expect(files == 16, "16 language files (" + std::to_string(files) + ")");
 }

@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \ssenza\scopertina\ssu\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssenza\scopertina\ssu\sXboxUnity\sné\ssul\sserver\sdi\sMicrosoft
 %d\schanged\s\s> = %d\smodificate\s\s>
+%d\sgame = %d\sgioco
+%d\sgames = %d\sgiochi
+%d\sgames||few = %d\sgiochi
+%d\sgames||one = %d\sgiochi
 %d\sof\s%d = %d\sdi\s%d
 %d\sof\s%d\spatches\senabled = %d\sdi\s%d\spatch\sattive
 %d\sown\ssetting = %d\simpostazione\spropria

@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \s件は\sXboxUnity\sにカバーなし
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity\sにも\sMicrosoft\sのサーバーにもカバーなし
 %d\schanged\s\s> = %d\s件変更\s\s>
+%d\sgame = %d\s本のゲーム
+%d\sgames = %d\s本のゲーム
+%d\sgames||few = %d\s本のゲーム
+%d\sgames||one = %d\s本のゲーム
 %d\sof\s%d = %d\s/\s%d
 %d\sof\s%d\spatches\senabled = パッチ\s%d\s/\s%d\s件が有効
 %d\sown\ssetting = 独自設定\s%d\s件

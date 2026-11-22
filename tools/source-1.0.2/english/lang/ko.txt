@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \s개는\sXboxUnity에\s표지\s없음
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity와\sMicrosoft\s서버에\s표지\s없음
 %d\schanged\s\s> = %d개\s변경\s\s>
+%d\sgame = 게임\s%d개
+%d\sgames = 게임\s%d개
+%d\sgames||few = 게임\s%d개
+%d\sgames||one = 게임\s%d개
 %d\sof\s%d = %d\s/\s%d
 %d\sof\s%d\spatches\senabled = 패치\s%d\s/\s%d개\s켜짐
 %d\sown\ssetting = 고유\s설정\s%d개

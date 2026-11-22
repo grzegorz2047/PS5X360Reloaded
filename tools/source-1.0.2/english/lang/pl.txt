@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \sbez\sokładki\sw\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sbez\sokładki\sw\sXboxUnity\sani\sna\sserwerze\sMicrosoftu
 %d\schanged\s\s> = Zmienione:\s%d\s\s>
+%d\sgame = %d\sgra
+%d\sgames = %d\sgier
+%d\sgames||few = %d\sgry
+%d\sgames||one = %d\sgier
 %d\sof\s%d = %d\sz\s%d
 %d\sof\s%d\spatches\senabled = Włączone\słatki:\s%d\sz\s%d
 %d\sown\ssetting = %d\swłasne\sustawienie

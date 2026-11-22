@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \ssin\sportada\sen\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssin\sportada\sen\sXboxUnity\sni\sen\sMicrosoft
 %d\schanged\s\s> = %d\scambiadas\s\s>
+%d\sgame = %d\sjuego
+%d\sgames = %d\sjuegos
+%d\sgames||few = %d\sjuegos
+%d\sgames||one = %d\sjuegos
 %d\sof\s%d = %d\sde\s%d
 %d\sof\s%d\spatches\senabled = %d\sde\s%d\sparches\sactivados
 %d\sown\ssetting = %d\sajuste\spropio

@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \sXboxUnity'de\skapak\syok
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sXboxUnity'de\sve\sMicrosoft\ssunucusunda\skapak\syok
 %d\schanged\s\s> = %d\sdeğişti\s\s>
+%d\sgame = %d\soyun
+%d\sgames = %d\soyun
+%d\sgames||few = %d\soyun
+%d\sgames||one = %d\soyun
 %d\sof\s%d = %d\s/\s%d
 %d\sof\s%d\spatches\senabled = %d\s/\s%d\syama\saçık
 %d\sown\ssetting = %d\sözel\sayar

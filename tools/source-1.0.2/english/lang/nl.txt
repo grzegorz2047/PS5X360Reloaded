@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \szonder\shoes\sop\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \szonder\shoes\sop\sXboxUnity\sof\sde\sserver\svan\sMicrosoft
 %d\schanged\s\s> = %d\sgewijzigd\s\s>
+%d\sgame = %d\sgame
+%d\sgames = %d\sgames
+%d\sgames||few = %d\sgames
+%d\sgames||one = %d\sgames
 %d\sof\s%d = %d\svan\s%d
 %d\sof\s%d\spatches\senabled = %d\svan\s%d\spatches\singeschakeld
 %d\sown\ssetting = %d\seigen\sinstelling

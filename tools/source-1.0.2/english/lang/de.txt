@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \sohne\sCover\sbei\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \sohne\sCover\sbei\sXboxUnity\soder\sauf\sdem\sServer\svon\sMicrosoft
 %d\schanged\s\s> = %d\sgeändert\s\s>
+%d\sgame = %d\sSpiel
+%d\sgames = %d\sSpiele
+%d\sgames||few = %d\sSpiele
+%d\sgames||one = %d\sSpiele
 %d\sof\s%d = %d\svon\s%d
 %d\sof\s%d\spatches\senabled = %d\svon\s%d\sPatches\saktiviert
 %d\sown\ssetting = %d\seigene\sEinstellung

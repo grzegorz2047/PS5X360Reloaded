@@ -15,6 +15,10 @@
 \swithout\sa\scover\son\sXboxUnity = \ssans\sjaquette\ssur\sXboxUnity
 \swithout\sa\scover\son\sXboxUnity\sor\sMicrosoft = \ssans\sjaquette\ssur\sXboxUnity\sni\ssur\sle\sserveur\sde\sMicrosoft
 %d\schanged\s\s> = %d\smodifiés\s\s>
+%d\sgame = %d\sjeu
+%d\sgames = %d\sjeux
+%d\sgames||few = %d\sjeux
+%d\sgames||one = %d\sjeux
 %d\sof\s%d = %d\ssur\s%d
 %d\sof\s%d\spatches\senabled = %d\spatchs\sactivés\ssur\s%d
 %d\sown\ssetting = %d\sréglage\spropre
