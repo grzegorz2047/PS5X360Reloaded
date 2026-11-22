@@ -13,7 +13,7 @@ With --official, every repository file that replaces an official one is compared
 of the official file may be lost.
 
 The GTA IV draw distance patches: off by default, one 4-byte write each to the game's global
-level-of-detail multiplier (0x82a2bda4, 1.0 in the executable), 1.5 and 2.0, and the same address,
+level-of-detail multiplier (0x82a2bda4, 1.0 in the executable), 1.25, 1.5 and 2.0, and the same address,
 so the patch loader's conflict check lets only one of them apply.
 """
 import argparse
@@ -36,7 +36,7 @@ GTA4_COMMUNITY = {  # name -> writes, from the official package's file
     'Aspect Ratio': [(0x820ae698, 0x4018e393)],
 }
 GTA4_LOD_SCALE = 0x82a2bda4
-GTA4_DRAW_DISTANCE = {'Draw Distance +50%': 1.5, 'Draw Distance +100%': 2.0}
+GTA4_DRAW_DISTANCE = {'Draw Distance +25%': 1.25, 'Draw Distance +50%': 1.5, 'Draw Distance +100%': 2.0}
 
 
 def line_reader(text):
@@ -224,7 +224,7 @@ def main():
     if problems:
         sys.exit(1)
     print(f'PASS: {len(files)} patch files are valid TOML and readable by the title\'s reader; GTA IV keeps its '
-          f'community patches and has two exclusive draw distance patches (1.5x, 2x)'
+          f'community patches and has three exclusive draw distance patches (1.25x, 1.5x, 2x)'
           + (' ; no official patch lost' if args.official else ''))
 
 

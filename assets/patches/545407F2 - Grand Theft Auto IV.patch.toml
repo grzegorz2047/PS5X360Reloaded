@@ -60,11 +60,22 @@ hash = "4CBE7EEB2455A159" # default.xex
 # The world scan draws an object's high-detail model while (distance - fade) < its lodDist
 # (IDE/WPL, entity +0x50) times the view's LOD scale, clamped to the far clip, so a larger
 # multiplier keeps buildings, props and trees in full detail farther away and streams them
-# in sooner. Both patches write the same value, so only one of them can be on.
+# in sooner. All three patches write the same value, so only one of them can be on.
+# Console (c89, AF 16x, Bohan under the El): off 39-48 FPS, +50% 34-35, +100% 29.
+
+[[patch]]
+    name = "Draw Distance +25%"
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.25x farther (the game's level-of-detail scale 1.0 -> 1.25). The gentlest level: a few frames per second less in the city. Only one draw distance patch can be on."
+    author = "PS5X360Reloaded"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x82a2bda4
+        value = 0x3fa00000 # 1.25f
 
 [[patch]]
     name = "Draw Distance +50%"
-    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.5x farther (the game's level-of-detail scale 1.0 -> 1.5). Costs frame rate and streaming memory: more objects and draw calls per frame. If the frame rate drops too far or objects pop in late while driving fast, turn it off."
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.5x farther (the game's level-of-detail scale 1.0 -> 1.5). Costs frame rate: in the city about 5-10 frames per second less (about 34 instead of 40). Most visible on long open views such as bridges and the skyline. Only one draw distance patch can be on."
     author = "PS5X360Reloaded"
     is_enabled = false
 
@@ -74,7 +85,7 @@ hash = "4CBE7EEB2455A159" # default.xex
 
 [[patch]]
     name = "Draw Distance +100%"
-    desc = "Draws buildings, trees, props, people and vehicles in full detail 2x farther (the game's level-of-detail scale 1.0 -> 2.0). Heavy: many more objects and draw calls per frame and more streaming memory; expect a lower frame rate in the city. Use the +50% patch if this one is too slow. Only one draw distance patch can be on."
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 2x farther (the game's level-of-detail scale 1.0 -> 2.0). Heavy: about 29 frames per second in the city instead of 40, and more streaming. Use +25% or +50% if this one is too slow. Only one draw distance patch can be on."
     author = "PS5X360Reloaded"
     is_enabled = false
 
