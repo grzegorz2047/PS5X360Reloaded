@@ -1,0 +1,248 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+@@ -222,6 +222,23 @@ void TextureCache::CompletedSubmissionUpdated(
+       cvars::texture_cache_memory_limit_hard + limit_scaled_resolve_add_mb;
+   uint32_t limit_soft_lifetime =
+       cvars::texture_cache_memory_limit_soft_lifetime * 1000;
++#if XE_PLATFORM_PS5
++  // Fix 117d: while free memory is under the render target floor at 2x,
++  // textures unused for 2 s are evicted down to half the cache instead of
++  // letting it grow (scaled ones reload from the scaled resolve buffer).
++  bool memory_pressure = false;
++  if (IsDrawResolutionScaled()) {
++    const xbox360ps5::resolution_scale::EvictionLimits eviction =
++        xbox360ps5::resolution_scale::TextureEviction(
++            limit_soft_mb, limit_soft_lifetime,
++            (textures_total_host_memory_usage_ + ((UINT32_C(1) << 20) - 1)) >>
++                20,
++            xbox360ps5::resolution_scale::DirectFreeRecent());
++    limit_soft_mb = uint32_t(eviction.soft_mb);
++    limit_soft_lifetime = uint32_t(eviction.lifetime_ms);
++    memory_pressure = eviction.pressure;
++  }
++#endif
+   bool destroyed_any = false;
+   while (texture_used_first_ != nullptr) {
+     uint64_t total_host_memory_usage_mb =
+@@ -238,6 +255,12 @@ void TextureCache::CompletedSubmissionUpdated(
+         (texture->last_usage_time() + limit_soft_lifetime) > current_time) {
+       break;
+     }
++#if XE_PLATFORM_PS5
++    if (memory_pressure) {
++      xbox360ps5::resolution_scale::counters.textures_evicted.fetch_add(
++          1, std::memory_order_relaxed);  // fix 117d
++    }
++#endif
+     if (!destroyed_any) {
+       destroyed_any = true;
+ #if XE_PLATFORM_PS5
+@@ -827,21 +850,6 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+       key.scaled_resolve = 1;
+     }
+   }
+-#if XE_PLATFORM_PS5
+-  // Fix 117c: a scaled texture not made yet that would leave less than the
+-  // free memory floor is made at 1x instead, from guest memory (current when
+-  // the game's resolves are read back); asked again at its next use.
+-  if (key.scaled_resolve && textures_.find(key) == textures_.end() &&
+-      !xbox360ps5::resolution_scale::AdmitTexture(
+-          xbox360ps5::resolution_scale::counters,
+-          xbox360ps5::resolution_scale::DirectFreeRecent(),
+-          xbox360ps5::resolution_scale::TextureBytes(
+-              key.GetWidth() * draw_resolution_scale_x(),
+-              key.GetHeight() * draw_resolution_scale_y(),
+-              key.GetDepthOrArraySize(), key.mip_max_level > 0))) {
+-    key.scaled_resolve = 0;
+-  }
+-#endif
+ 
+   uint32_t host_width = key.GetWidth();
+   uint32_t host_height = key.GetHeight();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -1355,6 +1355,25 @@ bool VulkanRenderTargetCache::Resolve(
+             }
+           }
+ 
++#if XE_PLATFORM_PS5
++          // Fix 117d: a scaled resolve with no scaled buffer is skipped. The
++          // core's fallback below bound guest memory to the scaled copy
++          // shader, which wrote scaled-layout data there (tile garbage).
++          const bool skip_scaled_copy = copy_dest_scaled && !scaled_buffer_ready;
++          if (skip_scaled_copy) {
++            const uint64_t skipped =
++                xbox360ps5::resolution_scale::counters.resolves_skipped
++                    .fetch_add(1, std::memory_order_relaxed);
++            if (skipped < 8) {
++              XELOGW(
++                  "Resolution scale (fix 117d): a scaled resolve to 0x{:08X} "
++                  "has no scaled buffer; skipped instead of written unscaled",
++                  resolve_info.copy_dest_base);
++            }
++            copied = true;
++          }
++          if (!skip_scaled_copy) {
++#endif
+           if (!scaled_buffer_ready && !use_persistent_dest) {
+             // Write unscaled or native resolves to shared memory.
+             if (copy_dest_scaled) {
+@@ -1496,6 +1515,9 @@ bool VulkanRenderTargetCache::Resolve(
+             *written_scaled_out = scaled_buffer_ready;
+           }
+           copied = true;
++#if XE_PLATFORM_PS5
++          }  // !skip_scaled_copy (fix 117d)
++#endif
+         }
+       }
+     }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -4089,15 +4089,13 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommittedSparse(
+ 
+     if (scaled_resolve_heaps_[heap_index] == VK_NULL_HANDLE) {
+ #if XE_PLATFORM_PS5
+-      // Fix 117: no heap that would leave the system less than 1 GiB of free
+-      // direct memory (the guest's memory comes from there too); the resolve
+-      // then stays unscaled or missing instead of the game closing.
+-      if (!xbox360ps5::resolution_scale::Admit(
+-              xbox360ps5::resolution_scale::counters,
+-              xbox360ps5::resolution_scale::DirectFreeFresh(),
+-              kScaledResolveHeapSize)) {
+-        return false;
+-      }
++      // Fix 117d: always committed (refusing one sent the resolve down the
++      // core's unscaled fallback, which wrote garbage into guest memory);
++      // counted when under the free memory floor.
++      xbox360ps5::resolution_scale::NoteHeapCommit(
++          xbox360ps5::resolution_scale::counters,
++          xbox360ps5::resolution_scale::DirectFreeFresh(),
++          kScaledResolveHeapSize);
+ #endif
+       // Allocate a new heap
+       VkMemoryAllocateInfo allocate_info = {};
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -27,6 +27,14 @@
+ // targets stop at 1.5 GiB free (a 2x 4xMSAA depth target is ~118 MiB, bursts come at scene changes), and a
+ // scaled texture under the floor is made at 1x instead (from guest memory, which image readback keeps
+ // current) rather than not at all. The 10 s line breaks the memory down by kind.
++// Fix 117d: Battlefield 3 at 2x (1.0.5-work-fix117c, no image readback) showed why both fallbacks were wrong. A
++// scaled resolve writes only the scaled resolve buffer, so a texture made at 1x read old guest memory (a flat grey
++// world); and a resolve whose scaled heap was refused fell back to the core's unscaled path, which wrote the scaled
++// shader's output into guest memory (grey tile garbage after the next mission loaded). Now no texture is made at 1x
++// (a scaled texture always reads the scaled buffer), scaled resolve heaps are always committed (counted when under
++// the floor), a scaled resolve that still has no buffer is skipped rather than written into guest memory, the
++// texture cache evicts what has been unused for 2 s while free memory is under 1.5 GiB instead of growing, and the
++// player is told once per session when 2x runs under the 1 GiB floor.
+ #pragma once
+ 
+ #include <atomic>
+@@ -117,10 +125,14 @@ struct Counters {
+   // Fix 117b.
+   std::atomic<uint64_t> native_classes{0};    // surface pitch classes kept at 1x: the floor
+   // Fix 117c.
+-  std::atomic<uint64_t> textures_at_1x{0};    // scaled textures made at 1x instead: the floor
+   std::atomic<uint64_t> rt_scaled{0}, rt_scaled_bytes{0}, rt_native{0}, rt_native_bytes{0};
+   std::atomic<uint64_t> textures_scaled{0}, textures_scaled_bytes{0};
+   std::atomic<uint64_t> texture_cache_bytes{0};  // the texture cache's own total
++  // Fix 117d.
++  std::atomic<uint64_t> heaps_under_floor{0};    // scaled resolve heaps committed under the floor
++  std::atomic<uint64_t> resolves_skipped{0};     // scaled resolves with no buffer, not written
++  std::atomic<uint64_t> textures_evicted{0};     // textures evicted under memory pressure
++  std::atomic<bool> warned{false};               // the player was told this session
+ };
+ inline Counters counters;
+ 
+@@ -153,14 +165,36 @@ inline bool AdmitRenderTarget(Counters& c, int64_t direct_free, uint64_t bytes)
+   c.native_classes.fetch_add(1, std::memory_order_relaxed);
+   return false;
+ }
+-inline bool AdmitTexture(Counters& c, int64_t direct_free, uint64_t bytes) {
++// Fix 117d: a scaled resolve heap is always committed (the picture lives in it); one under the floor is
++// counted. The fallback's 256 MiB buffers keep Admit.
++inline void NoteHeapCommit(Counters& c, int64_t direct_free, uint64_t bytes) {
+   NoteFree(c, direct_free);
+-  if (MayCommit(direct_free, bytes)) {
+-    NoteAdmitted(bytes);
+-    return true;
+-  }
+-  c.textures_at_1x.fetch_add(1, std::memory_order_relaxed);
+-  return false;
++  NoteAdmitted(bytes);
++  if (!MayCommit(direct_free, bytes)) c.heaps_under_floor.fetch_add(1, std::memory_order_relaxed);
++}
++// Fix 117d: the texture cache's eviction while free memory is under the render target floor: textures
++// unused for 2 s go, down to half of what the cache holds (at least 128 MiB, at most its own soft limit).
++struct EvictionLimits {
++  uint64_t soft_mb = 0;
++  uint64_t lifetime_ms = 0;
++  bool pressure = false;
++};
++inline EvictionLimits TextureEviction(uint64_t soft_mb, uint64_t lifetime_ms, uint64_t usage_mb, int64_t direct_free) {
++  EvictionLimits limits;
++  limits.soft_mb = soft_mb;
++  limits.lifetime_ms = lifetime_ms;
++  if (direct_free < 0 || uint64_t(direct_free) >= kRenderTargetFloor) return limits;
++  limits.pressure = true;
++  const uint64_t half = usage_mb / 2 > 128 ? usage_mb / 2 : 128;
++  limits.soft_mb = half < soft_mb ? half : soft_mb;
++  limits.lifetime_ms = lifetime_ms < 2000 ? lifetime_ms : 2000;
++  return limits;
++}
++// Fix 117d: true once per session, when the game renders above 1x and free memory is under the floor.
++inline bool ShouldWarn(Counters& c, int64_t direct_free) {
++  if (c.scale.load(std::memory_order_relaxed) <= 1) return false;
++  if (direct_free < 0 || uint64_t(direct_free) >= kDirectFloor) return false;
++  return !c.warned.exchange(true, std::memory_order_relaxed);
+ }
+ // Fix 117c: what was made, by kind (render targets live until the cache is cleared).
+ inline void NoteRenderTarget(Counters& c, bool scaled, uint64_t bytes) {
+@@ -306,13 +340,15 @@ inline std::string Line(const Counters& c, const DriverMemory::Totals& driver, i
+   std::snprintf(line, sizeof(line),
+                 "Resolution scale (fix 117): %ux, scaled resolve %s, %llu heaps (%lld MiB) committed, %llu refused "
+                 "(under %lld MiB free), %llu failed; render targets made scaled %llu (%lld MiB), 1x %llu (%lld MiB), "
+-                "classes kept at 1x %llu (under %lld MiB free); scaled textures made %llu (%lld MiB), at 1x %llu; "
+-                "texture cache %lld MiB; driver memory %lld MiB (peak %lld MiB, %llu allocations); direct free %lld "
+-                "MiB (lowest at a commit %lld MiB)",
++                "classes kept at 1x %llu (under %lld MiB free); scaled textures made %llu (%lld MiB); texture cache "
++                "%lld MiB, %llu evicted under memory pressure; heaps under the floor %llu, resolves skipped %llu; "
++                "driver memory %lld MiB (peak %lld MiB, %llu allocations); direct free %lld MiB (lowest at a commit "
++                "%lld MiB)",
+                 scale, c.sparse.load(std::memory_order_relaxed) ? "sparse" : "none", get(c.heaps), mib(c.heap_bytes),
+                 get(c.refused), MiB(int64_t(kDirectFloor)), get(c.failed), get(c.rt_scaled), mib(c.rt_scaled_bytes),
+                 get(c.rt_native), mib(c.rt_native_bytes), get(c.native_classes), MiB(int64_t(kRenderTargetFloor)),
+-                get(c.textures_scaled), mib(c.textures_scaled_bytes), get(c.textures_at_1x), mib(c.texture_cache_bytes),
++                get(c.textures_scaled), mib(c.textures_scaled_bytes), mib(c.texture_cache_bytes),
++                get(c.textures_evicted), get(c.heaps_under_floor), get(c.resolves_skipped),
+                 MiB(int64_t(driver.bytes)), MiB(int64_t(driver.peak)), (unsigned long long)driver.allocations,
+                 MiB(direct_free), MiB(c.lowest_free.load(std::memory_order_relaxed)));
+   return line;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3922,10 +3922,17 @@ int main(int argc, char** argv) {
+               const auto scale_now = std::chrono::steady_clock::now();
+               if (scale_now - scale_line_at >= std::chrono::seconds(10)) {
+                 scale_line_at = scale_now;
++                const int64_t scale_free = xbox360ps5::resolution_scale::DirectFree();
+                 XELOGW("{}", xbox360ps5::resolution_scale::Line(
+                                  xbox360ps5::resolution_scale::counters,
+-                                 xbox360ps5::resolution_scale::driver_memory.Get(),
+-                                 xbox360ps5::resolution_scale::DirectFree()));
++                                 xbox360ps5::resolution_scale::driver_memory.Get(), scale_free));
++                // Fix 117d: once a session, when 2x runs under the free memory floor.
++                if (xbox360ps5::resolution_scale::ShouldWarn(xbox360ps5::resolution_scale::counters, scale_free)) {
++                  XELOGW("Resolution scale (fix 117d): under the free memory floor at 2x; the player was told");
++                  xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME,
++                                      Tr("Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings."),
++                                      "", false});
++                }
+               }
+             }
+             const int summary_samples =

@@ -1,0 +1,23 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -56,6 +56,11 @@
+ // Fix 117i: Battlefield 3's 52 render targets at 2x (1.0.5-work-fix117h) are its 1280-pixel scene (and one at 880)
+ // and smaller passes at 640, 560, 320, 280, 160 and 80 pixels of pitch, the half-resolution particle and smoke
+ // buffers among them; the dark discs showed before any eviction. Its threshold, 640, compiled in.
++// Fix 117j: Red Dead Redemption at 2x (1.0.5-work-fix133) reached the free memory floor (43 scaled render targets,
++// 2160 MiB; driver memory 4187 MiB, 1141 MiB free) and four classes fell back to 1x mid-session, its 1280-pixel
++// post-processing surface among them while the 2xMSAA scene stayed 2x (a roof looked odd). Its render targets are the
++// 1280-pixel scene and post-processing and passes at 800 (the shadow cascade's depth), 640, 560, 400, 320, 280, 200,
++// 160, 120, 80 and 40 pixels of pitch. Its threshold, 800, compiled in.
+ #pragma once
+ 
+ #include <atomic>
+@@ -272,6 +277,7 @@ inline int CompiledThreshold(const std::string& title_id) {
+   } kBuiltIn[] = {
+       {"4E4D0859", 1040},  // Tekken Tag Tournament 2: fighters dark at 2x (fix 117e)
+       {"45410950", 640},   // Battlefield 3: smoke drawn as dark discs at 2x (fix 117i)
++      {"5454082B", 800},   // Red Dead Redemption: memory floor reached at 2x (fix 117j)
+   };
+   for (const auto& row : kBuiltIn) {
+     if (title_id.size() != 8) continue;

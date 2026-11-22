@@ -1,0 +1,182 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -418,6 +418,36 @@ inline std::array<std::atomic<uint64_t>, kAliases> alias_calls{}, alias_protects
+ // Write notices per view (PhysicalHeap::TriggerCallbacks with is_write: a guest write fault on a
+ // watched page, or the emulator lifting a watch before writing), from any thread.
+ inline std::array<std::atomic<uint64_t>, kAliases> alias_write_notices{};
++// Fix 78: which memory the watches are armed and lifted on, by 64 KiB block of physical memory
++// (1.0.5_candidate_50: Modern Warfare 2's view A0000000 made 6,000 protection calls a second,
++// 216 ms/s, with 1,956 write notices a second). Each protection call counts for the block where
++// its request starts, with the kind of GPU request that armed it (set by ArmKindScope on the GPU
++// thread: vertex data, memexport, textures; index buffers, resolves and the rest are "other");
++// each write notice counts for its block, from any thread.
++enum ArmKind : uint32_t { kArmOther = 0, kArmVertex, kArmMemexport, kArmTexture, kArmKinds };
++inline const char* ArmKindName(uint32_t kind) {
++  static const char* const names[] = {"other", "vertex", "memexport", "texture"};
++  return kind < kArmKinds ? names[kind] : "?";
++}
++inline uint32_t arm_kind = kArmOther;  // the GPU thread's alone
++class ArmKindScope {
++ public:
++  explicit ArmKindScope(uint32_t kind) : previous_(arm_kind) { arm_kind = kind; }
++  ~ArmKindScope() { arm_kind = previous_; }
++  ArmKindScope(const ArmKindScope&) = delete;
++  ArmKindScope& operator=(const ArmKindScope&) = delete;
++
++ private:
++  uint32_t previous_;
++};
++inline constexpr uint32_t kHotBlockShift = 16;
++inline constexpr uint32_t kHotBlocks = 0x20000000u >> kHotBlockShift;
++inline std::array<std::atomic<uint32_t>, kHotBlocks> hot_protects{}, hot_notices{};
++inline std::array<std::atomic<uint8_t>, kHotBlocks> hot_kinds{};
++inline void NoteHotWrite(uint32_t physical_address) {
++  const uint32_t block = (physical_address & 0x1FFFFFFFu) >> kHotBlockShift;
++  hot_notices[block].fetch_add(1, std::memory_order_relaxed);
++}
+ inline void NoteWriteNotice(uint32_t heap_base) {
+   const uint32_t alias = AliasOf(heap_base);
+   if (alias < kAliases) alias_write_notices[alias].fetch_add(1, std::memory_order_relaxed);
+@@ -444,7 +474,16 @@ class ArmTimer {
+   }
+   // One protection call made.
+   void Protected() {
+-    if (active_) AddOwn(alias_protects[alias_], 1);
++    if (!active_) return;
++    AddOwn(alias_protects[alias_], 1);
++    if (block_ < kHotBlocks) {  // fix 78
++      hot_protects[block_].store(hot_protects[block_].load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
++      hot_kinds[block_].fetch_or(uint8_t(1u << arm_kind), std::memory_order_relaxed);
++    }
++  }
++  // Fix 78: the physical address the request starts at.
++  void Range(uint32_t physical_address) {
++    if (active_) block_ = (physical_address & 0x1FFFFFFFu) >> kHotBlockShift;
+   }
+   ArmTimer(const ArmTimer&) = delete;
+   ArmTimer& operator=(const ArmTimer&) = delete;
+@@ -452,9 +491,60 @@ class ArmTimer {
+  private:
+   uint32_t alias_;
+   bool active_;
++  uint32_t block_ = kHotBlocks;
+   uint64_t start_ = 0;
+   ArmTimer* previous_ = nullptr;
+ };
++// "Frame time hot memory (64 KiB physical blocks by watch arming): 0AB30000 812 protections/s,
++// 400 write notices/s (vertex); ...; n blocks armed, m with write notices" since its previous
++// line, the kHotShown blocks with the most protection calls.
++inline constexpr uint32_t kHotShown = 5;
++class HotReporter {
++ public:
++  std::string Line(double seconds) {
++    const double s = seconds > 0 ? seconds : 1;
++    struct Row { uint32_t block, protects, notices; uint8_t kinds; };
++    std::array<Row, kHotShown> top{};
++    uint32_t armed = 0, noticed = 0;
++    for (uint32_t b = 0; b < kHotBlocks; ++b) {
++      const uint32_t p = hot_protects[b].load(std::memory_order_relaxed);
++      const uint32_t n = hot_notices[b].load(std::memory_order_relaxed);
++      const uint32_t dp = p - last_protects_[b], dn = n - last_notices_[b];
++      last_protects_[b] = p;
++      last_notices_[b] = n;
++      const uint8_t kinds = hot_kinds[b].exchange(0, std::memory_order_relaxed);
++      if (dp) ++armed;
++      if (dn) ++noticed;
++      if (!dp) continue;
++      const Row row{b, dp, dn, kinds};
++      for (uint32_t i = 0; i < kHotShown; ++i) {
++        if (row.protects > top[i].protects) {
++          for (uint32_t j = kHotShown - 1; j > i; --j) top[j] = top[j - 1];
++          top[i] = row;
++          break;
++        }
++      }
++    }
++    std::string parts;
++    for (const Row& row : top) {
++      if (!row.protects) break;
++      std::string kinds;
++      for (uint32_t k = 0; k < kArmKinds; ++k)
++        if (row.kinds & (1u << k)) kinds += (kinds.empty() ? "" : ", ") + std::string(ArmKindName(k));
++      char item[160];
++      std::snprintf(item, sizeof(item), "%s%08X %.0f protections/s, %.0f write notices/s (%s)", parts.empty() ? "" : "; ",
++                    row.block << kHotBlockShift, double(row.protects) / s, double(row.notices) / s,
++                    kinds.empty() ? "-" : kinds.c_str());
++      parts += item;
++    }
++    char tail[96];
++    std::snprintf(tail, sizeof(tail), "%s%u blocks armed, %u with write notices", parts.empty() ? "" : "; ", armed, noticed);
++    return "Frame time hot memory (64 KiB physical blocks by watch arming): " + parts + tail;
++  }
++
++ private:
++  std::array<uint32_t, kHotBlocks> last_protects_{}, last_notices_{};
++};
+ // "Frame time watch arming (GPU thread) by view: A0000000 n calls/s, p protections/s, x ms/s
+ // (lock y ms/s); ..." since its previous line.
+ class ArmReporter {
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -2120,6 +2120,7 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address,
+     return;
+   }
+   xbox360ps5::frame_cost::ArmTimer arm_timer(heap_base_);  // fix 74
++  arm_timer.Range(physical_address);  // fix 78
+   uint32_t physical_address_offset = GetPhysicalAddress(heap_base_);
+   if (physical_address < physical_address_offset) {
+     if (physical_address_offset - physical_address >= length) {
+@@ -2286,6 +2287,8 @@ bool PhysicalHeap::TriggerCallbacks(
+     uint32_t length, bool is_write, bool unwatch_exact_range, bool unprotect,
+     bool invalidate_unwatched) {
+   if (is_write) xbox360ps5::frame_cost::NoteWriteNotice(heap_base_);  // fix 74
++  if (is_write && virtual_address >= heap_base_)
++    xbox360ps5::frame_cost::NoteHotWrite(GetPhysicalAddress(virtual_address));  // fix 78
+   if (virtual_address < heap_base_) {
+     if (heap_base_ - virtual_address >= length) {
+       return false;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -3408,6 +3408,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+ 
+       for (uint32_t i = 0; i < vfetch_current_queued; ++i) {
+         // Xbox360PS5: vertex data is used for this draw only.
++        xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmVertex);  // fix 78
+         if (!shared_memory_->RequestRange(vfetch_addresses[i] << 2,
+                                           vfetch_sizes[i] << 2, true)) {
+           XELOGE(
+@@ -3544,6 +3545,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                           << 2;
+     // Fix 48: this draw writes these ranges again; an upload of them for it
+     // loses nothing an earlier export left there that anything still reads.
++    xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmMemexport);  // fix 78
+     shared_memory_->ClearGpuOnly(memexport_range_base_bytes,
+                                  memexport_range.size_bytes);
+     if (!shared_memory_->RequestRange(memexport_range_base_bytes,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+@@ -337,6 +337,7 @@ uint32_t TextureCache::GuestToHostSwizzle(uint32_t guest_swizzle,
+ void TextureCache::RequestTextures(uint32_t used_texture_mask) {
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // fix 49, candidate 6
+       xbox360ps5::frame_cost::kTexture);
++  xbox360ps5::frame_cost::ArmKindScope frame_cost_kind(xbox360ps5::frame_cost::kArmTexture);  // fix 78
+   const auto& regs = register_file();
+ 
+   if (texture_became_outdated_.exchange(false, std::memory_order_acquire)) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3461,6 +3461,9 @@ int main(int argc, char** argv) {
+                 // Fix 77: how the GPU thread waits in WAIT_REG_MEM.
+                 static xbox360ps5::frame_cost::WaitRegReporter frame_cost_wait_reg;
+                 XELOGW("{}", frame_cost_wait_reg.Line(double(summary_samples)));
++                // Fix 78: the blocks of memory the watches are armed on most.
++                static xbox360ps5::frame_cost::HotReporter frame_cost_hot;
++                XELOGW("{}", frame_cost_hot.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

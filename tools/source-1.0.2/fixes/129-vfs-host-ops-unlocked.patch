@@ -1,0 +1,184 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/entry_io.h b/.deps/xenia-canary/src/xenia/vfs/entry_io.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/vfs/entry_io.h
+@@ -0,0 +1,95 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 129: a file system entry's host operation (creating or deleting the host file)
++// runs with the global critical region let go.
++//
++// Entry::CreateEntry and Entry::Delete took the region and kept it across
++// HostPathEntry::CreateEntryInternal / DeleteEntryInternal, which open, stat or remove a file on
++// the console's disk. Kinect Sports (4D5308C9) creates and deletes its replay files
++// (\CACHE\videobufferNNN) all the time; on 1.0.5-work-fix128 those holds lasted up to 961 ms, at
++// 572-710 ms/s, and every thread that needed the region waited (the GPU thread 540-667 ms/s, in
++// SharedMemory::RequestRange). The region still guards the entry's children: the checks before
++// and the change after the host operation are made under it; only the operation runs without it.
++// A caller that already holds the region (it is recursive) keeps holding it: OutsideLock then
++// lets go of this function's hold only, as before.
++#ifndef XENIA_VFS_ENTRY_IO_H_
++#define XENIA_VFS_ENTRY_IO_H_
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xe {
++namespace vfs {
++namespace entry_io {
++
++enum Kind : int { kCreate = 0, kDelete = 1, kKinds };
++
++struct Stats {
++  std::atomic<uint64_t> count[kKinds]{}, total_ns[kKinds]{}, max_ns[kKinds]{};
++};
++inline Stats stats;
++
++inline void Note(Kind kind, uint64_t ns) {
++  stats.count[kind].fetch_add(1, std::memory_order_relaxed);
++  stats.total_ns[kind].fetch_add(ns, std::memory_order_relaxed);
++  uint64_t max = stats.max_ns[kind].load(std::memory_order_relaxed);
++  while (ns > max && !stats.max_ns[kind].compare_exchange_weak(max, ns, std::memory_order_relaxed)) {
++  }
++}
++
++// `lock` (a locked std::unique_lock of the region) is let go, `io` runs, and the lock is taken
++// again, also when `io` throws. Returns what `io` returns.
++template <class Lock, class Io>
++auto OutsideLock(Lock& lock, Kind kind, Io&& io) -> decltype(io()) {
++  struct Relock {
++    Lock& lock;
++    ~Relock() { lock.lock(); }
++  };
++  lock.unlock();
++  Relock relock{lock};
++  const auto start = std::chrono::steady_clock::now();
++  auto result = io();
++  Note(kind, uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now() - start)
++                          .count()));
++  return result;
++}
++
++// "VFS host operations (fix 129, without the global lock): n creates (x ms, longest y ms), m
++// deletes (...)" since the previous line, or empty when there were none.
++class Reporter {
++ public:
++  std::string Line() {
++    uint64_t count[kKinds], total[kKinds], max[kKinds];
++    bool any = false;
++    for (int k = 0; k < kKinds; ++k) {
++      const uint64_t c = stats.count[k].load(std::memory_order_relaxed);
++      const uint64_t t = stats.total_ns[k].load(std::memory_order_relaxed);
++      count[k] = c - last_count_[k];
++      total[k] = t - last_total_[k];
++      max[k] = stats.max_ns[k].exchange(0, std::memory_order_relaxed);
++      last_count_[k] = c;
++      last_total_[k] = t;
++      any = any || count[k];
++    }
++    if (!any) return std::string();
++    char line[256];
++    std::snprintf(line, sizeof(line),
++                  "VFS host operations (fix 129, without the global lock): %llu creates (%.1f ms, longest %.1f ms), "
++                  "%llu deletes (%.1f ms, longest %.1f ms)",
++                  (unsigned long long)count[kCreate], double(total[kCreate]) / 1e6, double(max[kCreate]) / 1e6,
++                  (unsigned long long)count[kDelete], double(total[kDelete]) / 1e6, double(max[kDelete]) / 1e6);
++    return line;
++  }
++
++ private:
++  uint64_t last_count_[kKinds]{}, last_total_[kKinds]{};
++};
++
++}  // namespace entry_io
++}  // namespace vfs
++}  // namespace xe
++
++#endif  // XENIA_VFS_ENTRY_IO_H_
+diff --git a/.deps/xenia-canary/src/xenia/vfs/entry.h b/.deps/xenia-canary/src/xenia/vfs/entry.h
+--- a/.deps/xenia-canary/src/xenia/vfs/entry.h
++++ b/.deps/xenia-canary/src/xenia/vfs/entry.h
+@@ -157,6 +157,9 @@ class Entry {
+   uint64_t access_timestamp_;
+   uint64_t write_timestamp_;
+   bool delete_on_close_;
++  // Fix 129: Delete is deleting it on the host, without the global lock; a
++  // second Delete of it meanwhile fails instead of freeing it under the first.
++  bool deleting_ = false;
+   std::vector<std::unique_ptr<Entry>> children_;
+ };
+ 
+diff --git a/.deps/xenia-canary/src/xenia/vfs/entry.cc b/.deps/xenia-canary/src/xenia/vfs/entry.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/entry.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/entry.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/vfs/entry.h"
++#include "xenia/vfs/entry_io.h"  // fix 129
+ 
+ #include <utility>
+ 
+@@ -96,8 +97,13 @@ Entry* Entry::CreateEntry(const std::string_view name, uint32_t attributes) {
+     // Already exists.
+     return nullptr;
+   }
+-  auto entry = CreateEntryInternal(name, attributes);
+-  if (!entry) {
++  // Xbox360PS5, fix 129 (xenia/vfs/entry_io.h): the host file is created
++  // without the global lock; a child of the same name made meanwhile wins, as
++  // if it had existed already (the answer a caller serialized after it gets).
++  auto entry = entry_io::OutsideLock(global_lock, entry_io::kCreate, [&] {
++    return CreateEntryInternal(name, attributes);
++  });
++  if (!entry || GetChild(name)) {
+     return nullptr;
+   }
+   children_.push_back(std::move(entry));
+@@ -114,7 +120,18 @@ bool Entry::Delete(Entry* entry) {
+   if (entry->parent() != this) {
+     return false;
+   }
+-  if (!DeleteEntryInternal(entry)) {
++  // Xbox360PS5, fix 129: the host file is deleted without the global lock;
++  // the entry stays a child until then, marked so that no other Delete frees
++  // it meanwhile.
++  if (entry->deleting_) {
++    return false;
++  }
++  entry->deleting_ = true;
++  const bool deleted = entry_io::OutsideLock(
++      global_lock, entry_io::kDelete,
++      [&] { return DeleteEntryInternal(entry); });
++  if (!deleted) {
++    entry->deleting_ = false;
+     return false;
+   }
+   for (auto it = children_.begin(); it != children_.end(); ++it) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -182,6 +182,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/kernel/util/object_table.h"
+ #include "xenia/kernel/xam/xam_state.h"
+ #include "xbox360ps5/global_lock_spin.hpp"  // fix 55: the summary line
++#include "xenia/vfs/entry_io.h"  // fix 129: the summary line
+ #include "xbox360ps5/guide_quick.hpp"  // fix 115: the guide's quick actions
+ #include "xbox360ps5/tab_bar.hpp"  // fix 115c: the guide's tab bar and its pad
+ #include "third_party/imgui/imgui.h"
+@@ -4003,6 +4004,12 @@ int main(int argc, char** argv) {
+               }
+               // What reached the console from the camera and what the game took.
+               if (xbox360ps5::motion::enabled.load()) XELOGW("Motion: {}", xbox360ps5::motion::Status());
++              {
++                // Fix 129: the file system's host operations, run without the global lock.
++                static xe::vfs::entry_io::Reporter vfs_host_operations;
++                const std::string vfs_line = vfs_host_operations.Line();
++                if (!vfs_line.empty()) XELOGW("{}", vfs_line);
++              }
+               // What the memory watches cost in the same half minute.
+               {
+                 static unsigned long long closes = 0, opens = 0, spent = 0, open_spent = 0, faults = 0;

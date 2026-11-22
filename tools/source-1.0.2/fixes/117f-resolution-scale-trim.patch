@@ -1,0 +1,269 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
+--- a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
+@@ -660,6 +660,11 @@ class RenderTargetCache {
+   void PixelShaderInterlockFullEdramBarrierPlaced();
+ 
+ #if XE_PLATFORM_PS5
++ public:
++  // Fix 117f: how many render targets the cache holds (for the trim's line).
++  size_t RenderTargetCount() const { return render_targets_.size(); }
++
++ protected:
+   // Fix 117b: surfaces of this pitch and MSAA render at 1x from now on (the
+   // threshold's native class), because a render target of the scaled class
+   // was not made under the free memory floor. Host render targets only.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -6196,6 +6196,33 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     closed_frame_submissions_[(frame_current_++) % kMaxFramesInFlight] =
+         GetCurrentSubmission() - 1;
+ 
++#if XE_PLATFORM_PS5
++    // Fix 117f: at 2x under memory pressure, the render target cache keeps
++    // only the targets that own EDRAM data (the core's own ClearCache), at
++    // most every 10 s, once the GPU is idle at the end of a frame.
++    if (!cache_clear_requested_ && render_target_cache_ &&
++        render_target_cache_->IsDrawResolutionScaled() &&
++        xbox360ps5::resolution_scale::ShouldTrim(
++            xbox360ps5::resolution_scale::counters,
++            xbox360ps5::resolution_scale::DirectFreeRecent(),
++            xbox360ps5::resolution_scale::NowMs()) &&
++        AwaitAllQueueOperationsCompletion()) {
++      const size_t trim_before = render_target_cache_->RenderTargetCount();
++      const uint64_t trim_driver_before =
++          xbox360ps5::resolution_scale::driver_memory.Get().bytes;
++      render_target_cache_->ClearCache();
++      const size_t trim_after = render_target_cache_->RenderTargetCount();
++      const uint64_t trim_destroyed =
++          trim_before > trim_after ? trim_before - trim_after : 0;
++      xbox360ps5::resolution_scale::NoteTrim(
++          xbox360ps5::resolution_scale::counters,
++          xbox360ps5::resolution_scale::NowMs(), trim_destroyed);
++      XELOGW("{}", xbox360ps5::resolution_scale::TrimLine(
++                       trim_destroyed, trim_after, trim_driver_before,
++                       xbox360ps5::resolution_scale::driver_memory.Get().bytes,
++                       xbox360ps5::resolution_scale::DirectFreeFresh()));
++    }
++#endif
+     if (cache_clear_requested_ && AwaitAllQueueOperationsCompletion()) {
+       cache_clear_requested_ = false;
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -2103,6 +2103,24 @@ RenderTargetCache::RenderTarget* VulkanRenderTargetCache::CreateRenderTarget(
+       return nullptr;
+     }
+   }
++  // Fix 117f: no render target of the 1x class either while it would leave
++  // less than 512 MiB free: this draw is dropped instead of the game running
++  // out of memory (the key is retried after the next trim).
++  if (key.scale_native && IsDrawResolutionScaled() &&
++      !xbox360ps5::resolution_scale::AdmitAnyRenderTarget(
++          xbox360ps5::resolution_scale::counters,
++          xbox360ps5::resolution_scale::DirectFreeFresh(), rt_bytes)) {
++    const uint64_t refused =
++        xbox360ps5::resolution_scale::counters.rt_refused.load(
++            std::memory_order_relaxed);
++    if (refused <= 8) {
++      XELOGW(
++          "Resolution scale (fix 117f): a {}x{} render target not made under "
++          "512 MiB free; the draw is dropped",
++          image_create_info.extent.width, image_create_info.extent.height);
++    }
++    return nullptr;
++  }
+ #endif
+   VkImage image;
+   VkDeviceMemory memory;
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -39,6 +39,13 @@
+ // Full), most likely from its small offscreen surfaces (shadow-map depths at 1024 and 512 pitch). A game's
+ // assets/presets.txt section may say scale_threshold=<pixels>: at 2x, surfaces whose tile-aligned pitch is at most
+ // that render at 1x (the core's draw_resolution_scale_threshold, host render targets only), the rest at 2x.
++// Fix 117f: Tekken Tag Tournament 2 at 2x (1.0.5-work-fix117e) made 59 scaled and 100 1x render targets (4.2 GiB),
++// none ever freed, down to 94 MiB free; and its 117e preset never applied, as assets/presets.txt is package data
++// the staged package did not have. Now: while free memory is under 1.5 GiB, at most every 10 s and only after new
++// render targets were made, the render target cache is trimmed at the end of a frame once the GPU is idle (the
++// core's RenderTargetCache::ClearCache: only targets that own EDRAM data stay); under 512 MiB free no render target
++// is made at all (that draw is dropped, not the game closed); Tekken's threshold is compiled in (presets.txt still
++// wins), and the start line says where it came from.
+ #pragma once
+ 
+ #include <atomic>
+@@ -137,6 +144,11 @@ struct Counters {
+   std::atomic<uint64_t> resolves_skipped{0};     // scaled resolves with no buffer, not written
+   std::atomic<uint64_t> textures_evicted{0};     // textures evicted under memory pressure
+   std::atomic<bool> warned{false};               // the player was told this session
++  // Fix 117f.
++  std::atomic<uint64_t> rt_refused{0};           // render targets not made under the 512 MiB stop
++  std::atomic<uint64_t> trims{0}, trimmed{0};    // trims of the render target cache, targets destroyed
++  std::atomic<int64_t> last_trim_ms{-100000};
++  std::atomic<uint64_t> made_at_trim{0};         // render targets made when the last trim ran
+ };
+ inline Counters counters;
+ 
+@@ -194,16 +206,76 @@ inline EvictionLimits TextureEviction(uint64_t soft_mb, uint64_t lifetime_ms, ui
+   limits.lifetime_ms = lifetime_ms < 2000 ? lifetime_ms : 2000;
+   return limits;
+ }
++// Fix 117f: no render target at all while it would leave less than 512 MiB free.
++inline constexpr uint64_t kHardFloor = uint64_t(512) << 20;
++inline bool AdmitAnyRenderTarget(Counters& c, int64_t direct_free, uint64_t bytes) {
++  NoteFree(c, direct_free);
++  if (MayCommitAbove(direct_free, bytes, kHardFloor)) {
++    NoteAdmitted(bytes);
++    return true;
++  }
++  c.rt_refused.fetch_add(1, std::memory_order_relaxed);
++  return false;
++}
++// Fix 117f: trim the render target cache when above 1x, under the render target floor, at most every 10 s,
++// and only after render targets were made since the last trim.
++inline constexpr int64_t kTrimIntervalMs = 10000;
++inline bool ShouldTrim(const Counters& c, int64_t direct_free, int64_t now_ms) {
++  if (c.scale.load(std::memory_order_relaxed) <= 1) return false;
++  if (direct_free < 0 || uint64_t(direct_free) >= kRenderTargetFloor) return false;
++  if (now_ms - c.last_trim_ms.load(std::memory_order_relaxed) < kTrimIntervalMs) return false;
++  const uint64_t made = c.rt_scaled.load(std::memory_order_relaxed) + c.rt_native.load(std::memory_order_relaxed);
++  return made != c.made_at_trim.load(std::memory_order_relaxed);
++}
++inline void NoteTrim(Counters& c, int64_t now_ms, uint64_t destroyed) {
++  c.last_trim_ms.store(now_ms, std::memory_order_relaxed);
++  c.made_at_trim.store(c.rt_scaled.load(std::memory_order_relaxed) + c.rt_native.load(std::memory_order_relaxed),
++                       std::memory_order_relaxed);
++  c.trims.fetch_add(1, std::memory_order_relaxed);
++  c.trimmed.fetch_add(destroyed, std::memory_order_relaxed);
++}
++inline std::string TrimLine(uint64_t destroyed, uint64_t kept, uint64_t driver_before, uint64_t driver_after,
++                            int64_t direct_free) {
++  char line[260];
++  const auto mib = [](int64_t bytes) { return bytes < 0 ? -1ll : (long long)(bytes >> 20); };
++  std::snprintf(line, sizeof(line),
++                "Resolution scale (fix 117f): render targets trimmed: %llu destroyed, %llu kept (owning EDRAM data); "
++                "driver memory %lld -> %lld MiB; direct free %lld MiB",
++                (unsigned long long)destroyed, (unsigned long long)kept, mib(int64_t(driver_before)),
++                mib(int64_t(driver_after)), mib(direct_free));
++  return line;
++}
++
++// Fix 117f: thresholds compiled in, for games whose package may lack the presets.txt row.
++inline int CompiledThreshold(const std::string& title_id) {
++  static const struct {
++    const char* title;
++    int threshold;
++  } kBuiltIn[] = {
++      {"4E4D0859", 1040},  // Tekken Tag Tournament 2: fighters dark at 2x (fix 117e)
++  };
++  for (const auto& row : kBuiltIn) {
++    if (title_id.size() != 8) continue;
++    bool same = true;
++    for (size_t i = 0; i < 8; ++i) {
++      const char a = title_id[i] >= 'a' && title_id[i] <= 'z' ? char(title_id[i] - 32) : title_id[i];
++      if (a != row.title[i]) same = false;
++    }
++    if (same) return row.threshold;
++  }
++  return 0;
++}
+ // Fix 117e: the core's draw_resolution_scale_threshold for a game: its preset's scale_threshold at 2x, else 0.
+ inline constexpr int kMaxScaleThreshold = 8192;  // the widest guest surface
+ inline uint32_t ThresholdFor(uint32_t scale, int preset) {
+   return scale > 1 && preset > 0 && preset <= kMaxScaleThreshold ? uint32_t(preset) : 0;
+ }
+-inline std::string ThresholdLine(uint32_t threshold, const std::string& title_id) {
+-  char line[200];
++inline std::string ThresholdLine(uint32_t threshold, const std::string& title_id, const char* from) {
++  char line[220];
+   std::snprintf(line, sizeof(line),
+-                "Resolution scale (fix 117e): surfaces up to %u pixels of pitch render at 1x (preset of %s)", threshold,
+-                title_id.empty() ? "no identified title" : title_id.c_str());
++                "Resolution scale (fix 117e): surfaces up to %u pixels of pitch render at 1x (preset of %s, %s)",
++                threshold, title_id.empty() ? "no identified title" : title_id.c_str(),
++                from && *from ? from : "unknown");
+   return line;
+ }
+ // Fix 117d: true once per session, when the game renders above 1x and free memory is under the floor.
+@@ -341,7 +413,7 @@ inline std::string SparseLine(Sparse outcome, size_t buffers, uint32_t max_heaps
+ 
+ // Every 10 s (fix 117b: at 1x too, for the driver's memory to compare; fix 117c: by kind).
+ inline std::string Line(const Counters& c, const DriverMemory::Totals& driver, int64_t direct_free) {
+-  char line[700];
++  char line[900];
+   const auto get = [](const std::atomic<uint64_t>& a) { return (unsigned long long)a.load(std::memory_order_relaxed); };
+   const auto mib = [](const std::atomic<uint64_t>& a) { return MiB(int64_t(a.load(std::memory_order_relaxed))); };
+   const uint32_t scale = c.scale.load(std::memory_order_relaxed);
+@@ -358,6 +430,7 @@ inline std::string Line(const Counters& c, const DriverMemory::Totals& driver, i
+                 "(under %lld MiB free), %llu failed; render targets made scaled %llu (%lld MiB), 1x %llu (%lld MiB), "
+                 "classes kept at 1x %llu (under %lld MiB free); scaled textures made %llu (%lld MiB); texture cache "
+                 "%lld MiB, %llu evicted under memory pressure; heaps under the floor %llu, resolves skipped %llu; "
++                "render targets refused under %lld MiB free %llu, trims %llu (%llu destroyed); "
+                 "driver memory %lld MiB (peak %lld MiB, %llu allocations); direct free %lld MiB (lowest at a commit "
+                 "%lld MiB)",
+                 scale, c.sparse.load(std::memory_order_relaxed) ? "sparse" : "none", get(c.heaps), mib(c.heap_bytes),
+@@ -365,6 +438,7 @@ inline std::string Line(const Counters& c, const DriverMemory::Totals& driver, i
+                 get(c.rt_native), mib(c.rt_native_bytes), get(c.native_classes), MiB(int64_t(kRenderTargetFloor)),
+                 get(c.textures_scaled), mib(c.textures_scaled_bytes), mib(c.texture_cache_bytes),
+                 get(c.textures_evicted), get(c.heaps_under_floor), get(c.resolves_skipped),
++                MiB(int64_t(kHardFloor)), get(c.rt_refused), get(c.trims), get(c.trimmed),
+                 MiB(int64_t(driver.bytes)), MiB(int64_t(driver.peak)), (unsigned long long)driver.allocations,
+                 MiB(direct_free), MiB(c.lowest_free.load(std::memory_order_relaxed)));
+   return line;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -33,7 +33,7 @@ void RequestTextureCapture();  // reads the textures of the next frame back (dia
+ // Accurate render targets (FSI) for one game, launcher.cpp (dev.14).
+ bool FsiWantedFor(const std::string& title_id);
+ bool FsiInEffect();
+-int ScaleThresholdFor(const std::string& title_id);  // launcher.cpp, fix 117e
++int ScaleThresholdFor(const std::string& title_id, const char** from);  // launcher.cpp, fixes 117e, 117f
+ bool FsiForNextStart(bool enabled);
+ }
+ namespace config {
+@@ -3343,12 +3343,14 @@ int main(int argc, char** argv) {
+         }
+         // Fix 117e: at 2x, the game's preset may keep its small surfaces at 1x.
+         {
++          const char* scale_threshold_from = "";
+           const uint32_t scale_threshold = xbox360ps5::resolution_scale::ThresholdFor(
+               xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale),
+-              xbox360ps5::ScaleThresholdFor(settings_title));
++              xbox360ps5::ScaleThresholdFor(settings_title, &scale_threshold_from));
+           cvars::draw_resolution_scale_threshold = scale_threshold;
+           if (scale_threshold) {
+-            XELOGW("{}", xbox360ps5::resolution_scale::ThresholdLine(scale_threshold, settings_title));
++            XELOGW("{}", xbox360ps5::resolution_scale::ThresholdLine(scale_threshold, settings_title,
++                                                                     scale_threshold_from));
+           }
+         }
+         // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -2331,11 +2331,18 @@ bool FsiWantedFor(const std::string& title_id) {
+ bool FsiInEffect() { return FsiAtStart(); }
+ // Fix 117e: the surface pitch (pixels) up to which a game renders at 1x when it is at 2x, from its
+ // assets/presets.txt section (scale_threshold=); 0 when it has none.
+-int ScaleThresholdFor(const std::string& title_id) {
++// Fix 117f: else the compiled-in value (the staged package may lack the row); *from names the source.
++int ScaleThresholdFor(const std::string& title_id, const char** from) {
++  if (from) *from = "";
+   if (title_id.empty()) return 0;
+   const auto values = ReadValues("/app0/assets/presets.txt", title_id);
+-  const auto it = values.find("scale_threshold");
+-  return it == values.end() ? 0 : it->second;
++  if (const auto it = values.find("scale_threshold"); it != values.end()) {
++    if (from) *from = "presets.txt";
++    return it->second;
++  }
++  const int compiled = xbox360ps5::resolution_scale::CompiledThreshold(title_id);
++  if (compiled && from) *from = "compiled-in";
++  return compiled;
+ }
+ // The choice for the next start only (read and removed by FsiAtStart).
+ bool FsiForNextStart(bool enabled) {

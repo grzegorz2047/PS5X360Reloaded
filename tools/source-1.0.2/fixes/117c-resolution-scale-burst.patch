@@ -1,0 +1,337 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/texture_cache.cc
+@@ -23,6 +23,7 @@
+ #include "xenia/memory.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
++#include "xbox360ps5/resolution_scale.hpp"  // fix 117c
+ #endif
+ 
+ DEFINE_int32(
+@@ -826,6 +827,21 @@ TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {
+       key.scaled_resolve = 1;
+     }
+   }
++#if XE_PLATFORM_PS5
++  // Fix 117c: a scaled texture not made yet that would leave less than the
++  // free memory floor is made at 1x instead, from guest memory (current when
++  // the game's resolves are read back); asked again at its next use.
++  if (key.scaled_resolve && textures_.find(key) == textures_.end() &&
++      !xbox360ps5::resolution_scale::AdmitTexture(
++          xbox360ps5::resolution_scale::counters,
++          xbox360ps5::resolution_scale::DirectFreeRecent(),
++          xbox360ps5::resolution_scale::TextureBytes(
++              key.GetWidth() * draw_resolution_scale_x(),
++              key.GetHeight() * draw_resolution_scale_y(),
++              key.GetDepthOrArraySize(), key.mip_max_level > 0))) {
++    key.scaled_resolve = 0;
++  }
++#endif
+ 
+   uint32_t host_width = key.GetWidth();
+   uint32_t host_height = key.GetHeight();
+@@ -1282,6 +1298,10 @@ void TextureCache::UpdateTexturesTotalHostMemoryUsage(uint64_t add,
+                                                       uint64_t subtract) {
+   textures_total_host_memory_usage_ =
+       textures_total_host_memory_usage_ - subtract + add;
++#if XE_PLATFORM_PS5
++  xbox360ps5::resolution_scale::counters.texture_cache_bytes.store(
++      textures_total_host_memory_usage_, std::memory_order_relaxed);  // 117c
++#endif
+   COUNT_profile_set("gpu/texture_cache/total_host_memory_usage_mb",
+                     uint32_t((textures_total_host_memory_usage_ +
+                               ((UINT32_C(1) << 20) - 1)) >>
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -2061,14 +2061,16 @@ RenderTargetCache::RenderTarget* VulkanRenderTargetCache::CreateRenderTarget(
+ #if XE_PLATFORM_PS5
+   // Fix 117b: no scaled render target under the free direct memory floor;
+   // its pitch class renders at 1x from now on, this draw is dropped.
++  // Fix 117c: a fresh reading each time (a burst passed on one cached
++  // reading), and the 1.5 GiB floor of render targets.
++  const uint64_t rt_bytes = xbox360ps5::resolution_scale::RenderTargetBytes(
++      image_create_info.extent.width, image_create_info.extent.height,
++      uint32_t(image_create_info.samples), key.is_depth || key.Is64bpp());
+   if (!key.scale_native && IsDrawResolutionScaled()) {
+-    const uint64_t bytes = xbox360ps5::resolution_scale::RenderTargetBytes(
+-        image_create_info.extent.width, image_create_info.extent.height,
+-        uint32_t(image_create_info.samples),
+-        key.is_depth || key.Is64bpp());
++    const uint64_t bytes = rt_bytes;
+     if (!xbox360ps5::resolution_scale::AdmitRenderTarget(
+             xbox360ps5::resolution_scale::counters,
+-            xbox360ps5::resolution_scale::DirectFreeRecent(), bytes)) {
++            xbox360ps5::resolution_scale::DirectFreeFresh(), bytes)) {
+       KeepScaleNativeForPitch(key.pitch_tiles_at_32bpp, key.msaa_samples);
+       XELOGW(
+           "Resolution scale (fix 117b): a {}x{} render target not made under "
+@@ -2092,6 +2094,12 @@ RenderTargetCache::RenderTarget* VulkanRenderTargetCache::CreateRenderTarget(
+         uint32_t(1) << uint32_t(key.msaa_samples), key.GetFormatName());
+     return nullptr;
+   }
++#if XE_PLATFORM_PS5
++  if (IsDrawResolutionScaled()) {
++    xbox360ps5::resolution_scale::NoteRenderTarget(
++        xbox360ps5::resolution_scale::counters, !key.scale_native, rt_bytes);
++  }
++#endif
+ 
+   // Create the image views.
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -1222,21 +1222,6 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(
+     image_format_list_create_info.pViewFormats = formats;
+   }
+ 
+-#if XE_PLATFORM_PS5
+-  // Fix 117b: no new scaled texture under the free direct memory floor (the
+-  // draw gets none; asked again at a later draw).
+-  if (key.scaled_resolve &&
+-      !xbox360ps5::resolution_scale::AdmitTexture(
+-          xbox360ps5::resolution_scale::counters,
+-          xbox360ps5::resolution_scale::DirectFreeRecent(),
+-          xbox360ps5::resolution_scale::TextureBytes(
+-              image_create_info.extent.width, image_create_info.extent.height,
+-              is_3d ? image_create_info.extent.depth
+-                    : image_create_info.arrayLayers,
+-              image_create_info.mipLevels > 1))) {
+-    return nullptr;
+-  }
+-#endif
+   VmaAllocationCreateInfo allocation_create_info = {};
+   allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+ 
+@@ -1246,6 +1231,19 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(
+                      &allocation_create_info, &image, &allocation, nullptr)) {
+     return nullptr;
+   }
++#if XE_PLATFORM_PS5
++  // Fix 117c: the floor is asked in TextureCache::FindOrCreateTexture (a
++  // scaled texture under it is made at 1x); here the scaled ones are counted.
++  if (key.scaled_resolve) {
++    xbox360ps5::resolution_scale::NoteScaledTexture(
++        xbox360ps5::resolution_scale::counters,
++        xbox360ps5::resolution_scale::TextureBytes(
++            image_create_info.extent.width, image_create_info.extent.height,
++            is_3d ? image_create_info.extent.depth
++                  : image_create_info.arrayLayers,
++            image_create_info.mipLevels > 1));
++  }
++#endif
+ 
+   return std::unique_ptr<Texture>(
+       new VulkanTexture(*this, key, image, allocation));
+@@ -3706,7 +3704,7 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommitted(
+         // Fix 117: the fallback's 256 MiB buffers keep the same floor.
+         if (!xbox360ps5::resolution_scale::Admit(
+                 xbox360ps5::resolution_scale::counters,
+-                xbox360ps5::resolution_scale::DirectFree(), buffer_size)) {
++                xbox360ps5::resolution_scale::DirectFreeFresh(), buffer_size)) {
+           return false;
+         }
+ #endif
+@@ -4096,7 +4094,7 @@ bool VulkanTextureCache::EnsureScaledResolveMemoryCommittedSparse(
+       // then stays unscaled or missing instead of the game closing.
+       if (!xbox360ps5::resolution_scale::Admit(
+               xbox360ps5::resolution_scale::counters,
+-              xbox360ps5::resolution_scale::DirectFree(),
++              xbox360ps5::resolution_scale::DirectFreeFresh(),
+               kScaledResolveHeapSize)) {
+         return false;
+       }
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -20,6 +20,13 @@
+ // dropped. A new scaled texture (from a scaled resolve) is not made either (the texture cache gives
+ // the draw none). The 10 s line, at 1x too, adds the Vulkan driver's memory (every vkAllocateMemory
+ // less vkFreeMemory, counted in platform/ps5/radv_dispatch.cpp).
++// Fix 117c: on the console Tekken Tag Tournament 2 at 2x (1.0.5-work-fix117b) made ~2 GB of render targets
++// within 10 s while every one of them passed the floor on the same cached reading of free memory (1420 MiB),
++// down to 516 MiB free; then its scaled textures were refused and drew black (a fighter as a silhouette).
++// Now a render target asks for a fresh reading, the bytes admitted since a reading count against it, render
++// targets stop at 1.5 GiB free (a 2x 4xMSAA depth target is ~118 MiB, bursts come at scene changes), and a
++// scaled texture under the floor is made at 1x instead (from guest memory, which image readback keeps
++// current) rather than not at all. The 10 s line breaks the memory down by kind.
+ #pragma once
+ 
+ #include <atomic>
+@@ -51,23 +58,39 @@ inline int64_t DirectFree() {
+ #endif
+   return -1;
+ }
+-// The same, asked at most every 250 ms: render targets and textures ask before each allocation,
+-// and a refused texture is asked for again at the next draw.
++// The same, asked at most every 250 ms (textures ask before each allocation, and a texture made at 1x
++// asks again at its next use); fix 117c: less the bytes admitted since that reading, so a burst of
++// allocations cannot all pass on one reading.
+ inline std::atomic<int64_t> direct_free_seen{-1};
+ inline std::atomic<int64_t> direct_free_at_ms{-1000};
+-inline int64_t DirectFreeRecent(int64_t now_ms, int64_t (*query)() = DirectFree) {
+-  const int64_t at = direct_free_at_ms.load(std::memory_order_relaxed);
+-  if (now_ms - at < 250 && now_ms >= at) return direct_free_seen.load(std::memory_order_relaxed);
++inline std::atomic<int64_t> admitted_since_reading{0};
++inline int64_t LessAdmitted(int64_t reading) {
++  if (reading < 0) return reading;
++  const int64_t left = reading - admitted_since_reading.load(std::memory_order_relaxed);
++  return left > 0 ? left : 0;
++}
++inline int64_t NowMs() {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++// A new reading, now (render targets and scaled resolve heaps: rare and large).
++inline int64_t DirectFreeFresh(int64_t now_ms, int64_t (*query)() = DirectFree) {
+   const int64_t value = query();
+   direct_free_seen.store(value, std::memory_order_relaxed);
+   direct_free_at_ms.store(now_ms, std::memory_order_relaxed);
++  admitted_since_reading.store(0, std::memory_order_relaxed);
+   return value;
+ }
+-inline int64_t NowMs() {
+-  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+-      .count();
++inline int64_t DirectFreeFresh() { return DirectFreeFresh(NowMs()); }
++inline int64_t DirectFreeRecent(int64_t now_ms, int64_t (*query)() = DirectFree) {
++  const int64_t at = direct_free_at_ms.load(std::memory_order_relaxed);
++  if (now_ms - at < 250 && now_ms >= at) return LessAdmitted(direct_free_seen.load(std::memory_order_relaxed));
++  return DirectFreeFresh(now_ms, query);
+ }
+ inline int64_t DirectFreeRecent() { return DirectFreeRecent(NowMs()); }
++inline void NoteAdmitted(uint64_t bytes) {
++  admitted_since_reading.fetch_add(int64_t(bytes), std::memory_order_relaxed);
++}
+ 
+ // The option's choices: 0 is 1x, 1 is 2x.
+ inline constexpr int kChoices = 2;
+@@ -75,10 +98,13 @@ inline uint32_t ScaleForChoice(int choice) { return choice == 1 ? 2u : 1u; }
+ 
+ // The floor of free direct memory a new heap must leave.
+ inline constexpr uint64_t kDirectFloor = uint64_t(1) << 30;
++// Fix 117c: render targets of the scaled class stop earlier, at 1.5 GiB.
++inline constexpr uint64_t kRenderTargetFloor = uint64_t(3) << 29;
+ // direct_free < 0: not known (the query failed, or not on the console): allowed.
+-inline bool MayCommit(int64_t direct_free, uint64_t bytes) {
+-  return direct_free < 0 || uint64_t(direct_free) >= kDirectFloor + bytes;
++inline bool MayCommitAbove(int64_t direct_free, uint64_t bytes, uint64_t floor) {
++  return direct_free < 0 || uint64_t(direct_free) >= floor + bytes;
+ }
++inline bool MayCommit(int64_t direct_free, uint64_t bytes) { return MayCommitAbove(direct_free, bytes, kDirectFloor); }
+ 
+ struct Counters {
+   std::atomic<uint64_t> heaps{0};          // made
+@@ -90,7 +116,11 @@ struct Counters {
+   std::atomic<bool> sparse{false};         // the sparse scaled resolve buffers exist
+   // Fix 117b.
+   std::atomic<uint64_t> native_classes{0};    // surface pitch classes kept at 1x: the floor
+-  std::atomic<uint64_t> textures_refused{0};  // scaled textures not made: the floor
++  // Fix 117c.
++  std::atomic<uint64_t> textures_at_1x{0};    // scaled textures made at 1x instead: the floor
++  std::atomic<uint64_t> rt_scaled{0}, rt_scaled_bytes{0}, rt_native{0}, rt_native_bytes{0};
++  std::atomic<uint64_t> textures_scaled{0}, textures_scaled_bytes{0};
++  std::atomic<uint64_t> texture_cache_bytes{0};  // the texture cache's own total
+ };
+ inline Counters counters;
+ 
+@@ -105,23 +135,42 @@ inline void NoteFree(Counters& c, int64_t direct_free) {
+ // allocation the caller then makes (allocated: whether vkAllocateMemory succeeded).
+ inline bool Admit(Counters& c, int64_t direct_free, uint64_t bytes) {
+   NoteFree(c, direct_free);
+-  if (MayCommit(direct_free, bytes)) return true;
++  if (MayCommit(direct_free, bytes)) {
++    NoteAdmitted(bytes);
++    return true;
++  }
+   c.refused.fetch_add(1, std::memory_order_relaxed);
+   return false;
+ }
+ // Fix 117b: a new render target of the scaled class, and a new scaled texture, of about `bytes`.
++// Fix 117c: render targets to the 1.5 GiB floor; a refused texture is made at 1x.
+ inline bool AdmitRenderTarget(Counters& c, int64_t direct_free, uint64_t bytes) {
+   NoteFree(c, direct_free);
+-  if (MayCommit(direct_free, bytes)) return true;
++  if (MayCommitAbove(direct_free, bytes, kRenderTargetFloor)) {
++    NoteAdmitted(bytes);
++    return true;
++  }
+   c.native_classes.fetch_add(1, std::memory_order_relaxed);
+   return false;
+ }
+ inline bool AdmitTexture(Counters& c, int64_t direct_free, uint64_t bytes) {
+   NoteFree(c, direct_free);
+-  if (MayCommit(direct_free, bytes)) return true;
+-  c.textures_refused.fetch_add(1, std::memory_order_relaxed);
++  if (MayCommit(direct_free, bytes)) {
++    NoteAdmitted(bytes);
++    return true;
++  }
++  c.textures_at_1x.fetch_add(1, std::memory_order_relaxed);
+   return false;
+ }
++// Fix 117c: what was made, by kind (render targets live until the cache is cleared).
++inline void NoteRenderTarget(Counters& c, bool scaled, uint64_t bytes) {
++  (scaled ? c.rt_scaled : c.rt_native).fetch_add(1, std::memory_order_relaxed);
++  (scaled ? c.rt_scaled_bytes : c.rt_native_bytes).fetch_add(bytes, std::memory_order_relaxed);
++}
++inline void NoteScaledTexture(Counters& c, uint64_t bytes) {
++  c.textures_scaled.fetch_add(1, std::memory_order_relaxed);
++  c.textures_scaled_bytes.fetch_add(bytes, std::memory_order_relaxed);
++}
+ // Bytes of a render target: 8 a sample for depth and 64bpp colour, else 4.
+ inline uint64_t RenderTargetBytes(uint32_t width, uint32_t height, uint32_t samples, bool eight_bytes) {
+   return uint64_t(width) * height * (samples ? samples : 1) * (eight_bytes ? 8 : 4);
+@@ -240,32 +289,32 @@ inline std::string SparseLine(Sparse outcome, size_t buffers, uint32_t max_heaps
+   return line;
+ }
+ 
+-// Every 10 s (fix 117b: at 1x too, for the driver's memory to compare).
++// Every 10 s (fix 117b: at 1x too, for the driver's memory to compare; fix 117c: by kind).
+ inline std::string Line(const Counters& c, const DriverMemory::Totals& driver, int64_t direct_free) {
+-  char line[520];
++  char line[700];
++  const auto get = [](const std::atomic<uint64_t>& a) { return (unsigned long long)a.load(std::memory_order_relaxed); };
++  const auto mib = [](const std::atomic<uint64_t>& a) { return MiB(int64_t(a.load(std::memory_order_relaxed))); };
+   const uint32_t scale = c.scale.load(std::memory_order_relaxed);
+   if (scale <= 1) {
+     std::snprintf(line, sizeof(line),
+-                  "Resolution scale (fix 117): 1x; driver memory %lld MiB (peak %lld MiB, %llu allocations); "
+-                  "direct free %lld MiB",
+-                  MiB(int64_t(driver.bytes)), MiB(int64_t(driver.peak)), (unsigned long long)driver.allocations,
+-                  MiB(direct_free));
++                  "Resolution scale (fix 117): 1x; texture cache %lld MiB; driver memory %lld MiB (peak %lld MiB, "
++                  "%llu allocations); direct free %lld MiB",
++                  mib(c.texture_cache_bytes), MiB(int64_t(driver.bytes)), MiB(int64_t(driver.peak)),
++                  (unsigned long long)driver.allocations, MiB(direct_free));
+     return line;
+   }
+   std::snprintf(line, sizeof(line),
+                 "Resolution scale (fix 117): %ux, scaled resolve %s, %llu heaps (%lld MiB) committed, %llu refused "
+-                "(under %lld MiB free), %llu failed; render target classes kept at 1x %llu, scaled textures refused "
+-                "%llu; driver memory %lld MiB (peak %lld MiB, %llu allocations); direct free %lld MiB (lowest at a "
+-                "commit %lld MiB)",
+-                scale, c.sparse.load(std::memory_order_relaxed) ? "sparse" : "none",
+-                (unsigned long long)c.heaps.load(std::memory_order_relaxed),
+-                MiB(int64_t(c.heap_bytes.load(std::memory_order_relaxed))),
+-                (unsigned long long)c.refused.load(std::memory_order_relaxed), MiB(int64_t(kDirectFloor)),
+-                (unsigned long long)c.failed.load(std::memory_order_relaxed),
+-                (unsigned long long)c.native_classes.load(std::memory_order_relaxed),
+-                (unsigned long long)c.textures_refused.load(std::memory_order_relaxed), MiB(int64_t(driver.bytes)),
+-                MiB(int64_t(driver.peak)), (unsigned long long)driver.allocations, MiB(direct_free),
+-                MiB(c.lowest_free.load(std::memory_order_relaxed)));
++                "(under %lld MiB free), %llu failed; render targets made scaled %llu (%lld MiB), 1x %llu (%lld MiB), "
++                "classes kept at 1x %llu (under %lld MiB free); scaled textures made %llu (%lld MiB), at 1x %llu; "
++                "texture cache %lld MiB; driver memory %lld MiB (peak %lld MiB, %llu allocations); direct free %lld "
++                "MiB (lowest at a commit %lld MiB)",
++                scale, c.sparse.load(std::memory_order_relaxed) ? "sparse" : "none", get(c.heaps), mib(c.heap_bytes),
++                get(c.refused), MiB(int64_t(kDirectFloor)), get(c.failed), get(c.rt_scaled), mib(c.rt_scaled_bytes),
++                get(c.rt_native), mib(c.rt_native_bytes), get(c.native_classes), MiB(int64_t(kRenderTargetFloor)),
++                get(c.textures_scaled), mib(c.textures_scaled_bytes), get(c.textures_at_1x), mib(c.texture_cache_bytes),
++                MiB(int64_t(driver.bytes)), MiB(int64_t(driver.peak)), (unsigned long long)driver.allocations,
++                MiB(direct_free), MiB(c.lowest_free.load(std::memory_order_relaxed)));
+   return line;
+ }
+ 

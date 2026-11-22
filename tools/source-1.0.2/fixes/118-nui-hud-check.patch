@@ -1,0 +1,75 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/nui.cc b/.deps/xenia-canary/src/xenia/kernel/nui.cc
+index 9760c8e..73cf168 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/nui.cc
+@@ -8,8 +8,13 @@
+  */
+ 
+ #include "xenia/kernel/nui.h"
++#include <atomic>
++#include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/nui_hud.hpp"
+ #include "xenia/base/assert.h"
++#include "xenia/base/logging.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/kinect_title.h"
+ #include "xenia/xbox.h"
+ 
+ namespace xe {
+@@ -48,9 +53,23 @@ uint64_t NUIController::GetSessionId() { return session_id; }
+ void NUIController::SetSessionId(uint64_t id) { session_id = id; }
+ 
+ uint32_t NUIController::NuiHudCheck(uint64_t tracking_id) {
+-  if (!GetNUIDataPtr() || !GetUnknown2() || !NuiInitialized()) {
++  // Xbox360PS5 fix 118: the virtual Kinect counts as the sensor the Kinect
++  // system windows are drawn for (xbox360ps5/nui_hud.hpp); without the
++  // console's Kinect flag every XamShowNui*UI call was refused.
++  const bool kinect_initialized = NuiInitialized();
++  const bool virtual_kinect =
++      !kinect_initialized && xbox360ps5::motion::enabled.load() &&
++      KinectRequiredTitle(KernelState::shared());
++  if (!xbox360ps5::motion::NuiHudAllowed(GetNUIDataPtr() && GetUnknown2(),
++                                         kinect_initialized, virtual_kinect)) {
+     return X_ERROR_ACCESS_DENIED;
+   }
++  static std::atomic<uint32_t> shown{0};
++  if (virtual_kinect && shown.fetch_add(1) < 8) {
++    XELOGW("Virtual Kinect: the title opens a Kinect system window (tracking "
++           "id {:X}); allowed with the virtual Kinect (fix 118)",
++           tracking_id);
++  }
+   if (tracking_id) {
+     SetEngagedTrackingId(tracking_id);
+   };
+diff --git a/include/xbox360ps5/nui_hud.hpp b/include/xbox360ps5/nui_hud.hpp
+new file mode 100644
+index 0000000..228d0f8
+--- /dev/null
++++ b/include/xbox360ps5/nui_hud.hpp
+@@ -0,0 +1,26 @@
++// SPDX-License-Identifier: MIT
++// Fix 118 (Kinect Sports, issue 15): the Kinect system windows with the virtual Kinect. A Kinect
++// title opens its system windows through XamShowNui*UI (the save device, sign-in, message boxes),
++// and each of those asks the NUI HUD check first (xenia/kernel/nui.cc, NuiHudCheck). The check
++// wanted the console's "Kinect initialized" retail flag, which this console's settings never have,
++// so every one of them was refused (access denied) before its window: Kinect Sports, with a
++// signed-in profile picked as the player ("Player"; Guest does not save), asks where to save with
++// XamShowNuiDeviceSelectorUI once a frame, got the refusal each time and never went on (its hand
++// cursors gone, the device id it passed still 0). While the virtual Kinect serves a title that
++// requires Kinect, it is the sensor these windows are drawn for, so the check lets them through to
++// the ordinary windows (the save drive from the settings or the drive window, the sign-in, the
++// message box). Nothing else changes: with the motion option off, and for titles where Kinect is
++// optional (they keep their own SDK and the controller, and would wait for services this console
++// does not have, as XamContentOpenFile's note on 4D5309C9 says), the check refuses as before.
++#pragma once
++
++namespace xbox360ps5::motion {
++
++// The NUI HUD check's answer: `nui_data` is the NUI library's state the check reads (its data
++// pointer and the flag at 0x50 in it), `kinect_initialized` the console's retail flag and
++// `virtual_kinect` the virtual Kinect on for a title that requires Kinect.
++inline bool NuiHudAllowed(bool nui_data, bool kinect_initialized, bool virtual_kinect) {
++  return nui_data && (kinect_initialized || virtual_kinect);
++}
++
++}  // namespace xbox360ps5::motion

@@ -1,0 +1,287 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+@@ -14,6 +14,13 @@
+ // handed to the worker; 2 chunks submitted on the GPU thread (what the extra submissions and
+ // render pass breaks cost without the worker). The chunk size: gpu_async_submit_chunk_kib, or
+ // "chunk" in the file, in KiB.
++//
++// Fix 134c: Red Dead Redemption in mode 1 handed off 1 of its 5-6 submissions a frame (30
++// hand-offs/s at 5.0-5.36 chunks per frame, 180-191 submissions/s), so the GPU thread still
++// replayed 120-131 ms/s. A submission with query resolves (occlusion queries) stayed on the GPU
++// thread, which records them after the replay. Now they are recorded at the end of the handed-off
++// submission's commands, the same place ("resolves 0" in the file: kept on the GPU thread, as in
++// 134), and the line says why a submission stayed: the swap, sparse binds or query resolves.
+ #ifndef XENIA_GPU_VULKAN_ASYNC_SUBMIT_H_
+ #define XENIA_GPU_VULKAN_ASYNC_SUBMIT_H_
+ 
+@@ -35,10 +42,13 @@ enum Mode : uint32_t { kOff = 0, kWorker = 1, kChunkOnly = 2, kModes };
+ struct Settings {
+   uint32_t mode = kOff;
+   uint32_t chunk_kib = 256;
+-  bool operator==(const Settings& other) const { return mode == other.mode && chunk_kib == other.chunk_kib; }
++  uint32_t resolves = 1;  // fix 134c: query resolves handed off with their submission
++  bool operator==(const Settings& other) const {
++    return mode == other.mode && chunk_kib == other.chunk_kib && resolves == other.resolves;
++  }
+ };
+ 
+-// async-submit.txt: "mode 0|1|2" and "chunk <KiB>" lines, "#" comments. What a line does not set
++// async-submit.txt: "mode 0|1|2", "chunk <KiB>" and "resolves 0|1" (fix 134c) lines, "#" comments. What a line does not set
+ // keeps `base`'s value (the cvars). Returns the lines not understood.
+ inline int Parse(const std::string& text, Settings& settings) {
+   int not_understood = 0;
+@@ -57,6 +67,8 @@ inline int Parse(const std::string& text, Settings& settings) {
+       settings.mode = uint32_t(value);
+     } else if (key == "chunk" && value >= 16 && value <= 65536) {
+       settings.chunk_kib = uint32_t(value);
++    } else if (key == "resolves" && (value == 0 || value == 1)) {
++      settings.resolves = uint32_t(value);
+     } else {
+       ++not_understood;
+     }
+@@ -83,6 +95,16 @@ inline bool NeedsDrain(uint64_t awaited, uint64_t submitted, uint64_t handed_off
+   return failed || (awaited > submitted && awaited <= handed_off);
+ }
+ 
++// Fix 134c: in mode 1, why a submission stays on the GPU thread; kKeptReasons: it is handed off.
++// Query resolves keep it only with "resolves 0" (else they go to the end of its commands).
++enum KeptReason : uint32_t { kKeptSwap = 0, kKeptSparse, kKeptResolves, kKeptReasons };
++inline uint32_t Kept(bool is_swap, bool wait_semaphores, bool query_resolves, bool resolves_handed_off) {
++  if (is_swap) return kKeptSwap;
++  if (wait_semaphores) return kKeptSparse;
++  if (query_resolves && !resolves_handed_off) return kKeptResolves;
++  return kKeptReasons;
++}
++
+ enum DrainReason : uint32_t { kDrainSwap = 0, kDrainReadback, kDrainWait, kDrainSync, kDrainOther, kDrainReasons };
+ inline const char* DrainReasonName(uint32_t reason) {
+   static const char* const names[] = {"swap", "readback", "wait", "sync", "other"};
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h
+@@ -102,6 +102,9 @@ class VulkanQueryPool {
+   // recorded outside a render pass.
+   void FlushCounterClears(DeferredCommandBuffer& deferred_command_buffer);
+   void RecordResolveBatch(VkCommandBuffer command_buffer);
++  // Xbox360PS5 (fix 134c): the same commands at the end of a deferred command buffer (a
++  // submission handed to the submit worker, which replays it).
++  void RecordResolveBatch(DeferredCommandBuffer& deferred_command_buffer);
+   // Xbox360PS5 (fix 134): whether RecordResolveBatch has anything to record.
+   bool HasResolveBatch() const {
+     return !resolve_batch_indices_.empty() || !counter_resolve_batch_indices_.empty();
+@@ -141,6 +144,10 @@ class VulkanQueryPool {
+   // Bumped on each acquire so stale copies from recycled slots get dropped.
+   std::vector<uint32_t> index_generations_;
+ 
++  // Xbox360PS5 (fix 134c): RecordResolveBatch's commands, into either kind of command buffer.
++  struct ResolveRecorder;
++  void RecordResolveBatchTo(const ResolveRecorder& recorder);
++
+   std::vector<uint32_t> resolve_batch_indices_;
+   std::vector<uint32_t> counter_resolve_batch_indices_;
+   // Reusable scratch for coalesced contiguous ranges during flush.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.cc
+@@ -621,7 +621,55 @@ void VulkanQueryPool::FlushCounterClears(
+       0, nullptr, 1, &ready_barrier, 0, nullptr);
+ }
+ 
++// Xbox360PS5 (fix 134c): the commands of RecordResolveBatch, into a Vulkan command buffer (the
++// GPU thread, after the replay) or at the end of a deferred one (a submission handed to the
++// submit worker, which replays it there: the same place).
++struct VulkanQueryPool::ResolveRecorder {
++  const ui::vulkan::VulkanDevice::Functions* dfn = nullptr;
++  VkCommandBuffer command_buffer = VK_NULL_HANDLE;
++  DeferredCommandBuffer* deferred = nullptr;
++  void CopyQueryPoolResults(VkQueryPool pool, uint32_t first, uint32_t count, VkBuffer dst,
++                            VkDeviceSize offset, VkDeviceSize stride,
++                            VkQueryResultFlags flags) const {
++    if (deferred) {
++      deferred->CmdVkCopyQueryPoolResults(pool, first, count, dst, offset, stride, flags);
++    } else {
++      dfn->vkCmdCopyQueryPoolResults(command_buffer, pool, first, count, dst, offset, stride,
++                                     flags);
++    }
++  }
++  void PipelineBarrier(VkPipelineStageFlags src, VkPipelineStageFlags dst, uint32_t count,
++                       const VkBufferMemoryBarrier* barriers) const {
++    if (deferred) {
++      deferred->CmdVkPipelineBarrier(src, dst, 0, 0, nullptr, count, barriers, 0, nullptr);
++    } else {
++      dfn->vkCmdPipelineBarrier(command_buffer, src, dst, 0, 0, nullptr, count, barriers, 0,
++                                nullptr);
++    }
++  }
++  void CopyBuffer(VkBuffer src, VkBuffer dst, uint32_t count, const VkBufferCopy* regions) const {
++    if (deferred) {
++      deferred->CmdVkCopyBuffer(src, dst, count, regions);
++    } else {
++      dfn->vkCmdCopyBuffer(command_buffer, src, dst, count, regions);
++    }
++  }
++};
++
+ void VulkanQueryPool::RecordResolveBatch(VkCommandBuffer command_buffer) {
++  ResolveRecorder recorder;
++  recorder.dfn = &vulkan_device_->functions();
++  recorder.command_buffer = command_buffer;
++  RecordResolveBatchTo(recorder);
++}
++
++void VulkanQueryPool::RecordResolveBatch(DeferredCommandBuffer& deferred_command_buffer) {
++  ResolveRecorder recorder;
++  recorder.deferred = &deferred_command_buffer;
++  RecordResolveBatchTo(recorder);
++}
++
++void VulkanQueryPool::RecordResolveBatchTo(const ResolveRecorder& recorder) {
+   if (resolve_batch_indices_.empty() &&
+       counter_resolve_batch_indices_.empty()) {
+     return;
+@@ -652,8 +700,6 @@ void VulkanQueryPool::RecordResolveBatch(VkCommandBuffer command_buffer) {
+     indices.clear();
+   };
+ 
+-  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device_->functions();
+-
+   if (!resolve_batch_indices_.empty()) {
+     assert_true(fbo_initialized());
+     build_ranges(resolve_batch_indices_);
+@@ -668,8 +714,8 @@ void VulkanQueryPool::RecordResolveBatch(VkCommandBuffer command_buffer) {
+ 
+       // WAIT_BIT blocks until available. No separate availability check
+       // needed.
+-      dfn.vkCmdCopyQueryPoolResults(
+-          command_buffer, query_pool_, range.start, range.count,
++      recorder.CopyQueryPoolResults(
++          query_pool_, range.start, range.count,
+           readback_buffer_, offset, sizeof(uint64_t),
+           VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+ 
+@@ -687,9 +733,8 @@ void VulkanQueryPool::RecordResolveBatch(VkCommandBuffer command_buffer) {
+     readback_barrier.buffer = readback_buffer_;
+     readback_barrier.offset = barrier_offset;
+     readback_barrier.size = barrier_end - barrier_offset;
+-    dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+-                             VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+-                             &readback_barrier, 0, nullptr);
++    recorder.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
++                             VK_PIPELINE_STAGE_HOST_BIT, 1, &readback_barrier);
+   }
+ 
+   if (counter_resolve_batch_indices_.empty()) {
+@@ -738,13 +783,12 @@ void VulkanQueryPool::RecordResolveBatch(VkCommandBuffer command_buffer) {
+     readback_barrier_end = std::max(readback_barrier_end, offset + size);
+   }
+ 
+-  dfn.vkCmdPipelineBarrier(
+-      command_buffer,
++  recorder.PipelineBarrier(
+       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
+-      VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr,
++      VK_PIPELINE_STAGE_TRANSFER_BIT,
+       uint32_t(counter_resolve_barrier_scratch_.size()),
+-      counter_resolve_barrier_scratch_.data(), 0, nullptr);
+-  dfn.vkCmdCopyBuffer(command_buffer, counter_buffer_, counter_readback_buffer_,
++      counter_resolve_barrier_scratch_.data());
++  recorder.CopyBuffer(counter_buffer_, counter_readback_buffer_,
+                       uint32_t(counter_resolve_copy_scratch_.size()),
+                       counter_resolve_copy_scratch_.data());
+ 
+@@ -758,9 +802,8 @@ void VulkanQueryPool::RecordResolveBatch(VkCommandBuffer command_buffer) {
+   readback_barrier.buffer = counter_readback_buffer_;
+   readback_barrier.offset = readback_barrier_offset;
+   readback_barrier.size = readback_barrier_end - readback_barrier_offset;
+-  dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
+-                           VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1,
+-                           &readback_barrier, 0, nullptr);
++  recorder.PipelineBarrier(VK_PIPELINE_STAGE_TRANSFER_BIT,
++                           VK_PIPELINE_STAGE_HOST_BIT, 1, &readback_barrier);
+ }
+ 
+ void VulkanQueryPool::InvalidateReadback() {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1521,11 +1521,13 @@ void VulkanCommandProcessor::RefreshAsyncSubmitSettings() {
+   async_settings_logged_ = true;
+   xbox360ps5::frame_cost::async_mode_now.store(next.mode, std::memory_order_relaxed);
+   xbox360ps5::frame_cost::async_chunk_kib_now.store(next.chunk_kib, std::memory_order_relaxed);
+-  XELOGW("Async submit (fix 134): mode {} ({}), chunk {} KiB, from {}{}", next.mode,
++  XELOGW("Async submit (fix 134): mode {} ({}), chunk {} KiB, query resolves {} (fix 134c), from {}{}",
++         next.mode,
+          next.mode == async_submit::kWorker      ? "chunks to the submit worker"
+          : next.mode == async_submit::kChunkOnly ? "chunks submitted on the GPU thread"
+                                                  : "off",
+-         next.chunk_kib, from_file ? path : "the settings",
++         next.chunk_kib, next.resolves ? "handed off" : "kept on the GPU thread",
++         from_file ? path : "the settings",
+          not_understood ? fmt::format(", {} lines not understood", not_understood) : std::string());
+ }
+ 
+@@ -6451,6 +6453,22 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     // Fix 134 (async_submit.h): a chunk goes to the submit worker; any other submission first
+     // waits for the worker's, so the queue sees them in their order (the swap's before the
+     // presenter's own commands).
++    // Fix 134c: query resolves go to the end of a handed-off submission's commands, where the GPU
++    // thread records them after the replay; then nothing keeps it here. Why one stays, counted.
++    const bool async_query_resolves = host_query_pool_ && host_query_pool_->HasResolveBatch();
++    if (async_query_resolves && async_settings_.resolves &&
++        async_submit::HandOff(async_settings_.mode, is_swap,
++                              !current_submission_wait_semaphores_.empty(), false)) {
++      host_query_pool_->RecordResolveBatch(deferred_command_buffer_);
++      xbox360ps5::frame_cost::async_resolves_handed_off.fetch_add(1, std::memory_order_relaxed);
++    }
++    if (async_settings_.mode == async_submit::kWorker) {
++      const uint32_t kept = async_submit::Kept(is_swap, !current_submission_wait_semaphores_.empty(),
++                                               async_query_resolves, async_settings_.resolves != 0);
++      if (kept < async_submit::kKeptReasons) {
++        xbox360ps5::frame_cost::async_kept[kept].fetch_add(1, std::memory_order_relaxed);
++      }
++    }
+     const bool async_hand_off = async_submit::HandOff(
+         async_settings_.mode, is_swap, !current_submission_wait_semaphores_.empty(),
+         host_query_pool_ && host_query_pool_->HasResolveBatch());
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1102,6 +1102,10 @@ inline std::array<std::atomic<uint64_t>, 5> async_drains{};
+ inline std::atomic<uint32_t> async_mode_now{0}, async_chunk_kib_now{256};
+ // Fix 134b: the "wait" drains by the line of vulkan_command_processor.cc that waited (fix 58's
+ // line scope); up to four lines, the rest under line -1. The GPU thread is the only writer.
++// Fix 134c: the submissions mode 1 kept on the GPU thread, by reason (the swap, sparse binds,
++// query resolves), and those handed off with their query resolves.
++inline std::array<std::atomic<uint64_t>, 3> async_kept{};
++inline std::atomic<uint64_t> async_resolves_handed_off{0};
+ inline std::array<std::atomic<int>, 4> async_wait_lines{};
+ inline std::array<std::atomic<uint64_t>, 4> async_wait_line_counts{};
+ inline void NoteAsyncWaitLine(int line) {
+@@ -1150,12 +1154,25 @@ class AsyncSubmitReporter {
+                     async_wait_lines[n].load(std::memory_order_relaxed), double(since) / f);
+       lines += item;
+     }
+-    return std::string(text) + "; wait drains by line: " + (lines.empty() ? "none" : lines);
++    // Fix 134c: why submissions stayed on the GPU thread.
++    double kept[4];
++    for (size_t n = 0; n < 4; ++n) {
++      const uint64_t now = (n < 3 ? async_kept[n] : async_resolves_handed_off).load(std::memory_order_relaxed);
++      kept[n] = double(now - last_kept_[n]);
++      last_kept_[n] = now;
++    }
++    char kept_text[192];
++    std::snprintf(kept_text, sizeof(kept_text),
++                  "; kept on the GPU thread per frame: swap %.2f, sparse binds %.2f, query resolves %.2f; "
++                  "handed off with query resolves %.2f per frame",
++                  kept[0] / f, kept[1] / f, kept[2] / f, kept[3] / f);
++    return std::string(text) + "; wait drains by line: " + (lines.empty() ? "none" : lines) + kept_text;
+   }
+ 
+  private:
+   uint64_t last_[11] = {};
+   uint64_t last_lines_[4] = {};
++  uint64_t last_kept_[4] = {};
+ };
+ 
+ // "Frame time uploads (GPU thread): ..." since its previous line.

@@ -10,3 +10,9 @@ Exception: `xbox360ps5/usb_kinect.hpp` (fix 44, `kinect-relay-20261015`) is writ
 executable's own code (the USB Kinect and relay paths, va 0x746510-0x7481e4) and the package's
 `native/kinect/kinect_tracker.c`, with the official log lines, so it does what the official one does;
 `tools/check-kinect-usb.cpp` drives it with a fake relay and a simulated camera.
+
+Exception: `xbox360ps5/tab_bar.hpp` is this repository's own code, not a reconstruction: the tab bar
+and its pad that the library's game sheet (fix 109, `launcher.cpp`) and the in-game guide (fix 115,
+`canary_game_main.cpp`) share. It lives here, copied into every assembled tree, rather than in either
+fix's patch, so neither fix depends on the other's number; its branches add the same bytes.
+`tools/check-dlc-remove.cpp` checks its layout and its pad.

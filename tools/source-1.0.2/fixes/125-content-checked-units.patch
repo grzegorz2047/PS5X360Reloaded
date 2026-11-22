@@ -1,0 +1,416 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/content_check_policy.h b/.deps/xenia-canary/src/xenia/gpu/content_check_policy.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/content_check_policy.h
+@@ -0,0 +1,65 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 125, watched units the guest rewrites all the time are     *
++ * compared by content at each part of the ring instead.                      *
++ ******************************************************************************
++ * Fix 36 leaves a unit the guest keeps writing unwatched, but only for
++ * requests that allow it (vertex data). A unit something depends on (a
++ * texture's watch, a converted index buffer, a request without
++ * allow_unwatched) is pinned: watched and protected after every upload. The
++ * Sims 3 rewrites texture pages every frame in live mode, so each such page
++ * cost a write fault and two protection changes per frame. With Optimized
++ * video memory on (1.0.5-work-fix121, research/sims3-121boost) that was 8,506
++ * protections a second on the GPU thread (321 ms/s, about 37.7 us each) and
++ * 6,277 faults a second opening pages on the guest's threads (236 ms/s).
++ *
++ * A pinned unit that faults kHeatToCheck times (the heat fix 36 keeps, halved
++ * every 120 frames) is checked by content from then on. It stays valid but is
++ * not protected after its uploads, and the upload records a hash of the
++ * guest's bytes, taken before the copy. At the start of each part of the ring
++ * (fix 87's epoch) the GPU command thread hashes every such unit; one whose
++ * bytes differ is invalidated and its watches fire, as a write fault would
++ * have done. That relies on fix 87's rule: what a part of the ring reads was
++ * written before the part was published. A unit with GPU-written data is
++ * never checked (its bytes are not the GPU copy). A unit whose heat runs out
++ * (no change found for a few hundred frames) is invalidated once and watched
++ * again from its next upload.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_CONTENT_CHECK_POLICY_H_
++#define XENIA_GPU_CONTENT_CHECK_POLICY_H_
++
++#include <cstddef>
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace content_check {
++
++constexpr uint8_t kHeatToCheck = 6;
++// At most this many units (16 MiB with 4 KiB units) are checked at once: a
++// hash of each at every part of the ring.
++constexpr size_t kMaxCheckedUnits = 4096;
++
++// A write fault on a pinned unit whose heat is now `heat` (global lock held).
++inline bool StartChecking(bool gpu_written, bool checked, uint8_t heat,
++                          size_t checked_count) {
++  return !gpu_written && !checked && heat >= kHeatToCheck &&
++         checked_count < kMaxCheckedUnits;
++}
++// A change found by a check warms the unit as a fault would, up to
++// kHeatWhileChecked, so that about three agings (360 frames) without a change
++// take it back to being watched.
++constexpr uint8_t kHeatWhileChecked = 2 * kHeatToCheck;
++inline uint8_t HeatOnChange(uint8_t heat) {
++  return heat < kHeatWhileChecked ? uint8_t(heat + 1) : heat;
++}
++// A checked unit whose heat is now `heat` after aging goes back to being watched.
++inline bool StopChecking(uint8_t heat) { return heat < 2; }
++
++}  // namespace content_check
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_CONTENT_CHECK_POLICY_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -307,6 +307,10 @@ class CommandProcessor {
+ 
+   virtual void PollCompletedSubmission() {}
+ 
++  // Fix 125: at the start of each part of the ring, the shared memory's units
++  // checked by content (the Vulkan command processor's shared memory).
++  virtual void CheckContentUnits() {}
++
+   // Used by strict ZPD to distinguish normal in flight latency from a
+   // genuinely stuck report.
+   virtual uint64_t GetCompletedSubmission() const { return 0; }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -166,6 +166,8 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   void RestoreEdramSnapshot(const void* snapshot) override;
+ 
+   void PollCompletedSubmission() override;
++  // Fix 125: the units checked by content, at each part of the ring.
++  void CheckContentUnits() override { shared_memory_->CheckContentUnits(); }
+ 
+   ui::vulkan::VulkanDevice* GetVulkanDevice() const {
+     return static_cast<const ui::vulkan::VulkanProvider*>(
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -92,6 +92,10 @@ class SharedMemory {
+   // Fix 36: the guest frame, for unwatched units unchanged over frames (GPU
+   // command thread, at each swap).
+   void SetUnwatchedFrame(uint64_t frame) { unwatched_frame_ = uint32_t(frame); }
++  // Fix 125: at the start of each part of the ring (GPU command thread), the
++  // units checked by content are hashed; a changed one is invalidated and its
++  // watches fire.
++  void CheckContentUnits();
+ #endif
+   // GPU-thread counters only; no clocks, atomics or log writes per upload.
+   void RecordUploadBytes(uint64_t bytes) {
+@@ -264,6 +268,21 @@ class SharedMemory {
+   unsigned int FilterUnwatched(std::pair<uint32_t, uint32_t>*& uploads,
+                                unsigned int count);
+   void AgeUnwatchedPages();
++  // Fix 125 (content_check_policy.h): pinned units the guest keeps writing,
++  // valid and unprotected, compared by content at each part of the ring.
++  // checked_bits_ is written under the global lock; checked_new_ (global lock)
++  // holds the units started since the GPU thread last took them into its own
++  // checked_list_.
++  bool ContentChecksEnabled() const;
++  std::vector<uint64_t> checked_bits_;
++  std::vector<uint32_t> checked_new_;
++  std::atomic<uint32_t> checked_new_count_{0};
++  std::vector<uint32_t> checked_list_;     // GPU thread only.
++  std::atomic<uint32_t> checked_list_size_{0};  // Its size, for the faults.
++  std::vector<uint32_t> checked_changed_;  // GPU thread only.
++  std::atomic<uint64_t> checked_started_{0}, checked_stopped_{0};
++  uint64_t checked_parts_ = 0, checked_hashes_ = 0, checked_found_changed_ = 0,
++           checked_ticks_ns_ = 0;
+   std::vector<uint8_t> unit_heat_;       // Recent write faults per unit.
+   std::vector<uint64_t> unwatched_bits_;  // Left unwatched, compared by content.
+   std::vector<uint64_t> unwatched_seen_bits_;  // unit_hash_ is of the GPU copy.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -10,6 +10,8 @@
+ #include "xenia/gpu/shared_memory.h"
+ #include "xenia/gpu/unwatched_policy.h"
+ #include "xenia/gpu/unwatched_lock_free.h"  // fix 111
++#include "xenia/gpu/content_check_policy.h"  // fix 125
++#include "xenia/base/cvar.h"  // fix 125
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 87: the parts of the ring
+@@ -29,6 +31,15 @@
+ #include "xenia/base/profiling.h"
+ #include "xenia/base/xxhash.h"
+ 
++#if XE_PLATFORM_PS5
++// Fix 125 (content_check_policy.h).
++DEFINE_bool(gpu_content_checked_units, true,
++            "With Optimized video memory: compare memory the game keeps "
++            "rewriting by content at each part of the ring instead of "
++            "watching it with page protection.",
++            "GPU");
++#endif
++
+ #if XE_PLATFORM_PS5
+ #include <atomic>
+ #include <chrono>
+@@ -158,6 +169,7 @@ bool SharedMemory::InitializeCommon() {
+   unwatched_bits_.assign(num_system_page_flags_, 0);
+   unwatched_seen_bits_.assign(num_system_page_flags_, 0);
+   pinned_bits_.assign(num_system_page_flags_, 0);
++  checked_bits_.assign(num_system_page_flags_, 0);  // fix 125
+   gpu_only_bits_.assign(num_system_page_flags_, 0);  // fix 48
+   lossy_bits_.assign(num_system_page_flags_, 0);
+   unit_exporter_.assign(kBufferSize >> page_size_log2_, 0);
+@@ -263,10 +275,42 @@ bool SharedMemory::UnwatchedPagesEnabled() const {
+          xbox360ps5::gpu_diag::unwatched_pages.load(std::memory_order_relaxed);
+ }
+ 
++// Fix 125: with the unwatched units on (Optimized video memory and the dynamic
++// buffers option), unless switched off for a comparison.
++bool SharedMemory::ContentChecksEnabled() const {
++  return UnwatchedPagesEnabled() && cvars::gpu_content_checked_units;
++}
++
+ // A write fault on these units (global lock held).
+ void SharedMemory::NoteCpuWrite(uint32_t page_first, uint32_t page_last) {
++  const bool content_checks = ContentChecksEnabled();
+   for (uint32_t unit = page_first; unit <= page_last; ++unit) {
+     if (UnitBit(pinned_bits_, unit)) {
++      // Fix 125: a pinned unit heats too, and one that keeps faulting is
++      // checked by content from now on (not when it holds GPU-written data).
++      if (content_checks) {
++        uint8_t& heat = unit_heat_[unit];
++        if (UnitBit(checked_bits_, unit)) {
++          // Faulted through a protected neighbour in its host page.
++          heat = content_check::HeatOnChange(heat);
++        } else if (heat < UINT8_MAX) {
++          ++heat;
++        }
++        const bool gpu_written =
++            (system_page_flags_valid_and_gpu_written_[unit >> 6] >>
++             (unit & 63)) & 1;
++        if (content_check::StartChecking(gpu_written,
++                                         UnitBit(checked_bits_, unit), heat,
++                                         checked_list_size_.load(
++                                             std::memory_order_relaxed) +
++                                             checked_new_.size())) {
++          SetUnitBit(checked_bits_, unit);
++          checked_new_.push_back(unit);
++          checked_new_count_.store(uint32_t(checked_new_.size()),
++                                   std::memory_order_release);
++          checked_started_.fetch_add(1, std::memory_order_relaxed);
++        }
++      }
+       continue;
+     }
+     uint8_t& heat = unit_heat_[unit];
+@@ -286,6 +330,7 @@ void SharedMemory::NoteCpuWrite(uint32_t page_first, uint32_t page_last) {
+ void SharedMemory::ForgetUnwatched(uint32_t page_first, uint32_t page_last) {
+   for (uint32_t unit = page_first; unit <= page_last; ++unit) {
+     unit_heat_[unit] = 0;
++    ClearUnitBit(checked_bits_, unit);  // fix 125
+     ClearUnitBit(unwatched_bits_, unit);
+     ClearUnitBit(unwatched_seen_bits_, unit);
+   }
+@@ -412,8 +457,87 @@ void SharedMemory::AgeUnwatchedPages() {
+         ClearUnitBit(unwatched_seen_bits_, uint32_t(unit));
+         unwatched_cooled_.fetch_add(1, std::memory_order_relaxed);
+       }
++      // Fix 125: no change found for a while: invalidated once, so its next
++      // upload protects it again.
++      if (UnitBit(checked_bits_, uint32_t(unit)) &&
++          content_check::StopChecking(heat)) {
++        ClearUnitBit(checked_bits_, uint32_t(unit));
++        const uint64_t bit = uint64_t(1) << (unit & 63);
++        __atomic_fetch_and(&system_page_flags_valid_[unit >> 6], ~bit,
++                           __ATOMIC_RELEASE);
++        system_page_flags_valid_and_gpu_written_[unit >> 6] &= ~bit;
++        request_cache_.Invalidate();
++        FireWatches(uint32_t(unit), uint32_t(unit), false);
++        checked_stopped_.fetch_add(1, std::memory_order_relaxed);
++      }
++    }
++  }
++}
++
++// Fix 125: see content_check_policy.h. GPU command thread, at the start of
++// each part of the ring.
++void SharedMemory::CheckContentUnits() {
++  if (checked_new_count_.load(std::memory_order_acquire)) {
++    auto global_lock = global_critical_region_.Acquire();
++    checked_list_.insert(checked_list_.end(), checked_new_.begin(),
++                         checked_new_.end());
++    checked_new_.clear();
++    checked_new_count_.store(0, std::memory_order_relaxed);
++  }
++  checked_list_size_.store(uint32_t(checked_list_.size()),
++                           std::memory_order_relaxed);
++  if (checked_list_.empty()) {
++    return;
++  }
++  const auto start = std::chrono::steady_clock::now();
++  ++checked_parts_;
++  checked_changed_.clear();
++  const size_t unit_bytes = size_t(1) << page_size_log2_;
++  for (size_t i = 0; i < checked_list_.size();) {
++    const uint32_t unit = checked_list_[i];
++    if (!UnitBit(checked_bits_, unit)) {
++      // No longer checked (aged, forgotten, GPU-written): dropped.
++      checked_list_[i] = checked_list_.back();
++      checked_list_.pop_back();
++      continue;
++    }
++    ++i;
++    if (!((__atomic_load_n(&system_page_flags_valid_[unit >> 6],
++                           __ATOMIC_ACQUIRE) >>
++           (unit & 63)) &
++          1)) {
++      continue;  // Its next upload hashes it.
++    }
++    ++checked_hashes_;
++    const uint64_t hash = XXH3_64bits(
++        memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
++    if (hash != unit_hash_[unit]) {
++      checked_changed_.push_back(unit);
+     }
+   }
++  if (!checked_changed_.empty()) {
++    auto global_lock = global_critical_region_.Acquire();
++    request_cache_.Invalidate();
++    for (const uint32_t unit : checked_changed_) {
++      if (!UnitBit(checked_bits_, unit)) {
++        continue;
++      }
++      // As a write fault on it would: invalid, its watches fired, warmer.
++      const uint64_t bit = uint64_t(1) << (unit & 63);
++      __atomic_fetch_and(&system_page_flags_valid_[unit >> 6], ~bit,
++                         __ATOMIC_RELEASE);
++      system_page_flags_valid_and_gpu_written_[unit >> 6] &= ~bit;
++      unit_heat_[unit] = content_check::HeatOnChange(unit_heat_[unit]);
++      FireWatches(unit, unit, false);
++    }
++    checked_found_changed_ += checked_changed_.size();
++  }
++  checked_list_size_.store(uint32_t(checked_list_.size()),
++                           std::memory_order_relaxed);
++  checked_ticks_ns_ += uint64_t(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now() - start)
++          .count());
+ }
+ #endif  // XE_PLATFORM_PS5
+ 
+@@ -483,6 +607,11 @@ void SharedMemory::ClearCache() {
+     std::fill(unwatched_seen_bits_.begin(), unwatched_seen_bits_.end(),
+               uint64_t(0));
+     std::fill(pinned_bits_.begin(), pinned_bits_.end(), uint64_t(0));
++    // Fix 125: nothing is checked by content any more (the GPU thread's list
++    // drops its units at its next check).
++    std::fill(checked_bits_.begin(), checked_bits_.end(), uint64_t(0));
++    checked_new_.clear();
++    checked_new_count_.store(0, std::memory_order_relaxed);
+     // Every unit becomes invalid below; nothing kept is left to check.
+     kept_count = 0;
+     kept_pending.store(0, std::memory_order_relaxed);
+@@ -749,6 +878,7 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length,
+ 
+ #if XE_PLATFORM_PS5
+   bool skipped_unwatched = false;
++  bool skipped_checked = false;  // fix 125
+   const bool leave_unwatched = UnwatchedPagesEnabled();
+ #endif
+   {
+@@ -762,6 +892,12 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length,
+         (written_by_gpu || !request_allows_unwatched_)) {
+       PinWatched(valid_page_first, valid_page_last);
+     }
++    // Fix 125: GPU-written data is not the guest's bytes: watched as before.
++    if (written_by_gpu) {
++      for (uint32_t unit = valid_page_first; unit <= valid_page_last; ++unit) {
++        ClearUnitBit(checked_bits_, unit);
++      }
++    }
+     // New data (an upload or the GPU's own write): a kept unit here is
+     // watched from now on like any other.
+     if (kept_count) {
+@@ -777,6 +913,10 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length,
+         valid_bits &= (uint64_t(1) << ((valid_page_last & 63) + 1)) - 1;
+       }
+ #if XE_PLATFORM_PS5
++      // Fix 125: checked units become valid but get no watch.
++      if (__atomic_load_n(&checked_bits_[i], __ATOMIC_RELAXED) & valid_bits) {
++        skipped_checked = true;
++      }
+       if (const uint64_t unwatched =
+               __atomic_load_n(&unwatched_bits_[i], __ATOMIC_RELAXED) &
+               valid_bits) {
+@@ -808,14 +948,26 @@ void SharedMemory::MakeRangeValid(uint32_t start, uint32_t length,
+   }
+ 
+ #if XE_PLATFORM_PS5
+-  if (skipped_unwatched) {
+-    // Watch only the runs of units that are not left unwatched.
++  if (skipped_checked) {
++    // Fix 125: the guest's bytes as uploaded (hashed before the copy: a write
++    // in between makes the next check find a change).
++    const size_t unit_bytes = size_t(1) << page_size_log2_;
++    for (uint32_t unit = valid_page_first; unit <= valid_page_last; ++unit) {
++      if (UnitBit(checked_bits_, unit)) {
++        unit_hash_[unit] = XXH3_64bits(
++            memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
++      }
++    }
++  }
++  if (skipped_unwatched || skipped_checked) {
++    // Watch only the runs of units that are not left unwatched or checked.
+     if (memory_invalidation_callback_handle_) {
+       uint32_t run_start = UINT32_MAX;
+       for (uint32_t unit = valid_page_first; unit <= valid_page_last + 1;
+            ++unit) {
+-        const bool watch =
+-            unit <= valid_page_last && !UnitBit(unwatched_bits_, unit);
++        const bool watch = unit <= valid_page_last &&
++                           !UnitBit(unwatched_bits_, unit) &&
++                           !UnitBit(checked_bits_, unit);
+         if (watch) {
+           if (run_start == UINT32_MAX) {
+             run_start = unit;
+@@ -890,6 +1042,19 @@ void SharedMemory::ReportRequestCacheStats() {
+          "unwatched and checked in this part of the ring)",
+          unwatched_lock_free_);
+   unwatched_lock_free_ = 0;
++  // Fix 125.
++  size_t checked_now = 0;
++  for (const uint64_t word : checked_bits_) {
++    checked_now += xe::bit_count(word);
++  }
++  XELOGW("Performance content-checked units (fix 125, {}): {} checked; {} started, {} watched again; "
++         "{} parts of the ring checked, {} hashes ({} MiB), {} changed; {:.1f} ms checking",
++         ContentChecksEnabled() ? "on" : "off", checked_now,
++         checked_started_.exchange(0, std::memory_order_relaxed),
++         checked_stopped_.exchange(0, std::memory_order_relaxed), checked_parts_,
++         checked_hashes_, (checked_hashes_ << page_size_log2_) >> 20,
++         checked_found_changed_, double(checked_ticks_ns_) / 1e6);
++  checked_parts_ = checked_hashes_ = checked_found_changed_ = checked_ticks_ns_ = 0;
+   upload_bytes_ = upload_chunks_ = lock_free_hits_ = 0;
+   unwatched_skips_ = unwatched_uploads_ = unwatched_rewatched_ = 0;
+   AgeUnwatchedPages();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -1543,6 +1543,10 @@ uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,
+ #if XE_PLATFORM_PS5
+   ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87: a new part of the ring
+ #endif
++#if XE_PLATFORM_PS5
++  // Fix 125: memory checked by content, before this part's draws read it.
++  CheckContentUnits();
++#endif
+ 
+   // Execute commands!
+ 

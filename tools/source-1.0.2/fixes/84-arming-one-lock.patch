@@ -1,0 +1,26 @@
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -760,6 +760,22 @@ void Memory::UnregisterPhysicalMemoryReadCallback(void* callback_handle) {
+ void Memory::EnablePhysicalMemoryAccessCallbacks(
+     uint32_t physical_address, uint32_t length,
+     bool enable_invalidation_notifications, bool enable_data_providers) {
++  // Xbox360PS5 (fix 84): the global critical region once for the four views,
++  // not once per view: between the views' calls guest threads took it, and the
++  // later views waited for it again (1.0.5_candidate_50, Modern Warfare 2: view
++  // C0000000 20.9 of its 21.6 ms/s waiting for the lock, protecting nothing).
++  // Each view's own Acquire is then the same thread's again (the lock is
++  // recursive). The wait for it counts in view A0000000's lock time (fix 74).
++#if XE_PLATFORM_PS5
++  const uint64_t lock_start = xbox360ps5::frame_cost::Ticks();
++#endif
++  auto global_lock = global_critical_region::Acquire();
++#if XE_PLATFORM_PS5
++  if (xbox360ps5::frame_cost::OnGpuThread()) {
++    xbox360ps5::frame_cost::AddOwn(xbox360ps5::frame_cost::alias_lock_ticks[0],
++                                   xbox360ps5::frame_cost::Ticks() - lock_start);
++  }
++#endif
+   heaps_.vA0000000.EnableAccessCallbacks(physical_address, length,
+                                          enable_invalidation_notifications,
+                                          enable_data_providers);

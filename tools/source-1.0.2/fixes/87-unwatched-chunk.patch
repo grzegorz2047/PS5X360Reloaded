@@ -1,0 +1,88 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -302,6 +302,10 @@ inline std::atomic<uint32_t> draw_sample_every{8};
+ // same ones each time (1.0.5_candidate_50: Tekken's WAIT_REG_MEM at 1,300 to 2,000 ms/s, Battlefield
+ // 3's packets at almost none of its 424 ms/s).
+ inline uint32_t sample_state = 0x9E3779B9u;
++// Fix 87: the parts of the ring the GPU command thread has started (ExecutePrimaryBuffer), the
++// GPU thread's alone. Every draw in a part was written, with the data it reads, before the
++// guest published the write pointer; SharedMemory checks an unwatched unit once per part.
++inline uint32_t command_chunk_epoch = 1;
+ inline bool SampleOneIn(uint32_t every) {
+   if (every <= 1) return true;
+   uint32_t x = sample_state;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -278,6 +278,10 @@ class SharedMemory {
+   std::vector<std::pair<uint32_t, uint32_t>> unwatched_filtered_;
+   bool request_allows_unwatched_ = false;  // GPU thread: the request served.
+   uint64_t unwatched_skips_ = 0, unwatched_uploads_ = 0;
++  // Fix 87: the part of the ring each unwatched unit was last checked in
++  // (xbox360ps5::frame_cost::command_chunk_epoch).
++  std::vector<uint32_t> unit_chunk_;
++  uint64_t unwatched_chunk_skips_ = 0;
+   // Fix 48: a bit per unit, like the validity bitmaps.
+   std::vector<uint64_t> gpu_only_bits_;  // Exported data guest memory lacks.
+   std::vector<uint64_t> lossy_bits_;     // Exported data was lost here.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -11,6 +11,7 @@
+ #include "xenia/gpu/unwatched_policy.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
++#include "xbox360ps5/frame_cost.hpp"  // fix 87: the parts of the ring
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48
+ #endif
+ 
+@@ -152,6 +153,7 @@ bool SharedMemory::InitializeCommon() {
+   unit_heat_.assign(kBufferSize >> page_size_log2_, 0);
+   unit_hash_.assign(kBufferSize >> page_size_log2_, 0);
+   unit_changed_frame_.assign(kBufferSize >> page_size_log2_, 0);
++  unit_chunk_.assign(kBufferSize >> page_size_log2_, 0);  // fix 87
+   unwatched_bits_.assign(num_system_page_flags_, 0);
+   unwatched_seen_bits_.assign(num_system_page_flags_, 0);
+   pinned_bits_.assign(num_system_page_flags_, 0);
+@@ -329,7 +331,16 @@ unsigned int SharedMemory::FilterUnwatched(
+     const uint32_t end = uploads[i].first + uploads[i].second;
+     for (uint32_t unit = uploads[i].first; unit < end; ++unit) {
+       bool upload = true;
+-      if (UnitBit(unwatched_bits_, unit)) {
++      // Fix 87: checked already in this part of the ring: what its draws read
++      // was there when the part was published, and the GPU copy has it.
++      // Modern Warfare 2 with "Optimized video memory": a hash of the whole
++      // unit at every draw, 368 ms/s of the GPU command thread.
++      const uint32_t chunk = xbox360ps5::frame_cost::command_chunk_epoch;
++      if (UnitBit(unwatched_bits_, unit) && unit_chunk_[unit] == chunk) {
++        upload = false;
++        ++unwatched_chunk_skips_;
++      } else if (UnitBit(unwatched_bits_, unit)) {
++        unit_chunk_[unit] = chunk;
+         const uint64_t hash = XXH3_64bits(
+             memory().TranslatePhysical(unit << page_size_log2_), unit_bytes);
+         // Fix 36: unchanged at every request for kFramesUnchangedToWatch frames:
+@@ -871,6 +882,9 @@ void SharedMemory::ReportRequestCacheStats() {
+          unwatched_heated_.exchange(0, std::memory_order_relaxed),
+          unwatched_cooled_.exchange(0, std::memory_order_relaxed),
+          unwatched_rewatched_);
++  XELOGW("Performance unwatched (fix 87): {} requests answered by an earlier check in the same part of the ring",
++         unwatched_chunk_skips_);
++  unwatched_chunk_skips_ = 0;
+   upload_bytes_ = upload_chunks_ = lock_free_hits_ = 0;
+   unwatched_skips_ = unwatched_uploads_ = unwatched_rewatched_ = 0;
+   AgeUnwatchedPages();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -1495,6 +1495,9 @@ uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,
+   end_ptr = (primary_buffer_ptr_ & ~0x1FFFFFFF) | (end_ptr & 0x1FFFFFFF);
+ 
+   trace_writer_.WritePrimaryBufferStart(start_ptr, write_index - read_index);
++#if XE_PLATFORM_PS5
++  ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87: a new part of the ring
++#endif
+ 
+   // Execute commands!
+ 

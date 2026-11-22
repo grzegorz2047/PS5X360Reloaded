@@ -1,0 +1,20 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -3395,10 +3395,13 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       // (SharedMemory::RequestRange), taking the global critical region for
+       // every draw is the cost the hoisting meant to save; a request that
+       // does need it takes it itself.
++      // Fix 86: whether or not "Optimized video memory" (memory_boost) is on.
++      // Fix 55 already answers valid ranges without the lock either way, but
++      // with memory_boost off every draw with vertex data still took it here
++      // (1.0.5 Modern Warfare 2 run: the GPU thread took the global lock about
++      // 256,000 times a second and waited 128 ms/s for it).
+       auto shared_memory_request_range_hoisted =
+-          xbox360ps5::gpu_diag::enabled.load(std::memory_order_relaxed) &&
+-                  xbox360ps5::gpu_diag::lock_free_valid.load(
+-                      std::memory_order_relaxed)
++          xbox360ps5::gpu_diag::lock_free_valid.load(std::memory_order_relaxed)
+               ? global_critical_region::AcquireDeferred()
+               : global_critical_region::Acquire();
+ #else

@@ -1,0 +1,35 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -793,7 +793,31 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+ #if XE_PLATFORM_PS5
+           const uint64_t frame_cost_sleep = frame_cost_wait.BeforeSleep();  // fix 77
+ #endif
++#if XE_PLATFORM_PS5
++          // Fix 83: the same time, in slices of 100 us with the memory word
++          // read again after each, so the wait ends soon after the guest
++          // writes it instead of after a whole sleep of wait / 0x100 ms
++          // (1.0.5_candidate_57, Battlefield 3: 29 memory waits a second,
++          // about 1.1 ms per sleep, the GPU command thread the limit).
++          if (is_memory) {
++            const auto until = std::chrono::steady_clock::now() +
++                               std::chrono::milliseconds(wait / 0x100);
++            do {
++              xe::threading::Sleep(std::chrono::microseconds(100));
++              const uint32_t now_value = xenos::GpuSwap(
++                  uint32_t(value_ref),
++                  static_cast<xenos::Endian>(poll_reg_addr & 0x3));
++              if (MatchValueAndRef(now_value & mask, ref, wait_info)) {
++                break;
++              }
++            } while (worker_running_ &&
++                     std::chrono::steady_clock::now() < until);
++          } else {
++            xe::threading::Sleep(std::chrono::milliseconds(wait / 0x100));
++          }
++#else
+           xe::threading::Sleep(std::chrono::milliseconds(wait / 0x100));
++#endif
+ #if XE_PLATFORM_PS5
+           frame_cost_wait.AfterSleep(frame_cost_sleep);
+ #endif

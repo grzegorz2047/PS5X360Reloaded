@@ -128,7 +128,7 @@ void CheckLine() {
 void CheckTree() {
   const std::string mutex_text = Read(".deps/xenia-canary/src/xenia/base/mutex.cc");
   // mutex.cc defines xe_global_mutex once a platform; the PS5 one is the one that spins.
-  const size_t spin = mutex_text.find("xbox360ps5::global_lock::Lock(blocking_);");
+  const size_t spin = mutex_text.find("xbox360ps5::global_lock::Lock(blocking_");  // fix 88 adds the caller
   const size_t lock = spin == std::string::npos ? std::string::npos : mutex_text.rfind("void xe_global_mutex::lock() {", spin);
   const size_t fast_off = lock == std::string::npos ? std::string::npos
                                                     : mutex_text.find("if (!ps5_spin_mutexes.load(std::memory_order_relaxed)) {", lock);

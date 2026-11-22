@@ -1,0 +1,200 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -264,6 +264,113 @@ class UploadTimer {
+   bool active_;
+   uint64_t since_;
+ };
++// Fix 73: the draws' own time by part. The 30-second summary's "draws" (IssueDraw's section,
++// nested sections taken out) is the largest cost of the GPU command thread in the 3D games
++// (1.0.4_candidate_31: Modern Warfare 2 448 ms/s in 194k draws/s, Black Ops 329, BF3 292, Tekken
++// 227); this splits it along IssueDrawInner: primitive processing, render targets, the pipeline,
++// dynamic state and system constants, bindings (uniform buffers and descriptor sets), vertex and
++// memexport buffers, recording the draw, and what follows it. Each mark takes the time since the
++// previous one (or the start) less the time other sections (uploads, textures, readbacks) took in
++// it; whatever follows the last mark (an early return included) counts as "after".
++// With ~200k draws a second (MW2) the timer must not cost much itself: only every
++// draw_sample_every-th draw is timed (8 by default; the parts are scaled back), and the counters,
++// written by the GPU thread alone, are raised with a relaxed load and store (no locked add).
++enum DrawPart : uint32_t {
++  kDrawPrimitive = 0, kDrawTargets, kDrawPipeline, kDrawState, kDrawBindings, kDrawBuffers, kDrawRecord,
++  kDrawAfter, kDrawParts
++};
++inline const char* DrawPartName(uint32_t part) {
++  static const char* const names[] = {"primitives", "render targets", "pipeline", "dynamic state and constants",
++                                      "bindings", "vertex and memexport buffers", "recording", "after"};
++  return part < kDrawParts ? names[part] : "?";
++}
++inline std::array<std::atomic<uint64_t>, kDrawParts> draw_part_ticks{};
++inline std::atomic<uint64_t> draw_calls{0}, draw_sampled{0};
++inline std::atomic<uint32_t> draw_sample_every{8};
++inline thread_local uint32_t draw_sample_counter = 0;
++// One writer (the GPU thread): a plain add, readable by the summary without a data race.
++inline void AddOwn(std::atomic<uint64_t>& counter, uint64_t value) {
++  counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
++}
++// The other sections' ticks so far (written on this thread at their exits).
++inline uint64_t OtherSectionTicks() {
++  uint64_t sum = 0;
++  for (uint32_t s = 1; s < kSections; ++s)
++    if (s != kDraw) sum += section_ticks[s].load(std::memory_order_relaxed);
++  return sum;
++}
++class DrawTimer {
++ public:
++  DrawTimer() : active_(gpu_thread) {
++    if (!active_) return;
++    AddOwn(draw_calls, 1);
++    const uint32_t every = draw_sample_every.load(std::memory_order_relaxed);
++    active_ = every <= 1 || draw_sample_counter++ % every == 0;
++    if (!active_) return;
++    AddOwn(draw_sampled, 1);
++    since_ = Ticks();
++    other_ = OtherSectionTicks();
++  }
++  ~DrawTimer() { Mark(kDrawAfter); }
++  // The time since the previous mark, without other sections, was this part.
++  void Mark(uint32_t part) {
++    if (!active_) return;
++    const uint64_t now = Ticks(), other = OtherSectionTicks();
++    const uint64_t wall = now - since_, nested = other - other_;
++    AddOwn(draw_part_ticks[part], wall > nested ? wall - nested : 0);
++    since_ = now;
++    other_ = other;
++  }
++  DrawTimer(const DrawTimer&) = delete;
++  DrawTimer& operator=(const DrawTimer&) = delete;
++
++ private:
++  bool active_;
++  uint64_t since_ = 0, other_ = 0;
++};
++// "Frame time draws (GPU thread, own time by part): ..." since its previous line.
++class DrawReporter {
++ public:
++  std::string Line(double seconds) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    const uint64_t calls = draw_calls.load(std::memory_order_relaxed);
++    const uint64_t sampled = draw_sampled.load(std::memory_order_relaxed);
++    const double calls_s = double(calls - last_calls_) / s;
++    const uint64_t sampled_now = sampled - last_sampled_;
++    // The timed draws stand for all of them.
++    const double scale = sampled_now ? double(calls - last_calls_) / double(sampled_now) : 0.0;
++    last_calls_ = calls;
++    last_sampled_ = sampled;
++    std::string parts;
++    double total = 0;
++    for (uint32_t n = 0; n < kDrawParts; ++n) {
++      const uint64_t ticks = draw_part_ticks[n].load(std::memory_order_relaxed);
++      const double ms = double(ticks - last_parts_[n]) * scale * ns_per_tick / 1e6 / s;
++      last_parts_[n] = ticks;
++      total += ms;
++      char item[80];
++      std::snprintf(item, sizeof(item), "%s%s %.1f ms/s", n ? ", " : "", DrawPartName(n), ms);
++      parts += item;
++    }
++    char head[160];
++    std::snprintf(head, sizeof(head), "Frame time draws (GPU thread, own time by part): %.0f draws/s, %.1f us each; ",
++                  calls_s, calls_s > 0 ? total * 1000.0 / calls_s : 0.0);
++    return head + parts;
++  }
++
++ private:
++  std::array<uint64_t, kDrawParts> last_parts_{};
++  uint64_t last_calls_ = 0, last_sampled_ = 0, last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++};
++
+ // "Frame time uploads (GPU thread): ..." since its previous line.
+ class UploadReporter {
+  public:
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -2756,6 +2756,13 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                             bool major_mode_explicit) {
+ #if XE_PLATFORM_PS5
+   xbox360ps5::gpu_diag::Scope ps5_stage(xbox360ps5::gpu_diag::Kind::cpu_draw);
++  namespace fc = xbox360ps5::frame_cost;
++  fc::DrawTimer draw_timer;  // fix 73: the draw's own time by part
++#else
++  struct {
++    void Mark(uint32_t) {}
++  } draw_timer;
++  namespace fc = xbox360ps5::frame_cost;
+ #endif
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+@@ -3040,12 +3047,14 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   int32_t window_offset_tiles = render_target_cache_->GetWindowOffsetTiles(
+       regs, normalized_depth_control, normalized_color_mask, frame_current_);
+ 
++  draw_timer.Mark(fc::kDrawPrimitive);  // fix 73
+   // Set up the render targets - this may perform dispatches and draws.
+   if (!render_target_cache_->Update(
+           is_rasterization_done, normalized_depth_control,
+           normalized_color_mask, *vertex_shader, window_offset_tiles)) {
+     return false;
+   }
++  draw_timer.Mark(fc::kDrawTargets);  // fix 73
+ 
+   // Create the pipeline (for this, need the render pass from the render target
+   // cache), translating the shaders - doing this now to obtain the used
+@@ -3261,6 +3270,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   gviargs.SetupRegisterValues(regs, window_offset_tiles != 0);
+ 
+   draw_util::GetHostViewportInfo(&gviargs, viewport_info);
++  draw_timer.Mark(fc::kDrawPipeline);  // fix 73: from the targets on, the pipeline and its binding
+   // Update dynamic graphics pipeline state.
+   UpdateDynamicState(viewport_info, primitive_polygonal,
+                      normalized_depth_control, draw_resolution_scale_x,
+@@ -3300,11 +3310,13 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       apply_host_depth_polygon_offset ? &host_depth_polygon_offset : nullptr,
+       window_offset_tiles);
+ 
++  draw_timer.Mark(fc::kDrawState);  // fix 73
+   // Update uniform buffers and descriptor sets after binding the pipeline with
+   // the new layout.
+   if (!UpdateBindings(vertex_shader, pixel_shader)) {
+     return false;
+   }
++  draw_timer.Mark(fc::kDrawBindings);  // fix 73
+ 
+   // Ensure vertex buffers are resident.
+   //
+@@ -3612,6 +3624,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+     }
+   }
+ 
++  draw_timer.Mark(fc::kDrawBuffers);  // fix 73
+   // Draw.
+   ++draws_since_resolve_.reached_the_gpu;
+ #if XE_PLATFORM_PS5
+@@ -3695,6 +3708,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+     }
+   }
+ 
++  draw_timer.Mark(fc::kDrawRecord);  // fix 73
+   // Invalidate textures in memexported memory and watch for changes.
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+     shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3445,6 +3445,9 @@ int main(int argc, char** argv) {
+                 // Fix 62: what the uploads' time goes to.
+                 static xbox360ps5::frame_cost::UploadReporter frame_cost_uploads;
+                 XELOGW("{}", frame_cost_uploads.Line(double(summary_samples)));
++                // Fix 73: the draws' own time by part.
++                static xbox360ps5::frame_cost::DrawReporter frame_cost_draws;
++                XELOGW("{}", frame_cost_draws.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

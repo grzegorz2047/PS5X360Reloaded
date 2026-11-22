@@ -33,6 +33,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -474,8 +475,16 @@ def select_fixes(patches, skip):
     return [p for p in patches if p not in left_out], [p for p in patches if p in left_out]
 
 
+def fix_order(patch):
+    """A fix's place in the order the fixes apply: by number, then letter (08, 08b, 09, ..., 99,
+    100). Name order alone would put 100-... before 11-...; names without a number go last."""
+    match = re.match(r'(\d+)([a-z]*)-', patch.name)
+    return (int(match.group(1)), match.group(2), patch.name) if match else (1 << 30, '', patch.name)
+
+
 def apply_fixes(out, report, with_core, skip=()):
-    """The shipped release's binary patches, ported to source (fixes/README.md), in name order.
+    """The shipped release's binary patches, ported to source (fixes/README.md), in number order
+    (fix_order).
 
     Applied after everything else: each patch is a git diff against the assembled tree, core
     paths under .deps/xenia-canary/. git apply runs with the tree as a plain folder (the
@@ -485,7 +494,7 @@ def apply_fixes(out, report, with_core, skip=()):
     env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(out.parent))
     manifest = report['files']
     applied = []
-    selected, left_out = select_fixes(sorted(FIXES.glob('*.patch')), skip)
+    selected, left_out = select_fixes(sorted(FIXES.glob('*.patch'), key=fix_order), skip)
     for patch in left_out:
         print('skipped', patch.name, flush=True)
     report['fixes_skipped'] = [f'tools/source-1.0.2/fixes/{patch.name}' for patch in left_out]

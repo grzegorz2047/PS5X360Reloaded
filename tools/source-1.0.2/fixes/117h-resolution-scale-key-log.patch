@@ -1,0 +1,53 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -2157,6 +2157,15 @@ RenderTargetCache::RenderTarget* VulkanRenderTargetCache::CreateRenderTarget(
+   if (IsDrawResolutionScaled()) {
+     xbox360ps5::resolution_scale::NoteRenderTarget(
+         xbox360ps5::resolution_scale::counters, !key.scale_native, rt_bytes);
++    // Fix 117h: which surfaces the game makes at 2x, to choose a threshold.
++    if (xbox360ps5::resolution_scale::TakeKeyLine()) {
++      XELOGW("{}", xbox360ps5::resolution_scale::RenderTargetKeyLine(
++                       image_create_info.extent.width,
++                       image_create_info.extent.height, key.GetWidth(),
++                       key.base_tiles, uint32_t(1) << uint32_t(key.msaa_samples),
++                       key.GetFormatName(), bool(key.is_depth),
++                       !key.scale_native));
++    }
+   }
+ #endif
+ 
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -50,6 +50,9 @@
+ // ClearCache also destroyed render targets the game uses every frame but that owned no EDRAM range at the frame's end
+ // (aliases of the same EDRAM, re-made empty the next frame). The trim now destroys only render targets that own no
+ // EDRAM data, are not among the last bound ones, and were not looked up for kTrimIdleFrames frames.
++// Fix 117h: Battlefield 3 at 2x draws dark blobs (smoke or particles) near the horizon, most likely a reduced-size
++// pass composited against depth, as Tekken's shadow maps were. To choose its scale_threshold from data, each render
++// target made at 2x is logged once (its size, pitch, MSAA, format and class), at most kKeyLines lines a session.
+ #pragma once
+ 
+ #include <atomic>
+@@ -277,6 +280,20 @@ inline int CompiledThreshold(const std::string& title_id) {
+   }
+   return 0;
+ }
++// Fix 117h: the render targets made at 2x, one line each, at most kKeyLines a session.
++inline constexpr uint32_t kKeyLines = 64;
++inline std::atomic<uint32_t> key_lines{0};
++inline bool TakeKeyLine() { return key_lines.fetch_add(1, std::memory_order_relaxed) < kKeyLines; }
++inline std::string RenderTargetKeyLine(uint32_t host_width, uint32_t host_height, uint32_t pitch_pixels,
++                                       uint32_t base_tiles, uint32_t samples, const char* format, bool depth,
++                                       bool scaled) {
++  char line[260];
++  std::snprintf(line, sizeof(line),
++                "Resolution scale (fix 117h): render target %ux%u, pitch %u px, EDRAM base %u, %uxMSAA, %s %s, %s",
++                host_width, host_height, pitch_pixels, base_tiles, samples ? samples : 1, format ? format : "?",
++                depth ? "depth" : "colour", scaled ? "scaled" : "1x");
++  return line;
++}
+ // Fix 117e: the core's draw_resolution_scale_threshold for a game: its preset's scale_threshold at 2x, else 0.
+ inline constexpr int kMaxScaleThreshold = 8192;  // the widest guest surface
+ inline uint32_t ThresholdFor(uint32_t scale, int preset) {

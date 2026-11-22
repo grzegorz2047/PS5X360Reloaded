@@ -1,0 +1,178 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -371,6 +371,110 @@ class DrawReporter {
+   double last_ns_per_tick_ = 0;
+ };
+ 
++// Fix 74: what arming a write watch costs, by alias of physical memory. Memory::
++// EnablePhysicalMemoryAccessCallbacks (MakeRangeValid's last step, fix 62's "marking valid":
++// Modern Warfare 2 248 ms/s on 1.0.4_candidate_31) calls PhysicalHeap::EnableAccessCallbacks on
++// each of the four views of physical memory (0xA0000000, 0xC0000000, 0xE0000000, 0x7F000000);
++// each takes the global critical region and protects the pages that view has. Counted on the GPU
++// thread: calls, protection calls (xe::memory::Protect), the time in the call and the part of it
++// spent waiting for the lock, per view.
++inline constexpr uint32_t kAliases = 4;
++inline const char* AliasName(uint32_t alias) {
++  static const char* const names[] = {"A0000000", "C0000000", "E0000000", "7F000000"};
++  return alias < kAliases ? names[alias] : "?";
++}
++inline uint32_t AliasOf(uint32_t heap_base) {
++  switch (heap_base) {
++    case 0xA0000000u: return 0;
++    case 0xC0000000u: return 1;
++    case 0xE0000000u: return 2;
++    case 0x7F000000u: return 3;
++    default: return kAliases;
++  }
++}
++inline std::array<std::atomic<uint64_t>, kAliases> alias_calls{}, alias_protects{}, alias_ticks{}, alias_lock_ticks{};
++// Write notices per view (PhysicalHeap::TriggerCallbacks with is_write: a guest write fault on a
++// watched page, or the emulator lifting a watch before writing), from any thread.
++inline std::array<std::atomic<uint64_t>, kAliases> alias_write_notices{};
++inline void NoteWriteNotice(uint32_t heap_base) {
++  const uint32_t alias = AliasOf(heap_base);
++  if (alias < kAliases) alias_write_notices[alias].fetch_add(1, std::memory_order_relaxed);
++}
++class ArmTimer;
++inline thread_local ArmTimer* current_arm = nullptr;  // the calling thread's arming in progress
++class ArmTimer {
++ public:
++  explicit ArmTimer(uint32_t heap_base) : alias_(AliasOf(heap_base)), active_(gpu_thread && alias_ < kAliases) {
++    if (!active_) return;
++    start_ = Ticks();
++    previous_ = current_arm;
++    current_arm = this;
++  }
++  ~ArmTimer() {
++    if (!active_) return;
++    current_arm = previous_;
++    AddOwn(alias_calls[alias_], 1);  // the GPU thread's own counters
++    AddOwn(alias_ticks[alias_], Ticks() - start_);
++  }
++  // Right after the global critical region was taken.
++  void Locked() {
++    if (active_) AddOwn(alias_lock_ticks[alias_], Ticks() - start_);
++  }
++  // One protection call made.
++  void Protected() {
++    if (active_) AddOwn(alias_protects[alias_], 1);
++  }
++  ArmTimer(const ArmTimer&) = delete;
++  ArmTimer& operator=(const ArmTimer&) = delete;
++
++ private:
++  uint32_t alias_;
++  bool active_;
++  uint64_t start_ = 0;
++  ArmTimer* previous_ = nullptr;
++};
++// "Frame time watch arming (GPU thread) by view: A0000000 n calls/s, p protections/s, x ms/s
++// (lock y ms/s); ..." since its previous line.
++class ArmReporter {
++ public:
++  std::string Line(double seconds) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    std::string parts;
++    for (uint32_t a = 0; a < kAliases; ++a) {
++      const uint64_t calls = alias_calls[a].load(std::memory_order_relaxed);
++      const uint64_t protects = alias_protects[a].load(std::memory_order_relaxed);
++      const uint64_t ticks = alias_ticks[a].load(std::memory_order_relaxed);
++      const uint64_t lock = alias_lock_ticks[a].load(std::memory_order_relaxed);
++      const uint64_t notices = alias_write_notices[a].load(std::memory_order_relaxed);
++      char item[192];
++      std::snprintf(item, sizeof(item),
++                    "%s%s %.0f calls/s, %.0f protections/s, %.1f ms/s (lock %.1f ms/s), %.0f write notices/s",
++                    a ? "; " : "", AliasName(a), double(calls - last_[a][0]) / s, double(protects - last_[a][1]) / s,
++                    double(ticks - last_[a][2]) * ns_per_tick / 1e6 / s, double(lock - last_[a][3]) * ns_per_tick / 1e6 / s,
++                    double(notices - last_[a][4]) / s);
++      last_[a][0] = calls;
++      last_[a][1] = protects;
++      last_[a][2] = ticks;
++      last_[a][3] = lock;
++      last_[a][4] = notices;
++      parts += item;
++    }
++    return "Frame time watch arming (GPU thread) by view: " + parts;
++  }
++
++ private:
++  std::array<std::array<uint64_t, 5>, kAliases> last_{};
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++};
++
+ // "Frame time uploads (GPU thread): ..." since its previous line.
+ class UploadReporter {
+  public:
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -25,6 +25,7 @@
+ #include "xenia/cpu/mmio_handler.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/gpu_diagnostics.hpp"
++#include "xbox360ps5/frame_cost.hpp"  // fix 74: watch arming by view
+ #endif
+ 
+ // TODO(benvanik): move xbox.h out
+@@ -2118,6 +2119,7 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address,
+   if (!enable_invalidation_notifications && !enable_data_providers) {
+     return;
+   }
++  xbox360ps5::frame_cost::ArmTimer arm_timer(heap_base_);  // fix 74
+   uint32_t physical_address_offset = GetPhysicalAddress(heap_base_);
+   if (physical_address < physical_address_offset) {
+     if (physical_address_offset - physical_address >= length) {
+@@ -2151,6 +2153,7 @@ void PhysicalHeap::EnableAccessCallbacks(uint32_t physical_address,
+                             : xe::memory::PageAccess::kReadOnly;
+ 
+   auto global_lock = global_critical_region_.Acquire();
++  arm_timer.Locked();  // fix 74
+   if (enable_invalidation_notifications) {
+     if (enable_data_providers) {
+       EnableAccessCallbacksInner<true, true>(system_page_first,
+@@ -2258,6 +2261,7 @@ XE_NOINLINE void PhysicalHeap::EnableAccessCallbacksInner(
+       }
+ #endif
+       if (protect_system_page_first != UINT32_MAX) {
++        if (auto* arm = xbox360ps5::frame_cost::current_arm) arm->Protected();  // fix 74
+         xe::memory::Protect(
+             protect_base + (protect_system_page_first << system_page_shift_),
+             (protect_system_page_last + 1 - protect_system_page_first)
+@@ -2269,6 +2273,7 @@ XE_NOINLINE void PhysicalHeap::EnableAccessCallbacksInner(
+   }
+ 
+   if (protect_system_page_first != UINT32_MAX) {
++    if (auto* arm = xbox360ps5::frame_cost::current_arm) arm->Protected();  // fix 74
+     xe::memory::Protect(
+         protect_base + (protect_system_page_first << system_page_shift_),
+         (protect_system_page_last + 1 - protect_system_page_first)
+@@ -2280,6 +2285,7 @@ bool PhysicalHeap::TriggerCallbacks(
+     global_unique_lock_type global_lock_locked_once, uint32_t virtual_address,
+     uint32_t length, bool is_write, bool unwatch_exact_range, bool unprotect,
+     bool invalidate_unwatched) {
++  if (is_write) xbox360ps5::frame_cost::NoteWriteNotice(heap_base_);  // fix 74
+   if (virtual_address < heap_base_) {
+     if (heap_base_ - virtual_address >= length) {
+       return false;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3448,6 +3448,9 @@ int main(int argc, char** argv) {
+                 // Fix 73: the draws' own time by part.
+                 static xbox360ps5::frame_cost::DrawReporter frame_cost_draws;
+                 XELOGW("{}", frame_cost_draws.Line(double(summary_samples)));
++                // Fix 74: watch arming by view of physical memory.
++                static xbox360ps5::frame_cost::ArmReporter frame_cost_arming;
++                XELOGW("{}", frame_cost_arming.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

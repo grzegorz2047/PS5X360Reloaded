@@ -1,0 +1,21 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -53,6 +53,9 @@
+ // Fix 117h: Battlefield 3 at 2x draws dark blobs (smoke or particles) near the horizon, most likely a reduced-size
+ // pass composited against depth, as Tekken's shadow maps were. To choose its scale_threshold from data, each render
+ // target made at 2x is logged once (its size, pitch, MSAA, format and class), at most kKeyLines lines a session.
++// Fix 117i: Battlefield 3's 52 render targets at 2x (1.0.5-work-fix117h) are its 1280-pixel scene (and one at 880)
++// and smaller passes at 640, 560, 320, 280, 160 and 80 pixels of pitch, the half-resolution particle and smoke
++// buffers among them; the dark discs showed before any eviction. Its threshold, 640, compiled in.
+ #pragma once
+ 
+ #include <atomic>
+@@ -268,6 +271,7 @@ inline int CompiledThreshold(const std::string& title_id) {
+     int threshold;
+   } kBuiltIn[] = {
+       {"4E4D0859", 1040},  // Tekken Tag Tournament 2: fighters dark at 2x (fix 117e)
++      {"45410950", 640},   // Battlefield 3: smoke drawn as dark discs at 2x (fix 117i)
+   };
+   for (const auto& row : kBuiltIn) {
+     if (title_id.size() != 8) continue;

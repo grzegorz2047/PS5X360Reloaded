@@ -30,7 +30,11 @@ def main():
     parser.add_argument('--tree', type=Path)
     args = parser.parse_args()
 
-    patches = sorted(assemble.FIXES.glob('*.patch'))
+    patches = sorted(assemble.FIXES.glob('*.patch'), key=assemble.fix_order)
+    # Fixes apply by number, then letter: 100 after 99, not before 11.
+    order = sorted((Path(n) for n in ('100-z.patch', '11-a.patch', '08b-b.patch', '08-c.patch', '99-d.patch')),
+                   key=assemble.fix_order)
+    assert [p.name for p in order] == ['08-c.patch', '08b-b.patch', '11-a.patch', '99-d.patch', '100-z.patch'], order
     names = [p.name for p in patches]
     assert '01-jit-reserved-barriers.patch' in names, names
 
@@ -39,7 +43,7 @@ def main():
         selected, left_out = assemble.select_fixes(patches, skip)
         assert [p.name for p in left_out] == ['01-jit-reserved-barriers.patch'], (skip, left_out)
         assert len(selected) == len(patches) - 1 and all(p not in selected for p in left_out)
-        assert [p.name for p in selected] == sorted(p.name for p in selected)  # order kept
+        assert selected == sorted(selected, key=assemble.fix_order)  # order kept (by number: fix 100 after 99)
     # Nothing skipped: everything applied, in order.
     selected, left_out = assemble.select_fixes(patches, [])
     assert selected == patches and not left_out
@@ -49,7 +53,9 @@ def main():
         assert [p.name for p in left_out] == [n for n in names if n.startswith('08-')]
     # A typo, or a name matching several, stops the assembly.
     assert stops(patches, ['1'])
-    assert stops(patches, ['99'])
+    # A number no patch has (99 was the example until fix 99 existed).
+    unused = next(str(n) for n in range(900, 1000) if not any(name.startswith(f'{n}-') for name in names))
+    assert stops(patches, [unused])
     assert stops(patches, ['jit'])
     made_up = [Path('fixes/30-a.patch'), Path('fixes/30-b.patch')]
     assert stops(made_up, ['30'])

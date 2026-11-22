@@ -1,9 +1,21 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index 17cbe05..a75d1b2 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -83,6 +83,7 @@ struct Settings {
+   int volume = 3;               // 25%, 50%, 75%, 100%.
+   int ui_sounds = 1;
+   int motion_phone = 0;        // Research receiver only; no Kinect device advertised.
++  int motion_panel = 0;        // Fix 63: the motion panel over a game: top right, top left, off.
+   int ui_sound_volume = 2;      // 0%, 10%, 20%, 35%, 50%, 100%.
+   int xma_decoder = 0;          // 0 new, 1 old, 2 master.
+   int xma_inline = 0;           // XMA is decoded without a thread of its own.
 diff --git a/include/xbox360ps5/phone_qr_panel.hpp b/include/xbox360ps5/phone_qr_panel.hpp
 new file mode 100644
-index 0000000..c19e94e
+index 0000000..60d50a6
 --- /dev/null
 +++ b/include/xbox360ps5/phone_qr_panel.hpp
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,71 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 63: the motion panel over a running game shows how to connect a phone while none is.
 +//
@@ -50,6 +62,16 @@ index 0000000..c19e94e
 +  float text_y = 428, text_size = 22, text_width = 312;      // how to stand, wrapped
 +};
 +constexpr QrPanelLayout kQrPanel{};
++// "Motion panel: Top left": the same box moved to x 24-374 (below the FPS counter, which ends
++// at y 94), for games that draw their own camera view at the top right (Dragon Ball Z).
++constexpr float kQrPanelLeftShift = 24 - 1550;
++// 1.0.5_candidate_10: the panel's skeleton is a mirror, as the player expects: their left hand on
++// the left. The phone's (and the game's) X grows towards the player's left, which the panel drew
++// on the right, as a camera sees them ("my left should be the skeleton's left", DBZ on
++// 1.0.5_candidate_8). Only the drawing turns; the game gets the skeleton as before.
++inline float PanelMirrorX(float centre, float joint_x, float pixels_per_metre) {
++  return centre - joint_x * pixels_per_metre;
++}
 +
 +// Whole pixels per QR module on a card of `card` units at `scale` (8 units of white margin
 +// each side); 0 when the code does not fit.
@@ -66,30 +88,57 @@ index 0000000..c19e94e
 +
 +}  // namespace xbox360ps5::motion
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
-index e0ec811..b8f3cd8 100644
+index 95e86eb..afcf7ab 100644
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -135,6 +135,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -135,6 +135,11 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include "xbox360ps5/achievement_hook.hpp"
  #include "xbox360ps5/notify.hpp"
  #include "xbox360ps5/web_settings.hpp"
 +#include "xbox360ps5/qr_code.hpp"         // fix 63: the camera QR code in the motion panel
 +#include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
++#include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
++#include "xbox360ps5/body_scale.hpp"  // fix 57: the body the games get
++#include "xbox360ps5/motion_record.hpp"  // 1.0.5: the last 10 s of phone motion
  #include "xbox360ps5/save_storage.hpp"
  #include "xbox360ps5/dlc_install.hpp"
  #include "xenia/kernel/xam/content_manager.h"
-@@ -163,6 +165,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -163,6 +168,8 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include <atomic>
  #include <array>
  #include <chrono>
 +#include <cmath>
++#include <tuple>
  #include "output_metrics.hpp"
  #include "overlay_rates.hpp"
  #include <condition_variable>
-@@ -392,6 +395,22 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -376,8 +383,9 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
+ class FpsOverlay final : public xe::ui::ImGuiDialog {
+  public:
+   FpsOverlay(xe::ui::ImGuiDrawer* drawer,const float& fps,const int& shown,const bool& stalled,
+-             const int& touchpad_menu)
+-      : ImGuiDialog(drawer),fps_(fps),shown_(shown),stalled_(stalled),touchpad_menu_(touchpad_menu) {}
++             const int& touchpad_menu, const int& motion_panel)
++      : ImGuiDialog(drawer),fps_(fps),shown_(shown),stalled_(stalled),touchpad_menu_(touchpad_menu),
++        motion_panel_(motion_panel) {}
+  protected:
+   void OnDraw(ImGuiIO& io) override {
+     // Sample on every overlay draw, including when its FPS setting is hidden.
+@@ -388,20 +396,60 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+         ps5x360::output_metrics::enabled.load(std::memory_order_relaxed),
+         ps5x360::output_metrics::fallback.load(std::memory_order_relaxed));
+     if (xbox360ps5::motion::enabled.load()) {
+-      const auto pose = xbox360ps5::motion::Snapshot();
++      // Fix 63: the body the games get (body_scale.hpp), in the place the "Motion panel" option
++      // gives: top right (0), top left (1), or only the QR code while no phone is connected (2).
++      const auto pose = xbox360ps5::motion::NormalizedSnapshot();
        auto* draw = ImGui::GetForegroundDrawList();
        const float scale = io.DisplaySize.y / 1080.0f;
-       draw->AddRectFilled(ImVec2(1550*scale,100*scale),ImVec2(1900*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
+-      draw->AddRectFilled(ImVec2(1550*scale,100*scale),ImVec2(1900*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
+-      draw->AddText(ImVec2(1570*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
+-      draw->AddText(ImVec2(1570*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
++      shift_ = motion_panel_ == 1 ? xbox360ps5::motion::kQrPanelLeftShift : 0.0f;
++      const bool panel_off = motion_panel_ == 2;
 +      // Fix 63: while no phone sends frames, the library's camera QR code and the pairing code
 +      // in the panel's place (phone_qr_panel.hpp); the address is looked up every 2 s.
 +      const auto now = std::chrono::steady_clock::now();
@@ -104,20 +153,45 @@ index e0ec811..b8f3cd8 100644
 +      }
 +      if (phone_qr_.size && xbox360ps5::motion::ChoosePanelView(pose.received, now, phone_url_) ==
 +                                xbox360ps5::motion::PanelView::kPhoneQr) {
++        draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
 +        DrawPhoneQr(draw, scale);
-+      } else {
-       draw->AddText(ImVec2(1570*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
-       draw->AddText(ImVec2(1570*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
++      } else if (!panel_off) {
++      draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
++      draw->AddText(ImVec2((1570 + shift_)*scale,115*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
++      draw->AddText(ImVec2((1570 + shift_)*scale,140*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
++      // 1.0.5_candidate_4: the distance the phone page reports (before the console re-centres
++      // it), at the panel's top right: amber outside Dragon Ball Z's 1.8-3.5 m, as a page
++      // calibrated near the phone shows (3.8 m, its limit); "Recenter" on the page fixes it.
++      const auto phone = xbox360ps5::motion::Snapshot();
++      if (phone.tracked) {
++        char distance[48];
++        const float metres = xbox360ps5::motion::kBridgeBodyDistance - phone.joints[0].z;
++        std::snprintf(distance, sizeof(distance), Tr("Distance %.1f m"), double(metres));
++        const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(20 * scale, 4096, 0, distance);
++        const bool outside = metres < xbox360ps5::motion::kNearestMetres || metres > xbox360ps5::motion::kFarthestMetres;
++        draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1885 + shift_) * scale - size.x, 117 * scale),
++                      outside ? IM_COL32(245, 204, 137, 255) : IM_COL32(200, 200, 200, 255), distance);
++      }
++      // Fix 63: what the game needs, under the live skeleton (kinect_hand_view.hpp).
++      const auto hands = xbox360ps5::motion::SnapshotGameHands();
++      DrawPositionHint(draw, scale, pose);
++      if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
        if (pose.tracked) {
-@@ -402,6 +421,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+-        const auto point = [&](int n) { return ImVec2((1725 + pose.joints[n].x*170)*scale,(405-pose.joints[n].y*170)*scale); };
++        const auto point = [&](int n) { return ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
+         const int bones[][2]={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{6,7},{2,8},{8,9},{9,10},{10,11},{0,12},{12,13},{13,14},{14,15},{0,16},{16,17},{17,18},{18,19}};
+-        draw->PushClipRect(ImVec2(1550*scale,170*scale),ImVec2(1900*scale,640*scale),true);
++        draw->PushClipRect(ImVec2((1550 + shift_)*scale,185*scale),ImVec2((1900 + shift_)*scale,hands.valid ? 565*scale : 640*scale),true);
+         for (const auto& bone : bones) if (pose.joints[bone[0]].confidence >= .5f && pose.joints[bone[1]].confidence >= .5f) draw->AddLine(point(bone[0]),point(bone[1]),IM_COL32(100,240,160,255),2*scale);
          for (int n=0;n<20;++n) if (pose.joints[n].confidence >= .5f) draw->AddCircleFilled(point(n),4*scale,IM_COL32(240,255,240,255));
          draw->PopClipRect();
        }
++      if (hands.valid) DrawReachBars(draw, scale, hands);
 +      }
      }
      // Fix 45: after a guest crash the game does not come back; the notice says so and how to
      // leave it, in place of "no new frames" (the FPS counter alone showed 0).
-@@ -435,6 +455,40 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+@@ -435,11 +483,118 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
      list->AddText(ImGui::GetFont(), 22 * scale, ImVec2(36 * scale, 65 * scale), IM_COL32(220, 230, 240, 255), output_text);
    }
   private:
@@ -126,11 +200,11 @@ index e0ec811..b8f3cd8 100644
 +  void DrawPhoneQr(ImDrawList* draw, float scale) {
 +    const auto& at = xbox360ps5::motion::kQrPanel;
 +    ImFont* font = ImGui::GetFont();
-+    draw->AddText(font, at.title_size * scale, ImVec2(at.text_x * scale, at.title_y * scale),
++    draw->AddText(font, at.title_size * scale, ImVec2((at.text_x + shift_) * scale, at.title_y * scale),
 +                  IM_COL32(245, 204, 137, 255), Tr("Motion: no phone connected"));
 +    const float module = xbox360ps5::motion::QrModulePixels(phone_qr_.size, at.card, scale);
 +    if (module > 0) {
-+      const float card = at.card * scale, qx = at.card_x * scale, qy = at.card_y * scale;
++      const float card = at.card * scale, qx = (at.card_x + shift_) * scale, qy = at.card_y * scale;
 +      const float inset = std::floor((card - module * float(phone_qr_.size)) / 2);
 +      draw->AddRectFilled(ImVec2(qx, qy), ImVec2(qx + card, qy + card), IM_COL32(255, 255, 255, 255), 6 * scale);
 +      for (int my = 0; my < phone_qr_.size; ++my) {
@@ -145,16 +219,151 @@ index e0ec811..b8f3cd8 100644
 +      }
 +    }
 +    const std::string code = std::string(Tr("Code: ")) + phone_key_;
-+    draw->AddText(font, at.code_size * scale, ImVec2(at.text_x * scale, at.code_y * scale),
++    draw->AddText(font, at.code_size * scale, ImVec2((at.text_x + shift_) * scale, at.code_y * scale),
 +                  IM_COL32(130, 240, 170, 255), code.c_str());
 +    const std::string how = std::string(Tr("Scan with your phone to use it as Kinect.")) + "\n" +
 +                            Tr("Same Wi-Fi, stand 2-3 m back, full body visible.");
-+    draw->AddText(font, at.text_size * scale, ImVec2(at.text_x * scale, at.text_y * scale),
++    draw->AddText(font, at.text_size * scale, ImVec2((at.text_x + shift_) * scale, at.text_y * scale),
 +                  IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
 +  }
++  // Fix 63: too close / too far / not all of the body in the picture, under the status lines.
++  void DrawPositionHint(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose) {
++    using xbox360ps5::motion::Positioning;
++    const Positioning hint = xbox360ps5::motion::PositionHint(pose);
++    const char* text = hint == Positioning::kStepBack ? Tr("Step back")
++                     : hint == Positioning::kStepCloser ? Tr("Step closer")
++                     : hint == Positioning::kWholeBody ? Tr("Show your whole body to the camera") : nullptr;
++    if (text)
++      draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1570 + shift_) * scale, 163 * scale), IM_COL32(245, 204, 137, 255),
++                    text, nullptr, 312 * scale);
++  }
++  // Fix 63: the arms as the game wants them, faint, behind the live skeleton: each arm
++  // straight out to its side and straight up, from the live shoulder, at the arm's length;
++  // a direction the game is counting is drawn brighter.
++  void DrawTargetArms(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose,
++                      const xbox360ps5::motion::GameHands& hands) {
++    draw->PushClipRect(ImVec2((1550 + shift_) * scale, 185 * scale), ImVec2((1900 + shift_) * scale, 565 * scale), true);
++    for (int side = 0; side < 2; ++side) {
++      const bool right = side == 0;
++      const auto& shoulder = pose.joints[right ? 8 : 4];
++      if (shoulder.confidence < .5f) continue;
++      const float length = std::max(0.55f, xbox360ps5::motion::PhoneArmLength(pose, right));
++      const auto& hand = right ? hands.right : hands.left;
++      const ImVec2 from(xbox360ps5::motion::PanelMirrorX(1725 + shift_, shoulder.x, kPanelPixelsPerMetre) * scale,
++                        (405 - shoulder.y * kPanelPixelsPerMetre) * scale);
++      // The player's right is the phone's -X, the game's +X (bit 2); left: bit 1. The panel is a
++      // mirror (PanelMirrorX): the right arm points out to the panel's right.
++      const int outward = right ? 1 : 0, up = 2;  // counters: 0 left(-X) 1 right(+X) 2 up 3 down 4 front
++      for (const auto& [dx, dy, counter] : {std::tuple<float, float, int>{right ? 1.f : -1.f, 0.f, outward},
++                                            std::tuple<float, float, int>{0.f, 1.f, up}}) {
++        const bool counting = hand.counters[counter] > 0;
++        const ImVec2 to(from.x + dx * length * kPanelPixelsPerMetre * scale,
++                        from.y - dy * length * kPanelPixelsPerMetre * scale);
++        draw->AddLine(from, to, counting ? IM_COL32(120, 180, 255, 230) : IM_COL32(120, 180, 255, 90),
++                      (counting ? 7 : 5) * scale);
++        draw->AddCircle(to, 7 * scale, counting ? IM_COL32(120, 180, 255, 230) : IM_COL32(120, 180, 255, 90), 16,
++                        2 * scale);
++      }
++    }
++    draw->PopClipRect();
++  }
++  // Fix 63: each hand's reach as the game measured it, against its threshold (the tick), green
++  // when it counts towards a direction, and under it how far the hold is (15 updates).
++  void DrawReachBars(ImDrawList* draw, float scale, const xbox360ps5::motion::GameHands& hands) {
++    char title[96];
++    std::snprintf(title, sizeof(title), Tr("Hand reach (the game needs %.2f)"), double(hands.reach_needed));
++    draw->AddText(ImGui::GetFont(), 18 * scale, ImVec2((1570 + shift_) * scale, 568 * scale), IM_COL32(220, 220, 220, 255), title);
++    const float left = 1595 + shift_, width = 285, full = std::max(0.1f, hands.reach_needed * 2);
++    for (int side = 0; side < 2; ++side) {
++      const auto& hand = side ? hands.left : hands.right;
++      const float y = 594 + side * 22;
++      draw->AddText(ImGui::GetFont(), 18 * scale, ImVec2((1570 + shift_) * scale, (y - 3) * scale), IM_COL32(220, 220, 220, 255),
++                    side ? "L" : "R");
++      draw->AddRectFilled(ImVec2(left * scale, y * scale), ImVec2((left + width) * scale, (y + 10) * scale),
++                          IM_COL32(255, 255, 255, 40), 3 * scale);
++      const float reach = std::clamp(hand.magnitude / full, 0.0f, 1.0f);
++      const bool counts = xbox360ps5::motion::Directions(hand, hands.reach_needed, hands.direction_needed) != 0;
++      const ImU32 colour = counts ? IM_COL32(100, 230, 120, 255)
++                         : hand.magnitude >= hands.reach_needed ? IM_COL32(245, 204, 137, 255) : IM_COL32(200, 200, 200, 200);
++      draw->AddRectFilled(ImVec2(left * scale, y * scale), ImVec2((left + width * reach) * scale, (y + 10) * scale),
++                          colour, 3 * scale);
++      const float tick = left + width * std::clamp(hands.reach_needed / full, 0.0f, 1.0f);
++      draw->AddLine(ImVec2(tick * scale, (y - 3) * scale), ImVec2(tick * scale, (y + 13) * scale),
++                    IM_COL32(255, 255, 255, 255), 2 * scale);
++      const float hold = xbox360ps5::motion::HoldProgress(hand);
++      if (hold > 0)
++        draw->AddRectFilled(ImVec2(left * scale, (y + 12) * scale), ImVec2((left + width * hold) * scale, (y + 15) * scale),
++                            IM_COL32(120, 180, 255, 255));
++    }
++  }
++  static constexpr float kPanelPixelsPerMetre = 130;
++  float shift_ = 0;  // the panel's place: 0 at the top right, kQrPanelLeftShift at the top left
 +  std::chrono::steady_clock::time_point phone_checked_{};
 +  std::string phone_url_, phone_key_;
 +  xbox360ps5::QrCode phone_qr_;
    ps5x360::overlay::Rates output_rates_;
    const float& fps_;
    const int& shown_;
+   const bool& stalled_;
+   const int& touchpad_menu_;
++  const int& motion_panel_;
+ };
+ // The emulator's guide over a running game, after the Xbox 360's: a light
+ // panel that unfolds from the middle of the screen, a page of actions and a page
+@@ -1886,6 +2041,25 @@ static void StorageNotice(const std::string& drive) {
+                           " " + drive,
+                       "", false});
+ }
++// 1.0.5: opening the guide saves the last 10 s of phone motion (motion_record.hpp) to the logs
++// folder, for tools/check-motion-replay.cpp on a PC: make the move, then open the guide.
++static void SaveMotionRecording(const std::filesystem::path& folder) {
++  if (!xbox360ps5::motion::enabled.load() || folder.empty()) return;
++  const std::vector<uint8_t> bytes = xbox360ps5::motion::motion_recorder.Take();
++  if (bytes.empty()) return;
++  char name[64];
++  const std::time_t now = std::time(nullptr);
++  std::tm utc{};
++  gmtime_r(&now, &utc);
++  std::strftime(name, sizeof(name), "motion-%Y%m%d-%H%M%S-UTC.xmr", &utc);
++  const std::filesystem::path path = folder / name;
++  std::ofstream out(path, std::ios::binary | std::ios::trunc);
++  out.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
++  out.close();
++  XELOGW("Motion: the last {} frames of phone motion saved to {}{}",
++         (bytes.size() - 12) / xbox360ps5::motion::kRecordBytes, path.string(),
++         out ? "" : " (the file could not be written)");
++}
+ // Fix 57: a game whose executable requires Kinect asked for its camera with "Camera motion"
+ // off (a start that did not pass the library's question: a forwarder, a package, a title switch).
+ static void KinectNeededNotice() {
+@@ -2910,7 +3084,7 @@ int main(int argc, char** argv) {
+         xbox360ps5::gpu_diag::Reset();
+         float fps = 0.0f;
+         bool stalled_notice=false;
+-        new FpsOverlay(&drawer,fps,settings.show_fps,stalled_notice,settings.touchpad_menu);
++        new FpsOverlay(&drawer,fps,settings.show_fps,stalled_notice,settings.touchpad_menu,settings.motion_panel);
+         // The emulator's guide over the game.
+         GuideState guide;
+         if (autotest.active) guide.hint = 0.0f;
+@@ -3029,6 +3203,7 @@ int main(int argc, char** argv) {
+             close_library = true;
+           } else if (trigger && !trigger_was) {
+             guide.open = !guide.open;
++            if (guide.open) SaveMotionRecording(log_root);  // 1.0.5
+             xbox360ps5::PlayUiSound(guide.open ? xbox360ps5::UiSound::select : xbox360ps5::UiSound::back);
+             guide.page = guide.row = 0;
+             guide.category = -1;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index e435b45..d63bd34 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -416,6 +416,9 @@ const std::vector<Option>& Options() {
+        "Ignores small stick movements. Raise it if the camera turns by itself.", dead},
+       {"motion_phone", &S::motion_phone, 3, W::live, 0, true, "Camera motion (research)",
+        "Receives joints over the LAN and shows diagnostics. Does not yet provide a Kinect sensor to games. Requires the settings web page.", off_on},
++      {"motion_panel", &S::motion_panel, 3, W::live, 0, true, "Motion panel",
++       "Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected.",
++       {"Top right", "Top left", "Off"}},
+       {"show_fps", &S::show_fps, 4, W::live, 0, false, "Show FPS in game",
+        "Show game frames per second in the corner of the screen.", off_on},
+       {"achievement_toasts", &S::achievement_toasts, 4, W::live, 1, false, "Achievement notifications",

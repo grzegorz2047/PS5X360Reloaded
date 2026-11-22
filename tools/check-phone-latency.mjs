@@ -75,7 +75,9 @@ assert.ok(JSON.stringify(r).length < 2048, 'the report fits the console limit');
 
 // (b)
 const page = between('R"KINECTPAGE(', ')KINECTPAGE"');
-assert.ok(page.includes("import {StageWindow, smoothingLagMs, summaryValues, REPORT_MS} from './latency.mjs?v=66';"));
+assert.ok(page.includes("import {StageWindow, smoothingLagMs, summaryValues, REPORT_MS} from './latency.mjs?v=66';") ||
+            /import \{StageWindow, smoothingLagMs, summaryValues, REPORT_MS, frameReason(, RecentreState)?\} from '\.\/latency\.mjs\?v=10[67]';/.test(page) ||  // fixes 106, 107
+            /import \{StageWindow, smoothingLagMs, summaryValues, REPORT_MS, frameReason, RecentreState,\n  PictureGate, [^}]*\} from '\.\/latency\.mjs\?v=119';/.test(page));  // fix 119
 for (const part of [
   "latencyWindow.add('detect', detectedAt - capturedAt);",
   "if (!demo) latencyWindow.add('camera', capturedAt - frameCaptured);",
