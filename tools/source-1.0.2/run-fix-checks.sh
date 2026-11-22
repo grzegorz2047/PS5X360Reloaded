@@ -135,6 +135,7 @@ checks=(
   check-dynamic-constants.cpp      # fix 120
   check-file-sector.cpp            # fix 121
   check-guide-counter.cpp          # fix 115d
+  check-dlc-remove.cpp             # fix 109
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -155,6 +156,7 @@ declare -A arguments=(
   [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -243,6 +245,7 @@ declare -A fix_of=(
   [check-dynamic-constants.cpp]=120
   [check-file-sector.cpp]=121
   [check-guide-counter.cpp]=115d
+  [check-dlc-remove.cpp]=109
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

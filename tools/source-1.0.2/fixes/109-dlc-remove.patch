@@ -1,0 +1,774 @@
+diff --git a/port/dlc_manager.hpp b/port/dlc_manager.hpp
+index ccc8791..5cc05f1 100644
+--- a/port/dlc_manager.hpp
++++ b/port/dlc_manager.hpp
+@@ -7,9 +7,14 @@
+ //   available: a dlc folder (PPSA83600/dlc, the game's dlc folder, each library root's dlc)
+ // Enabling and disabling move the file between the first two; installing copies an available
+ // package into the first (staged in 00000002-installing, checked, then renamed).
++// Fix 109: the first two are looked at on every save device (FindAll: the internal folder and each
++// drive the storage scan offers), so content a game put on another drive (Battlefield 3's HD
++// textures on ext1) is listed with its drive and size; Remove deletes one installed package file
++// (never a dlc folder's, never a folder) while no game is running.
+ #pragma once
+ #include <algorithm>
+ #include <atomic>
++#include <cerrno>
+ #include <cstdint>
+ #include <cstdio>
+ #include <filesystem>
+@@ -19,6 +24,9 @@
+ #include <string>
+ #include <thread>
+ #include <vector>
++#ifndef _WIN32
++#include <unistd.h>  // fix 109: unlink
++#endif
+ 
+ namespace xbox360ps5::dlc2 {
+ namespace fs = std::filesystem;
+@@ -29,6 +37,15 @@ struct Item {
+   fs::path path;
+   uint64_t bytes = 0;
+   State state = State::available;
++  // Fix 109: an installed package's save device: its saves root and its name on the page (empty
++  // for a package in a dlc folder).
++  fs::path root;
++  std::string device;
++};
++// Fix 109: a save device's saves root (<root>/0000000000000000/<TITLE>/00000002) and its name.
++struct Root {
++  fs::path path;
++  std::string device;
+ };
+ struct Found {
+   std::vector<Item> items;
+@@ -83,10 +100,29 @@ inline fs::path Folder(const fs::path& root, uint32_t title, const char* leaf) {
+ inline fs::path ActiveFolder(const fs::path& root, uint32_t title) { return Folder(root, title, "00000002"); }
+ inline fs::path DisabledFolder(const fs::path& root, uint32_t title) { return Folder(root, title, "00000002-off"); }
+ 
+-inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::path>& inboxes) {
++// Fix 109: every save device's root (the storage scan's devices: anything with a .root), each
++// once, in the scan's order (the internal folder first), named by name(device).
++template <class Devices, class Name>
++std::vector<Root> RootsOf(const Devices& devices, Name name) {
++  std::vector<Root> roots;
++  for (const auto& device : devices) {
++    const fs::path path = device.root;
++    if (path.empty()) continue;
++    bool seen = false;
++    for (const auto& root : roots) seen = seen || root.path == path;
++    if (!seen) roots.push_back({path, name(device)});
++  }
++  return roots;
++}
++
++// Fix 109: the installed packages of every root, then the dlc folders' packages installed on none
++// of them. A file is listed once per root and folder: one a drive has both On and Off is two rows
++// (switching either is refused until one is removed), and a dlc-folder copy only when no root has
++// that file.
++inline Found FindAll(uint32_t title, const std::vector<Root>& roots, const std::vector<fs::path>& inboxes) {
+   Found out;
+-  std::map<std::string, bool> listed;
+-  const auto add = [&](const fs::path& p, State state) {
++  std::map<std::string, bool> listed, installed;
++  const auto add = [&](const fs::path& p, State state, const Root* where) {
+     std::error_code ec;
+     const uint64_t size = fs::file_size(p, ec);
+     if (ec) return;
+@@ -96,16 +132,27 @@ inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::pa
+     if (h.title != title) { if (inbox) ++out.other_game; return; }
+     if (h.type != 0x00000002) { if (inbox) ++out.not_dlc; return; }
+     const std::string file = p.filename().string();
+-    if (listed.count(file)) return;  // the active or disabled copy wins over a dlc-folder copy
+-    listed[file] = true;
+-    out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state});
++    if (inbox) {
++      if (installed.count(file) || listed.count(file)) return;  // installed on a device already
++      listed[file] = true;
++      out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, {}, {}});
++      return;
++    }
++    const std::string key = where->path.string() + '\n' + (state == State::active ? "on" : "off") + '\n' + file;
++    if (listed.count(key)) return;
++    listed[key] = true;
++    installed[file] = true;
++    out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, where->path, where->device});
+   };
+-  if (!root.empty() && title) {
+-    for (const auto& [folder, state] : {std::pair{ActiveFolder(root, title), State::active},
+-                                        std::pair{DisabledFolder(root, title), State::disabled}}) {
+-      std::error_code ec;
+-      for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
+-        if (it->is_regular_file(ec)) add(it->path(), state);
++  if (title) {
++    for (const auto& root : roots) {
++      if (root.path.empty()) continue;
++      for (const auto& [folder, state] : {std::pair{ActiveFolder(root.path, title), State::active},
++                                          std::pair{DisabledFolder(root.path, title), State::disabled}}) {
++        std::error_code ec;
++        for (fs::directory_iterator it(folder, ec), end; !ec && it != end; it.increment(ec))
++          if (it->is_regular_file(ec)) add(it->path(), state, &root);
++      }
+     }
+   }
+   for (const auto& inbox : inboxes) {
+@@ -118,7 +165,7 @@ inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::pa
+       const bool directory = !link && it->is_directory(ec);
+       if (hidden || link) { if (directory || link) it.disable_recursion_pending(); continue; }
+       if (directory) { if (it.depth() >= 3) it.disable_recursion_pending(); continue; }
+-      if (it->is_regular_file(ec)) add(it->path(), State::available);
++      if (it->is_regular_file(ec)) add(it->path(), State::available, nullptr);
+     }
+   }
+   std::stable_sort(out.items.begin(), out.items.end(), [](const Item& a, const Item& b) {
+@@ -126,16 +173,97 @@ inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::pa
+   });
+   return out;
+ }
++// One root (the internal folder), as before fix 109.
++inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::path>& inboxes) {
++  std::vector<Root> roots;
++  if (!root.empty()) roots.push_back({root, {}});
++  return FindAll(title, roots, inboxes);
++}
+ 
++
++// Fix 109: removing an installed package. Only the listed file in its device's active or disabled
++// folder is deleted, and only while no game is running; the folders stay.
++// stat and unlink only: the console's sandbox refuses lstat (fixes 50 and 60), so neither
++// std::filesystem::symlink_status nor std::filesystem::remove (libc's remove() asks lstat first)
++// can be used there; 1.0.5-work-fix109 failed so with BF3's HD textures on ext1. Each refusal
++// says which step and errno (why, for the log).
++enum class Removal { removed, game_running, not_installed, missing, failed };
++struct RemoveStep {
++  std::string call;  // "stat", "unlink", "check: ..."
++  int error = 0;     // errno, 0 when none
++};
++inline Removal Remove(const Item& item, uint32_t title, bool game_running, RemoveStep* why = nullptr) {
++  const auto refuse = [why](Removal removal, const char* call, int error = 0) {
++    if (why) *why = {call, error};
++    return removal;
++  };
++  if (game_running) return refuse(Removal::game_running, "check: a game is running");
++  if (item.state == State::available || item.root.empty() || item.file.empty() || !title)
++    return refuse(Removal::not_installed, "check: not an installed package");
++  const fs::path folder =
++      item.state == State::active ? ActiveFolder(item.root, title) : DisabledFolder(item.root, title);
++  if (item.path != folder / item.file) return refuse(Removal::not_installed, "check: not in its own folder");
++  std::error_code ec;
++  const fs::file_status status = fs::status(item.path, ec);  // stat
++  if (ec) return refuse(ec.value() == ENOENT ? Removal::missing : Removal::failed, "stat", ec.value());
++  if (!fs::is_regular_file(status)) return refuse(Removal::failed, "stat: not a regular file");
++#ifdef _WIN32
++  fs::remove(item.path, ec);  // the host checks on Windows
++  const int error = ec.value();
++#else
++  const int error = ::unlink(item.path.c_str()) == 0 ? 0 : errno;
++#endif
++  if (error) return refuse(error == ENOENT ? Removal::missing : Removal::failed, "unlink", error);
++  if (fs::exists(item.path, ec)) return refuse(Removal::failed, "unlink: the file is still there");  // stat
++  if (why) *why = {"unlink", 0};
++  return Removal::removed;
++}
+ // Enable (to the active folder) or disable (to the disabled folder): a rename, nothing copied.
+-inline bool Move(const Item& item, const fs::path& root, uint32_t title, bool enable) {
++// Fix 109: on the package's own device (internal_root for an item without one); never while a
++// game is running (it may have the package open: BF3's HD textures ended up Off, the game then
++// made an empty 00000002 again); a drive that has the file in the other folder too: twin (one of
++// the two has to be removed first). why: the step and errno, for the log.
++enum class Switched { switched, game_running, twin, failed };
++inline Switched Switch(const Item& item, const fs::path& internal_root, uint32_t title, bool enable,
++                       bool game_running, RemoveStep* why = nullptr) {
++  const auto refuse = [why](Switched switched, const char* call, int error = 0) {
++    if (why) *why = {call, error};
++    return switched;
++  };
++  if (game_running) return refuse(Switched::game_running, "check: a game is running");
++  if (item.state == State::available || item.file.empty() || !title)
++    return refuse(Switched::failed, "check: not an installed package");
++  const fs::path& root = item.root.empty() ? internal_root : item.root;
+   const fs::path folder = enable ? ActiveFolder(root, title) : DisabledFolder(root, title);
+   std::error_code ec;
+-  fs::create_directories(folder, ec);
++  fs::create_directories(folder, ec);  // stat and mkdir
++  if (ec) return refuse(Switched::failed, "mkdir", ec.value());
+   const fs::path target = folder / item.file;
+-  if (fs::exists(target, ec)) return false;
++  if (fs::exists(target, ec)) return refuse(Switched::twin, "check: the other folder has this file too");
+   fs::rename(item.path, target, ec);
+-  return !ec;
++  if (ec) return refuse(Switched::failed, "rename", ec.value());
++  if (why) *why = {"rename", 0};
++  return Switched::switched;
++}
++inline bool Move(const Item& item, const fs::path& internal_root, uint32_t title, bool enable) {
++  return Switch(item, internal_root, title, enable, false) == Switched::switched;
++}
++// "unlink failed: errno 1 (Operation not permitted)", for the log.
++inline std::string Describe(const RemoveStep& step) {
++  if (!step.error) return step.call;
++  return step.call + " failed: errno " + std::to_string(step.error) + " (" +
++         std::generic_category().message(step.error) + ")";
++}
++// Fix 109: a package's size in decimal units, as the PS5's storage screens give it: "640 KB",
++// "812 MB", "1.2 GB", "15 GB".
++inline std::string SizeText(uint64_t bytes) {
++  char text[32];
++  const double kb = double(bytes) / 1e3, mb = double(bytes) / 1e6, gb = double(bytes) / 1e9;
++  if (gb >= 10) std::snprintf(text, sizeof(text), "%.0f GB", gb);
++  else if (gb >= 1) std::snprintf(text, sizeof(text), "%.1f GB", gb);
++  else if (mb >= 1) std::snprintf(text, sizeof(text), "%.0f MB", mb);
++  else std::snprintf(text, sizeof(text), "%.0f KB", std::max(1.0, kb));
++  return text;
+ }
+ 
+ // Installing copies on a worker thread, with progress.
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 734c896..79b3370 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -88,6 +88,7 @@ extern "C" int sceSystemServiceParamGetInt(int parameter_id, int* value);
+ #endif
+ #include <atomic>
+ #include "xbox360ps5/game_info.hpp"
++#include "xbox360ps5/tab_bar.hpp"  // fix 109d: the tab bar shared with the in-game guide (fix 115c)
+ #include "xenia/kernel/xam/storage_devices.h"  // fix 27: the save drive setting
+ 
+ namespace xbox360ps5 {
+@@ -205,6 +206,38 @@ std::string g_running_path, g_running_name;
+ bool g_confirm_open = false;
+ GameEntry g_confirm_game;
+ float g_confirm_shown = 0.0f;  // 0..1, the dialog's entrance.
++// Fix 109: the DLCs tab's "Remove DLC?" window, for one installed package of the selected game.
++bool g_dlc_remove_open = false;
++float g_dlc_remove_shown = 0.0f;
++dlc2::Item g_dlc_remove_item;
++uint32_t g_dlc_remove_title = 0;
++// Fix 109: the game sheet tab whose list has the pad (a row highlighted, X acts on it); for any
++// other value the tab bar has it: a sheet or a tab opens with no row highlighted, and Down enters
++// the list (a single row looked chosen from the start).
++int g_list_focus_tab = -1;
++// Fix 109: the save devices the DLCs tab looks at: the storage scan's (the internal folder, then
++// each writable drive under /mnt, as the "where to save" window offers them), each named as that
++// window names it, without its free space.
++std::vector<dlc2::Root> DlcRoots(const fs::path& internal) {
++  namespace storage = xe::kernel::xam::storage;
++  std::vector<storage::Device> devices;
++  try {
++    storage::PosixFs posix;
++    devices = storage::Scan(posix, internal, "/mnt");
++  } catch (...) {
++    devices.clear();
++  }
++  if (devices.empty()) {
++    storage::Device own;
++    own.root = internal;
++    devices.push_back(own);
++  }
++  return dlc2::RootsOf(devices, [](const storage::Device& device) {
++    storage::Device shown = device;
++    shown.space_known = false;
++    return storage::Label(shown, true, [](const char* english) { return Tr(english); });
++  });
++}
+ // Fix 57: a game whose executable requires Kinect, started with "Camera motion" off:
+ // asked once per start whether to turn it on for this game (the phone as its camera).
+ bool g_kinect_open = false;
+@@ -1508,7 +1541,7 @@ bool Launcher::TakeLaunch(GameEntry& game) {
+     if (launch_.title_id.size() == 8 && title && !save_root_.empty()) {
+       std::vector<std::filesystem::path> inboxes = {fs::path("/app0/assets/dlc") / GameFolderName(launch_.name), "/app0/assets/dlc", "/app0/dlc", launch_.path.parent_path() / "dlc"};
+       for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
+-      for (const auto& item : dlc2::Find(title, save_root_, inboxes).items)
++      for (const auto& item : dlc2::FindAll(title, DlcRoots(save_root_), inboxes).items)  // fix 109
+         if (item.state == dlc2::State::available) waiting.push_back(item);
+       found = waiting.size();
+       const tu::Found updates = tu::Find(title, save_root_, UpdateInboxes(launch_.path, settings_.game_paths, launch_.name));
+@@ -1548,6 +1581,7 @@ void Launcher::OpenGameSheet(int tab) {
+   if (!Selected()) return;
+   SelectionChanged();
+   game_tab_ = tab;
++  g_list_focus_tab = -1;  // fix 109: the tab bar first
+   game_info_scroll = 0;
+   game_option_row_ = game_category_ = 0;
+   game_category_open_ = false;
+@@ -1722,6 +1756,24 @@ void Launcher::Press(Key key) {
+   }
+   if (!loading_.empty()) return;
+   message_.clear();
++  if (g_dlc_remove_open) {
++    // Fix 109: "Remove DLC?": X removes the package file, Circle keeps it.
++    if (key == Key::cross) {
++      g_dlc_remove_open = false;
++      const dlc2::Item item = g_dlc_remove_item;
++      dlc2::RemoveStep step;
++      const auto removal = dlc2::Remove(item, g_dlc_remove_title, !g_running_path.empty() || dlc2::copier().Busy(), &step);
++      XELOGW("LAUNCHER DLC {} ({}, {}) on {} at {}: {} ({})", item.name, item.file, dlc2::SizeText(item.bytes),
++             item.device, item.path.string(), removal == dlc2::Removal::removed ? "removed" : "not removed",
++             dlc2::Describe(step));
++      RefreshDlcs();
++      dlc_result_ = removal == dlc2::Removal::removed ? "removed"
++                  : removal == dlc2::Removal::game_running ? "running" : "remove-failed";
++    } else if (key == Key::circle) {
++      g_dlc_remove_open = false;
++    }
++    return;
++  }
+   if (g_confirm_open) {
+     // "X is running: close it to open Y?"
+     if (key == Key::cross) {
+@@ -1783,9 +1835,55 @@ void Launcher::Press(Key key) {
+       break;
+     }
+     case Mode::game: {
+-      if (key == Key::l1 || key == Key::r1) { game_info_scroll = 0; game_tab_ = (game_tab_ + (key == Key::r1 ? 1 : 6)) % 7; if (game_tab_ == 3) RefreshAchievements(); if (game_tab_ == 4) RefreshDlcs(); if (game_tab_ == 5) OpenUpdates(Selected() ? &Selected()->path : nullptr, SelectedTitleId(), save_root_, settings_.game_paths, Selected() ? Selected()->name : std::string()); break; }
+       // Closing goes back to where the sheet was opened from.
+       const auto close = [this] { mode_ = game_return_; game_return_ = Mode::shelf; if (mode_ == Mode::settings) RefreshPerGame(); };
++      // Fix 109d: the pad of the tab bar the in-game guide shares (tab_bar::Press, fix 115c). L1/R1
++      // always switch tabs (each opens with the bar focused); on the bar left/right switch tabs and
++      // Down or X enter the list at its first row; in a list Up on the first row goes back to the
++      // bar, Down stops at the last row, and left/right only change a row that has a value (the
++      // player's left/right changed an option while reaching for the next tab). Play and About have
++      // no list: there only L1/R1 and left/right go through it.
++      const bool list_tab = game_tab_ >= 1 && game_tab_ <= 5;
++      const bool nav_identified = Selected() && !Selected()->title_id.empty();
++      int no_row = 0;
++      int& nav_row = game_tab_ == 1 ? patch_row_ : game_tab_ == 2 ? (game_category_open_ ? game_option_row_ : game_category_)
++               : game_tab_ == 3 ? achievement_row_ : game_tab_ == 4 ? dlc_row_ : game_tab_ == 5 ? Updates().row : no_row;
++      const int nav_rows = game_tab_ == 1 ? int(patch_rows_.size())
++                     : game_tab_ == 2 ? (game_category_open_ ? (nav_identified ? int(game_rows_.size()) : 0)
++                                                             : int(game_categories_.size()) + (nav_identified ? 1 : 0))
++                     : game_tab_ == 3 ? int(achievements_.size()) : game_tab_ == 4 ? int(DlcPage().items.size())
++                     : game_tab_ == 5 ? int(Updates().page.items.size()) : 0;
++      const bool on_bar = !list_tab || g_list_focus_tab != game_tab_;
++      if (key == Key::l1 || key == Key::r1 || key == Key::left || key == Key::right ||
++          (list_tab && (key == Key::up || key == Key::down || (key == Key::cross && on_bar)))) {
++        using Pad = tab_bar::Key;
++        const Pad pad = key == Key::l1 ? Pad::l1 : key == Key::r1 ? Pad::r1 : key == Key::left ? Pad::left
++                      : key == Key::right ? Pad::right : key == Key::up ? Pad::up : key == Key::down ? Pad::down : Pad::cross;
++        // The rows whose value left and right change: a subject's options, and the bug report row.
++        const auto has_value = [&](int n) {
++          return game_tab_ == 2 && (game_category_open_ || (nav_identified && n == int(game_categories_.size())));
++        };
++        tab_bar::Nav nav{game_tab_, on_bar, nav_row};
++        const tab_bar::Effect effect = tab_bar::Press(nav, pad, 7, list_tab ? nav_rows : 0, has_value);
++        if (effect.tab_changed) {
++          game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = nav.tab;
++          if (game_tab_ == 3) RefreshAchievements(); if (game_tab_ == 4) RefreshDlcs(); if (game_tab_ == 5) OpenUpdates(Selected() ? &Selected()->path : nullptr, SelectedTitleId(), save_root_, settings_.game_paths, Selected() ? Selected()->name : std::string());
++        } else if (list_tab) {
++          g_list_focus_tab = nav.on_bar ? -1 : game_tab_;
++          nav_row = nav.row;
++        }
++        if (effect.value_step && game_tab_ == 2 && game_category_open_) {
++          ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], effect.value_step);
++        } else if (effect.value_step && game_tab_ == 2) {
++          // The bug report row (fix 93d): left and right turn it on and off, as X does.
++          if (overrides_.count("bug_report") && overrides_["bug_report"]) overrides_.erase("bug_report");
++          else overrides_["bug_report"] = 1;
++          SaveGameOverrides(Selected()->title_id, overrides_);
++        }
++        break;
++      }
++      // Until a row has the pad, the DLC tab's Triangle (Remove) does nothing.
++      if (game_tab_ == 4 && on_bar && key == Key::triangle) break;
+       if (game_tab_ == 6) {
+         if (key == Key::down) ++game_info_scroll;
+         if (key == Key::up && game_info_scroll > 0) --game_info_scroll;
+@@ -1806,7 +1904,6 @@ void Launcher::Press(Key key) {
+           launch_ = *Selected(); launch_pending_ = true; loading_ = launch_.name;
+           mode_ = Mode::shelf; game_return_ = Mode::shelf;
+         }
+-        if (key == Key::right) game_tab_ = 1;
+         if ((key == Key::up || key == Key::down) && Selected() && Selected()->discs.size() > 1)
+           StepDisc(key == Key::down ? 1 : -1);  // fix 89: the disc to start
+         if (key == Key::circle || key == Key::triangle) close();
+@@ -1816,8 +1913,6 @@ void Launcher::Press(Key key) {
+         auto& sheet = Updates();
+         const bool busy = tu::copier().Busy();
+         const int rows = int(sheet.page.items.size());
+-        if (key == Key::up && rows) sheet.row = (sheet.row + rows - 1) % rows;
+-        if (key == Key::down && rows) sheet.row = (sheet.row + 1) % rows;
+         if (!busy && key == Key::square) { sheet.result.clear(); RefreshUpdates(); }
+         if (!busy && key == Key::cross && rows && !save_root_.empty()) {
+           const tu::Item item = sheet.page.items[size_t(sheet.row)];
+@@ -1837,19 +1932,46 @@ void Launcher::Press(Key key) {
+       if (game_tab_ == 4) {
+         const bool busy = dlc2::copier().Busy();
+         const int rows = int(DlcPage().items.size());
+-        if (key == Key::up && rows) dlc_row_ = (dlc_row_ + rows - 1) % rows;
+-        if (key == Key::down && rows) dlc_row_ = (dlc_row_ + 1) % rows;
+         if (!busy && key == Key::square) RefreshDlcs();
++        if (!busy && key == Key::triangle && rows) {
++          // Fix 109: Remove, for a package on a save device (On or Off), after the window.
++          const dlc2::Item item = DlcPage().items[size_t(dlc_row_)];
++          if (item.state != dlc2::State::available && !item.root.empty()) {
++            if (!g_running_path.empty()) {
++              dlc_result_ = "running";
++            } else {
++              g_dlc_remove_open = true;
++              g_dlc_remove_shown = 0.0f;
++              g_dlc_remove_item = item;
++              g_dlc_remove_title = SelectedTitleId();
++            }
++          }
++        }
+         if (!busy && key == Key::cross && rows && !save_root_.empty()) {
+           const dlc2::Item item = DlcPage().items[size_t(dlc_row_)];
+           const uint32_t title = SelectedTitleId();
+           std::string result;
+-          if (item.state == dlc2::State::available) {
++          if (!g_running_path.empty()) {
++            // Fix 109: nothing is installed, switched or removed under a game that runs behind the
++            // library (it may have the package open).
++            XELOGW("LAUNCHER DLC {} ({}) on {}: not changed (a game is running)", item.name, item.file,
++                   item.device.empty() ? std::string("a dlc folder") : item.device);
++            result = "running";
++          } else if (item.state == dlc2::State::available) {
+             result = dlc2::copier().Start(item, save_root_, title) ? "" : "start-failed";
++            XELOGW("LAUNCHER DLC {} ({}, {}) from {}: {}", item.name, item.file, dlc2::SizeText(item.bytes),
++                   item.path.string(), result.empty() ? "installing" : "not installed (the copy did not start)");
+           } else {
++            // Fix 109: on its own drive, logged.
+             const bool enable = item.state == dlc2::State::disabled;
+-            result = dlc2::Move(item, save_root_, title, enable) ? (enable ? "enabled" : "disabled") : "move-failed";
++            dlc2::RemoveStep step;
++            const auto switched = dlc2::Switch(item, save_root_, title, enable, false, &step);
++            XELOGW("LAUNCHER DLC {} ({}) on {} at {}: {} ({})", item.name, item.file, item.device, item.path.string(),
++                   switched == dlc2::Switched::switched ? (enable ? "switched on" : "switched off") : "not switched",
++                   dlc2::Describe(step));
+             RefreshDlcs();
++            result = switched == dlc2::Switched::switched ? (enable ? "enabled" : "disabled")
++                   : switched == dlc2::Switched::twin ? "twin" : "move-failed";
+           }
+           dlc_result_ = result;
+         }
+@@ -1857,9 +1979,6 @@ void Launcher::Press(Key key) {
+         break;
+       }
+       if (game_tab_ == 3) {
+-        const int rows = int(achievements_.size());
+-        if (key == Key::up && rows) achievement_row_ = (achievement_row_ + rows - 1) % rows;
+-        if (key == Key::down && rows) achievement_row_ = (achievement_row_ + 1) % rows;
+         if (key == Key::triangle) { achievement_player_ = (achievement_player_ + 1) % 4; achievement_row_ = 0; RefreshAchievements(); }
+         if (key == Key::circle) close();
+         break;
+@@ -1870,10 +1989,8 @@ void Launcher::Press(Key key) {
+           // Fix 93d: one more row after the subjects, "Problem with this game? Logs for a bug report".
+           const bool identified = Selected() && !Selected()->title_id.empty();
+           const int categories = int(game_categories_.size()) + (identified ? 1 : 0);
+-          if (key == Key::up && categories) game_category_ = (game_category_ + categories - 1) % categories;
+-          if (key == Key::down && categories) game_category_ = (game_category_ + 1) % categories;
+           if (identified && game_category_ == int(game_categories_.size())) {
+-            if (key == Key::cross || key == Key::left || key == Key::right) {
++            if (key == Key::cross) {  // fix 109d: left and right through tab_bar::Press (value_step)
+               if (overrides_.count("bug_report") && overrides_["bug_report"]) overrides_.erase("bug_report");
+               else overrides_["bug_report"] = 1;
+               SaveGameOverrides(Selected()->title_id, overrides_);
+@@ -1886,10 +2003,8 @@ void Launcher::Press(Key key) {
+         }
+         // The game's own options: each follows the general one until changed here.
+         const int own_rows = Selected() && !Selected()->title_id.empty() ? int(game_rows_.size()) : 0;
+-        if (key == Key::up && own_rows) game_option_row_ = (game_option_row_ + own_rows - 1) % own_rows;
+-        if (key == Key::down && own_rows) game_option_row_ = (game_option_row_ + 1) % own_rows;
+-        if ((key == Key::left || key == Key::right || key == Key::cross) && own_rows)
+-          ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], key == Key::left ? -1 : 1);
++        if (key == Key::cross && own_rows)  // fix 109d: left and right through tab_bar::Press (value_step)
++          ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], 1);
+         if (key == Key::triangle && game_categories_.size() > 1) {
+           // The next subject.
+           game_category_ = (game_category_ + 1) % int(game_categories_.size());
+@@ -1905,8 +2020,6 @@ void Launcher::Press(Key key) {
+         break;
+       }
+       const int rows = int(patch_rows_.size());
+-      if (key == Key::up && rows) patch_row_ = (patch_row_ + rows - 1) % rows;
+-      if (key == Key::down && rows) patch_row_ = (patch_row_ + 1) % rows;
+       if (key == Key::cross && rows) {
+         const PatchRow row = patch_rows_[size_t(patch_row_)];
+         GamePatch& patch = patch_files_[row.file].patches[row.patch];
+@@ -2251,6 +2364,47 @@ struct Launcher::Canvas {
+     Text(label, x + 38, y + 2, 20, kMuted);
+     return x + 38 + Width(label, 20) + 44;
+   }
++  // Fix 109d: a filled triangle, for the painter of the tab bar the in-game guide shares
++  // (xbox360ps5/tab_bar.hpp: Fill, Text, Width and Triangle).
++  void Triangle(float ax, float ay, float bx, float by, float cx, float cy, uint32_t rgb, float a = 1.0f) const {
++    list->AddTriangleFilled(At(ax, ay), At(bx, by), At(cx, cy), Color(rgb, a));
++  }
++  // Fix 109: a raised button, as the guide draws its pad buttons: the button filled in the pad's
++  // colour with its shape in white, then what it does, on a key that stands off the sheet (a
++  // darker lip under its face, a soft shadow). danger: a red face, for what cannot be undone.
++  // Returns where the next one goes.
++  float Raised(char button, const std::string& label, float x, float y, bool danger = false) const {
++    const float w = Width(label, 24) + 92, h = 60, lip = 6, face_h = h - lip;
++    const auto shade = [](uint32_t rgb, float k) {
++      const auto part = [&](int shift) { return uint32_t(float(rgb >> shift & 255) * k) << shift; };
++      return part(16) | part(8) | part(0);
++    };
++    const uint32_t face = danger ? 0xc8443a : kSurfaceHigh;
++    for (int n = 3; n >= 1; --n) Fill(x - n, y + 2.0f * n, w + 2.0f * n, h, 0x000000, 0.10f, 14);
++    Fill(x, y, w, h, shade(face, 0.62f), 1.0f, 14);
++    Fill(x, y, w, face_h, face, 1.0f, 14);
++    Fill(x + 14, y + 3, w - 28, 2, kWhite, danger ? 0.22f : 0.12f, 1);
++    const kinect_ui::FaceButton pad = button == 'x' ? kinect_ui::FaceButton::cross
++                                    : button == 'o' ? kinect_ui::FaceButton::circle
++                                    : button == 's' ? kinect_ui::FaceButton::square : kinect_ui::FaceButton::triangle;
++    const ImVec2 centre = At(x + 34, y + face_h / 2);
++    const float g = 6 * scale, t = 2.4f * scale;
++    list->AddCircleFilled(centre, 16 * scale, Color(kinect_ui::HintRgb(pad)), 32);
++    const ImU32 ink = Color(kWhite);
++    if (button == 'x') {
++      list->AddLine(ImVec2(centre.x - g, centre.y - g), ImVec2(centre.x + g, centre.y + g), ink, t);
++      list->AddLine(ImVec2(centre.x + g, centre.y - g), ImVec2(centre.x - g, centre.y + g), ink, t);
++    } else if (button == 'o') {
++      list->AddCircle(centre, g * 1.1f, ink, 24, t);
++    } else if (button == 's') {
++      list->AddRect(ImVec2(centre.x - g, centre.y - g), ImVec2(centre.x + g, centre.y + g), ink, 0, 0, t);
++    } else {
++      list->AddTriangle(ImVec2(centre.x, centre.y - g - scale), ImVec2(centre.x + g, centre.y + g * 0.8f),
++                        ImVec2(centre.x - g, centre.y + g * 0.8f), ink, t);
++    }
++    Text(label, x + 62, y + face_h / 2 - 14, 24, danger ? kWhite : kText);
++    return x + w + 24;
++  }
+ };
+ 
+ namespace {
+@@ -2617,7 +2771,8 @@ void DrawBugReportRow(Surface& c, float x, float y, const std::string& label, co
+   c.list->AddCircle(c.At(x + 70, y + 20), 12 * c.scale, c.Color(kWarning), 20, 2.0f * c.scale);
+   c.Text("!", x + 70, y + 7, 22, kWarning, 1.0f, 1);
+   c.Text(label, x + 94, y + 8, 24, focused ? kText : kBody, 1.0f, 0, 520);
+-  c.Text(value, x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, 2, 200);
++  // Fix 109d: "< value >" (tab_bar::DrawValue): left and right change it.
++  tab_bar::DrawValue(c, value.c_str(), x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, true);
+ }
+ void Launcher::Draw(ImGuiIO& io) {
+   ApplyTheme(NxeUi());
+@@ -2772,6 +2927,34 @@ void Launcher::Draw(ImGuiIO& io) {
+     c.Hint('o', Tr("Cancel"), hint, y + h - 56);
+     c.alpha = 1.0f;
+   }
++  // Fix 109: "Remove DLC?", the same kind of window, standing off the screen with the guide's
++  // shadow and raised buttons: what is removed (name, size, drive) and that it is for good.
++  g_dlc_remove_shown = Smooth(g_dlc_remove_shown, g_dlc_remove_open ? 1.0f : 0.0f, dt, 18);
++  if (g_dlc_remove_shown > 0.01f) {
++    const float t = g_dlc_remove_shown;
++    const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
++    c.alpha = 1.0f;
++    c.Fill(0, 0, 1920, 1080, 0x000000, 0.6f * ease);
++    c.alpha = ease;
++    const float w = 1040 * (0.92f + 0.08f * ease), h = 420 * (0.92f + 0.08f * ease);
++    const float x = 960 - w / 2, y = 540 - h / 2;
++    for (int n = 3; n >= 1; --n)
++      c.Fill(x - 6.0f * n, y - 2.0f * n + 10, w + 12.0f * n, h + 8.0f * n, 0x000000, 0.13f, 22 + 10.0f * n);
++    c.Fill(x, y, w, h, kSheet, 0.99f, 22);
++    c.Edge(x, y, w, h, kWarning, 0.7f, 22, 2.0f);
++    const dlc2::Item& item = g_dlc_remove_item;
++    c.Text(Tr("Remove DLC?"), x + 48, y + 36, 34, kText);
++    c.Text(item.name, x + 48, y + 98, 28, kBody, 1.0f, 0, w - 96);
++    char size[160], drive[320];
++    std::snprintf(size, sizeof(size), Tr("Size: %s"), dlc2::SizeText(item.bytes).c_str());
++    std::snprintf(drive, sizeof(drive), Tr("Drive: %s"), item.device.c_str());
++    c.Text(size, x + 48, y + 148, 22, kMuted, 1.0f, 0, w - 96);
++    c.Text(drive, x + 48, y + 180, 22, kMuted, 1.0f, 0, w - 96);
++    c.Wrapped(Tr("The package file is deleted from this drive. This can't be undone."), x + 48, y + 230, 22, kWarning, w - 96);
++    const float button = c.Raised('x', Tr("Remove"), x + 48, y + h - 96, true);
++    c.Raised('o', Tr("Cancel"), button, y + h - 96);
++    c.alpha = 1.0f;
++  }
+   // Fix 57: "<game> requires Kinect", the same kind of window.
+   g_kinect_shown = Smooth(g_kinect_shown, g_kinect_open ? 1.0f : 0.0f, dt, 18);
+   if (g_kinect_shown > 0.01f) {
+@@ -3370,21 +3553,13 @@ void Launcher::DrawGameSheet(Canvas& c) {
+ 
+   // Game pages share the same controller navigation.
+   {
+-    const char* const tabs[] = {Tr("Play"), Tr("Patches"), Tr("Settings"), Tr("Achievements"), Tr("DLCs"),
+-                                Tr("Updates"), Tr("About")};
+-    // Six names do not fit the sheet at full size in every language: they shrink together.
+-    float names = 0;
+-    for (const char* tab : tabs) names += c.Width(tab, 28);
+-    const float fit = std::min(1.0f, (748 - c.Width("L1 / R1", 20)) / (names + 26 * float(std::size(tabs))));
+-    const float size = 28 * fit, gap = 26 * fit;
+-    float tab_x = x + 56;
+-    for (int n = 0; n < int(std::size(tabs)); ++n) {
+-      const float width = c.Width(tabs[n], size);
+-      c.Text(tabs[n], tab_x, 272 + (28 - size) * 0.6f, size, n == game_tab_ ? kText : kFaint);
+-      if (n == game_tab_) c.Fill(tab_x, 310, width, 3, kAccent, 0.9f, 2);
+-      tab_x += width + gap;
+-    }
+-    c.Text("L1 / R1", tab_x, 278, 20, kFaint);
++    // Fix 109d: the tab bar the in-game guide shares (xbox360ps5/tab_bar.hpp, fix 115c): "< L1" and
++    // "R1 >" at its ends, the open tab white with a green underline (on the green while the bar has
++    // the pad), the others grey; on a dark band in both themes, so its fixed white and grey read.
++    const std::vector<std::string> tabs = {Tr("Play"), Tr("Patches"), Tr("Settings"), Tr("Achievements"), Tr("DLCs"),
++                                           Tr("Updates"), Tr("About")};
++    c.Fill(x + 24, 256, 812, tab_bar::kBarHeight, 0x1a1f28, 0.96f, 14);
++    tab_bar::Draw(c, x + 24, x + 836, 256, tabs, game_tab_, g_list_focus_tab != game_tab_);
+   }
+   if (game_tab_ == 0) { DrawGamePlay(c, x); return; }
+   if (game_tab_ == 2) { DrawGameOptions(c, x); return; }
+@@ -3407,7 +3582,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+     for (int n = first; n < rows && n < first + shown; ++n) {
+       const GamePatch& patch = patch_files_[patch_rows_[size_t(n)].file].patches[patch_rows_[size_t(n)].patch];
+       const float y = 336 + (n - first) * 78.0f;
+-      const bool focused = n == patch_row_;
++      const bool focused = n == patch_row_ && g_list_focus_tab == 1;  // fix 109
+       c.Fill(x + 40, y, 780, 68, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
+       if (focused) c.Edge(x + 40, y, 780, 68, kAccent, 0.9f, 12, 2.0f);
+       c.Text(patch.name, x + 64, y + 20, 24, focused ? kText : kBody, 1.0f, 0, 620);
+@@ -3427,7 +3602,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+     if (!patch.author.empty()) c.Text(Tr("Author: ") + patch.author, x + 820, 286, 20, kFaint, 1.0f, 2, rows > shown ? 1.0f : 400.0f);
+   }
+   float hint = x + 56;
+-  if (rows) hint = c.Hint('x', Tr("Enable or disable"), hint, 1004);
++  if (rows && g_list_focus_tab == 1) hint = c.Hint('x', Tr("Enable or disable"), hint, 1004);  // fix 109
+   hint = c.Hint('o', Tr("Close"), hint, 1004);
+   if (rows > 1) c.Hint('v', Tr("Navigate"), hint, 1004);
+ }
+@@ -3449,7 +3624,7 @@ void Launcher::DrawAchievements(Canvas& c, float x) {
+   const int first = std::clamp(achievement_row_ - shown / 2, 0, std::max(0, rows - shown));
+   for (int n = first; n < std::min(rows, first + shown); ++n) {
+     const auto& entry = achievements_[size_t(n)]; const float y = 388 + (n - first) * 56.f;
+-    c.Fill(x + 40, y, 780, 50, n == achievement_row_ ? kSurfaceHigh : kSurface, 1, 10);
++    c.Fill(x + 40, y, 780, 50, n == achievement_row_ && g_list_focus_tab == 3 ? kSurfaceHigh : kSurface, 1, 10);  // fix 109
+     c.Text(entry.name, x + 64, y + 12, 22, entry.unlocked ? kAccent : kBody, 1, 0, 520);
+     c.Text(std::string(Tr(entry.unlocked ? "Unlocked" : "Locked")) + " · " + std::to_string(entry.score) + "G", x + 796, y + 12, 20, kMuted, 1, 2);
+   }
+@@ -3488,7 +3663,7 @@ void Launcher::RefreshDlcs() {
+     const fs::path own = fs::path("/app0/assets/dlc") / GameFolderName(game->name);
+     std::vector<std::filesystem::path> inboxes = {own, "/app0/assets/dlc", "/app0/dlc", game->path.parent_path() / "dlc"};
+     for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
+-    DlcPage() = dlc2::Find(title, save_root_, inboxes);
++    DlcPage() = dlc2::FindAll(title, DlcRoots(save_root_), inboxes);  // fix 109: every save device
+     // What is "ignored" is counted in the game's own folder only: the folders above hold the
+     // other games' packages too.
+     const dlc2::Found mine = dlc2::Find(title, {}, {own});
+@@ -3540,17 +3715,20 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+     x + 56, 330, 21, kMuted, 740);
+   const auto& page = DlcPage();
+   const int rows = int(page.items.size());
+-  const int first = std::clamp(dlc_row_ - 3, 0, std::max(0, rows - 6));
+-  for (int n = first; n < std::min(rows, first + 6); ++n) {
++  // Fix 109: five rows, each with a second line: the package's size and the drive it is on.
++  const int first = std::clamp(dlc_row_ - 2, 0, std::max(0, rows - 5));
++  for (int n = first; n < std::min(rows, first + 5); ++n) {
+     const auto& item = page.items[size_t(n)];
+-    const float y = 440 + (n - first) * 56.0f;
+-    const bool selected = n == dlc_row_;
+-    if (selected) c.Fill(x + 48, y, 768, 50, kSurfaceHigh, 1, 8);
+-    c.Text(item.name, x + 64, y + 10, 22, selected ? kText : kBody, 1, 0, 560);
++    const float y = 436 + (n - first) * 66.0f;
++    const bool selected = n == dlc_row_ && g_list_focus_tab == 4;  // fix 109
++    if (selected) c.Fill(x + 48, y, 768, 60, kSurfaceHigh, 1, 8);
++    c.Text(item.name, x + 64, y + 6, 22, selected ? kText : kBody, 1, 0, 560);
++    c.Text(dlc2::SizeText(item.bytes) + (item.device.empty() ? std::string() : "  \u00b7  " + item.device),
++           x + 64, y + 34, 18, selected ? kBody : kMuted, 1, 0, 600);
+     const bool on = item.state == dlc2::State::active, off = item.state == dlc2::State::disabled;
+     c.Text(on ? Tr("On||DLC") : off ? Tr("Off||DLC")
+                                                           : Tr("Not installed"),
+-           x + 796, y + 12, 20, on ? kAccent : off ? kMuted : kBody, 1, 2);
++           x + 796, y + 18, 20, on ? kAccent : off ? kMuted : kBody, 1, 2);
+   }
+   if (!rows)
+     c.Wrapped(SelectedTitleId() ? Tr("No DLC for this game found.")
+@@ -3573,6 +3751,10 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+       : dlc_result_ == "disabled" ? Tr("DLC off: the game does not see it; the file is kept.")
+       : dlc_result_ == "installed" ? Tr("DLC installed and on.")
+       : dlc_result_ == "move-failed" ? Tr("Could not move the DLC file.")
++      : dlc_result_ == "removed" ? Tr("DLC removed.")  // fix 109
++      : dlc_result_ == "running" ? Tr("Close the game first: DLC can't be changed while a game is running.")
++      : dlc_result_ == "twin" ? Tr("This drive has this DLC both On and Off: remove one of the two first.")
++      : dlc_result_ == "remove-failed" ? Tr("Could not remove the DLC file.")
+       : Tr("Installing failed: check free space and the file.");
+     c.Wrapped(std::string(text) + (dlc_result_.rfind("copy-failed", 0) == 0 ? " (" + dlc_result_.substr(12) + ")" : ""),
+               x + 56, 840, 22, kBody, 740);
+@@ -3581,11 +3763,13 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+              XBOX360PS5_TITLE_ID "/assets/dlc/" + (Selected() ? GameFolderName(Selected()->name) : std::string()),
+          x + 56, 928, 20, kFaint, 1, 0, 740);
+   float hint = x + 56;
+-  if (!busy && rows) {
++  if (!busy && rows && g_list_focus_tab == 4) {  // fix 109: once a row is chosen
+     const auto state = page.items[size_t(std::clamp(dlc_row_, 0, rows - 1))].state;
+     hint = c.Hint('x', state == dlc2::State::active ? Tr("Turn off")
+                      : state == dlc2::State::disabled ? Tr("Turn on") : Tr("Install"), hint, 1004);
++    if (state != dlc2::State::available) hint = c.Hint('t', Tr("Remove"), hint, 1004);  // fix 109
+   }
++  if (!busy && rows && g_list_focus_tab != 4) hint = c.Hint('v', Tr("Navigate"), hint, 1004);  // fix 109
+   if (!busy) hint = c.Hint('s', Tr("Reload list"), hint, 1004);
+   c.Hint('o', Tr("Back"), hint, 1004);
+ }
+@@ -3610,7 +3794,7 @@ void DrawUpdates(Surface& c, float x) {
+   for (int n = first; n < std::min(rows, first + 5); ++n) {
+     const auto& item = page.items[size_t(n)];
+     const float y = 470 + (n - first) * 56.0f;
+-    const bool selected = n == sheet.row;
++    const bool selected = n == sheet.row && g_list_focus_tab == 5;  // fix 109
+     if (selected) c.Fill(x + 48, y, 768, 50, kSurfaceHigh, 1, 8);
+     c.Text("v" + tu::VersionText(item.version) + "  ·  " + item.file, x + 64, y + 10, 22, selected ? kText : kBody, 1, 0, 520);
+     const bool on = item.state == tu::State::active, off = item.state == tu::State::disabled;
+@@ -3655,7 +3839,7 @@ void DrawUpdates(Surface& c, float x) {
+   c.Text(std::string(Tr("This game's folder: ")) +
+              XBOX360PS5_TITLE_ID "/assets/updates/" + sheet.folder, x + 56, 928, 20, kFaint, 1, 0, 740);
+   float hint = x + 56;
+-  if (!busy && rows) {
++  if (!busy && rows && g_list_focus_tab == 5) {  // fix 109: once a row is chosen
+     const auto state = page.items[size_t(std::clamp(sheet.row, 0, rows - 1))].state;
+     hint = c.Hint('x', state == tu::State::active ? Tr("Turn off")
+                      : state == tu::State::disabled ? Tr("Turn on") : Tr("Install"), hint, 1004);
+@@ -3698,7 +3882,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+         ++count; if (overrides_.count(option.key)) ++own;
+       }
+       const float y = 336 + n * 88.0f;
+-      const bool focused = n == game_category_;
++      const bool focused = n == game_category_ && g_list_focus_tab == 2;  // fix 109
+       c.Fill(x + 40, y, 780, 76, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
+       if (focused) c.Edge(x + 40, y, 780, 76, kAccent, 0.9f, 12, 2.0f);
+       c.Text(Tr(category == 0 ? "Graphics" : kOptionCategories[category]), x + 64, y + 12, 26, focused ? kText : kBody);
+@@ -3713,13 +3897,15 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+       const auto found = overrides_.find("bug_report");
+       const bool armed = found != overrides_.end() && found->second;
+       const float y = 336 + row * 88.0f + 8;
++      const bool row_focused = game_category_ == row && g_list_focus_tab == 2;  // fix 109
+       DrawBugReportRow(c, x, y, Tr("Problem with this game? Logs for a bug report"),
+-                       Tr(armed ? "Next start" : "Off||plural"), game_category_ == row, armed);
+-      if (game_category_ == row)
++                       Tr(armed ? "Next start" : "Off||plural"), row_focused, armed);
++      if (row_focused)
+         c.Wrapped(Tr("This game's next start records more details. Afterwards a screen lists the files to attach to your bug report."),
+                   x + 56, y + 56, 20, kBody, 750);
+     }
+-    hint = c.Hint('x', game_category_ == int(game_categories_.size()) ? Tr("Change") : Tr("Open"), hint, 1004);
++    if (g_list_focus_tab == 2)  // fix 109: once a row is chosen
++      hint = c.Hint('x', game_category_ == int(game_categories_.size()) ? Tr("Change") : Tr("Open"), hint, 1004);
+     c.Hint('o', Tr("Back"), hint, 1004);
+     return;
+   }
+@@ -3735,7 +3921,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+   for (int n = first; n < rows && n < first + shown; ++n) {
+     const Option& option = options[size_t(game_rows_[size_t(n)])];
+     const float y = 384 + (n - first) * 48.0f;
+-    const bool focused = n == game_option_row_;
++    const bool focused = n == game_option_row_ && g_list_focus_tab == 2;  // fix 109d
+     c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+     if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
+     c.Text(Tr(option.label), x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 420);
+@@ -3746,7 +3932,8 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+     const int value = own ? found->second : preset_here ? recommended->second : settings_.*option.field;
+     std::string text = Tr(option.choices[size_t(value)]);
+     if (!own) text = std::string(preset_here ? Tr("Recommended: ") : Tr("General: ")) + text;
+-    c.Text(text, x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, 2, 360);
++    // Fix 109d: "< value >" (tab_bar::DrawValue): left and right change it.
++    tab_bar::DrawValue(c, text.c_str(), x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);
+   }
+   const Option& option = options[size_t(game_rows_[size_t(game_option_row_)])];
+   c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
+@@ -3768,7 +3955,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+   char own_count[64];
+   std::snprintf(own_count, sizeof(own_count), Tr("%d settings of this game's own"), int(overrides_.size()));
+   c.Text(own_count, x + 56, 966, 20, overrides_.empty() ? kFaint : kAccent);
+-  hint = c.Hint('x', Tr("Change"), hint, 1004);
++  if (g_list_focus_tab == 2) hint = c.Hint('x', Tr("Change"), hint, 1004);  // fix 109d: once a row is chosen
+   if (game_categories_.size() > 1) hint = c.Hint('t', Tr("Next subject"), hint, 1004);
+   hint = c.Hint('s', preset.empty() ? Tr("Clear") : Tr("Recommended"), hint, 1004);
+   c.Hint('o', Tr("Back"), hint, 1004);

@@ -259,6 +259,7 @@ also listed here.
 | 121 (`121-file-sector`) | a 1.0.5 load-time fix: a game asking for a file's disc sector (to order its reads) gets the real one for files on the disc image instead of a random-looking number, without a log line per call (The Sims 3's long load) | host-checked (`tools/check-file-sector.cpp`); console: The Sims 3 load time A/B |
 | 122 (`122-sims3-readback-preset`) | The Sims 3 gets readback Fast by default (its own setting still wins): the Sim's face at distance and the household portrait are drawn by the GPU and read back; with readback off they were black or empty | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix122` |
 | 123 (`123-sims3-boost-preset`) | The Sims 3 also gets Optimized video memory by default (its own setting still wins): live mode rewrites its vertex data every frame, and the GPU thread spent 417 ms/s re-protecting it without the setting; with it 31 ms/s, 7.7 to 9.5 swaps a second in live mode | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix123` |
+| 109 (`109-dlc-remove`) | a launcher feature: the DLCs tab lists the packages of every save drive with their size and drive, and removes one after a confirmation, only while no game is running (Battlefield 3's HD textures on the extended storage) | host-checked (`tools/check-dlc-remove.cpp`); console: Battlefield 3's DLCs tab with HD content on ext1, Remove |
 
 ## Comparison with the official executable
 

@@ -293,6 +293,15 @@ Caps = Maiúsc.
 Other characters = Outros caracteres
 Move cursor = Mover cursor
 Maximum length reached = Tamanho máximo atingido
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Remover o DLC?
+Size: %s = Tamanho: %s
+Drive: %s = Unidade: %s
+The package file is deleted from this drive. This can't be undone. = O arquivo do pacote é apagado desta unidade. Não é possível desfazer.
+DLC removed. = DLC removido.
+Could not remove the DLC file. = Não foi possível remover o arquivo do DLC.
+Close the game first: DLC can't be changed while a game is running. = Feche o jogo primeiro: o DLC não pode ser alterado enquanto um jogo estiver aberto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidade tem este DLC Ativada e Desativada: remova uma das duas cópias primeiro.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -398,6 +407,15 @@ Caps = Maiúsc.
 Other characters = Outros caracteres
 Move cursor = Mover cursor
 Maximum length reached = Comprimento máximo atingido
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Remover o DLC?
+Size: %s = Tamanho: %s
+Drive: %s = Unidade: %s
+The package file is deleted from this drive. This can't be undone. = O ficheiro do pacote é apagado desta unidade. Não é possível anular.
+DLC removed. = DLC removido.
+Could not remove the DLC file. = Não foi possível remover o ficheiro do DLC.
+Close the game first: DLC can't be changed while a game is running. = Feche primeiro o jogo: o DLC não pode ser alterado enquanto um jogo estiver aberto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidade tem este DLC Ativada e Desativada: remova primeiro uma das duas cópias.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -503,6 +521,15 @@ Caps = Bloq Mayús
 Other characters = Otros caracteres
 Move cursor = Mover cursor
 Maximum length reached = Longitud máxima alcanzada
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = ¿Quitar el DLC?
+Size: %s = Tamaño: %s
+Drive: %s = Unidad: %s
+The package file is deleted from this drive. This can't be undone. = El archivo del paquete se borra de esta unidad. No se puede deshacer.
+DLC removed. = DLC quitado.
+Could not remove the DLC file. = No se pudo quitar el archivo del DLC.
+Close the game first: DLC can't be changed while a game is running. = Cierra antes el juego: el DLC no se puede cambiar mientras hay un juego abierto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidad tiene este DLC Activada y Desactivada: quita antes una de las dos copias.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -608,6 +635,15 @@ Caps = Bloq Mayús
 Other characters = Otros caracteres
 Move cursor = Mover cursor
 Maximum length reached = Longitud máxima alcanzada
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = ¿Quitar el DLC?
+Size: %s = Tamaño: %s
+Drive: %s = Unidad: %s
+The package file is deleted from this drive. This can't be undone. = El archivo del paquete se borra de esta unidad. No se puede deshacer.
+DLC removed. = DLC quitado.
+Could not remove the DLC file. = No se pudo quitar el archivo del DLC.
+Close the game first: DLC can't be changed while a game is running. = Cierra primero el juego: el DLC no se puede cambiar mientras hay un juego abierto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidad tiene este DLC Activado y Desactivado: quita primero una de las dos copias.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -713,6 +749,15 @@ Caps = Feststell
 Other characters = Weitere Zeichen
 Move cursor = Cursor bewegen
 Maximum length reached = Maximale Länge erreicht
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC entfernen?
+Size: %s = Größe: %s
+Drive: %s = Laufwerk: %s
+The package file is deleted from this drive. This can't be undone. = Die Paketdatei wird von diesem Laufwerk gelöscht. Das kann nicht rückgängig gemacht werden.
+DLC removed. = DLC entfernt.
+Could not remove the DLC file. = Die DLC-Datei konnte nicht entfernt werden.
+Close the game first: DLC can't be changed while a game is running. = Schließe zuerst das Spiel: DLC kann nicht geändert werden, während ein Spiel läuft.
+This drive has this DLC both On and Off: remove one of the two first. = Dieses Laufwerk hat diesen DLC als Ein und als Aus: Entferne zuerst eine der beiden Kopien.
 
 [added fr]
 Console storage = Stockage de la console
@@ -818,6 +863,15 @@ Caps = Verr. Maj
 Other characters = Autres caractères
 Move cursor = Déplacer le curseur
 Maximum length reached = Longueur maximale atteinte
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Retirer le DLC ?
+Size: %s = Taille : %s
+Drive: %s = Périphérique : %s
+The package file is deleted from this drive. This can't be undone. = Le fichier du paquet est supprimé de ce périphérique. Cette action est irréversible.
+DLC removed. = DLC retiré.
+Could not remove the DLC file. = Impossible de retirer le fichier du DLC.
+Close the game first: DLC can't be changed while a game is running. = Fermez d'abord le jeu : un DLC ne peut pas être modifié pendant qu'un jeu est en cours.
+This drive has this DLC both On and Off: remove one of the two first. = Ce périphérique contient ce DLC Activé et Désactivé : retirez d'abord l'une des deux copies.
 
 [added it]
 Console storage = Memoria della console
@@ -923,6 +977,15 @@ Caps = Bloc Maiusc
 Other characters = Altri caratteri
 Move cursor = Sposta il cursore
 Maximum length reached = Lunghezza massima raggiunta
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Rimuovere il DLC?
+Size: %s = Dimensione: %s
+Drive: %s = Unità: %s
+The package file is deleted from this drive. This can't be undone. = Il file del pacchetto viene eliminato da questa unità. L'operazione non può essere annullata.
+DLC removed. = DLC rimosso.
+Could not remove the DLC file. = Impossibile rimuovere il file del DLC.
+Close the game first: DLC can't be changed while a game is running. = Chiudi prima il gioco: il DLC non si può modificare mentre un gioco è in esecuzione.
+This drive has this DLC both On and Off: remove one of the two first. = Questa unità ha questo DLC sia Attivo sia Spento: rimuovi prima una delle due copie.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1028,6 +1091,15 @@ Caps = 大文字
 Other characters = その他の文字
 Move cursor = カーソル移動
 Maximum length reached = 最大文字数に達しました
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC を削除しますか？
+Size: %s = サイズ: %s
+Drive: %s = ドライブ: %s
+The package file is deleted from this drive. This can't be undone. = このドライブからパッケージファイルが削除されます。元に戻すことはできません。
+DLC removed. = DLC を削除しました。
+Could not remove the DLC file. = DLC ファイルを削除できませんでした。
+Close the game first: DLC can't be changed while a game is running. = 先にゲームを閉じてください。ゲームの実行中は DLC を変更できません。
+This drive has this DLC both On and Off: remove one of the two first. = このドライブにはこの DLC がオンとオフの両方にあります。先にどちらかを削除してください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1133,6 +1205,15 @@ Caps = 대문자
 Other characters = 기타 문자
 Move cursor = 커서 이동
 Maximum length reached = 최대 길이에 도달했습니다
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC를 제거할까요?
+Size: %s = 크기: %s
+Drive: %s = 드라이브: %s
+The package file is deleted from this drive. This can't be undone. = 이 드라이브에서 패키지 파일이 삭제됩니다. 되돌릴 수 없습니다.
+DLC removed. = DLC를 제거했습니다.
+Could not remove the DLC file. = DLC 파일을 제거할 수 없습니다.
+Close the game first: DLC can't be changed while a game is running. = 먼저 게임을 닫으세요. 게임이 실행 중일 때는 DLC를 변경할 수 없습니다.
+This drive has this DLC both On and Off: remove one of the two first. = 이 드라이브에 이 DLC가 켜기와 끄기 양쪽에 있습니다. 먼저 둘 중 하나를 제거하세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1238,6 +1319,15 @@ Caps = Caps
 Other characters = Andere tekens
 Move cursor = Cursor verplaatsen
 Maximum length reached = Maximale lengte bereikt
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC verwijderen?
+Size: %s = Grootte: %s
+Drive: %s = Station: %s
+The package file is deleted from this drive. This can't be undone. = Het pakketbestand wordt van dit station gewist. Dit kan niet ongedaan worden gemaakt.
+DLC removed. = DLC verwijderd.
+Could not remove the DLC file. = Het DLC-bestand kon niet worden verwijderd.
+Close the game first: DLC can't be changed while a game is running. = Sluit eerst de game: DLC kan niet worden gewijzigd terwijl er een game actief is.
+This drive has this DLC both On and Off: remove one of the two first. = Dit station heeft deze DLC zowel Aan als Uit: verwijder eerst een van de twee.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1343,6 +1433,15 @@ Caps = Caps
 Other characters = Inne znaki
 Move cursor = Przesuń kursor
 Maximum length reached = Osiągnięto maksymalną długość
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Usunąć DLC?
+Size: %s = Rozmiar: %s
+Drive: %s = Dysk: %s
+The package file is deleted from this drive. This can't be undone. = Plik pakietu zostanie usunięty z tego dysku. Tej operacji nie można cofnąć.
+DLC removed. = DLC usunięto.
+Could not remove the DLC file. = Nie można usunąć pliku DLC.
+Close the game first: DLC can't be changed while a game is running. = Najpierw zamknij grę: podczas działania gry nie można zmieniać DLC.
+This drive has this DLC both On and Off: remove one of the two first. = Na tym dysku to DLC jest jednocześnie Włączone i Wyłączone: najpierw usuń jedną z dwóch kopii.
 
 [added ru]
 Console storage = Память консоли
@@ -1448,6 +1547,15 @@ Caps = Caps
 Other characters = Другие символы
 Move cursor = Переместить курсор
 Maximum length reached = Достигнута максимальная длина
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Удалить DLC?
+Size: %s = Размер: %s
+Drive: %s = Накопитель: %s
+The package file is deleted from this drive. This can't be undone. = Файл пакета будет удалён с этого накопителя. Это действие нельзя отменить.
+DLC removed. = DLC удалено.
+Could not remove the DLC file. = Не удалось удалить файл DLC.
+Close the game first: DLC can't be changed while a game is running. = Сначала закройте игру: DLC нельзя изменить, пока запущена игра.
+This drive has this DLC both On and Off: remove one of the two first. = На этом накопителе это DLC есть и как Вкл., и как Выкл.: сначала удалите одну из двух копий.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1553,6 +1661,15 @@ Caps = Caps
 Other characters = Diğer karakterler
 Move cursor = İmleci taşı
 Maximum length reached = En fazla uzunluğa ulaşıldı
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC kaldırılsın mı?
+Size: %s = Boyut: %s
+Drive: %s = Sürücü: %s
+The package file is deleted from this drive. This can't be undone. = Paket dosyası bu sürücüden silinir. Bu işlem geri alınamaz.
+DLC removed. = DLC kaldırıldı.
+Could not remove the DLC file. = DLC dosyası kaldırılamadı.
+Close the game first: DLC can't be changed while a game is running. = Önce oyunu kapatın: Bir oyun çalışırken DLC değiştirilemez.
+This drive has this DLC both On and Off: remove one of the two first. = Bu sürücüde bu DLC hem Açık hem Kapalı olarak var: önce ikisinden birini kaldırın.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1658,6 +1775,15 @@ Caps = 大写
 Other characters = 其他字符
 Move cursor = 移动光标
 Maximum length reached = 已达到最大长度
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = 移除 DLC？
+Size: %s = 大小：%s
+Drive: %s = 驱动器：%s
+The package file is deleted from this drive. This can't be undone. = 包文件将从此驱动器中删除。此操作无法撤销。
+DLC removed. = DLC 已移除。
+Could not remove the DLC file. = 无法移除 DLC 文件。
+Close the game first: DLC can't be changed while a game is running. = 请先关闭游戏：游戏运行时无法更改 DLC。
+This drive has this DLC both On and Off: remove one of the two first. = 此驱动器上的这个 DLC 同时处于开启和关闭状态：请先移除其中一个。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1763,3 +1889,12 @@ Caps = 大寫
 Other characters = 其他字元
 Move cursor = 移動游標
 Maximum length reached = 已達最大長度
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = 移除 DLC？
+Size: %s = 大小：%s
+Drive: %s = 磁碟機：%s
+The package file is deleted from this drive. This can't be undone. = 套件檔案將從此磁碟機刪除。此操作無法復原。
+DLC removed. = DLC 已移除。
+Could not remove the DLC file. = 無法移除 DLC 檔案。
+Close the game first: DLC can't be changed while a game is running. = 請先關閉遊戲：遊戲執行時無法變更 DLC。
+This drive has this DLC both On and Off: remove one of the two first. = 此磁碟機上的這個 DLC 同時為開啟與關閉：請先移除其中一個。
