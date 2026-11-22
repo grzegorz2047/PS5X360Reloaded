@@ -225,7 +225,7 @@ index ccc8791..5cc05f1 100644
  
  // Installing copies on a worker thread, with progress.
 diff --git a/src/launcher.cpp b/src/launcher.cpp
-index f8067b2..43ef6e0 100644
+index f8067b2..3e76419 100644
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
 @@ -202,6 +202,38 @@ std::string g_running_path, g_running_name;
@@ -396,14 +396,14 @@ index f8067b2..43ef6e0 100644
      Text(label, x + 38, y + 2, 20, kMuted);
      return x + 38 + Width(label, 20) + 44;
    }
-+  // Fix 109: a shoulder button (L1, R1) as printed on the controller: its name in a rounded key,
-+  // brighter while lit.
-+  float ShoulderWidth(const char* name) const { return Width(name, 18) + 22; }
++  // Fix 109: a shoulder button (L1, R1), as the in-game guide draws it (fix 115b): a pill 30 high,
++  // fully round ends, the guide's grey RGB(110,116,124), its name in white at 20, 12 of padding
++  // each side. Dimmed while a list, not the tab bar, has the pad.
++  float ShoulderWidth(const char* name) const { return Width(name, 20) + 24; }
 +  float Shoulder(const char* name, float x, float y, bool lit) const {
 +    const float w = ShoulderWidth(name), h = 30;
-+    Fill(x, y, w, h, lit ? kSurfaceHigh : kSurface, lit ? 1.0f : 0.7f, 8);
-+    Edge(x, y, w, h, lit ? kText : kFaint, lit ? 0.7f : 0.5f, 8, 1.5f);
-+    Text(name, x + w / 2, y + 5, 18, lit ? kText : kMuted, 1.0f, 1);
++    Fill(x, y, w, h, 0x6e747c, lit ? 1.0f : 0.45f, h / 2);
++    Text(name, x + w / 2, y + 4, 20, kWhite, lit ? 1.0f : 0.6f, 1);
 +    return w;
 +  }
 +  // Fix 109: a raised button, as the guide draws its pad buttons: the button filled in the pad's
@@ -480,12 +480,13 @@ index f8067b2..43ef6e0 100644
    // Fix 57: "<game> requires Kinect", the same kind of window.
    g_kinect_shown = Smooth(g_kinect_shown, g_kinect_open ? 1.0f : 0.0f, dt, 18);
    if (g_kinect_shown > 0.01f) {
-@@ -3362,16 +3533,21 @@ void Launcher::DrawGameSheet(Canvas& c) {
+@@ -3362,16 +3533,22 @@ void Launcher::DrawGameSheet(Canvas& c) {
      // Six names do not fit the sheet at full size in every language: they shrink together.
      float names = 0;
      for (const char* tab : tabs) names += c.Width(tab, 28);
 -    const float fit = std::min(1.0f, (748 - c.Width("L1 / R1", 20)) / (names + 26 * float(std::size(tabs))));
-+    // Fix 109: L1 and R1 as keys at the two ends of the bar (lit while the bar has the pad).
++    // Fix 109: L1 and R1 at the bar's two outer edges (lit while the bar has the pad), the tabs
++    // between them.
 +    const float shoulder = c.ShoulderWidth("L1") + 16;
 +    const float fit = std::min(1.0f, (748 - 2 * shoulder) / (names + 26 * float(std::size(tabs) - 1)));
      const float size = 28 * fit, gap = 26 * fit;
@@ -501,11 +502,11 @@ index f8067b2..43ef6e0 100644
 +      tab_x += width + (n + 1 < int(std::size(tabs)) ? gap : 0.0f);
      }
 -    c.Text("L1 / R1", tab_x, 278, 20, kFaint);
-+    c.Shoulder("R1", tab_x + 16, 272, bar);
++    c.Shoulder("R1", x + 56 + 748 - c.ShoulderWidth("R1"), 272, bar);
    }
    if (game_tab_ == 0) { DrawGamePlay(c, x); return; }
    if (game_tab_ == 2) { DrawGameOptions(c, x); return; }
-@@ -3394,7 +3570,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+@@ -3394,7 +3571,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
      for (int n = first; n < rows && n < first + shown; ++n) {
        const GamePatch& patch = patch_files_[patch_rows_[size_t(n)].file].patches[patch_rows_[size_t(n)].patch];
        const float y = 336 + (n - first) * 78.0f;
@@ -514,7 +515,7 @@ index f8067b2..43ef6e0 100644
        c.Fill(x + 40, y, 780, 68, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
        if (focused) c.Edge(x + 40, y, 780, 68, kAccent, 0.9f, 12, 2.0f);
        c.Text(patch.name, x + 64, y + 20, 24, focused ? kText : kBody, 1.0f, 0, 620);
-@@ -3414,7 +3590,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
+@@ -3414,7 +3591,7 @@ void Launcher::DrawGameSheet(Canvas& c) {
      if (!patch.author.empty()) c.Text(Tr("Author: ") + patch.author, x + 820, 286, 20, kFaint, 1.0f, 2, rows > shown ? 1.0f : 400.0f);
    }
    float hint = x + 56;
@@ -523,7 +524,7 @@ index f8067b2..43ef6e0 100644
    hint = c.Hint('o', Tr("Close"), hint, 1004);
    if (rows > 1) c.Hint('v', Tr("Navigate"), hint, 1004);
  }
-@@ -3436,7 +3612,7 @@ void Launcher::DrawAchievements(Canvas& c, float x) {
+@@ -3436,7 +3613,7 @@ void Launcher::DrawAchievements(Canvas& c, float x) {
    const int first = std::clamp(achievement_row_ - shown / 2, 0, std::max(0, rows - shown));
    for (int n = first; n < std::min(rows, first + shown); ++n) {
      const auto& entry = achievements_[size_t(n)]; const float y = 388 + (n - first) * 56.f;
@@ -532,7 +533,7 @@ index f8067b2..43ef6e0 100644
      c.Text(entry.name, x + 64, y + 12, 22, entry.unlocked ? kAccent : kBody, 1, 0, 520);
      c.Text(std::string(Tr(entry.unlocked ? "Unlocked" : "Locked")) + " · " + std::to_string(entry.score) + "G", x + 796, y + 12, 20, kMuted, 1, 2);
    }
-@@ -3475,7 +3651,7 @@ void Launcher::RefreshDlcs() {
+@@ -3475,7 +3652,7 @@ void Launcher::RefreshDlcs() {
      const fs::path own = fs::path("/app0/assets/dlc") / GameFolderName(game->name);
      std::vector<std::filesystem::path> inboxes = {own, "/app0/assets/dlc", "/app0/dlc", game->path.parent_path() / "dlc"};
      for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
@@ -541,7 +542,7 @@ index f8067b2..43ef6e0 100644
      // What is "ignored" is counted in the game's own folder only: the folders above hold the
      // other games' packages too.
      const dlc2::Found mine = dlc2::Find(title, {}, {own});
-@@ -3527,17 +3703,20 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+@@ -3527,17 +3704,20 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
      x + 56, 330, 21, kMuted, 740);
    const auto& page = DlcPage();
    const int rows = int(page.items.size());
@@ -569,7 +570,7 @@ index f8067b2..43ef6e0 100644
    }
    if (!rows)
      c.Wrapped(SelectedTitleId() ? Tr("No DLC for this game found.")
-@@ -3560,6 +3739,10 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+@@ -3560,6 +3740,10 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
        : dlc_result_ == "disabled" ? Tr("DLC off: the game does not see it; the file is kept.")
        : dlc_result_ == "installed" ? Tr("DLC installed and on.")
        : dlc_result_ == "move-failed" ? Tr("Could not move the DLC file.")
@@ -580,7 +581,7 @@ index f8067b2..43ef6e0 100644
        : Tr("Installing failed: check free space and the file.");
      c.Wrapped(std::string(text) + (dlc_result_.rfind("copy-failed", 0) == 0 ? " (" + dlc_result_.substr(12) + ")" : ""),
                x + 56, 840, 22, kBody, 740);
-@@ -3568,11 +3751,13 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
+@@ -3568,11 +3752,13 @@ void Launcher::DrawDlcs(Canvas& c, float x) {
               XBOX360PS5_TITLE_ID "/assets/dlc/" + (Selected() ? GameFolderName(Selected()->name) : std::string()),
           x + 56, 928, 20, kFaint, 1, 0, 740);
    float hint = x + 56;
@@ -595,7 +596,7 @@ index f8067b2..43ef6e0 100644
    if (!busy) hint = c.Hint('s', Tr("Reload list"), hint, 1004);
    c.Hint('o', Tr("Back"), hint, 1004);
  }
-@@ -3597,7 +3782,7 @@ void DrawUpdates(Surface& c, float x) {
+@@ -3597,7 +3783,7 @@ void DrawUpdates(Surface& c, float x) {
    for (int n = first; n < std::min(rows, first + 5); ++n) {
      const auto& item = page.items[size_t(n)];
      const float y = 470 + (n - first) * 56.0f;
@@ -604,7 +605,7 @@ index f8067b2..43ef6e0 100644
      if (selected) c.Fill(x + 48, y, 768, 50, kSurfaceHigh, 1, 8);
      c.Text("v" + tu::VersionText(item.version) + "  ·  " + item.file, x + 64, y + 10, 22, selected ? kText : kBody, 1, 0, 520);
      const bool on = item.state == tu::State::active, off = item.state == tu::State::disabled;
-@@ -3642,7 +3827,7 @@ void DrawUpdates(Surface& c, float x) {
+@@ -3642,7 +3828,7 @@ void DrawUpdates(Surface& c, float x) {
    c.Text(std::string(Tr("This game's folder: ")) +
               XBOX360PS5_TITLE_ID "/assets/updates/" + sheet.folder, x + 56, 928, 20, kFaint, 1, 0, 740);
    float hint = x + 56;
@@ -613,7 +614,7 @@ index f8067b2..43ef6e0 100644
      const auto state = page.items[size_t(std::clamp(sheet.row, 0, rows - 1))].state;
      hint = c.Hint('x', state == tu::State::active ? Tr("Turn off")
                       : state == tu::State::disabled ? Tr("Turn on") : Tr("Install"), hint, 1004);
-@@ -3685,7 +3870,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3685,7 +3871,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
          ++count; if (overrides_.count(option.key)) ++own;
        }
        const float y = 336 + n * 88.0f;
@@ -622,7 +623,7 @@ index f8067b2..43ef6e0 100644
        c.Fill(x + 40, y, 780, 76, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
        if (focused) c.Edge(x + 40, y, 780, 76, kAccent, 0.9f, 12, 2.0f);
        c.Text(Tr(category == 0 ? "Graphics" : kOptionCategories[category]), x + 64, y + 12, 26, focused ? kText : kBody);
-@@ -3700,13 +3885,15 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -3700,13 +3886,15 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
        const auto found = overrides_.find("bug_report");
        const bool armed = found != overrides_.end() && found->second;
        const float y = 336 + row * 88.0f + 8;

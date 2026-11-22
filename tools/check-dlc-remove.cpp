@@ -404,10 +404,14 @@ void CheckLauncher() {
          "every DLC change and refusal is logged");
   // (f) The tab bar's L1 / R1 keys, and the lists' focus.
   const std::string sheet = Body(launcher, "void Launcher::DrawGameSheet(Canvas& c) {");
-  Expect(Has(sheet, "c.Shoulder(\"L1\", tab_x, 272, bar);") && Has(sheet, "c.Shoulder(\"R1\", tab_x + 16, 272, bar);") &&
+  Expect(Has(sheet, "c.Shoulder(\"L1\", tab_x, 272, bar);") && Has(sheet, "c.Shoulder(\"R1\", x + 56 + 748 - c.ShoulderWidth(\"R1\"), 272, bar);") &&
              !Has(sheet, "c.Text(\"L1 / R1\"") && Has(sheet, "const bool bar = g_list_focus_tab != game_tab_;"),
          "L1 and R1 at the two ends of the tab bar, lit while the bar has the pad");
-  Expect(Has(launcher, "float Shoulder(const char* name, float x, float y, bool lit) const {"), "the canvas draws shoulder keys");
+  Expect(Has(launcher, "float Shoulder(const char* name, float x, float y, bool lit) const {") &&
+             Has(launcher, "float ShoulderWidth(const char* name) const { return Width(name, 20) + 24; }") &&
+             Has(launcher, "Fill(x, y, w, h, 0x6e747c, lit ? 1.0f : 0.45f, h / 2);") &&
+             Has(launcher, "Text(name, x + w / 2, y + 4, 20, kWhite, lit ? 1.0f : 0.6f, 1);"),
+         "the shoulder keys look as the guide's (fix 115b): a grey pill, white 20 px name, 12 px padding");
   Expect(Has(launcher, "  game_tab_ = tab;\n  g_list_focus_tab = -1;  // fix 109: the tab bar first\n"),
          "a sheet opens on its tab bar");
   Expect(Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = (game_tab_ + (key == Key::r1 ? 1 : 6)) % 7;") &&
