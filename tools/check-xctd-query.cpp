@@ -47,6 +47,15 @@ int main() {
   CHECK(x::Answer(xctd, 3) == x::kNotCompressed);
   CHECK(x::Answer(xctd, 0) == x::kNotCompressed);
   CHECK(x::Answer(nullptr, 4) == x::kNotCompressed);
+  // Fix 90b: an empty file reads as end of file with nothing read: the query answers (not
+  // compressed, Answer above); end of file after some bytes, a refused read or any other failure
+  // keeps the old answer.
+  CHECK(x::kStatusEndOfFile == 0xC0000011 && x::kStatusSuccess == 0);
+  CHECK(x::HeadRead(x::kStatusSuccess, 4) && x::HeadRead(x::kStatusSuccess, 2));
+  CHECK(x::HeadRead(x::kStatusEndOfFile, 0));
+  CHECK(!x::HeadRead(x::kStatusEndOfFile, 2));
+  CHECK(!x::HeadRead(0xC0000022, 0));  // STATUS_ACCESS_DENIED (a handle without read access)
+  CHECK(!x::HeadRead(0xC0000001, 0));
 
   // 1.0.5_candidate_9: the trace of compressed files (Tracer), bounded per handle and in all.
   {
@@ -87,6 +96,11 @@ int main() {
     const std::string body = io.substr(at, end - at);
     // Read at offset 0 through the vfs file (positional: the XFile's position is not moved).
     CHECK(body.find("ReadSync(std::span<uint8_t>(head, sizeof(head)), 0, &head_read)") != std::string::npos);
+    // Fix 90b: the read's status goes through HeadRead (an empty file is answered).
+    CHECK(body.find("xbox360ps5::xctd::HeadRead(\n") != std::string::npos ||
+          body.find("xbox360ps5::xctd::HeadRead(\r\n") != std::string::npos);
+    CHECK(body.find("&head_read)), head_read);") != std::string::npos);
+    CHECK(body.find("&head_read) ==") == std::string::npos);  // the old success-only test is gone
     CHECK(body.find("xbox360ps5::xctd::Answer(head, head_read)") != std::string::npos);
     CHECK(body.find("out_length = sizeof(uint32_t);") != std::string::npos);
     // An unreadable file keeps the old answer; the old "unimplemented" for every file is gone.

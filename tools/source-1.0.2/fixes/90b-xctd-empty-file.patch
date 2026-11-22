@@ -1,0 +1,39 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+index 215f416..53d096e 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+@@ -124,9 +124,11 @@ dword_result_t NtQueryInformationFile_entry(
+       // decompresses it itself; XCTD files begin with 0x0FF512ED (xbox360ps5/xctd.hpp).
+       uint8_t head[4] = {};
+       size_t head_read = 0;
++      // Fix 90b: an empty file (end of file, nothing read) is not compressed (xctd.hpp, HeadRead).
+       const bool readable =
+-          file->file() && file->file()->ReadSync(std::span<uint8_t>(head, sizeof(head)), 0, &head_read) ==
+-                              X_STATUS_SUCCESS;
++          file->file() &&
++          xbox360ps5::xctd::HeadRead(
++              uint32_t(file->file()->ReadSync(std::span<uint8_t>(head, sizeof(head)), 0, &head_read)), head_read);
+       if (!readable) {
+         XELOGE("NtQueryInformationFile(XFileXctdCompressionInformation): {} cannot be read",
+                path);
+diff --git a/include/xbox360ps5/xctd.hpp b/include/xbox360ps5/xctd.hpp
+index 41596fd..0cdb644 100644
+--- a/include/xbox360ps5/xctd.hpp
++++ b/include/xbox360ps5/xctd.hpp
+@@ -41,6 +41,16 @@ inline uint32_t Answer(const uint8_t* bytes, size_t size) {
+   return IsCompressedHeader(bytes, size) ? kCompressed : kNotCompressed;
+ }
+ 
++// Fix 90b: whether the read of the first word lets the query answer. An empty file reads as end
++// of file with nothing read (Kinect Sports creates its replay buffers \CACHE\videobufferN empty
++// and asks about each at once; 1.0.5-work-fix119 logged "cannot be read" for every one): it is
++// shorter than the magic, so not compressed, as Answer has it. Any other failure keeps the old
++// answer (STATUS_INVALID_PARAMETER).
++constexpr uint32_t kStatusSuccess = 0, kStatusEndOfFile = 0xC0000011;
++inline bool HeadRead(uint32_t status, size_t read) {
++  return status == kStatusSuccess || (status == kStatusEndOfFile && read == 0);
++}
++
+ // The handles answered "compressed", followed for the log: each with its own budget of lines
+ // (kLinesPerHandle) and a total (kLinesInAll), so a 30 MB bundle read in 32 KiB pieces does not
+ // flood it. A handle number reused by a later open starts over (Add replaces it).
