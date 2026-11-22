@@ -85,7 +85,7 @@ void CheckModel() {
       stamps[u] = s;
     }
     const uint32_t first = random() % units;
-    const uint32_t last = std::min(units - 1, first + (random() % 3 ? random() % 8 : random() % 300));
+    const uint32_t last = std::min<uint32_t>(units - 1, first + uint32_t(random() % 3 ? random() % 8 : random() % 300));
     const bool fast = ulf::NothingToUpload(valid.data(), unwatched.data(), stamps.data(), chunk, first, last);
     const bool locked = LockedPathUploadsNothing(valid, unwatched, stamps, chunk, first, last);
     if (fast == locked) ++agree;
