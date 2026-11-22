@@ -1,0 +1,40 @@
+diff --git a/include/xbox360ps5/i18n.hpp b/include/xbox360ps5/i18n.hpp
+index 3b69a1b..ecf9ae6 100644
+--- a/include/xbox360ps5/i18n.hpp
++++ b/include/xbox360ps5/i18n.hpp
+@@ -7,14 +7,29 @@ namespace xbox360ps5 {
+ // Xbox language IDs. The interface is keyed by English (fix 25) and translated by the language
+ // files (reconstructed/xbox360ps5/i18n_ui.hpp).
+ inline std::atomic<int> ui_language{1};
++// The game language "Automatic (console)" gives: the Xbox 360 language of the PS5's system
++// language (system-service parameter 1, SCE_SYSTEM_PARAM_LANG_*), as the core's XLanguage numbers
++// them (xenia/xbox.h: 1 English, 2 Japanese, 3 German, 4 French, 5 Spanish, 6 Italian, 7 Korean,
++// 8 Traditional Chinese, 9 Portuguese, 11 Polish, 12 Russian, 14 Turkish, 16 Dutch, 17 Simplified
++// Chinese) and the launcher's Language list does; a language the list has not, English.
++// Fix 132: Russian, Korean, Chinese, Polish, Dutch and Turkish were English too (a Polish PS5 gave
++// Dragon Age II in English, locale\en-us, though the game has Polish).
+ inline int ConsoleGameLanguage(int ps5) {
+   switch (ps5) {
+-    case 0: return 2;
+-    case 2: case 22: return 4;
+-    case 3: case 20: return 5;
+-    case 4: return 3;
+-    case 5: return 6;
+-    case 7: case 17: return 9;
++    case 0: return 2;            // Japanese
++    case 1: case 18: return 1;   // English (United States, United Kingdom)
++    case 2: case 22: return 4;   // French (France, Canada)
++    case 3: case 20: return 5;   // Spanish (Spain, Latin America)
++    case 4: return 3;            // German
++    case 5: return 6;            // Italian
++    case 6: return 16;           // Dutch (fix 132)
++    case 7: case 17: return 9;   // Portuguese (Portugal, Brazil)
++    case 8: return 12;           // Russian (fix 132)
++    case 9: return 7;            // Korean (fix 132)
++    case 10: return 8;           // Chinese, Traditional (fix 132)
++    case 11: return 17;          // Chinese, Simplified (fix 132)
++    case 16: return 11;          // Polish (fix 132)
++    case 19: return 14;          // Turkish (fix 132)
+     default: return 1;
+   }
+ }
