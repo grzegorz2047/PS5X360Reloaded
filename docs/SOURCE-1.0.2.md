@@ -239,6 +239,7 @@ also listed here.
 | 98 (`98-dark-default`) | the dark theme is the default (a new install, or no choice saved, starts dark); a player's light choice is kept in `ui-light.on`; the web settings and phone camera pages were dark already | host-checked (`tools/check-dark-default.cpp`) |
 | 101 (`101-content-folders`) | a storage fix: extended storage is a hard drive to the games, and a package a game creates itself (Battlefield 3's HD content) lands in a writable, mounted folder where it is opened from later; the save drive setting stops answering a game that keeps refusing it | host-checked (`tools/check-content-folders.cpp`); console: Battlefield 3, Install HD content, on ext1 and on the internal device |
 | 114 (`114-osk-keyboard`) | the on-screen keyboard for games (`XamShowKeyboardUI`: The Sims 3, Culdcept Saga, Bakugan Battle Brawlers) with capitals, accented letters, symbols and Russian, the game's length limit, Cancel answered as cancelled; capitals in the launcher's new-profile name (R1) | host-checked (`tools/check-osk-keyboard.cpp`); console: a game's name entry, Done and Cancel |
+| 114b (`114b-osk-modes`) | the keyboard keeps to the game's input mode (The Sims 3's file name: letters, digits and spaces; e-mail, numeric, phone, IP address, alphabet), refused keys dim; the legend in the interface's font (Polish letters) | host-checked (`tools/check-osk-modes.cpp`); console: The Sims 3's saved-game name |
 
 ## Comparison with the official executable
 

@@ -112,6 +112,7 @@ checks=(
   check-dark-default.cpp           # fix 98
   check-content-folders.cpp        # fix 101
   check-osk-keyboard.cpp           # fix 114
+  check-osk-modes.cpp              # fix 114b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -195,6 +196,7 @@ declare -A fix_of=(
   [check-dark-default.cpp]=98
   [check-content-folders.cpp]=101
   [check-osk-keyboard.cpp]=114
+  [check-osk-modes.cpp]="114 114b"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
