@@ -1,11 +1,12 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
-index 3db7e0f..b427439 100644
+index 3db7e0f..a0f0e9f 100644
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
-@@ -13,6 +13,10 @@
+@@ -13,6 +13,11 @@
  #include "xenia/kernel/xam/xam_private.h"
  #include "xenia/kernel/kinect_title.h"
  
++#include <atomic>
 +#include <cstring>
 +
 +#include "xbox360ps5/avatar_assets.hpp"  // fix 99
@@ -13,7 +14,7 @@ index 3db7e0f..b427439 100644
  DEFINE_bool(allow_avatar_initialization, false,
              "Enable Avatar Initialization\n"
              "Only set true when testing Avatar games. Certain games may crash "
-@@ -142,8 +146,24 @@ DECLARE_XAM_EXPORT1(XamAvatarGetManifestsByXuid, kAvatars, kStub)
+@@ -142,8 +147,24 @@ DECLARE_XAM_EXPORT1(XamAvatarGetManifestsByXuid, kAvatars, kStub)
  dword_result_t XamAvatarGetAssetsResultSize_entry(
      dword_t avatar_component_mask, lpdword_t result_buffer_size_ptr,
      lpdword_t gpu_resource_buffer_size_ptr) {
@@ -40,26 +41,32 @@ index 3db7e0f..b427439 100644
  
    return X_STATUS_SUCCESS;
  }
-@@ -154,6 +174,13 @@ dword_result_t XamAvatarGetAssets_entry(
+@@ -154,6 +175,19 @@ dword_result_t XamAvatarGetAssets_entry(
      dword_t avatar_component_mask, dword_t flags, lpdword_t result_buffer_ptr,
      lpdword_t gpu_resource_buffer_ptr,
      pointer_t<XAM_OVERLAPPED> overlapped_ptr) {
 +  // Xbox360PS5 fix 99: the result is an empty asset set even if the title did not clear the
 +  // buffer it got from XamAvatarGetAssetsResultSize (its component count and array at +8 and
-+  // +0x10 read 0).
++  // +0x10 read 0), and its skeleton pointer at +0 points at an empty skeleton in the same buffer
++  // (1.0.5-work-fix99c: Kinect Sports read the skeleton's bone count through +0 and crashed on 0).
 +  if (result_buffer_ptr) {
-+    std::memset(reinterpret_cast<void*>(result_buffer_ptr.host_address()), 0,
-+                xbox360ps5::avatar_assets::kClearedBytes);
++    xbox360ps5::avatar_assets::PrepareEmptyAssets(
++        reinterpret_cast<uint8_t*>(result_buffer_ptr.host_address()), result_buffer_ptr.guest_address());
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1) < 4)
++      XELOGW("Avatars: an empty asset set at {:08X}, its skeleton at {:08X} with no bones (fix 99)",
++             result_buffer_ptr.guest_address(),
++             result_buffer_ptr.guest_address() + xbox360ps5::avatar_assets::kSkeletonAt);
 +  }
    // 58410907 doesn't crash if we return failure.
    if (overlapped_ptr) {
      kernel_state()->CompleteOverlappedImmediateEx(
 diff --git a/include/xbox360ps5/avatar_assets.hpp b/include/xbox360ps5/avatar_assets.hpp
 new file mode 100644
-index 0000000..c3c07ad
+index 0000000..2277fd9
 --- /dev/null
 +++ b/include/xbox360ps5/avatar_assets.hpp
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,62 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 99 (1.0.5, issue 15): the sizes XamAvatarGetAssetsResultSize gives while the avatar asset
 +// calls are stubs (XamAvatarGetAssets fails), so a title allocates and clears room for an empty
@@ -74,6 +81,14 @@ index 0000000..c3c07ad
 +// its allocators right after it opened \AM\AMBundle\bundle\4F45161E (1.0.5_candidate_5, 8 and 10,
 +// 1.0.5-work-fix92), which only happened to be next. Found by an external analysis of the title's
 +// code and confirmed in those logs' memory dumps.
++//
++// 1.0.5-work-fix99c: the set's skeleton. On 1.0.5-work-fix106 a Guest at "Pick main player"
++// crashed at 0x82524E6C: 0x82524E38 takes the set (the title's object +0xA18), reads the skeleton
++// pointer at +0 and its bone count without a NULL check (only a count of 0 skips the body), and
++// the cleared set had +0 = 0. The cleared result now points +0 at an empty skeleton (bone count 0,
++// no bones) inside the same buffer, at kSkeletonAt. Every other reader of the set in the title
++// (0x825247E4, 0x82524808, 0x8252491C, 0x825258FC, 0x8259E724, 0x8259E858) reads +0xC and +0x10
++// only under the component count at +8, which stays 0.
 +#pragma once
 +#include <cstdint>
 +
@@ -84,10 +99,13 @@ index 0000000..c3c07ad
 +constexpr uint32_t kResultBytes = 0x100;
 +// A small GPU part, not XPhysicalAlloc(0).
 +constexpr uint32_t kGpuBytes = 0x1000;
-+// What XamAvatarGetAssets clears of the result before it fails: the header, so the count (+8)
-+// and the array pointer (+0x10) read 0 even if the title did not clear the buffer.
-+constexpr uint32_t kClearedBytes = 0x20;
++// What XamAvatarGetAssets clears of the result before it fails: all of it (what the title was told
++// to allocate, and cleared itself), so the count (+8) and the array pointer (+0x10) read 0.
++constexpr uint32_t kClearedBytes = kResultBytes;
++// The empty skeleton (bone count, bones pointer) the set's +0 points at.
++constexpr uint32_t kSkeletonAt = 0x80, kSkeletonBytes = 8;
 +static_assert(kClearedBytes <= kResultBytes, "cleared within what the title was told to allocate");
++static_assert(kSkeletonAt >= 0x20 && kSkeletonAt + kSkeletonBytes <= kClearedBytes, "past the header, inside the clear");
 +
 +// The component count and array a title reads from an XAVATAR_ASSETS (big-endian words).
 +inline uint32_t ComponentCount(const uint8_t* assets) {
@@ -95,6 +113,19 @@ index 0000000..c3c07ad
 +}
 +inline uint32_t ComponentArray(const uint8_t* assets) {
 +  return uint32_t(assets[16]) << 24 | uint32_t(assets[17]) << 16 | uint32_t(assets[18]) << 8 | assets[19];
++}
++inline uint32_t Word(const uint8_t* at) {
++  return uint32_t(at[0]) << 24 | uint32_t(at[1]) << 16 | uint32_t(at[2]) << 8 | at[3];
++}
++// An empty set in `assets` (kClearedBytes at the guest address `address`): all zero but +0, the
++// skeleton pointer, which holds address + kSkeletonAt, where the bone count and bones are 0.
++inline void PrepareEmptyAssets(uint8_t* assets, uint32_t address) {
++  for (uint32_t i = 0; i < kClearedBytes; ++i) assets[i] = 0;
++  const uint32_t skeleton = address + kSkeletonAt;
++  assets[0] = uint8_t(skeleton >> 24);
++  assets[1] = uint8_t(skeleton >> 16);
++  assets[2] = uint8_t(skeleton >> 8);
++  assets[3] = uint8_t(skeleton);
 +}
 +
 +}  // namespace xbox360ps5::avatar_assets
