@@ -2,7 +2,7 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/unwatched_lock_free.h b/.deps/xeni
 new file mode 100644
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/gpu/unwatched_lock_free.h
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,81 @@
 +/**
 + ******************************************************************************
 + * Xbox360PS5: fix 111, requests over checked unwatched units without the lock.*
@@ -19,10 +19,21 @@ new file mode 100644
 + * NothingToUpload() answers such a request without the lock: true when every
 + * unit of the range is valid, or unwatched and checked in the current part of
 + * the ring, which is exactly when the locked path ends with nothing to upload
-+ * and no other effect for a request that allows unwatched units. The bits are
-+ * read as FilterUnwatched reads them (relaxed, without the lock): a unit being
-+ * left unwatched or watched again right now is a race the locked path has as
-+ * well, between its search and the filter.
++ * and no other effect for a request that allows unwatched units.
++ *
++ * What it reads, and who writes it: the valid bits, set and cleared under the
++ * lock by uploads and by the guest's write faults on other threads, read with
++ * acquire loads as fix 55's all-valid answer reads them; the unwatched bits,
++ * changed with atomic operations under the lock (a fault leaving a unit
++ * unwatched, a release or reprotection forgetting it, the aging) or by the GPU
++ * thread itself (pinning, watching again), read as FilterUnwatched reads them
++ * (relaxed, without the lock); the stamps and the part counter, the GPU
++ * thread's alone. A fault that clears a valid bit during the call is a guest
++ * write the draw is ordered before, as with fix 55 and as when the fault comes
++ * just after the locked search; a unit left unwatched or forgotten during the
++ * call is the race the locked path has between its search and its filter.
++ * So every answer is the locked path's answer at some moment of the call
++ * (tools/check-unwatched-lock-free.cpp races a writer against it).
 + ******************************************************************************
 + */
 +
