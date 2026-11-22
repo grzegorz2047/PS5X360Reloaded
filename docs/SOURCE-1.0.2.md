@@ -283,6 +283,7 @@ also listed here.
 | 134b (`134b-async-submit-wait-drain`) | fix 134's worker is no longer drained at every chunk (a check of the completed submissions at every new submission waited for it), so its replay runs alongside the GPU thread; the log names the lines that still drain it | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134b` |
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
 | 137 (`137-vulkan-fxaa`) | a 1.0.5 picture option (Off by default, per game, live from the guide): "Anti-aliasing" Off / FXAA / FXAA Extreme in the Vulkan swap, before the image filter, so 1x games get their jagged edges smoothed and FSR/CAS sharpen smooth edges; Off draws the swap exactly as before, and OpenGL stays Off | host-checked (`tools/check-vulkan-fxaa.cpp`, and the two shaders through glslangValidator in the source build); console: `1.0.5-work-fix137` |
+| 137b (`137b-vulkan-fxaa-atomic-effect`) | fix 137's live switch no longer goes through the GPU thread's unlocked call queue: the chosen effect is an atomic the swap reads, so changing anti-aliasing from the guide or the web page cannot race with the GPU thread | host-checked (`tools/check-vulkan-fxaa.cpp`); console: `1.0.5-work-fix137b` |
 
 ## Comparison with the official executable
 

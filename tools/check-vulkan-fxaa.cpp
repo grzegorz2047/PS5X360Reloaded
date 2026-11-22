@@ -15,14 +15,23 @@
 //      the deferred destruction, the shutdown; the launcher option (Video, live, per game, after
 //      Image filter), Off on OpenGL in ForGame and refused there by the launcher, and
 //      ApplySwapPostEffect next to every ApplyPicture.
+// Fix 137b: the effect no longer reaches the command processor thread through CallInThread, whose
+// pending_fns_ is a plain std::queue the GPU thread pops without a lock (fix 137 changes the effect
+// live from the launcher's thread): SetDesiredSwapPostEffect stores an atomic, and
+// GetActualSwapPostEffect, read once per swap, loads it.
+//  (d) the tree: the atomic, the store without CallInThread, the load in GetActualSwapPostEffect, no
+//      copy left; a model of a launcher thread switching while a GPU thread swaps (each swap sees one
+//      whole value, the last switch wins by the next swap).
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cmath>
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "xenia/gpu/vulkan/swap_fxaa.h"
@@ -351,12 +360,64 @@ void Tree() {
          "ApplySwapPostEffect: Off on OpenGL, through SetDesiredSwapPostEffect");
 }
 
+void AtomicEffect() {
+  const std::string core = ".deps/xenia-canary/src/xenia/gpu/";
+  const std::string h = Read(core + "command_processor.h");
+  const std::string cc = Read(core + "command_processor.cc");
+  Expect(h.find("std::atomic<SwapPostEffect> swap_post_effect_desired_{SwapPostEffect::kNone};") !=
+                 std::string::npos &&
+             h.find("swap_post_effect_actual_") == std::string::npos &&
+             cc.find("swap_post_effect_actual_") == std::string::npos,
+         "137b: one atomic effect, no copy made on the command processor thread");
+  const std::string set =
+      Between(cc, "void CommandProcessor::SetDesiredSwapPostEffect(", "\n}\n");
+  Expect(!set.empty() && set.find("CallInThread(") == std::string::npos &&
+             set.find("swap_post_effect_desired_.store(swap_post_effect, "
+                      "std::memory_order_release);") != std::string::npos,
+         "137b: SetDesiredSwapPostEffect stores the atomic without CallInThread");
+  const std::string actual = Between(h, "SwapPostEffect GetActualSwapPostEffect() const {", "}");
+  const std::string desired = Between(h, "SwapPostEffect GetDesiredSwapPostEffect() const {", "}");
+  Expect(actual.find("swap_post_effect_desired_.load(std::memory_order_acquire);") !=
+                 std::string::npos &&
+             desired.find("swap_post_effect_desired_.load(std::memory_order_acquire);") !=
+                 std::string::npos,
+         "137b: both getters load the atomic");
+  const std::string vk = Read(core + "vulkan/vulkan_command_processor.cc");
+  const std::string swap =
+      Between(vk, "void VulkanCommandProcessor::IssueSwap(", "\nbool VulkanCommandProcessor::");
+  Expect(Count(swap, "GetActualSwapPostEffect()") == 1,
+         "137b: IssueSwap reads the effect once per swap");
+
+  // The model: a launcher thread switches Off/FXAA/Extreme while the GPU thread swaps.
+  std::atomic<sf::Effect> effect_atomic{sf::Effect::kNone};
+  std::atomic<bool> done{false};
+  std::atomic<int> bad{0};
+  std::thread gpu([&] {
+    while (!done.load()) {
+      const sf::Effect effect = effect_atomic.load(std::memory_order_acquire);  // once per swap
+      const uint32_t value = uint32_t(effect);
+      if (value > 2) bad.fetch_add(1);
+      const sf::Passes passes = sf::SwapPasses(sf::UseFxaa(effect, 1280, 720, true));
+      if ((effect == sf::Effect::kNone) != (passes.count == 1)) bad.fetch_add(1);
+    }
+  });
+  for (int i = 0; i < 200000; ++i)
+    effect_atomic.store(sf::EffectFromSetting(i % 3), std::memory_order_release);
+  effect_atomic.store(sf::Effect::kFxaaExtreme, std::memory_order_release);
+  done.store(true);
+  gpu.join();
+  Expect(bad.load() == 0, "137b model: every swap sees one whole effect");
+  Expect(effect_atomic.load(std::memory_order_acquire) == sf::Effect::kFxaaExtreme,
+         "137b model: the last switch is what the next swap draws");
+}
+
 }  // namespace
 
 int main() {
   Decisions();
   Model();
   Tree();
+  AtomicEffect();
   if (failures) {
     std::printf("check-vulkan-fxaa: %d failure(s)\n", failures);
     return 1;

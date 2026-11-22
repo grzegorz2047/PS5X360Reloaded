@@ -1,0 +1,64 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+index a099cee..597f10f 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -369,13 +369,12 @@ void CommandProcessor::ClearCaches() {}
+ 
+ void CommandProcessor::SetDesiredSwapPostEffect(
+     SwapPostEffect swap_post_effect) {
+-  if (swap_post_effect_desired_ == swap_post_effect) {
+-    return;
+-  }
+-  swap_post_effect_desired_ = swap_post_effect;
+-  CallInThread([this, swap_post_effect]() {
+-    swap_post_effect_actual_ = swap_post_effect;
+-  });
++  // Xbox360PS5 (fix 137b): no CallInThread. Its pending_fns_ is a plain
++  // std::queue that the command processor thread pops without a lock, so a
++  // push from the launcher's thread (fix 137 changes the effect live from the
++  // guide and the web page) could race with it. The command processor thread
++  // reads this value at its next swap (GetActualSwapPostEffect).
++  swap_post_effect_desired_.store(swap_post_effect, std::memory_order_release);
+ }
+ 
+ void CommandProcessor::WorkerThreadMain() {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+index ab9e068..1fea3c1 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -147,7 +147,7 @@ class CommandProcessor {
+ 
+   // "Desired" is for the external thread managing the post-processing effect.
+   SwapPostEffect GetDesiredSwapPostEffect() const {
+-    return swap_post_effect_desired_;
++    return swap_post_effect_desired_.load(std::memory_order_acquire);
+   }
+   void SetDesiredSwapPostEffect(SwapPostEffect swap_post_effect);
+   // Implementations must not make assumptions that the front buffer will
+@@ -543,9 +543,12 @@ class CommandProcessor {
+   virtual bool IssueCopy() { return false; }
+ 
+   // "Actual" is for the command processor thread, to be read by the
+-  // implementations.
++  // implementations (once per swap).
++  // Xbox360PS5 (fix 137b): the desired value itself, an atomic, instead of a
++  // copy made by CallInThread on this thread: pending_fns_ is a plain
++  // std::queue, and the launcher changes the effect live from its own thread.
+   SwapPostEffect GetActualSwapPostEffect() const {
+-    return swap_post_effect_actual_;
++    return swap_post_effect_desired_.load(std::memory_order_acquire);
+   }
+ 
+   virtual void InitializeTrace();
+@@ -646,8 +649,9 @@ class CommandProcessor {
+ 
+   // By default (such as for tools), post-processing is disabled.
+   // "Desired" is for the external thread managing the post-processing effect.
+-  SwapPostEffect swap_post_effect_desired_ = SwapPostEffect::kNone;
+-  SwapPostEffect swap_post_effect_actual_ = SwapPostEffect::kNone;
++  // Xbox360PS5 (fix 137b): written by the launcher's thread, read by the
++  // command processor thread at each swap (GetActualSwapPostEffect).
++  std::atomic<SwapPostEffect> swap_post_effect_desired_{SwapPostEffect::kNone};
+ 
+  private:
+   reg::DC_LUT_30_COLOR gamma_ramp_256_entry_table_[256] = {};

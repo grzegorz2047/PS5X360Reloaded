@@ -146,7 +146,7 @@ checks=(
   check-game-language.cpp          # fix 132
   check-readback-batching.cpp      # fix 133
   check-async-submit.cpp           # fix 134
-  check-vulkan-fxaa.cpp            # fix 137
+  check-vulkan-fxaa.cpp            # fixes 137 and 137b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -271,7 +271,7 @@ declare -A fix_of=(
   [check-game-language.cpp]=132
   [check-readback-batching.cpp]=133
   [check-async-submit.cpp]="134 134b"
-  [check-vulkan-fxaa.cpp]=137
+  [check-vulkan-fxaa.cpp]="137 137b"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
