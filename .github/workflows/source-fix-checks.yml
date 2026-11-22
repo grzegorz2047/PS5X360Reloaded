@@ -139,6 +139,7 @@ on:
       - 'tools/check-guide-counter.cpp'
       - 'tools/check-swap-pacing.cpp'
       - 'tools/check-dynamic-constants.cpp'
+      - 'tools/check-content-checked.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
