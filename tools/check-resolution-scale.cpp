@@ -21,6 +21,15 @@
 //      vkGetDeviceProcAddr; IsScaleNativeForPitch honours the kept-native classes; the render
 //      target and texture floors come before their allocations; render_target_cache.h includes
 //      platform.h (the class's layout must not differ between translation units).
+// Fix 117c (117c-resolution-scale-burst.patch): Tekken Tag Tournament 2 at 2x made ~2 GB of render
+// targets in 10 s on one cached reading of free memory, then drew black textures.
+//  (f) the header: bytes admitted since a reading count against it (a burst cannot pass on one
+//      reading), a fresh reading resets that, render targets stop at 1.5 GiB, a refused texture
+//      counts as made at 1x, the made-by-kind counters and the line's text;
+//  (g) the tree: render targets and heaps ask for a fresh reading; FindOrCreateTexture makes a
+//      scaled texture under the floor at 1x (scaled_resolve 0) before it looks for or creates it;
+//      vulkan_texture_cache.cc no longer refuses textures, it counts the scaled ones; render
+//      targets and the texture cache's total are counted for the line.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -82,9 +91,11 @@ void CheckHeader() {
   driver.bytes = uint64_t(1500) << 20;
   driver.peak = uint64_t(1600) << 20;
   driver.allocations = 420;
+  c.texture_cache_bytes = uint64_t(300) << 20;
   const std::string one = rs::Line(c, driver, 3000ll << 20);
-  Expect(one == "Resolution scale (fix 117): 1x; driver memory 1500 MiB (peak 1600 MiB, 420 allocations); direct free 3000 MiB",
-         "10 s line at 1x (fix 117b): " + one);
+  Expect(one == "Resolution scale (fix 117): 1x; texture cache 300 MiB; driver memory 1500 MiB (peak 1600 MiB, 420 "
+                "allocations); direct free 3000 MiB",
+         "10 s line at 1x (fixes 117b, 117c): " + one);
   c.scale = 2;
   c.sparse = true;
   Expect(rs::Admit(c, 3000ll << 20, kHeap), "3000 MiB free: admitted");
@@ -100,16 +111,26 @@ void CheckHeader() {
   Expect(c.lowest_free == (900ll << 20), "lowest free seen at a commit: 900 MiB");
   Expect(!rs::AdmitRenderTarget(c, 1030ll << 20, rs::RenderTargetBytes(2560, 1440, 1, false)),
          "a 2560x1440 render target (14 MiB) with 1030 MiB free: refused");
+  Expect(!rs::AdmitRenderTarget(c, 1500ll << 20, rs::RenderTargetBytes(2560, 1440, 1, false)),
+         "fix 117c: the same with 1500 MiB free: refused (render targets stop at 1.5 GiB)");
+  Expect(rs::AdmitRenderTarget(c, 1600ll << 20, rs::RenderTargetBytes(2560, 1440, 1, false)),
+         "with 1600 MiB free: admitted");
   Expect(rs::AdmitRenderTarget(c, 3000ll << 20, rs::RenderTargetBytes(2560, 1440, 4, true)),
          "a 4xMSAA depth target with 3000 MiB free: admitted");
-  Expect(!rs::AdmitTexture(c, 1030ll << 20, rs::TextureBytes(2560, 1440, 1, false)), "a scaled texture at 1030 MiB: refused");
-  Expect(!rs::AdmitTexture(c, 500ll << 20, rs::TextureBytes(64, 64, 1, true)), "a small scaled texture at 500 MiB: refused");
-  Expect(c.native_classes == 1 && c.textures_refused == 2, "one render target class kept at 1x, two textures refused");
+  Expect(rs::AdmitTexture(c, 1100ll << 20, rs::TextureBytes(2560, 1440, 1, false)), "a scaled texture at 1100 MiB: admitted");
+  Expect(!rs::AdmitTexture(c, 1030ll << 20, rs::TextureBytes(2560, 1440, 1, false)), "a scaled texture at 1030 MiB: at 1x");
+  Expect(!rs::AdmitTexture(c, 500ll << 20, rs::TextureBytes(64, 64, 1, true)), "a small scaled texture at 500 MiB: at 1x");
+  Expect(c.native_classes == 2 && c.textures_at_1x == 2, "two render target classes kept at 1x, two textures at 1x");
+  rs::NoteRenderTarget(c, true, uint64_t(118) << 20);
+  rs::NoteRenderTarget(c, true, uint64_t(30) << 20);
+  rs::NoteRenderTarget(c, false, uint64_t(4) << 20);
+  rs::NoteScaledTexture(c, uint64_t(28) << 20);
   const std::string line = rs::Line(c, driver, 1200ll << 20);
   Expect(line == "Resolution scale (fix 117): 2x, scaled resolve sparse, 2 heaps (32 MiB) committed, 2 refused "
-                 "(under 1024 MiB free), 1 failed; render target classes kept at 1x 1, scaled textures refused 2; "
-                 "driver memory 1500 MiB (peak 1600 MiB, 420 allocations); direct free 1200 MiB (lowest at a commit "
-                 "500 MiB)",
+                 "(under 1024 MiB free), 1 failed; render targets made scaled 2 (148 MiB), 1x 1 (4 MiB), classes "
+                 "kept at 1x 2 (under 1536 MiB free); scaled textures made 1 (28 MiB), at 1x 2; texture cache 300 "
+                 "MiB; driver memory 1500 MiB (peak 1600 MiB, 420 allocations); direct free 1200 MiB (lowest at a "
+                 "commit 500 MiB)",
          "10 s line: " + line);
   c.sparse = false;
   Expect(Has(rs::Line(c, driver, -1), "scaled resolve none,") && Has(rs::Line(c, driver, -1), "direct free -1 MiB"),
@@ -148,6 +169,43 @@ void CheckHeader() {
   Expect(rs::DirectFreeRecent(10250, Query) == 4000 && queries == 2, "250 ms later: asked again");
   answer = 3000;
   Expect(rs::DirectFreeRecent(9000, Query) == 3000 && queries == 3, "a clock behind the last ask: asked again");
+
+  // Fix 117c: a burst cannot pass on one reading.
+  queries = 0;
+  rs::direct_free_at_ms = -1000;
+  answer = int64_t(1700) << 20;
+  rs::Counters burst;
+  burst.scale = 2;
+  const uint64_t depth = rs::RenderTargetBytes(2560, 1440, 4, true);  // ~112 MiB
+  Expect(rs::DirectFreeRecent(20000, Query) == answer && queries == 1, "a reading of 1700 MiB");
+  int admitted = 0;
+  for (int i = 0; i < 20; ++i) {
+    if (rs::AdmitTexture(burst, rs::DirectFreeRecent(20010 + i, Query), depth)) ++admitted;
+  }
+  Expect(queries == 1, "the burst asks no new reading within 250 ms");
+  Expect(admitted == 6, "on one 1700 MiB reading, only six 112 MiB textures pass the 1 GiB floor (" +
+                            std::to_string(admitted) + ")");
+  Expect(burst.textures_at_1x == 14, "the other fourteen are made at 1x");
+  Expect(rs::DirectFreeRecent(20100, Query) == answer - int64_t(6 * depth), "the reading less what was admitted");
+  answer = int64_t(900) << 20;
+  Expect(rs::DirectFreeFresh(20200, Query) == answer && queries == 2 && rs::admitted_since_reading == 0,
+         "a fresh reading starts again from what the system says");
+  Expect(rs::DirectFreeRecent(20300, Query) == answer && queries == 2, "and is kept for the next asks");
+  rs::admitted_since_reading = int64_t(2000) << 20;
+  Expect(rs::DirectFreeRecent(20310, Query) == 0, "never below zero");
+  rs::direct_free_seen = -1;
+  Expect(rs::DirectFreeRecent(20320, Query) == -1, "unknown stays unknown");
+  // Render targets ask a fresh reading each: a burst of them stops at the floor.
+  int rts = 0;
+  int64_t system = int64_t(2200) << 20;
+  for (int i = 0; i < 20; ++i) {
+    answer = system;
+    if (rs::AdmitRenderTarget(burst, rs::DirectFreeFresh(30000 + i, Query), depth)) {
+      ++rts;
+      system -= int64_t(depth);
+    }
+  }
+  Expect(rts == 5, "render targets from 2200 MiB, 112 MiB each, stop at the 1.5 GiB floor (" + std::to_string(rts) + ")");
 
   rs::Device d;
   d.asked_x = d.asked_y = 2;
@@ -276,11 +334,30 @@ void CheckCore() {
   Expect(rt_admit != std::string::npos && rt_keep != std::string::npos && rt_alloc != std::string::npos &&
              rt_keep < rt_alloc && Has(render_targets, "if (!key.scale_native && IsDrawResolutionScaled()) {"),
          "a scaled render target asks the floor first and keeps its class at 1x when refused");
-  const size_t tex_admit = texture_cache.find("xbox360ps5::resolution_scale::AdmitTexture(");
-  const size_t tex_alloc = texture_cache.find("if (vmaCreateImage(vma_allocator_, &image_create_info,", tex_admit);
-  Expect(tex_admit != std::string::npos && tex_alloc != std::string::npos && tex_alloc - tex_admit < 1200 &&
-             Has(texture_cache, "  if (key.scaled_resolve &&\n      !xbox360ps5::resolution_scale::AdmitTexture("),
-         "a scaled texture asks the floor before vmaCreateImage");
+  // Fix 117c.
+  const std::string common_textures = Read(".deps/xenia-canary/src/xenia/gpu/texture_cache.cc");
+  const size_t find_fn = common_textures.find("TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {");
+  const size_t scaled_set = common_textures.find("key.scaled_resolve = 1;", find_fn);
+  const size_t fallback = common_textures.find("xbox360ps5::resolution_scale::AdmitTexture(", find_fn);
+  const size_t unscaled = common_textures.find("key.scaled_resolve = 0;", find_fn);
+  const size_t lookup = common_textures.find("auto found_texture_it = textures_.find(key);", find_fn);
+  Expect(find_fn != std::string::npos && scaled_set < fallback && fallback < unscaled && unscaled < lookup &&
+             lookup != std::string::npos &&
+             Has(common_textures, "if (key.scaled_resolve && textures_.find(key) == textures_.end() &&"),
+         "a new scaled texture under the floor is looked up and made at 1x (fix 117c)");
+  Expect(Has(common_textures, "counters.texture_cache_bytes.store(\n      textures_total_host_memory_usage_"),
+         "the texture cache's total goes to the line");
+  Expect(!Has(texture_cache, "resolution_scale::AdmitTexture(") &&
+             Has(texture_cache, "xbox360ps5::resolution_scale::NoteScaledTexture("),
+         "vulkan_texture_cache.cc counts scaled textures and refuses none");
+  Expect(Has(texture_cache, "xbox360ps5::resolution_scale::DirectFreeFresh(),\n              kScaledResolveHeapSize)") &&
+             Has(texture_cache, "xbox360ps5::resolution_scale::DirectFreeFresh(), buffer_size)"),
+         "heaps and fallback buffers ask a fresh reading");
+  const size_t rt_fresh = render_targets.find("xbox360ps5::resolution_scale::DirectFreeFresh(), bytes)");
+  Expect(rt_fresh != std::string::npos && rt_fresh > rt_admit && rt_fresh < rt_alloc,
+         "render targets ask a fresh reading");
+  const size_t rt_note = render_targets.find("xbox360ps5::resolution_scale::NoteRenderTarget(", rt_alloc);
+  Expect(rt_note != std::string::npos, "render targets made are counted after their allocation");
 }
 
 }  // namespace
