@@ -256,6 +256,7 @@ also listed here.
 | 116 (`116-swap-pacing`) | a 1.0.5 frame-pacing fix: with VSync on, the emulator's swap pacing (fix 10) is applied only to games that would otherwise run faster than 60 Hz; a game that waits for the vblank itself is no longer slowed (Pro Evolution Soccer 6: 54 to about 60 frames a second) | host-checked (`tools/check-swap-pacing.cpp`: a vblank-paced game and an unlocked one); console: Pro Evolution Soccer 6 with VSync on, the swap pacing line |
 | 118 (`118-nui-hud-check`) | issue 15: Kinect Sports with a signed-in player ("Player") asked where to save once a frame and was refused each time (the NUI HUD check wanted a Kinect flag this console never has); with the virtual Kinect serving a Kinect-required title the Kinect system windows go to the ordinary ones | host-checked (`tools/check-nui-hud-check.cpp`); console: `1.0.5-work-fix118` |
 | 122 (`122-sims3-readback-preset`) | The Sims 3 gets readback Fast by default (its own setting still wins): the Sim's face at distance and the household portrait are drawn by the GPU and read back; with readback off they were black or empty | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix122` |
+| 121 (`121-file-sector`) | a 1.0.5 load-time fix: a game asking for a file's disc sector (to order its reads) gets the real one for files on the disc image instead of a random-looking number, without a log line per call (The Sims 3's long load) | host-checked (`tools/check-file-sector.cpp`); console: The Sims 3 load time A/B |
 
 ## Comparison with the official executable
 
