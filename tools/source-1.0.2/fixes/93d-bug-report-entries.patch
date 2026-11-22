@@ -1,0 +1,274 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 7d3377f..8ae19d7 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -505,12 +505,14 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+ // The emulator's guide over a running game, after the Xbox 360's: a light
+ // panel that unfolds from the middle of the screen, a page of actions and a page
+ // of settings. The loop that reads the pad drives it; the dialog only draws.
+-enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network };
++enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network,
++                         bug_report_restart };  // fix 93d
+ struct GuideItem {
+   GuideAction action;
+   std::string label, value;
+   const xbox360ps5::Option* option = nullptr;
+   int category = -1;
++  bool apart = false;  // Fix 93d: an action set apart from the options: a button below the list.
+ };
+ struct GuideState {
+   bool open = false;
+@@ -570,6 +572,13 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+     if (!shown(option) || option.category != category) continue;
+     items.push_back({GuideAction::option, Tr(option.label), Tr(option.choices[size_t(settings.*option.field)]), &option});
+   }
++  if (category == 4) {
++    // Fix 93d: under System's options, set apart: this game again from its start, with logs for a
++    // bug report (fix 93).
++    GuideItem restart{GuideAction::bug_report_restart, Tr("Restart this game with logs for a bug report"), ""};
++    restart.apart = true;
++    items.push_back(restart);
++  }
+   return items;
+ }
+ // Fix 93b: what happens while a game is left, over everything, with dots turning beside it
+@@ -731,10 +740,14 @@ class Guide final : public xe::ui::ImGuiDialog {
+     // The list moves inside its own area only.
+     list->PushClipRect(at(page_left + strip, top), at(page_right, bottom), true);
+     const auto items = GuideItems(state_.page, settings_, state_.category);
++    // Fix 93d: an action set apart (the restart with logs for a bug report) is a button below the
++    // list, not one of its rows: the rows are the others.
++    const bool button = !items.empty() && items.back().apart;
++    const int listed = int(items.size()) - (button ? 1 : 0);
+     // The settings page is longer than the panel: it scrolls with the focus.
+     const int first_row = state_.page == 0 ? 0
+-        : std::clamp(state_.row - kGuideRows / 2, 0, std::max(0, int(items.size()) - kGuideRows));
+-    const int last_row = state_.page == 0 ? int(items.size()) : std::min(int(items.size()), first_row + kGuideRows);
++        : std::clamp(state_.row - kGuideRows / 2, 0, std::max(0, listed - kGuideRows));
++    const int last_row = state_.page == 0 ? listed : std::min(listed, first_row + kGuideRows);
+     if (state_.page == 1) {
+       char position[24];
+       std::snprintf(position, sizeof(position), "%d / %d", state_.row + 1, int(items.size()));
+@@ -766,6 +779,31 @@ class Guide final : public xe::ui::ImGuiDialog {
+                       lit ? fade(255, 255, 255, a) : fade(90, 96, 104, a), items[size_t(n)].value.c_str());
+       }
+     }
++    if (button) {
++      // Fix 93d: centred below the list, a raised button the player sees can be pressed (the
++      // user's choice after the mock-ups): a soft shadow below it, a light-to-grey gradient with a
++      // highlight along its top, rounded corners, dark text centred, none of the list's green;
++      // focused, a dark, thicker outline as well (none otherwise).
++      const bool focused = state_.row == listed;
++      const int a = int(255 * content);
++      const char* label = items.back().label.c_str();
++      const ImVec2 size = medium->CalcTextSizeA(26 * scale, 4096.0f, 0.0f, label);
++      const float width = size.x / scale + 2 * 48, height = 54, round = 14;
++      const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;
++      const float y = top + std::min(listed - first_row, kGuideRows) * 63.0f + 24;
++      // The shadow: rounded rectangles a little lower and wider each, faint, as a blur.
++      for (int n = 4; n >= 1; --n)
++        list->AddRectFilled(at(x + 2 - n, y + 3 + n), at(x + width + 2 + n, y + height + 3 + n), fade(40, 44, 52, a * 7 / 100),
++                            (round + n) * scale);
++      // The face: the lower grey under all of it, the light top cap, the gradient between them.
++      list->AddRectFilled(at(x, y), at(x + width, y + height), fade(214, 217, 221, a), round * scale);
++      list->AddRectFilled(at(x, y), at(x + width, y + round), fade(246, 247, 249, a), round * scale, ImDrawFlags_RoundCornersTop);
++      list->AddRectFilledMultiColor(at(x, y + round), at(x + width, y + height - round), fade(246, 247, 249, a),
++                                    fade(246, 247, 249, a), fade(214, 217, 221, a), fade(214, 217, 221, a));
++      list->AddLine(at(x + round, y + 2), at(x + width - round, y + 2), fade(255, 255, 255, a * 86 / 100), 2.0f * scale);
++      if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), round * scale, 0, 3.0f * scale);
++      list->AddText(medium, 26 * scale, ImVec2(at(x, y).x + (width * scale - size.x) / 2, at(x, y + 13).y), fade(44, 48, 54, a), label);
++    }
+     list->PopClipRect();
+     if (!game_.empty()) {
+       const std::string running = Tr("Playing: ") + game_;
+@@ -3009,9 +3047,14 @@ int main(int argc, char** argv) {
+         }
+         // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
+         // the next start is an ordinary one. A title switch of the session goes on with it.
+-        if (global.bug_report) {
+-          global.bug_report = 0;
+-          global.Save();
++        // Fix 93d: the game's own value counts too (its sheet, the guide's restart); both are
++        // cleared when this start takes them.
++        if (settings.bug_report) {
++          if (global.bug_report) {
++            global.bug_report = 0;
++            global.Save();
++          }
++          if (overrides.erase("bug_report")) xbox360ps5::SaveGameOverrides(settings_title, overrides);
+           bug_report_state = xbox360ps5::bug_report::Begin(chosen.name, log_id, int64_t(std::time(nullptr)));
+           xbox360ps5::bug_report::active.store(true);
+         }
+@@ -3138,6 +3181,7 @@ int main(int argc, char** argv) {
+         publish_web(settings_title, game_name);
+         ApplyPicture(settings, emulator.graphics_system()->presenter());
+         bool trigger_was = true, swallow = false, quit = false;
++        bool restart_same_game = false;  // fix 93d: the guide restarts this game with logs for a bug report
+         // The library over the running game ("Go to the library (the game stays open)" in the guide).
+         bool library_open = false, close_library = false, create_seen = false;
+         XELOGW("Controller: asked for the system's buttons (Create as BACK), answer {:08X}", unsigned(ps5x360_pad_privilege_answer));
+@@ -3396,6 +3440,25 @@ int main(int argc, char** argv) {
+                   changed = false;
+                   measure_at = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+                   break;
++                case GuideAction::bug_report_restart:
++                  // Fix 93d: Cross only (left and right never restart a game). This game's own
++                  // bug_report (or the general one for a game without a title ID), then this game
++                  // again from its start, as a launcher restart into its options does.
++                  changed = false;
++                  if (!(pressed & 0x4000)) break;
++                  if (!settings_title.empty()) {
++                    overrides["bug_report"] = 1;
++                    xbox360ps5::SaveGameOverrides(settings_title, overrides);
++                  } else {
++                    global.bug_report = 1;
++                    global.Save();
++                  }
++                  std::ofstream(storage / "launch-once.txt", std::ios::trunc)
++                      << xbox360ps5::forward::OnceText(game.string(), settings_title, forwarded, exit_after_game);
++                  XELOGW("Guide: restarting {} with logs for a bug report", game_name);
++                  restart_same_game = true;
++                  restart = true;
++                  break;
+                 case GuideAction::network: {
+                   // Fix 22: Offline, System Link, Online, switched on a thread of its own.
+                   namespace net = xbox360ps5::guide_network;
+@@ -3687,7 +3750,8 @@ int main(int argc, char** argv) {
+         // Fix 93b: from here to the restart the screen says what happens, and keeps moving while
+         // the steps below run (leaving_notice.hpp); the last frame stays through the restart.
+         namespace leaving = xbox360ps5::leaving_notice;
+-        leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);
++        leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)  // fix 93d
++                              : leaving::Kind::closing);
+         const auto paint_notice = [&context, &window] { context.Tick(); window.Paint(); };
+         paint_notice();
+         if (xbox360ps5::bug_report::Active()) {
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index c2da85f..ece761e 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -442,7 +442,9 @@ const std::vector<Option>& Options() {
+        {"Off||plural", "On||plural"}},
+       // Fix 93: one game session with more detail, then a screen with the files for a bug report
+       // (bug_report.hpp). Turns itself off as that game starts (canary_game_main.cpp).
+-      {"bug_report", &S::bug_report, 4, W::live, 0, false, "Logs for a bug report",
++      // Fix 93d: in no category (-1) and a game may have it: the settings sheet, a game's sheet and
++      // the in-game guide each show it as a row of its own, set apart from the emulation options.
++      {"bug_report", &S::bug_report, -1, W::live, 0, true, "Logs for a bug report",
+        "For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game.",
+        {"Off||plural", "Next game"}},
+       // Binary release patch group 13: FSI per game. Standard keeps the preset's accurate_targets,
+@@ -1719,10 +1721,18 @@ void Launcher::Press(Key key) {
+       if (game_tab_ == 2) {
+         // Choose a subject first, then open its options.
+         if (!game_category_open_) {
+-          const int categories = int(game_categories_.size());
++          // Fix 93d: one more row after the subjects, "Problem with this game? Logs for a bug report".
++          const bool identified = Selected() && !Selected()->title_id.empty();
++          const int categories = int(game_categories_.size()) + (identified ? 1 : 0);
+           if (key == Key::up && categories) game_category_ = (game_category_ + categories - 1) % categories;
+           if (key == Key::down && categories) game_category_ = (game_category_ + 1) % categories;
+-          if (key == Key::cross && categories && Selected() && !Selected()->title_id.empty()) {
++          if (identified && game_category_ == int(game_categories_.size())) {
++            if (key == Key::cross || key == Key::left || key == Key::right) {
++              if (overrides_.count("bug_report") && overrides_["bug_report"]) overrides_.erase("bug_report");
++              else overrides_["bug_report"] = 1;
++              SaveGameOverrides(Selected()->title_id, overrides_);
++            }
++          } else if (key == Key::cross && categories && identified) {
+             FillGameRows(); game_option_row_ = 0; game_category_open_ = true;
+           }
+           if (key == Key::circle) close();
+@@ -1794,7 +1804,7 @@ void Launcher::Press(Key key) {
+         if (key == Key::circle || key == Key::square) CloseSettings();
+         break;
+       }
+-      const int rows = 14;
++      const int rows = 15;  // fix 93d: the last one is "Problem with a game? Logs for a bug report"
+       if (key == Key::up) settings_row_ = (settings_row_ + rows - 1) % rows;
+       if (key == Key::down) settings_row_ = (settings_row_ + 1) % rows;
+       if (key == Key::left || key == Key::right || key == Key::cross) {
+@@ -1840,6 +1850,11 @@ void Launcher::Press(Key key) {
+           if (dark_theme::Toggle()) { settings_.Save(); restart_ = true; }
+         }
+         else if (settings_row_ == 13 && key == Key::cross) { settings_.Save(); restart_ = true; }
++        else if (settings_row_ == 14) {
++          // Fix 93d: the next game start records logs for a bug report (fix 93), then it is off again.
++          settings_.bug_report = settings_.bug_report ? 0 : 1;
++          settings_.Save();
++        }
+       }
+       if (key == Key::up || key == Key::down) { restored_ = false; scan_result_.clear(); }
+       if (key == Key::circle || key == Key::square) CloseSettings();
+@@ -2442,6 +2457,19 @@ void DrawNxeProfile(const Launcher::Canvas& c, const std::string& name, const st
+ 
+ template <class Surface>  // Below: Launcher::Canvas is private to the class.
+ void DrawQrCard(Surface& c, const QrCode& qr, float qx, float qy, float card);
++// Fix 93d: "Problem with a game? Logs for a bug report", set apart from the emulation options: a
++// divider above it, a round "!" mark, the value in the warning colour while it is on.
++template <class Surface>
++void DrawBugReportRow(Surface& c, float x, float y, const std::string& label, const std::string& value, bool focused,
++                      bool on) {
++  c.Fill(x + 40, y - 8, 780, 2, kWarning, 0.55f);
++  c.Fill(x + 40, y, 780, 40, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
++  if (focused) c.Edge(x + 40, y, 780, 40, kWarning, 0.9f, 10, 2.0f);
++  c.list->AddCircle(c.At(x + 70, y + 20), 12 * c.scale, c.Color(kWarning), 20, 2.0f * c.scale);
++  c.Text("!", x + 70, y + 7, 22, kWarning, 1.0f, 1);
++  c.Text(label, x + 94, y + 8, 24, focused ? kText : kBody, 1.0f, 0, 520);
++  c.Text(value, x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, 2, 200);
++}
+ void Launcher::Draw(ImGuiIO& io) {
+   ApplyTheme(NxeUi());
+   // The search keyboard and the confirmation take the pad: Circle closes them, not the library.
+@@ -3516,7 +3544,19 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+       c.Text(detail, x + 64, y + 44, 19, own ? kAccent : kMuted);
+       c.Text(">", x + 792, y + 22, 28, focused ? kAccent : kFaint, 1.0f, 2);
+     }
+-    hint = c.Hint('x', Tr("Open"), hint, 1004);
++    {
++      // Fix 93d: this game's next start with logs for a bug report, set apart below the subjects.
++      const int row = int(game_categories_.size());
++      const auto found = overrides_.find("bug_report");
++      const bool armed = found != overrides_.end() && found->second;
++      const float y = 336 + row * 88.0f + 8;
++      DrawBugReportRow(c, x, y, Tr("Problem with this game? Logs for a bug report"),
++                       Tr(armed ? "Next start" : "Off||plural"), game_category_ == row, armed);
++      if (game_category_ == row)
++        c.Wrapped(Tr("This game's next start records more details. Afterwards a screen lists the files to attach to your bug report."),
++                  x + 56, y + 56, 20, kBody, 750);
++    }
++    hint = c.Hint('x', game_category_ == int(game_categories_.size()) ? Tr("Change") : Tr("Open"), hint, 1004);
+     c.Hint('o', Tr("Back"), hint, 1004);
+     return;
+   }
+@@ -3777,18 +3817,22 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+       {Tr("Saved data"), "", Tr("View data by game and its storage location. Profiles and achievements are kept with saved games.")},
+       {Tr("Restore recommended"), restored_ ? Tr("Done") : "", Tr("Puts every Video, Performance, Audio, Controls and System option back to its recommended value. Each game's own settings stay as they are.")},
+       {Tr("Theme"), dark_theme::AtStart() ? Tr("DARK") : Tr("LIGHT"), Tr("X switches the theme; the emulator restarts")},
+-      {Tr("Restart emulator"), "", Tr("Close and reopen the emulator.")}};
++      {Tr("Restart emulator"), "", Tr("Close and reopen the emulator.")},
++      // Fix 93d: set apart below the others (drawn after a divider, with its own mark).
++      {Tr("Problem with a game? Logs for a bug report"), Tr(settings_.bug_report ? "Next game" : "Off||plural"),
++       Tr("The next game you start records more details. Afterwards a screen lists the files to attach to your bug report.")}};
+   for (int n = 0; n < 14; ++n) {
+-    const float y = 122 + n * 40.0f;
++    const float y = 122 + n * 38.0f;
+     const bool focused = n == settings_row_;
+-    c.Fill(x + 40, y, 780, 38, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+-    if (focused) c.Edge(x + 40, y, 780, 38, kAccent, 0.9f, 10, 2.0f);
+-    c.Text(rows[n].label, x + 64, y + 7, 24, focused ? kText : kBody);
+-    c.Text(rows[n].value, x + 796, y + 7, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
++    c.Fill(x + 40, y, 780, 36, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
++    if (focused) c.Edge(x + 40, y, 780, 36, kAccent, 0.9f, 10, 2.0f);
++    c.Text(rows[n].label, x + 64, y + 6, 24, focused ? kText : kBody);
++    c.Text(rows[n].value, x + 796, y + 6, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
+   }
+-  c.Wrapped(rows[settings_row_].about, x + 56, 684, 20, kBody, 750);
++  DrawBugReportRow(c, x, 668, rows[14].label, rows[14].value, settings_row_ == 14, settings_.bug_report != 0);
++  c.Wrapped(rows[settings_row_].about, x + 56, 720, 20, kBody, 750);
+   const std::string covers = covers_.Status();
+-  if (settings_row_ == 7 && !covers.empty()) c.Text(covers, x + 56, 770, 20, kAccent, 1.0f, 0, 750);
++  if (settings_row_ == 7 && !covers.empty()) c.Text(covers, x + 56, 784, 20, kAccent, 1.0f, 0, 750);
+   c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
+   if (web_qr_.size) {
+     // The settings page: its QR code on a white card, the address and the key beside it.

@@ -1,0 +1,864 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
+index b4ac0ad..e9dc3c5 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_slots.h
+@@ -26,6 +26,8 @@
+ #ifndef XENIA_GPU_VULKAN_READBACK_SLOTS_H_
+ #define XENIA_GPU_VULKAN_READBACK_SLOTS_H_
+ 
++#include <atomic>
++#include <cmath>
+ #include <cstdint>
+ 
+ namespace xe {
+@@ -90,6 +92,164 @@ inline uint32_t ChooseWrite(const uint64_t* submissions,
+   return oldest < 0 ? 0 : uint32_t(oldest);
+ }
+ 
++// Fix 91: the fast mode gives a resolve the copy one resolve late, which is the previous frame's
++// picture only for a key resolved once a frame. Tekken Tag Tournament 2 resolves several keys
++// twice a frame through its fights (two passes drawn into the same place: 10020000 and
++// 0FD7C000 of 4096 bytes, 0D0F0000 of 3 MiB, 0E338000 and 0E740000 of 4 MiB, ...), so each pass
++// got the other pass's picture, and King's yellow and purple and Bob's clothes came out cyan and
++// blue (issue 14); the full mode, which gives every resolve its own copy, was right and about
++// 10 fps slower. Each copy now carries its pass (the n-th resolve of the key in its frame, from
++// 1) and frame, and a resolve gets the newest copy of its own pass from an earlier frame: still
++// one frame late, never another pass's. A key resolved once a frame gets exactly what it got
++// before. A pass with no earlier copy yet (a key's first frame) gets its own copy, waited for as
++// on a key's first resolve.
++// (Tried on the console before: giving the same frame's repeats their own copy (1.0.5-work-
++// fix91: the first pass still got the other one's; waits all through the fights), and every
++// resolve of a key in its first frames after a pause (1.0.5-work-fix91b/c: the costume key
++// 0FE7C000 got byte-for-byte the full mode's copies, and the colours stayed wrong).)
++
++// The newest slot other than `exclude` holding a copy of pass `pass`, of at least `length`
++// bytes, made in a frame before `frame`, completed by `completed` if `completed_only`. -1 if none.
++inline int ChooseRead(const uint64_t* submissions, const uint32_t* valid_sizes,
++                      const uint32_t* passes, const uint64_t* frames, uint32_t count,
++                      int exclude, uint32_t length, uint32_t pass, uint64_t frame,
++                      uint64_t completed, bool completed_only) {
++  int best = -1;
++  for (uint32_t i = 0; i < count; ++i) {
++    if (int(i) == exclude || !submissions[i] || valid_sizes[i] < length || passes[i] != pass ||
++        frames[i] >= frame || (completed_only && submissions[i] > completed)) {
++      continue;
++    }
++    if (best < 0 || submissions[i] > submissions[best]) {
++      best = int(i);
++    }
++  }
++  return best;
++}
++
++// The slot this copy goes to: never the newest copy of any pass (each is kept for its pass's
++// next resolve): an unused slot, else the oldest copy not kept; when every slot is some pass's
++// newest (more passes than slots), the oldest.
++inline uint32_t ChooseWrite(const uint64_t* submissions, const uint32_t* valid_sizes,
++                            const uint32_t* passes, uint32_t count, uint32_t length) {
++  bool kept[16] = {};
++  for (uint32_t i = 0; i < count && i < 16; ++i) {
++    if (!submissions[i] || valid_sizes[i] < length) {
++      continue;
++    }
++    bool newest_of_pass = true;
++    for (uint32_t j = 0; j < count; ++j) {
++      if (j != i && submissions[j] && valid_sizes[j] >= length && passes[j] == passes[i] &&
++          submissions[j] > submissions[i]) {
++        newest_of_pass = false;
++        break;
++      }
++    }
++    kept[i] = newest_of_pass;
++  }
++  int unused = -1, oldest_free = -1, oldest = -1;
++  for (uint32_t i = 0; i < count && i < 16; ++i) {
++    if (!submissions[i]) {
++      if (unused < 0) unused = int(i);
++      continue;
++    }
++    if (oldest < 0 || submissions[i] < submissions[oldest]) oldest = int(i);
++    if (!kept[i] && (oldest_free < 0 || submissions[i] < submissions[oldest_free])) {
++      oldest_free = int(i);
++    }
++  }
++  if (unused >= 0) return uint32_t(unused);
++  if (oldest_free >= 0) return uint32_t(oldest_free);
++  return oldest < 0 ? 0 : uint32_t(oldest);
++}
++
++// Fix 91, 1.0.5-work-fix91f: the resolves the CPU reads as data. The per-key readback file of
++// 1.0.5-work-fix91e found Tekken Tag Tournament 2's colours on the console: the 4 MiB key
++// 0F05C000, which the game draws a costume part into about every 25 frames (3 draws) and
++// reads back on the CPU to build a 256x256 DXT texture, one part after another. The fast mode
++// handed each part the previous one's picture; with that key alone in the full mode the colours
++// were right. The shape, for any game: a resolve whose copy the CPU reads (a one-shot read watch
++// on its range after the copy, re-armed now and then while nothing reads it) and that is not
++// resolved every frame or so (its frames between resolves average kOccasionalFrames or more):
++// such a key gets its own copy, waited for. A key resolved every frame stays one frame late even
++// when the CPU reads it (an HDR luminance), as the fast mode means to.
++constexpr float kOccasionalFrames = 4.0f;
++// The key's average frames between resolves (`average`, 0 for a new key) after one at `frame`,
++// its previous at `previous_frame` (0: none); true when it is occasional.
++inline bool Occasional(uint64_t previous_frame, uint64_t frame, float& average) {
++  if (!previous_frame) {
++    average = kOccasionalFrames;  // unknown yet: as occasional
++    return true;
++  }
++  const float gap = float(frame - previous_frame);
++  average = average * 0.75f + gap * 0.25f;
++  return average >= kOccasionalFrames;
++}
++// 1.0.5-work-fix91j: steady keys. With "occasional own" (readback-keys.txt) Tekken's 0F05C000
++// still got the fast mode's late copy on the console (91i): its costume parts come in runs at a
++// match's load, a resolve or more a frame, and the average gap above fell under
++// kOccasionalFrames. What the fast mode is for is the other shape: a key resolved in every frame
++// for a long time (HDR luminance, shadows, bloom), where a frame-late copy is nearly the current
++// one. `streak` is the number of consecutive frames, ending with this one, that resolved the key
++// (repeats within a frame keep it); a key is steady once that reaches kSteadyFrames.
++constexpr uint32_t kSteadyFrames = 60;
++inline uint32_t Streak(uint64_t previous_frame, uint64_t frame, uint32_t streak) {
++  if (!previous_frame || frame < previous_frame) return 1;
++  if (frame == previous_frame) return streak ? streak : 1;
++  return frame - previous_frame == 1 ? streak + 1 : 1;
++}
++inline bool Steady(uint32_t streak) { return streak >= kSteadyFrames; }
++// 1.0.5-work-fix91k: steadiness as the share of recent frames that resolved the key. 91j's run of
++// kSteadyFrames frames was right for Tekken and FIFA Street on the console but cost FIFA 100-160
++// ms/s of GPU waits: its frame-size targets (1282B000, 15094000) are resolved in most frames but
++// not in each, so none was ever steady. `presence` is an average of "this frame resolved the key"
++// over about 1 / kPresenceRate frames (repeats within a frame count once); a key is steady at
++// kSteadyPresence or more. A key resolved every frame tends to 1, every other frame to 0.5, a run
++// of costume parts at a match's load starts from about 0 and needs some 260 frames in a row to
++// reach 0.4, a key every 25 frames stays near 0.04.
++constexpr float kPresenceRate = 1.0f / 512.0f;
++constexpr float kSteadyPresence = 0.4f;
++inline float Presence(uint64_t previous_frame, uint64_t frame, float presence) {
++  if (!previous_frame || frame < previous_frame) return kPresenceRate;
++  if (frame == previous_frame) return presence;
++  return presence * std::pow(1.0f - kPresenceRate, float(frame - previous_frame)) + kPresenceRate;
++}
++inline bool SteadyPresence(float presence) { return presence >= kSteadyPresence; }
++inline bool Overlaps(uint32_t a, uint32_t a_length, uint32_t b, uint32_t b_length) {
++  return a_length && b_length && a < b + b_length && b < a + a_length;
++}
++// The CPU's reads of armed ranges, written in the fault handler (no locks, never blocks) and
++// taken on the GPU command thread. Up to kReads are kept between two takes; more are dropped.
++struct ReadRing {
++  static constexpr uint32_t kReads = 64;
++  struct Read {
++    std::atomic<uint32_t> address{0}, length{0};
++  };
++  Read reads[kReads];
++  std::atomic<uint32_t> written{0};
++  std::atomic<uint32_t> taken{0};  // advanced by the GPU command thread
++  // Called under the global critical region (the fault handler), so one writer at a time.
++  // False when the ring is full (the read is dropped).
++  bool Push(uint32_t address, uint32_t length) {
++    const uint32_t n = written.load(std::memory_order_relaxed);
++    if (n - taken.load(std::memory_order_acquire) >= kReads) return false;  // the reader is behind
++    reads[n % kReads].address.store(address, std::memory_order_relaxed);
++    reads[n % kReads].length.store(length, std::memory_order_relaxed);
++    written.store(n + 1, std::memory_order_release);
++    return true;
++  }
++  template <typename Each>
++  void Take(Each each) {
++    const uint32_t n = written.load(std::memory_order_acquire);
++    uint32_t t = taken.load(std::memory_order_relaxed);
++    for (; t != n; ++t) {
++      each(reads[t % kReads].address.load(std::memory_order_relaxed),
++           reads[t % kReads].length.load(std::memory_order_relaxed));
++    }
++    taken.store(t, std::memory_order_release);
++  }
++};
++
+ }  // namespace readback_slots
+ }  // namespace vulkan
+ }  // namespace gpu
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 2ebc99a..fc5e1fc 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -12,6 +12,13 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
++#include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
++#include <sys/stat.h>
++#include <algorithm>
++#include <chrono>
++#include <map>
++#include <string>
++#include <vector>
+ #endif
+ 
+ #include <utility>
+@@ -236,11 +243,24 @@ std::future<bool> VulkanCommandProcessor::RequestPipelineCacheSnapshot() {
+   return result;
+ }
+ 
++void VulkanCommandProcessor::ReadbackReadCallback(void* context, uint32_t physical_address,
++                                                  uint32_t length) {
++  // Fix 91: in the fault handler, under the global critical region: only noted.
++  auto* self = static_cast<VulkanCommandProcessor*>(context);
++  self->readback_read_fires_.fetch_add(1, std::memory_order_relaxed);
++  if (!self->readback_reads_.Push(physical_address, length)) {
++    self->readback_read_drops_.fetch_add(1, std::memory_order_relaxed);
++  }
++}
++
+ bool VulkanCommandProcessor::SetupContext() {
+   if (!CommandProcessor::SetupContext()) {
+     XELOGE("Failed to initialize base command processor context");
+     return false;
+   }
++  // Fix 91: which resolve copies the CPU reads (readback_slots.h, Occasional).
++  readback_read_callback_ =
++      memory_->RegisterPhysicalMemoryReadCallback(ReadbackReadCallback, this);
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -1357,6 +1377,10 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
+ 
+ void VulkanCommandProcessor::ShutdownContext() {
+   AwaitAllQueueOperationsCompletion();
++  if (readback_read_callback_) {  // fix 91
++    memory_->UnregisterPhysicalMemoryReadCallback(readback_read_callback_);
++    readback_read_callback_ = nullptr;
++  }
+ #if XE_PLATFORM_PS5
+   if (frame_cost_query_pool_ != VK_NULL_HANDLE) {  // fix 49
+     GetVulkanDevice()->functions().vkDestroyQueryPool(
+@@ -3921,6 +3945,139 @@ bool AutoReadbackAllowed() {
+   }();
+   return allowed;
+ }
++// Fix 91 diagnostic (issue 14): the readback mode per key from readback-keys.txt
++// (xbox360ps5/readback_keys.hpp), read again when it changes (checked once a second), and the
++// keys in the log: each new one when first seen, and every 30 s the keys of the last 30 s with
++// their counts and the mode they got. Called on the GPU command thread only.
++// The rules read from readback-keys.txt (also the watch and occasional switches, fix 91g).
++xbox360ps5::readback_keys::Rules g_readback_rules;
++void ReadbackKeysDiagnostic(uint32_t address, uint32_t length, uint32_t format, uint32_t endian,
++                            bool automatic, ReadbackResolveMode& mode) {
++  namespace rk = xbox360ps5::readback_keys;
++  rk::Rules& rules = g_readback_rules;
++  static std::string loaded_from;
++  static long long loaded_stamp = -1;
++  static auto checked = std::chrono::steady_clock::time_point();
++  const auto now = std::chrono::steady_clock::now();
++  if (now - checked >= std::chrono::seconds(1)) {
++    checked = now;
++    std::string found;
++    long long stamp = -1;
++    for (const char* path : {XBOX360PS5_DATA_ROOT "/readback-keys.txt",
++                             "/download0/xbox360ps5/readback-keys.txt"}) {
++      struct stat info;
++      if (::stat(path, &info) == 0) {
++        found = path;
++        stamp = (long long)info.st_mtime * 1000003LL + (long long)info.st_size;
++        break;
++      }
++    }
++    if (found != loaded_from || stamp != loaded_stamp) {
++      loaded_from = found;
++      loaded_stamp = stamp;
++      std::string text;
++      if (!found.empty()) {
++        if (FILE* file = std::fopen(found.c_str(), "rb")) {
++          char chunk[4096];
++          size_t got;
++          while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++          std::fclose(file);
++        }
++      }
++      rules = rk::Parse(text);
++      XELOGW(
++          "Readback keys: {}: default {}, {} keys listed, {} lines not understood (fix 91 "
++          "diagnostic)",
++          found.empty() ? std::string("no readback-keys.txt") : found, rk::Name(rules.default_mode),
++          rules.keys.size(), rules.not_understood);
++      for (const rk::Rule& rule : rules.keys) {
++        XELOGW("Readback keys:   {:08X}/{} {}", rule.address,
++               rule.length ? std::to_string(rule.length) : std::string("any"), rk::Name(rule.mode));
++      }
++      for (uint32_t watched : rules.watch) {
++        XELOGW("Readback keys:   watch {:08X} (the CPU read watch armed at every resolve)", watched);
++      }
++      if (rules.occasional_own) {
++        XELOGW("Readback keys:   occasional own (the default since fix 91k: every key resolved "
++               "in less than {:.0f}% of recent frames gets its own copy, read by the CPU or not)",
++               readback_slots::kSteadyPresence * 100.0f);
++      } else {
++        XELOGW("Readback keys:   occasional off (fix 91i's rule: only keys the CPU is seen reading)");
++      }
++      for (uint32_t listed : rules.nocopy) {
++        XELOGW("Readback keys:   nocopy {:08X} (its fast copy kept out of guest memory)", listed);
++      }
++      if (rules.nocopy_unread) {
++        XELOGW("Readback keys:   nocopy unread (fast copies only for keys the CPU reads)");
++      }
++    }
++  }
++  if (!automatic && length &&
++      (mode == ReadbackResolveMode::kFast || mode == ReadbackResolveMode::kFull)) {
++    const rk::Mode chosen = rk::Lookup(rules, address, length);
++    if (chosen == rk::Mode::kFull) mode = ReadbackResolveMode::kFull;
++    else if (chosen == rk::Mode::kFast) mode = ReadbackResolveMode::kFast;
++  }
++  struct Seen {
++    uint32_t format = 0, endian = 0;
++    uint64_t total = 0, window = 0;
++    ReadbackResolveMode mode = ReadbackResolveMode::kDisabled;
++    bool automatic = false;
++  };
++  static std::map<uint64_t, Seen> seen;
++  static uint32_t new_shown = 0;
++  static auto window_start = now;
++  const uint64_t key = (uint64_t(address) << 32) | length;
++  auto found_key = seen.find(key);
++  if (found_key == seen.end()) {
++    found_key = seen.emplace(key, Seen{}).first;
++    if (new_shown < 400) {
++      ++new_shown;
++      XELOGW(
++          "Readback key: {:08X}/{} bytes, format {}, endian {}, mode {}: first seen (fix 91 "
++          "diagnostic)",
++          address, length, format, endian,
++          automatic                                 ? "automatic"
++          : mode == ReadbackResolveMode::kFull     ? "full"
++          : mode == ReadbackResolveMode::kFast     ? "fast"
++                                                   : "off");
++    }
++  }
++  Seen& s = found_key->second;
++  s.format = format;
++  s.endian = endian;
++  ++s.total;
++  ++s.window;
++  s.mode = mode;
++  s.automatic = automatic;
++  if (now - window_start >= std::chrono::seconds(30)) {
++    window_start = now;
++    std::vector<std::pair<uint64_t, uint64_t>> order;
++    for (const auto& [k, v] : seen)
++      if (v.window) order.emplace_back(v.window, k);
++    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++    std::string line;
++    int listed = 0;
++    for (const auto& [count, k] : order) {
++      if (listed == 48) break;
++      const Seen& v = seen[k];
++      char text[96];
++      std::snprintf(text, sizeof(text), "%s%08X/%u f%u e%u x%llu %s", listed % 6 ? "; " : "",
++                    uint32_t(k >> 32), uint32_t(k), v.format, v.endian, (unsigned long long)count,
++                    v.automatic ? "auto"
++                    : v.mode == ReadbackResolveMode::kFull ? "full"
++                    : v.mode == ReadbackResolveMode::kFast ? "fast"
++                                                           : "off");
++      line += text;
++      if (++listed % 6 == 0) {
++        XELOGW("Readback keys, last 30 s: {}", line);
++        line.clear();
++      }
++    }
++    if (!line.empty()) XELOGW("Readback keys, last 30 s: {}", line);
++    for (auto& [k, v] : seen) v.window = 0;
++  }
++}
+ // A folder for the bytes of small resolves (XBOX360PS5_DUMP_RESOLVES), or null.
+ const char* ResolveDumpFolder() {
+ #if XE_PLATFORM_PS5
+@@ -3977,6 +4134,11 @@ bool VulkanCommandProcessor::IssueCopy() {
+   if (auto_readback) {
+     readback_mode = ReadbackResolveMode::kFast;
+   }
++  // Fix 91 diagnostic (issue 14): readback-keys.txt may set this key's mode; the keys go to the log.
++  ReadbackKeysDiagnostic(written_address, written_length,
++                         uint32_t(copy_dest_info.copy_dest_format),
++                         uint32_t(copy_dest_info.copy_dest_endian), auto_readback,
++                         readback_mode);
+   const bool show_resolve = ShowResolve(written_length);
+   const DrawsSinceResolve draws = draws_since_resolve_;
+   draws_since_resolve_ = DrawsSinceResolve();
+@@ -4138,8 +4300,71 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+     uint64_t resolve_key =
+         MakeReadbackResolveKey(written_address, written_length);
++    // Fix 91: the CPU's reads of armed copies since the last resolve mark their keys.
++    readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++      static uint32_t raw_shown = 0;
++      if (raw_shown < 16) {
++        ++raw_shown;
++        XELOGW("Readback read watch: the CPU read {:08X} ({} bytes) (fix 91g)", read_address,
++               read_length);
++      }
++      for (auto& [key, buffer] : readback_buffers_) {
++        const uint32_t key_address = uint32_t(key >> 32), key_length = uint32_t(key);
++        if (buffer.armed_frame && !buffer.cpu_reads &&
++            readback_slots::Overlaps(key_address, key_length, read_address, read_length)) {
++          buffer.cpu_reads = true;
++          ++readback_keys_flagged_;
++          static uint32_t reads_shown = 0;
++          if (reads_shown < 64) {
++            ++reads_shown;
++            XELOGW(
++                "Readback: the CPU reads the copy of the key {:08X} ({} bytes), resolved about "
++                "every {:.1f} frames (fix 91)",
++                key_address, key_length, buffer.gap_average);
++          }
++        }
++      }
++    });
++    {
++      static auto watch_summary = std::chrono::steady_clock::now();
++      const auto now = std::chrono::steady_clock::now();
++      if (now - watch_summary >= std::chrono::seconds(30)) {
++        watch_summary = now;
++        XELOGW(
++            "Readback read watches, last 30 s: armed {}, reads seen {} (dropped {}, {} of them a "
++            "write first), keys the CPU reads {}, fast copies kept out of guest memory {} "
++            "(fix 91g/h/i)",
++            readback_watches_armed_, readback_read_fires_.exchange(0), readback_read_drops_.exchange(0),
++            xbox360ps5::read_watch_writes.exchange(0), readback_keys_flagged_,
++            readback_copies_left_out_);
++        readback_watches_armed_ = 0;
++        readback_copies_left_out_ = 0;
++        // Fix 91j: the resolves given their own copy (a wait for the GPU), by key.
++        std::vector<std::pair<uint32_t, uint64_t>> own;
++        for (auto& [key, buffer] : readback_buffers_) {
++          if (buffer.own_window) own.emplace_back(buffer.own_window, key);
++          buffer.own_window = 0;
++        }
++        std::sort(own.begin(), own.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++        std::string own_keys;
++        for (size_t n = 0; n < own.size() && n < 8; ++n) {
++          char text[48];
++          std::snprintf(text, sizeof(text), "%s%08X/%u x%u", n ? "; " : "", uint32_t(own[n].second >> 32),
++                        uint32_t(own[n].second), own[n].first);
++          own_keys += text;
++        }
++        XELOGW("Readback own copies, last 30 s: {} ({}) (fix 91j/k)", readback_own_copies_,
++               own_keys.empty() ? "none" : own_keys.c_str());
++        readback_own_copies_ = 0;
++      }
++    }
+     ReadbackBuffer& rb = readback_buffers_[resolve_key];
++    const uint64_t previous_use_frame = rb.last_used_frame;  // fix 91
+     rb.last_used_frame = frame_current_;
++    const bool occasional =
++        readback_slots::Occasional(previous_use_frame, frame_current_, rb.gap_average);
++    rb.streak = readback_slots::Streak(previous_use_frame, frame_current_, rb.streak);  // fix 91j
++    rb.presence = readback_slots::Presence(previous_use_frame, frame_current_, rb.presence);  // 91k
+ 
+     // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
+     // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
+@@ -4147,9 +4372,28 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const uint64_t readback_completed =
+         auto_readback ? completion_timeline_.UpdateAndGetCompletedSubmission()
+                       : GetCompletedSubmission();
++    // Fix 91: this resolve's pass, the n-th resolve of the key in this frame; it gets the
++    // previous frame's copy of the same pass (readback_slots.h), never another pass's.
++    if (rb.pass_frame != frame_current_) {
++      rb.pass_frame = frame_current_;
++      rb.pass = 0;
++    }
++    const uint32_t pass = ++rb.pass;
++    if (pass > rb.most_passes) {
++      rb.most_passes = pass;
++      static uint32_t passes_shown = 0;
++      if (passes_shown < 48) {
++        ++passes_shown;
++        XELOGW(
++            "Readback: the key {:08X} ({} bytes) is resolved {} times in a frame: each resolve "
++            "gets the previous frame's copy of its own pass (fix 91)",
++            written_address, readback_length, pass);
++      }
++    }
++    // Every pass's newest copy is kept for its next resolve, done or not.
+     uint32_t write_index = readback_slots::ChooseWrite(
+-        rb.submissions, rb.valid_sizes, readback_slots::kCount,
+-        readback_length, readback_completed);
++        rb.submissions, rb.valid_sizes, rb.passes, readback_slots::kCount,
++        readback_length);
+     uint32_t size = AlignReadbackBufferSize(readback_length);
+ 
+     // Allocate/resize write buffer if needed
+@@ -4236,6 +4480,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+       rb.sizes[write_index] = size;
+       rb.valid_sizes[write_index] = 0;
+       rb.submissions[write_index] = 0;
++      rb.passes[write_index] = 0;  // fix 91
++      rb.frames[write_index] = 0;
+       rb.host_coherent[write_index] =
+           (vulkan_device->memory_types().host_coherent &
+            (uint32_t(1) << memory_type_index)) != 0;
+@@ -4246,8 +4492,10 @@ bool VulkanCommandProcessor::IssueCopy() {
+     const int newest_copy =
+         readback_mode == ReadbackResolveMode::kFast
+             ? readback_slots::ChooseRead(rb.submissions, rb.valid_sizes,
++                                         rb.passes, rb.frames,
+                                          readback_slots::kCount,
+                                          int(write_index), readback_length,
++                                         pass, frame_current_,
+                                          readback_completed, auto_readback)
+             : -1;
+     uint32_t read_index =
+@@ -4255,6 +4503,30 @@ bool VulkanCommandProcessor::IssueCopy() {
+     bool read_cache_miss = readback_mode == ReadbackResolveMode::kFast &&
+                            (newest_copy < 0 ||
+                             rb.buffers[read_index] == VK_NULL_HANDLE);
++    // Fix 91 (1.0.5-work-fix91f): a key whose copy the CPU reads and that is not resolved every
++    // frame or so gets its own copy, waited for as on a key's first resolve (readback_slots.h,
++    // Occasional): Tekken Tag Tournament 2's costume parts, drawn into one 4 MiB target and read
++    // back one after another. The automatic copy (readback off) still never waits.
++    // 1.0.5-work-fix91j/k: the rule needs neither a seen read nor the gap average: every key that
++    // is not steady (resolved in kSteadyPresence of recent frames, readback_slots::Presence) gets
++    // its own copy. The default; "occasional off" in readback-keys.txt goes back to fix 91i's
++    // rule (a key the CPU is seen reading that is occasional), for comparisons.
++    const bool own_copy = g_readback_rules.occasional_own
++                              ? !readback_slots::SteadyPresence(rb.presence)
++                              : rb.cpu_reads && occasional;
++    if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && own_copy &&
++        newest_copy >= 0) {
++      read_cache_miss = true;
++      ++rb.own_window;
++      ++readback_own_copies_;
++      static uint32_t own_shown = 0;
++      if (own_shown < 16) {
++        ++own_shown;
++        XELOGW("Readback: the key {:08X} ({} bytes) gets its own copy: {} frame(s) in a row, about "
++               "every {:.1f} frames, in {:.0f}% of recent frames (fix 91k)",
++               written_address, readback_length, rb.streak, rb.gap_average, rb.presence * 100.0f);
++      }
++    }
+ 
+     if (is_scaled) {
+       // Scaled path: downscale on the GPU, then copy the 1x data to the
+@@ -4484,6 +4756,8 @@ bool VulkanCommandProcessor::IssueCopy() {
+     // Stamp after the copy: scaled-buffer growth may end a submission above.
+     rb.submissions[write_index] = GetCurrentSubmission();
+     rb.valid_sizes[write_index] = readback_length;
++    rb.passes[write_index] = pass;  // fix 91
++    rb.frames[write_index] = frame_current_;
+ 
+     if (readback_mode != ReadbackResolveMode::kFast) {
+       // Wait for GPU to finish (accurate but slow)
+@@ -4548,8 +4822,40 @@ bool VulkanCommandProcessor::IssueCopy() {
+       if (MapReadbackMemory(rb.memories[read_index],
+                             rb.host_coherent[read_index], &mapped_data)) {
+         // Memory accessibility already checked at the start of this function.
+-        memory::vastcpy(memory_->TranslatePhysical(written_address),
+-                        static_cast<uint8_t*>(mapped_data), readback_length);
++        // Fix 91h (issue 14): "nocopy" in readback-keys.txt keeps a key's fast-mode copy (a
++        // resolve or more late) out of guest memory: Tekken Tag Tournament 2's costume target
++        // 0F05C000 is not read by the CPU (1.0.5-work-fix91g's read watch), so the stale copy may
++        // reach the GPU through guest memory. "nocopy unread" does that for every key the CPU
++        // has not been seen reading; the read watch below stays armed to find the ones it reads.
++        const bool leave_out =
++            readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
++            xbox360ps5::readback_keys::NoCopy(g_readback_rules, written_address, rb.cpu_reads);
++        if (leave_out) {
++          ++readback_copies_left_out_;
++          static uint32_t left_out_shown = 0;
++          if (left_out_shown < 16) {
++            ++left_out_shown;
++            XELOGW("Readback: the fast copy of the key {:08X} ({} bytes) kept out of guest memory "
++                   "(fix 91h)",
++                   written_address, readback_length);
++          }
++        } else {
++          memory::vastcpy(memory_->TranslatePhysical(written_address),
++                          static_cast<uint8_t*>(mapped_data), readback_length);
++        }
++        // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
++        // every 600 frames while it does not). The copy above goes through the physical view,
++        // which the watch does not cover.
++        const bool watch_forced =
++            xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g
++        if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
++            (watch_forced ||
++             (!rb.cpu_reads && (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600)))) {
++          rb.armed_frame = frame_current_;
++          ++readback_watches_armed_;
++          memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,
++                                                       true);
++        }
+         if (show_resolve) {
+           const uint8_t* bytes = static_cast<const uint8_t*>(mapped_data);
+           uint32_t nonzero = 0;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index d393ff6..fe1ff1f 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -908,7 +908,34 @@ class VulkanCommandProcessor final : public CommandProcessor {
+     uint64_t submissions[readback_slots::kCount] = {};
+     bool host_coherent[readback_slots::kCount] = {};
+     uint64_t last_used_frame = 0;
++    // Fix 91: each copy's pass (the n-th resolve of the key in its frame) and frame; the
++    // pass counter of the current frame; the most passes seen in a frame (for the log).
++    uint32_t passes[readback_slots::kCount] = {};
++    uint64_t frames[readback_slots::kCount] = {};
++    uint64_t pass_frame = 0;
++    uint32_t pass = 0, most_passes = 1;
++    // Fix 91 (1.0.5-work-fix91f): whether the CPU reads this key's copy (a read watch on its
++    // range after the copy), when it was last armed, and the average frames between resolves.
++    bool cpu_reads = false;
++    uint64_t armed_frame = 0;
++    float gap_average = 0;
++    // 1.0.5-work-fix91j: consecutive frames with a resolve of the key (readback_slots::Streak),
++    // and the resolves that got their own copy in the current 30 s.
++    uint32_t streak = 0;
++    uint32_t own_window = 0;
++    float presence = 0;  // 1.0.5-work-fix91k: readback_slots::Presence
+   };
++  // Fix 91: the CPU's reads of armed resolve ranges (readback_slots::ReadRing), from the fault
++  // handler through the memory's read callback.
++  readback_slots::ReadRing readback_reads_;
++  void* readback_read_callback_ = nullptr;
++  // 1.0.5-work-fix91g: the read watch made observable: callbacks fired (in the fault handler),
++  // reads dropped (ring full), watches armed and keys flagged (GPU command thread).
++  std::atomic<uint32_t> readback_read_fires_{0}, readback_read_drops_{0};
++  uint32_t readback_watches_armed_ = 0, readback_keys_flagged_ = 0;
++  uint32_t readback_copies_left_out_ = 0;  // fix 91h: fast copies kept out of guest memory
++  uint32_t readback_own_copies_ = 0;  // fix 91j: fast-mode resolves given their own copy, 30 s
++  static void ReadbackReadCallback(void* context, uint32_t physical_address, uint32_t length);
+   // Map: (written_address << 32 | written_length) -> ReadbackBuffer
+   std::unordered_map<uint64_t, ReadbackBuffer> readback_buffers_;
+ 
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+index 1f717d8..5ff7ad7 100644
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -27,6 +27,7 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 74: watch arming by view
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by caller
++#include "xbox360ps5/readback_keys.hpp"  // fix 91i: a write to a read-watched page
+ #endif
+ 
+ // TODO(benvanik): move xbox.h out
+@@ -66,6 +67,9 @@ namespace xbox360ps5 {
+ // the game wrote from their neighbours (gpu/shared_memory.cc).
+ uint32_t fault_write_first = UINT32_MAX;
+ uint32_t fault_write_last = 0;
++// Fix 91i: read-watched pages whose first access was a write (reported to the read
++// callbacks all the same), for the command processor's 30 s line.
++std::atomic<uint32_t> read_watch_writes{0};
+ }  // namespace xbox360ps5
+ #endif
+ 
+@@ -2466,6 +2470,23 @@ bool PhysicalHeap::TriggerCallbacks(
+                   host_address_offset()) +
+           physical_address_offset - physical_address_start,
+       heap_size_ - (physical_address_start - physical_address_offset));
++#if XE_PLATFORM_PS5
++  // Fix 91i (issue 14): a read-watched page whose first access is a write. The write path
++  // clears the read watch with the write watch (below), so the read callbacks never heard of
++  // the CPU using that memory: 1.0.5-work-fix91g's watch on Tekken Tag Tournament 2's costume
++  // target 0F05C000 saw nothing, yet the game turns that resolve's guest-memory bytes into
++  // its costume textures (black with the copy left out, blue with the fast mode's late copy).
++  // A write is the CPU using the copy as much as a read.
++  if (!memory_->physical_memory_read_callbacks_.empty() &&
++      xbox360ps5::readback_keys::AnyPage(
++          [&](uint32_t block) { return system_page_flags_[block].notify_on_read; },
++          system_page_first, system_page_last)) {
++    xbox360ps5::read_watch_writes.fetch_add(1, std::memory_order_relaxed);
++    for (auto read_callback : memory_->physical_memory_read_callbacks_) {
++      read_callback->first(read_callback->second, physical_address_start, physical_length);
++    }
++  }
++#endif
+ #if XE_PLATFORM_PS5
+   // Xbox360PS5 (fix 37): an exact request invalidates its exact range, not the
+   // whole 16 KiB host pages around it (exact_unwatch.h); 1.0.2 dropped the GPU
+diff --git a/include/xbox360ps5/readback_keys.hpp b/include/xbox360ps5/readback_keys.hpp
+new file mode 100644
+index 0000000..44227e1
+--- /dev/null
++++ b/include/xbox360ps5/readback_keys.hpp
+@@ -0,0 +1,183 @@
++// SPDX-License-Identifier: MIT
++// Fix 91 diagnostic (issue 14, 1.0.5-work-fix91e): the resolve readback mode per key, from a file
++// the user writes over FTP between runs, for finding which resolve Tekken Tag Tournament 2's
++// colours need without a build per guess (four rules tried on the console, none right).
++//
++// readback-keys.txt (the title folder, or /download0/xbox360ps5/), read again when it changes:
++//   # a comment
++//   default full            every key not listed below: full (or fast); without it, the setting
++//   0E338000 fast           one address, any length
++//   0FE7C000/245760 full    one address and length (bytes, decimal, or hex with 0x)
++// A key's line with a length wins over its address-only line, which wins over the default. Only
++// the fast and full settings are changed (readback off, and its automatic copy, stay as they are).
++#pragma once
++#include <atomic>
++#include <cstdint>
++#include <cstdlib>
++#include <sstream>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::readback_keys {
++
++enum class Mode { kAsSet, kFast, kFull };
++
++struct Rule {
++  uint32_t address = 0;
++  uint32_t length = 0;  // 0: any length
++  Mode mode = Mode::kAsSet;
++};
++struct Rules {
++  Mode default_mode = Mode::kAsSet;
++  std::vector<Rule> keys;
++  int not_understood = 0;  // lines that were neither empty, a comment, nor a rule
++  // 1.0.5-work-fix91g: "watch <address>" arms the CPU read watch on that key at every resolve
++  // (testing the watch alone); "occasional own" gives every occasional key its own copy whether
++  // or not the CPU is seen reading it (the simpler rule, for measuring its cost). 1.0.5-work-fix91j:
++  // occasional now means not steady, i.e. not resolved in each of the last 60 frames.
++  // 1.0.5-work-fix91k: the rule is the default (no file needed); steady is now a share of recent
++  // frames (readback_slots::Presence); "occasional off" goes back to fix 91i's rule.
++  std::vector<uint32_t> watch;
++  bool occasional_own = true;  // 1.0.5-work-fix91k: the default; "occasional off" clears it
++  // 1.0.5-work-fix91h: "nocopy <address>" leaves that key's fast-mode copy out of guest memory;
++  // "nocopy unread" leaves out the copies of every key the CPU has not been seen reading.
++  std::vector<uint32_t> nocopy;
++  bool nocopy_unread = false;
++};
++
++inline bool ParseMode(const std::string& word, Mode* mode) {
++  if (word == "full") *mode = Mode::kFull;
++  else if (word == "fast") *mode = Mode::kFast;
++  else return false;
++  return true;
++}
++
++inline bool ParseNumber(const std::string& text, int base, uint32_t* value) {
++  if (text.empty()) return false;
++  char* end = nullptr;
++  const unsigned long long n = std::strtoull(text.c_str(), &end, base);
++  if (!end || *end || n > 0xFFFFFFFFull) return false;
++  *value = uint32_t(n);
++  return true;
++}
++
++inline Rules Parse(const std::string& text) {
++  Rules rules;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string first, second, extra;
++    if (!(words >> first)) continue;  // empty
++    Mode mode;
++    if (first == "nocopy") {
++      uint32_t address = 0;
++      if (!(words >> second) || (words >> extra)) {
++        ++rules.not_understood;
++      } else if (second == "unread") {
++        rules.nocopy_unread = true;
++      } else if (ParseNumber(second.rfind("0x", 0) == 0 ? second.substr(2) : second, 16, &address)) {
++        rules.nocopy.push_back(address);
++      } else {
++        ++rules.not_understood;
++      }
++      continue;
++    }
++    if (first == "watch" || first == "occasional") {
++      uint32_t address = 0;
++      const bool ok =
++          (words >> second) && !(words >> extra) &&
++          (first == "watch"
++               ? ParseNumber(second.rfind("0x", 0) == 0 ? second.substr(2) : second, 16, &address)
++               : (second == "own" || second == "off"));
++      if (!ok) {
++        ++rules.not_understood;
++      } else if (first == "watch") {
++        rules.watch.push_back(address);
++      } else {
++        rules.occasional_own = second == "own";
++      }
++      continue;
++    }
++    if (!(words >> second) || (words >> extra) || !ParseMode(second, &mode)) {
++      ++rules.not_understood;
++      continue;
++    }
++    if (first == "default") {
++      rules.default_mode = mode;
++      continue;
++    }
++    Rule rule;
++    rule.mode = mode;
++    const size_t slash = first.find('/');
++    const std::string address = first.substr(0, slash);
++    bool ok = ParseNumber(address.rfind("0x", 0) == 0 ? address.substr(2) : address, 16, &rule.address);
++    if (ok && slash != std::string::npos) {
++      const std::string length = first.substr(slash + 1);
++      ok = length.rfind("0x", 0) == 0 ? ParseNumber(length.substr(2), 16, &rule.length)
++                                      : ParseNumber(length, 10, &rule.length);
++      ok = ok && rule.length;
++    }
++    if (!ok) {
++      ++rules.not_understood;
++      continue;
++    }
++    rules.keys.push_back(rule);
++  }
++  return rules;
++}
++
++// The mode for a key: its address-and-length line, else its address line, else the default.
++inline Mode Lookup(const Rules& rules, uint32_t address, uint32_t length) {
++  Mode by_address = Mode::kAsSet;
++  bool any_address = false;
++  for (const Rule& rule : rules.keys) {
++    if (rule.address != address) continue;
++    if (rule.length == length) return rule.mode;
++    if (!rule.length) {
++      by_address = rule.mode;
++      any_address = true;
++    }
++  }
++  return any_address ? by_address : rules.default_mode;
++}
++
++inline bool Watched(const Rules& rules, uint32_t address) {
++  for (uint32_t watched : rules.watch)
++    if (watched == address) return true;
++  return false;
++}
++// Whether a key's fast-mode copy stays out of guest memory (fix 91h): listed, or "nocopy
++// unread" and the CPU not seen reading it.
++inline bool NoCopy(const Rules& rules, uint32_t address, bool cpu_reads) {
++  for (uint32_t listed : rules.nocopy)
++    if (listed == address) return true;
++  return rules.nocopy_unread && !cpu_reads;
++}
++
++// Fix 91i: whether any page of first..last has its bit set, the bits held 64 pages to a block
++// (the memory's notify_on_read flags); bits(block) gives block number `block`'s bits.
++template <typename Bits>
++inline bool AnyPage(Bits bits, uint32_t first, uint32_t last) {
++  if (first > last) return false;
++  for (uint32_t block = first >> 6; block <= (last >> 6); ++block) {
++    uint64_t set = bits(block);
++    if (block == (first >> 6)) set &= ~((uint64_t(1) << (first & 63)) - 1);
++    if (block == (last >> 6) && (last & 63) != 63) set &= (uint64_t(1) << ((last & 63) + 1)) - 1;
++    if (set) return true;
++  }
++  return false;
++}
++
++inline const char* Name(Mode mode) {
++  return mode == Mode::kFull ? "full" : mode == Mode::kFast ? "fast" : "as set";
++}
++
++}  // namespace xbox360ps5::readback_keys
++
++namespace xbox360ps5 {
++// Fix 91i (memory.cc): read-watched pages whose first access was a write.
++extern std::atomic<uint32_t> read_watch_writes;
++}  // namespace xbox360ps5
