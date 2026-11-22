@@ -82,6 +82,7 @@ checks=(
   check-kinect-identity.cpp        # fix 99b (1.0.5)
   check-kinect-tracker.cpp         # fix 106
   check-kinect-emergency.cpp       # fix 107
+  check-kinect-diag.cpp            # fix 108
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -129,6 +130,7 @@ declare -A fix_of=(
   [check-kinect-identity.cpp]=99b
   [check-kinect-tracker.cpp]=106
   [check-kinect-emergency.cpp]=107
+  [check-kinect-diag.cpp]=108
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
