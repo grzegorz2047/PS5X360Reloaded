@@ -1,0 +1,98 @@
+diff --git a/include/xbox360ps5/guide_quick.hpp b/include/xbox360ps5/guide_quick.hpp
+index 31b76fd..aafefd9 100644
+--- a/include/xbox360ps5/guide_quick.hpp
++++ b/include/xbox360ps5/guide_quick.hpp
+@@ -11,6 +11,7 @@
+ #ifndef XBOX360PS5_GUIDE_QUICK_HPP_
+ #define XBOX360PS5_GUIDE_QUICK_HPP_
+ 
++#include <string>
+ #include <string_view>
+ 
+ namespace xbox360ps5::guide_quick {
+@@ -47,6 +48,21 @@ inline BugReportFlags RestartFlags(bool with_logs, bool title_known) {
+ // row on the settings page does, and it is kept by the same rule.
+ inline const char* MuteRowValue(int mute) { return mute ? "On" : "Off"; }
+ 
++// Fix 115b: the running game's name in the guide's header ("Playing: <game>"), cut at a whole
++// UTF-8 character and ended with "..." when it is wider than `room` (width(text) measures it in the
++// header's font); empty when not even "..." fits.
++template <typename Width>
++std::string FitText(std::string text, float room, Width&& width) {
++  if (width(text) <= room) return text;
++  while (!text.empty()) {
++    while (!text.empty() && (static_cast<unsigned char>(text.back()) & 0xC0) == 0x80) text.pop_back();
++    if (!text.empty()) text.pop_back();
++    while (!text.empty() && text.back() == ' ') text.pop_back();
++    if (!text.empty() && width(text + "...") <= room) return text + "...";
++  }
++  return {};
++}
++
+ }  // namespace xbox360ps5::guide_quick
+ 
+ #endif  // XBOX360PS5_GUIDE_QUICK_HPP_
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index bee3d78..db5436e 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -739,6 +739,18 @@ class Guide final : public xe::ui::ImGuiDialog {
+     list->AddText(font, 24 * scale, ImVec2(x + 42 * scale, y + 1 * scale), IM_COL32(245, 246, 248, (colour >> IM_COL32_A_SHIFT) & 0xFF), label);
+     x += 42 * scale + font->CalcTextSizeA(24 * scale, 4096.0f, 0.0f, label).x + 40 * scale;
+   }
++  // Fix 115b: a shoulder button (L1, R1) at one end of the tabs, as the game sheet's tabs show them
++  // (fix 109c): a pill with fully round ends, its name in white on the guide's grey. x is its left
++  // edge, or its right edge when `from_right`.
++  static void Shoulder(ImDrawList* list, ImFont* font, float scale, float x, float y, ImU32 colour, const char* name,
++                       bool from_right) {
++    const ImVec2 size = font->CalcTextSizeA(20 * scale, 4096.0f, 0.0f, name);
++    const float width = size.x + 24 * scale, height = 30 * scale;
++    const float x0 = from_right ? x - width : x;
++    list->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + width, y + height), colour, height / 2);
++    list->AddText(font, 20 * scale, ImVec2(x0 + (width - size.x) / 2, y + (height - size.y) / 2),
++                  IM_COL32(255, 255, 255, (colour >> IM_COL32_A_SHIFT) & 0xFF), name);
++  }
+   void OnDraw(ImGuiIO& io) override {
+     ImDrawList* list = ImGui::GetForegroundDrawList();
+     const float scale = io.DisplaySize.y / 1080.0f;
+@@ -797,6 +809,18 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const std::string who = profile_.empty() ? std::string(speed) : profile_ + "   ·   " + speed;
+     const ImVec2 who_size = medium->CalcTextSizeA(28 * scale, 4096.0f, 0.0f, who.c_str());
+     list->AddText(medium, 28 * scale, ImVec2(right * scale - who_size.x, 246 * scale), fade(210, 216, 224), who.c_str());
++    // Fix 115b: the running game, in the header after the guide's name, as readable as who is signed
++    // in (it sat faint grey on the list's last divider, over "Exit emulator"); shortened with "..."
++    // before it would reach the text on the right.
++    if (!game_.empty()) {
++      const float title_end =
++          (left + 136) * scale + large->CalcTextSizeA(36 * scale, 4096.0f, 0.0f, Tr("PS5X360Reloaded Guide")).x;
++      const float game_x = title_end + 32 * scale;
++      const std::string running = xbox360ps5::guide_quick::FitText(
++          Tr("Playing: ") + game_, right * scale - who_size.x - 32 * scale - game_x,
++          [medium, scale](const std::string& s) { return medium->CalcTextSizeA(28 * scale, 4096.0f, 0.0f, s.c_str()).x; });
++      if (!running.empty()) list->AddText(medium, 28 * scale, ImVec2(game_x, 246 * scale), fade(210, 216, 224), running.c_str());
++    }
+     // The page that is not open is a dark blade at its side of the panel; on a
+     // change of page it travels to the other side.
+     const float page_left = left + (1.0f - state_.blade) * (blade + 2);
+@@ -884,17 +908,16 @@ class Guide final : public xe::ui::ImGuiDialog {
+       list->AddText(medium, 26 * scale, ImVec2(at(x, y).x + (width * scale - size.x) / 2, at(x, y + 13).y), fade(44, 48, 54, a), label);
+     }
+     list->PopClipRect();
+-    if (!game_.empty()) {
+-      const std::string running = Tr("Playing: ") + game_;
+-      list->AddText(small, 22 * scale, at(page_left + strip + 24, bottom - 44), fade(96, 102, 110), running.c_str());
+-    }
+     // What the buttons do, in the pad's own colours.
+     float x = (left + 136) * scale;
+     const float y = 794 * scale;
+     const bool in_category = state_.page == 1 && state_.category >= 0;
+     Button(list, small, scale, x, y, fade(90, 160, 44), "x", state_.page == 0 ? Tr("Select") : in_category ? Tr("Change") : Tr("Open"));
+     Button(list, small, scale, x, y, fade(200, 52, 43), "o", in_category ? Tr("Categories") : Tr("Return to game"));
+-    Button(list, small, scale, x, y, fade(110, 116, 124), state_.page == 0 ? "L1 R1" : "L1", state_.page == 0 ? Tr("Settings") : Tr("Game"));
++    // Fix 115b: L1 at the left end of the tabs and R1 at the right end (the panel's edges, below the
++    // "Game" and "Settings" tabs) instead of one squeezed "L1 R1" circle in the legend.
++    Shoulder(list, small, scale, left * scale, y, fade(110, 116, 124), "L1", false);
++    Shoulder(list, small, scale, right * scale, y, fade(110, 116, 124), "R1", true);
+     list->AddText(small, 20 * scale, at(left + 136, 835), fade(140, 146, 154), xbox360ps5::kBuildVersionLabel);
+     if (!web_.empty()) {
+       const ImVec2 size = small->CalcTextSizeA(20 * scale, 4096.0f, 0.0f, web_.c_str());

@@ -99,12 +99,16 @@ void CheckGame() {
   // The user's choice: a quiet button below the list, centred, not a row of it.
   Expect(Has(main, "const bool button = !items.empty() && items.back().apart;") &&
              Has(main, "const int listed = int(items.size()) - (button ? 1 : 0);") &&
-             Has(main, "std::max(0, listed - kGuideRows)") && Has(main, "std::min(listed, first_row + kGuideRows)"),
+             ((Has(main, "std::max(0, listed - kGuideRows)") && Has(main, "std::min(listed, first_row + kGuideRows)")) ||
+              // Fix 115c (check-guide-tabs.cpp): the rows below the tab bar, one fewer above the button.
+              (Has(main, "const int shown_rows = button ? kGuideRows - 1 : kGuideRows;") &&
+               Has(main, "std::max(0, listed - shown_rows)") && Has(main, "std::min(listed, first_row + shown_rows)"))),
          "(d) the rows are the others; the action is not one of them (no green focus bar on it)");
   const std::string draw = Between(main, "    if (button) {", "list->PopClipRect();");
-  Expect(Has(draw, "const bool focused = state_.row == listed;") &&
+  Expect((Has(draw, "const bool focused = state_.row == listed;") || Has(draw, "const bool focused = row_focus && state_.row == listed;")) &&
              Has(draw, "const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;") &&
-             Has(draw, "top + std::min(listed - first_row, kGuideRows) * 63.0f + 24"),
+             (Has(draw, "top + std::min(listed - first_row, kGuideRows) * 63.0f + 24") ||
+              Has(draw, "list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24")),
          "(d) a button centred below the list");
   // The approved mock-up (bug-report-guide-raised), without the "!" mark: a raised button.
   Expect(Has(draw, "for (int n = 4; n >= 1; --n)") && Has(draw, "fade(40, 44, 52, a * 7 / 100)"),
