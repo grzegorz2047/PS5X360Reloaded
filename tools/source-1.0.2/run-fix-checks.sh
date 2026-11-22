@@ -269,7 +269,7 @@ declare -A fix_of=(
   [check-submit-parts.cpp]=130
   [check-game-language.cpp]=132
   [check-readback-batching.cpp]=133
-  [check-memexport-batching.cpp]=136
+  [check-memexport-batching.cpp]="136 136b"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

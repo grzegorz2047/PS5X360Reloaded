@@ -15,6 +15,13 @@
 //      memory, the end of a part of the ring, XE_SWAP), the check before a draw and a resolve, the
 //      batched path's place and GPU-only marks, the batch merged before an export read back at
 //      once, the 30 s line.
+// Fix 136b: 1.0.5-work-fix136 in the boxing round: 12-16x fewer waits, but the GPU thread's
+// draws took 330-386 ms/s against 148-206 and the output fell from about 58 to 50 frames a
+// second (minimums 3-11). The merge mapped the whole 32 MiB buffer each time.
+//  (f) "max N" (0 to 4096, the rest not understood; on/off unchanged); the bytes used;
+//  (g) the tree: the buffer mapped once and only the bytes used invalidated, the check before a
+//      draw or a resolve timed, "max N" merged right after the export that reaches it, the
+//      parts timed in the 30 s line, the mapping undone before the buffer's memory is freed.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdint>
@@ -55,6 +62,28 @@ void CheckSwitch() {
   Expect(mb::ParseSwitch("# batching\noff\r\n", on) == 0 && !on, "off, a comment, CRLF");
   bool kept = true;
   Expect(mb::ParseSwitch("yes\non off\n", kept) == 2 && kept, "lines not understood leave the setting");
+}
+
+// Fix 136b.
+void CheckSettings() {
+  bool on = false;
+  uint32_t max_pending = 7;
+  Expect(mb::ParseSettings("on\nmax 4\n", on, max_pending) == 0 && on && max_pending == 4, "on, max 4");
+  Expect(mb::ParseSettings("max 0 # no limit\r\n", on, max_pending) == 0 && max_pending == 0, "max 0: no limit");
+  Expect(mb::ParseSettings("max 4097\nmax\nmax 2 3\nmax -1\n", on, max_pending) == 4 && max_pending == 0,
+         "out of range or malformed max lines are not understood and change nothing");
+  Expect(mb::ParseSwitch("off\nmax 3\n", on) == 0 && !on, "ParseSwitch still reads the file with a max line");
+  mb::Batch batch;
+  Expect(batch.used() == 0, "an empty batch uses nothing");
+  mb::Pending p;
+  p.base = batch.Reserve(1000, 1000, 1u << 20);
+  p.before_offset = 1000;
+  p.total = 1000;
+  batch.Add(p);
+  Expect(batch.used() == 2048 && batch.used() % mb::kAlign == 0,
+         "the bytes used, aligned (" + std::to_string(batch.used()) + ")");
+  Expect(std::string(mb::ReasonName(mb::kCap)) == "at most N" && std::string(mb::ReasonName(mb::kOther)) == "other",
+         "the new reason's name, the others kept");
 }
 
 void CheckBatch() {
@@ -191,10 +220,33 @@ void CheckTree() {
          "a sync point before a scratch register's write-back");
   const size_t draw = vk.find("bool VulkanCommandProcessor::IssueDrawInner(");
   const size_t copy = vk.find("bool VulkanCommandProcessor::IssueCopy() {");
-  Expect(vk.find("FlushMemexportBatch(memexport_batch::kInvalidated);", draw) < vk.find("BeginSubmission(true)", draw) &&
-             vk.find("FlushMemexportBatch(memexport_batch::kInvalidated);", copy) != std::string::npos,
+  const size_t if_invalid = vk.find("void VulkanCommandProcessor::FlushMemexportBatchIfInvalid() {");
+  Expect(vk.find("FlushMemexportBatchIfInvalid();  // fix 136b: timed", draw) < vk.find("BeginSubmission(true)", draw) &&
+             vk.find("FlushMemexportBatchIfInvalid();  // fix 136b: timed", copy) != std::string::npos &&
+             vk.find("FlushMemexportBatch(memexport_batch::kInvalidated);", if_invalid) != std::string::npos,
          "pending exports the CPU wrote are merged before a draw or a resolve");
-  const size_t batched = vk.find("if (memexport_batch_base != UINT32_MAX) {\n          memexport_batch::Pending pending;");
+  // Fix 136b.
+  const size_t map = vk.find("void* VulkanCommandProcessor::MapMemexportBatch(uint32_t used) {");
+  Expect(map != std::string::npos && vk.find("if (!memexport_batch_mapped_ &&", map) != std::string::npos &&
+             vk.find("range.size = (VkDeviceSize(used) + atom - 1) / atom * atom;", map) != std::string::npos &&
+             vk.find("MapReadbackMemory(memexport_batch_memory_") == std::string::npos &&
+             vk.find("void* const mapped_data = MapMemexportBatch(memexport_batch_.used());") != std::string::npos,
+         "fix 136b: the buffer mapped once, only the bytes used invalidated");
+  const size_t unmap = vk.find("    dfn.vkUnmapMemory(device, memexport_batch_memory_);\n    memexport_batch_mapped_ = nullptr;");
+  Expect(unmap != std::string::npos &&
+             unmap < vk.find("DestroyAndNullHandle(dfn.vkFreeMemory, device, memexport_batch_memory_);"),
+         "fix 136b: unmapped before its memory is freed");
+  const size_t added = vk.find("memexport_batch_.Add(std::move(pending));");
+  Expect(vk.find("FlushMemexportBatch(memexport_batch::kCap);", added) < vk.find("return true;", added) &&
+             vk.find("memexport_batch_.pending().size() >= memexport_batching_max_", added) != std::string::npos,
+         "fix 136b: max N merged right after the export that reaches it");
+  Expect(vk.find("ParseSettings(text, on, max_pending);") != std::string::npos &&
+             vk.find("checks before draws {:.1f} ms, batching {:.1f} ms, merges {:.1f} ms (longest {:.2f} ") !=
+                 std::string::npos,
+         "fix 136b: the settings and the parts timed in the 30 s line");
+  const size_t batched = vk.find(
+      "if (memexport_batch_base != UINT32_MAX) {\n          const auto batch_start = std::chrono::steady_clock::now();  // fix 136b\n"
+      "          memexport_batch::Pending pending;");
   const size_t classic = vk.find("FlushMemexportBatch(memexport_batch_full ? memexport_batch::kFull");
   const size_t classic_wait = vk.find("        if (AwaitAllQueueOperationsCompletion()) {\n          // Map staging buffer and copy to guest memory.");
   Expect(batched != std::string::npos && batched < classic && classic < classic_wait,
@@ -211,6 +263,7 @@ void CheckTree() {
 
 int main(int argc, char** argv) {
   CheckSwitch();
+  CheckSettings();
   CheckBatch();
   CheckMerge();
   CheckModel();
