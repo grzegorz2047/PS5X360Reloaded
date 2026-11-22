@@ -35,6 +35,13 @@
 //  (h) the tree: the query pool's recorder for both kinds of command buffer (the Vulkan one
 //      unchanged), the resolves recorded into the deferred commands before the hand-off
 //      decision, only when it hands off, the reasons counted, the 30 s line and the settings.
+// Fix 134d: Virtua Tennis 3 (534507E1) stopped drawing seconds after the worker started in mode 1
+// (1.0.5-work-fix134c), not in mode 2 (the same chunks without the worker): the worker was a
+// kernel XHostThread made mid-game (a guest KTHREAD, stack, TLS, PCR, a guest CPU's affinity,
+// KernelState::OnThreadExecute).
+//  (i) the tree: the worker a plain xe::threading::Thread (no XHostThread, no kernel state),
+//      named, waited for at the stop; the hand-off state for the STALL report, written at the
+//      hand-off and by the worker, and printed there.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
@@ -345,9 +352,26 @@ void CheckTree() {
   Expect(fc.find("\"; wait drains by line: \"") != std::string::npos &&
              vk.find("xbox360ps5::frame_cost::NoteAsyncWaitLine(xbox360ps5::frame_cost::wait_line);") != std::string::npos,
          "fix 134b: the wait drains by line");
-  Expect(vk.find("async_worker_thread_->set_name(\"GPU Submit worker\");") != std::string::npos &&
-             vk.find("new kernel::XHostThread(") != std::string::npos,
-         "the worker is a named host thread, listed and placed like the others");
+  // Fix 134d.
+  const size_t hand_off = vk.find("bool VulkanCommandProcessor::HandOffSubmission() {");
+  const size_t hand_off_end = vk.find("\nbool VulkanCommandProcessor::", hand_off + 1);
+  const std::string hand_off_body = vk.substr(hand_off, hand_off_end - hand_off);
+  Expect(hand_off_body.find("async_worker_thread_ = xe::threading::Thread::Create(params, [this]() {") !=
+                 std::string::npos &&
+             hand_off_body.find("xe::threading::set_name(\"GPU Submit worker\");") != std::string::npos &&
+             hand_off_body.find("async_worker_thread_->set_name(\"GPU Submit worker\");") != std::string::npos &&
+             vk.find("new kernel::XHostThread(") == std::string::npos &&
+             vh.find("kernel::object_ref<kernel::XHostThread>") == std::string::npos &&
+             hand_off_body.find("kernel_state_") == std::string::npos,
+         "fix 134d: the worker a plain named host thread, no kernel thread or state");
+  Expect(vh.find("std::unique_ptr<xe::threading::Thread> async_worker_thread_;") != std::string::npos &&
+             vk.find("xe::threading::Wait(async_worker_thread_.get(), false);  // fix 134d") != std::string::npos,
+         "fix 134d: the thread kept as a host thread and waited for at the stop");
+  Expect(vk.find("xbox360ps5::frame_cost::async_stall_handed_off.store(job.submission,", hand_off) < hand_off_end &&
+             vk.find("xbox360ps5::frame_cost::async_stall_submitted.store(job.submission,") != std::string::npos &&
+             vk.find("xbox360ps5::frame_cost::async_stall_jobs_run.fetch_add(1, std::memory_order_relaxed);") !=
+                 std::string::npos,
+         "fix 134d: the hand-off state written at the hand-off and by the worker");
   Expect(vk.find("void VulkanCommandProcessor::ShutdownContext() {\n  StopAsyncSubmit();  // fix 134\n  "
                  "AwaitAllQueueOperationsCompletion();") != std::string::npos,
          "the worker stops before shutdown");
@@ -355,6 +379,11 @@ void CheckTree() {
   const size_t parts = game_main.find("XELOGW(\"{}\", frame_cost_submit_parts.Line(double(summary_samples)));");
   const size_t async_line = game_main.find("static xbox360ps5::frame_cost::AsyncSubmitReporter frame_cost_async_submit;");
   Expect(parts != std::string::npos && async_line > parts, "the line after fix 130's");
+  const size_t stall_gpu = game_main.find("XELOGW(\"STALL gpu not in a WAIT_REG_MEM\");");
+  Expect(stall_gpu != std::string::npos &&
+             game_main.find("\"STALL gpu async submit (fix 134d): mode {}, last submission handed to the worker {}, last it \"",
+                            stall_gpu) != std::string::npos,
+         "fix 134d: the STALL report's line on the submit worker");
 }
 
 }  // namespace

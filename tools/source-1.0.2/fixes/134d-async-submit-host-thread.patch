@@ -1,0 +1,122 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1541,15 +1541,27 @@ bool VulkanCommandProcessor::HandOffSubmission() {
+       async_command_buffers_.push_back(std::make_unique<DeferredCommandBuffer>(*this));
+       async_free_command_buffers_.push_back(async_command_buffers_.back().get());
+     }
+-    async_worker_thread_ = kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
+-        kernel_state_, 128 * 1024, 0,
+-        [this]() {
+-          async_worker_->Loop([this](AsyncSubmitJob& job) { RunAsyncSubmitJob(job); });
+-          return 0;
+-        },
+-        kernel_state_->GetIdleProcess()));
++    // Fix 134d: a plain host thread. Fix 134 made it a kernel XHostThread, created mid-game on
++    // the first hand-off: a guest KTHREAD, stack, TLS and PCR, a guest CPU's affinity, the
++    // processor told of a new thread, and KernelState::OnThreadExecute (the global lock,
++    // DllMain THREAD_ATTACH of the title's modules) on it. Virtua Tennis 3 (534507E1) stopped
++    // drawing seconds after it started in mode 1 (1.0.5-work-fix134c: the worker idle, the ring
++    // empty, the guest's threads waiting on each other), but not in mode 2 (the same chunks,
++    // submitted on the GPU thread, no worker). The worker never runs guest code.
++    xe::threading::Thread::CreationParameters params;
++    params.stack_size = 1024 * 1024;
++    async_worker_thread_ = xe::threading::Thread::Create(params, [this]() {
++      xe::threading::set_name("GPU Submit worker");
++      async_worker_->Loop([this](AsyncSubmitJob& job) { RunAsyncSubmitJob(job); });
++    });
++    if (!async_worker_thread_) {
++      XELOGE("Async submit (fix 134d): the submit worker thread could not be created");
++      async_worker_.reset();
++      async_free_command_buffers_.clear();
++      async_command_buffers_.clear();
++      return false;
++    }
+     async_worker_thread_->set_name("GPU Submit worker");
+-    async_worker_thread_->Create();
+     XELOGW("Async submit (fix 134): the submit worker thread started");
+   }
+   assert_false(command_buffers_writable_.empty());
+@@ -1565,6 +1577,8 @@ bool VulkanCommandProcessor::HandOffSubmission() {
+   job.command_buffer = command_buffer;
+   job.submission = GetCurrentSubmission();
+   async_handed_off_ = job.submission;  // fix 134b
++  xbox360ps5::frame_cost::async_stall_handed_off.store(job.submission,
++                                                       std::memory_order_relaxed);  // fix 134d
+   job.fence = fence_acquisition->GetFenceForSubmitting();
+   if (frame_cost_query_pool_ != VK_NULL_HANDLE) {
+     // Fix 49's timestamps, written by the worker around the replay.
+@@ -1632,6 +1646,9 @@ void VulkanCommandProcessor::RunAsyncSubmitJob(AsyncSubmitJob& job) {
+     async_submit_failed_.store(true, std::memory_order_release);
+   }
+   async_submitted_.store(job.submission, std::memory_order_release);  // fix 134b
++  xbox360ps5::frame_cost::async_stall_submitted.store(job.submission,
++                                                      std::memory_order_relaxed);  // fix 134d
++  xbox360ps5::frame_cost::async_stall_jobs_run.fetch_add(1, std::memory_order_relaxed);
+   const auto submitted = std::chrono::steady_clock::now();
+   xbox360ps5::frame_cost::async_worker_replay_ns.fetch_add(
+       uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(replayed - start).count()),
+@@ -1698,7 +1715,7 @@ void VulkanCommandProcessor::StopAsyncSubmit() {
+   }
+   DrainAsyncSubmit(async_submit::kDrainOther);
+   async_worker_->Stop();
+-  async_worker_thread_->Wait(0, 0, 0, nullptr);
++  xe::threading::Wait(async_worker_thread_.get(), false);  // fix 134d
+   async_worker_thread_.reset();
+   async_worker_.reset();
+   async_free_command_buffers_.clear();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -31,6 +31,7 @@
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
+ #include "xenia/gpu/vulkan/readback_slots.h"
+ #include "xenia/gpu/vulkan/async_submit.h"  // fix 134
++#include "xenia/base/threading.h"           // fix 134d
+ #include "xenia/gpu/vulkan/readback_batching.h"  // fix 133
+ #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+@@ -746,7 +747,8 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   async_submit::Settings async_settings_;
+   bool async_settings_logged_ = false;
+   std::unique_ptr<async_submit::Worker<AsyncSubmitJob>> async_worker_;
+-  kernel::object_ref<kernel::XHostThread> async_worker_thread_;
++  // Fix 134d: a plain host thread (no guest kernel object or state).
++  std::unique_ptr<xe::threading::Thread> async_worker_thread_;
+   std::vector<std::unique_ptr<DeferredCommandBuffer>> async_command_buffers_;
+   std::vector<DeferredCommandBuffer*> async_free_command_buffers_;
+   std::mutex async_free_mutex_;
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1100,6 +1100,9 @@ inline std::atomic<uint64_t> async_handoffs{0}, async_chunks{0}, async_room_wait
+     async_worker_submit_ns{0}, async_drain_ns{0};
+ inline std::array<std::atomic<uint64_t>, 5> async_drains{};
+ inline std::atomic<uint32_t> async_mode_now{0}, async_chunk_kib_now{256};
++// Fix 134d: for the STALL report: the last submission handed to the worker, the last it
++// submitted, and the jobs it has run.
++inline std::atomic<uint64_t> async_stall_handed_off{0}, async_stall_submitted{0}, async_stall_jobs_run{0};
+ // Fix 134b: the "wait" drains by the line of vulkan_command_processor.cc that waited (fix 58's
+ // line scope); up to four lines, the rest under line -1. The GPU thread is the only writer.
+ // Fix 134c: the submissions mode 1 kept on the GPU thread, by reason (the swap, sparse binds,
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -1536,6 +1536,17 @@ void ReportStall(xe::Emulator& emulator, int pass) {
+     } else {
+       XELOGW("STALL gpu not in a WAIT_REG_MEM");
+     }
++    // Fix 134d: the submit worker (fix 134's mode 1): what it was handed and has submitted.
++    {
++      namespace fc = xbox360ps5::frame_cost;
++      const uint64_t handed_off = fc::async_stall_handed_off.load(std::memory_order_relaxed);
++      const uint64_t submitted = fc::async_stall_submitted.load(std::memory_order_relaxed);
++      XELOGW("STALL gpu async submit (fix 134d): mode {}, last submission handed to the worker {}, last it "
++             "submitted {} ({}), {} jobs run",
++             fc::async_mode_now.load(std::memory_order_relaxed), handed_off, submitted,
++             handed_off > submitted ? "the worker still holds some" : "none held",
++             fc::async_stall_jobs_run.load(std::memory_order_relaxed));
++    }
+     const uint32_t now_ms = ct::NowMs();
+     for (const auto& target : trace.Targets())
+       XELOGW("STALL gpu wrote {:08X} = {:08X} by {} ({} times, last -{} ms)", target.address, target.value,
