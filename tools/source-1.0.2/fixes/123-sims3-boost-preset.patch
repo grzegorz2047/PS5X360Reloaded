@@ -1,0 +1,17 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 106b013..10f9011 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -554,7 +554,11 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // portrait frame empty; Fast gives each of these occasional resolves its own copy (fix 91k)
+       // and keeps the cheap late copy for the frame-sized ones. Console (1.0.5-work-fix114,
+       // research/sims3-fast): face and portrait right, 38 to 43 frames a second.
+-      {"454108E2", {{"readback", 1}}},
++      // Fix 123: and "Optimized video memory". Its live mode rewrites vertex and index data
++      // every frame: without it the GPU thread re-protected that memory 11,800 times a second
++      // (417 ms/s; 1.0.5-work-fix121, research/sims3-121), with it 730 (31 ms/s) and 7.7 to 9.5
++      // swaps a second in live mode (1.0.5-work-fix115b, research/sims3-boost).
++      {"454108E2", {{"readback", 1}, {"memory_boost", 1}}},
+   };
+   GameOverrides preset;
+   for (const auto& [id, values] : built_in) if (Lower(title_id) == Lower(id)) preset = values;
