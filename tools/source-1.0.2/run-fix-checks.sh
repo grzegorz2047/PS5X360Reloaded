@@ -101,6 +101,8 @@ checks=(
   check-boost-presets.cpp          # fix 95
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
+  check-readback-repeat.cpp        # fix 91
+  check-readback-keys.cpp          # fix 91 (diagnostic)
   check-dark-default.cpp           # fix 98
   check-content-folders.cpp        # fix 101
   check-bug-report-entries.cpp     # fix 93d
@@ -180,6 +182,8 @@ declare -A fix_of=(
   [check-boost-presets.cpp]=95
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
+  [check-readback-repeat.cpp]=91
+  [check-readback-keys.cpp]=91
   [check-dark-default.cpp]=98
   [check-content-folders.cpp]=101
   [check-bug-report-entries.cpp]=93d
