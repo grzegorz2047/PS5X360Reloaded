@@ -65,6 +65,7 @@ checks=(
   check-global-lock-spin.cpp       # fix 55
   check-kinect-pairing.cpp         # fix 56
   check-nui-image-scan.cpp         # fix 57
+  check-motion-replay.cpp          # fix 57 (1.0.5)
   check-gpu-wait-lines.cpp         # fix 58
   check-fast-readback.cpp          # fix 59
   check-library-folders.cpp        # fix 60
@@ -75,13 +76,6 @@ checks=(
   check-fault-path.cpp             # fix 65
   check-phone-latency.cpp          # fix 66
   check-xma-unwatch.cpp            # fix 67
-  check-motion-replay.cpp          # fix 57 (1.0.5)
-  check-xctd-query.cpp             # fix 90 (1.0.5)
-  check-avatar-assets.cpp          # fix 99 (1.0.5)
-  check-kinect-identity.cpp        # fix 99b (1.0.5)
-  check-kinect-tracker.cpp         # fix 106
-  check-kinect-emergency.cpp       # fix 107
-  check-kinect-diag.cpp            # fix 108
   check-suspend-trace.cpp          # fix 69
   check-pending-resume.cpp         # fix 71
   check-page-version.cpp           # fix 72
@@ -102,6 +96,7 @@ checks=(
   check-unwatched-chunk.cpp        # fix 87
   check-global-lock-callers.cpp    # fix 88
   check-multidisc-library.cpp      # fix 89
+  check-xctd-query.cpp             # fix 90 (1.0.5)
   check-readback-repeat.cpp        # fix 91
   check-readback-keys.cpp          # fix 91 (diagnostic)
   check-bug-report.cpp             # fix 93
@@ -117,11 +112,16 @@ checks=(
   check-event-writes.cpp           # fix 96
   check-timer-apc.cpp              # fix 97
   check-dark-default.cpp           # fix 98
+  check-avatar-assets.cpp          # fix 99 (1.0.5)
+  check-kinect-identity.cpp        # fix 99b (1.0.5)
   check-content-folders.cpp        # fix 101
   check-index-unwatched.cpp        # fix 102
   check-register-writes.cpp        # fix 103
   check-texture-set-reuse.cpp      # fix 104
   check-fetch-unchanged.cpp        # fix 105
+  check-kinect-tracker.cpp         # fix 106
+  check-kinect-emergency.cpp       # fix 107
+  check-kinect-diag.cpp            # fix 108
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -158,6 +158,7 @@ declare -A fix_of=(
   [check-global-lock-spin.cpp]=55
   [check-kinect-pairing.cpp]=56
   [check-nui-image-scan.cpp]=57
+  [check-motion-replay.cpp]=57
   [check-gpu-wait-lines.cpp]=58
   [check-fast-readback.cpp]=59
   [check-library-folders.cpp]=60
@@ -168,13 +169,6 @@ declare -A fix_of=(
   [check-fault-path.cpp]=65
   [check-phone-latency.cpp]=66
   [check-xma-unwatch.cpp]=67
-  [check-motion-replay.cpp]=57
-  [check-xctd-query.cpp]=90
-  [check-avatar-assets.cpp]=99
-  [check-kinect-identity.cpp]=99b
-  [check-kinect-tracker.cpp]=106
-  [check-kinect-emergency.cpp]=107
-  [check-kinect-diag.cpp]=108
   [check-suspend-trace.cpp]=69
   [check-pending-resume.cpp]=71
   [check-page-version.cpp]=72
@@ -195,6 +189,7 @@ declare -A fix_of=(
   [check-unwatched-chunk.cpp]=87
   [check-global-lock-callers.cpp]=88
   [check-multidisc-library.cpp]=89
+  [check-xctd-query.cpp]=90
   [check-readback-repeat.cpp]=91
   [check-readback-keys.cpp]=91
   [check-bug-report.cpp]=93
@@ -210,11 +205,16 @@ declare -A fix_of=(
   [check-event-writes.cpp]=96
   [check-timer-apc.cpp]=97
   [check-dark-default.cpp]=98
+  [check-avatar-assets.cpp]=99
+  [check-kinect-identity.cpp]=99b
   [check-content-folders.cpp]=101
   [check-index-unwatched.cpp]=102
   [check-register-writes.cpp]=103
   [check-texture-set-reuse.cpp]=104
   [check-fetch-unchanged.cpp]=105
+  [check-kinect-tracker.cpp]=106
+  [check-kinect-emergency.cpp]=107
+  [check-kinect-diag.cpp]=108
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
