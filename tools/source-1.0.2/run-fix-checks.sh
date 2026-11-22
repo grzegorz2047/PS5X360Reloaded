@@ -122,6 +122,7 @@ checks=(
   check-kinect-tracker.cpp         # fix 106
   check-kinect-emergency.cpp       # fix 107
   check-kinect-diag.cpp            # fix 108
+  check-dlc-remove.cpp             # fix 109
   check-extent-count.cpp           # fix 110
   check-unwatched-lock-free.cpp    # fix 111
   check-swap-pacing.cpp            # fix 112
@@ -130,12 +131,11 @@ checks=(
   check-guide-quick.cpp            # fix 115
   check-guide-header.cpp           # fix 115b
   check-guide-tabs.cpp             # fix 115c
+  check-guide-counter.cpp          # fix 115d
   check-swap-pacing.cpp            # fix 116
   check-nui-hud-check.cpp          # fix 118
   check-dynamic-constants.cpp      # fix 120
   check-file-sector.cpp            # fix 121
-  check-guide-counter.cpp          # fix 115d
-  check-dlc-remove.cpp             # fix 109
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -240,12 +240,12 @@ declare -A fix_of=(
   [check-swap-pacing.cpp]=116
   [check-nui-hud-check.cpp]=118
   [check-osk-modes.cpp]="114 114b"
+  [check-dlc-remove.cpp]=109
   [check-guide-header.cpp]=115b
   [check-guide-tabs.cpp]=115c
+  [check-guide-counter.cpp]=115d
   [check-dynamic-constants.cpp]=120
   [check-file-sector.cpp]=121
-  [check-guide-counter.cpp]=115d
-  [check-dlc-remove.cpp]=109
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
