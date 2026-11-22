@@ -295,6 +295,7 @@ Move cursor = Mover cursor
 Maximum length reached = Tamanho máximo atingido
 Resolution scale (test) = Escala de renderização (teste)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e processamento gráfico; alguns efeitos (brilho, sombras, imagens que o jogo lê de volta) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte para 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas configurações deste jogo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -402,6 +403,7 @@ Move cursor = Mover cursor
 Maximum length reached = Comprimento máximo atingido
 Resolution scale (test) = Escala de renderização (teste)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e capacidade gráfica; alguns efeitos (brilho, sombras, imagens que o jogo volta a ler) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas definições deste jogo.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -509,6 +511,7 @@ Move cursor = Mover cursor
 Maximum length reached = Longitud máxima alcanzada
 Resolution scale (test) = Escala de renderizado (prueba)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de vídeo y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, vuelve a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; pon 1x en los ajustes de este juego.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -616,6 +619,7 @@ Move cursor = Mover cursor
 Maximum length reached = Longitud máxima alcanzada
 Resolution scale (test) = Escala de renderizado (prueba)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de video y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, regresa a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; elige 1x en la configuración de este juego.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -723,6 +727,7 @@ Move cursor = Cursor bewegen
 Maximum length reached = Maximale Länge erreicht
 Resolution scale (test) = Renderskalierung (Test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Zeichnet das Spiel mit der doppelten eigenen Auflösung für ein schärferes Bild. Braucht viel mehr Videospeicher und Grafikleistung; manche Effekte (Leuchten, Schatten, Bilder, die das Spiel zurückliest) können falsch aussehen. Ein Test: Wenn sich das Spiel schließt oder fehlerhaft aussieht, zurück auf 1x stellen.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderskalierung (Test) 2x: Dieses Spiel braucht mehr Speicher, als noch frei ist. Das Bild kann fehlerhaft werden; stelle in den Einstellungen dieses Spiels 1x ein.
 
 [added fr]
 Console storage = Stockage de la console
@@ -830,6 +835,7 @@ Move cursor = Déplacer le curseur
 Maximum length reached = Longueur maximale atteinte
 Resolution scale (test) = Échelle de rendu (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dessine le jeu au double de sa résolution pour une image plus nette. Utilise beaucoup plus de mémoire vidéo et de puissance graphique ; certains effets (lueurs, ombres, images que le jeu relit) peuvent être incorrects. C'est un test : si le jeu se ferme ou s'affiche mal, revenez à 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Échelle de rendu (test) 2x : ce jeu a besoin de plus de mémoire qu'il n'en reste. L'image peut se dégrader ; choisissez 1x dans les réglages de ce jeu.
 
 [added it]
 Console storage = Memoria della console
@@ -937,6 +943,7 @@ Move cursor = Sposta il cursore
 Maximum length reached = Lunghezza massima raggiunta
 Resolution scale (test) = Scala di rendering (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Disegna il gioco al doppio della sua risoluzione per un'immagine più nitida. Usa molta più memoria video e potenza grafica; alcuni effetti (bagliori, ombre, immagini che il gioco rilegge) possono apparire errati. È un test: se il gioco si chiude o appare difettoso, torna a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Scala di rendering (test) 2x: questo gioco richiede più memoria di quella rimasta. L'immagine potrebbe guastarsi; imposta 1x nelle impostazioni di questo gioco.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1044,6 +1051,7 @@ Move cursor = カーソル移動
 Maximum length reached = 最大文字数に達しました
 Resolution scale (test) = 描画解像度の倍率（テスト）
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = ゲームを本来の2倍の解像度で描画し、画像を鮮明にします。ビデオメモリとグラフィック性能を大幅に多く使い、一部の効果（光のにじみ、影、ゲームが読み戻す画像）が正しく表示されないことがあります。テスト機能です。ゲームが終了したり表示がおかしくなったりしたら1xに戻してください。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 描画解像度の倍率（テスト）2x：このゲームには残りより多くのメモリが必要です。画面が崩れることがあります。このゲームの設定で1xにしてください。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1151,6 +1159,7 @@ Move cursor = 커서 이동
 Maximum length reached = 최대 길이에 도달했습니다
 Resolution scale (test) = 렌더링 배율 (테스트)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 게임을 원래 해상도의 두 배로 그려 더 선명한 화면을 만듭니다. 비디오 메모리와 그래픽 성능을 훨씬 많이 사용하며, 일부 효과(빛 번짐, 그림자, 게임이 다시 읽는 이미지)가 잘못 보일 수 있습니다. 테스트 기능입니다. 게임이 종료되거나 화면이 깨지면 1x로 되돌리세요.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 렌더링 배율 (테스트) 2x: 이 게임에는 남은 메모리보다 더 많은 메모리가 필요합니다. 화면이 깨질 수 있으니 이 게임의 설정에서 1x로 바꾸세요.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1258,6 +1267,7 @@ Move cursor = Cursor verplaatsen
 Maximum length reached = Maximale lengte bereikt
 Resolution scale (test) = Renderschaal (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Tekent het spel op twee keer de eigen resolutie voor een scherper beeld. Gebruikt veel meer videogeheugen en grafische kracht; sommige effecten (gloed, schaduwen, beelden die het spel terugleest) kunnen er verkeerd uitzien. Een test: sluit het spel af of ziet het er fout uit, zet het dan terug op 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderschaal (test) 2x: dit spel heeft meer geheugen nodig dan er over is. Het beeld kan fouten tonen; zet het op 1x in de instellingen van dit spel.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1365,6 +1375,7 @@ Move cursor = Przesuń kursor
 Maximum length reached = Osiągnięto maksymalną długość
 Resolution scale (test) = Skala renderowania (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Rysuje grę w dwukrotności jej własnej rozdzielczości, dla ostrzejszego obrazu. Zużywa znacznie więcej pamięci wideo i mocy graficznej; niektóre efekty (poświata, cienie, obrazy odczytywane z powrotem przez grę) mogą wyglądać źle. To test: jeśli gra się zamyka lub wygląda źle, wróć do 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Skala renderowania (test) 2x: ta gra potrzebuje więcej pamięci, niż zostało. Obraz może się psuć; ustaw 1x w ustawieniach tej gry.
 
 [added ru]
 Console storage = Память консоли
@@ -1472,6 +1483,7 @@ Move cursor = Переместить курсор
 Maximum length reached = Достигнута максимальная длина
 Resolution scale (test) = Масштаб рендеринга (тест)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Рисует игру в двойном разрешении для более чёткой картинки. Требует гораздо больше видеопамяти и графической мощности; некоторые эффекты (свечение, тени, изображения, которые игра считывает обратно) могут выглядеть неправильно. Это тест: если игра закрывается или выглядит неправильно, верните 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Масштаб рендеринга (тест) 2x: этой игре нужно больше памяти, чем осталось. Изображение может испортиться; выберите 1x в настройках этой игры.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1579,6 +1591,7 @@ Move cursor = İmleci taşı
 Maximum length reached = En fazla uzunluğa ulaşıldı
 Resolution scale (test) = Görüntü işleme ölçeği (test)
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Daha net bir görüntü için oyunu kendi çözünürlüğünün iki katında çizer. Çok daha fazla video belleği ve grafik gücü kullanır; bazı efektler (parlama, gölgeler, oyunun geri okuduğu görüntüler) yanlış görünebilir. Bu bir testtir: oyun kapanırsa veya bozuk görünürse 1x'e geri dönün.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Görüntü işleme ölçeği (test) 2x: bu oyun kalandan daha fazla bellek gerektiriyor. Görüntü bozulabilir; bu oyunun ayarlarında 1x seçin.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1686,6 +1699,7 @@ Move cursor = 移动光标
 Maximum length reached = 已达到最大长度
 Resolution scale (test) = 渲染分辨率倍数（测试）
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以游戏自身分辨率的两倍绘制，画面更清晰。会占用多得多的显存和图形性能；部分效果（光晕、阴影、游戏回读的图像）可能显示错误。这是测试功能：如果游戏关闭或画面异常，请改回 1x。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染分辨率倍数（测试）2x：此游戏需要的内存超过剩余内存。画面可能出错；请在此游戏的设置中改为 1x。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1793,3 +1807,4 @@ Move cursor = 移動游標
 Maximum length reached = 已達最大長度
 Resolution scale (test) = 渲染解析度倍數（測試）
 Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以遊戲本身解析度的兩倍繪製，畫面更清晰。會佔用多得多的顯示記憶體和圖形效能；部分效果（光暈、陰影、遊戲回讀的影像）可能顯示錯誤。這是測試功能：如果遊戲關閉或畫面異常，請改回 1x。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染解析度倍數（測試）2x：此遊戲需要的記憶體超過剩餘記憶體。畫面可能出錯；請在此遊戲的設定中改為 1x。

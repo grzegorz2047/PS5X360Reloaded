@@ -30,6 +30,16 @@
 //      scaled texture under the floor at 1x (scaled_resolve 0) before it looks for or creates it;
 //      vulkan_texture_cache.cc no longer refuses textures, it counts the scaled ones; render
 //      targets and the texture cache's total are counted for the line.
+// Fix 117d (117d-resolution-scale-correct.patch): Battlefield 3 at 2x without image readback showed both
+// fallbacks wrong (a texture made at 1x read old guest memory: a flat grey world; a resolve whose heap was
+// refused took the core's unscaled path and wrote scaled-layout data into guest memory: tile garbage).
+//  (h) the header: heaps always committed and counted under the floor, the texture cache's eviction
+//      limits under pressure (half the cache, at least 128 MiB, never above its own; 2 s unused), the
+//      once-a-session warning at 2x under 1 GiB, the line's text;
+//  (i) the tree: no texture is made at 1x any more (FindOrCreateTexture has no fallback, no
+//      AdmitTexture anywhere), heaps are not refused, a scaled resolve without a buffer is skipped
+//      before the core's fallback and the copy, the texture cache's eviction takes the pressure limits
+//      and counts what it evicts, and the notice and its text in Tr.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -117,10 +127,15 @@ void CheckHeader() {
          "with 1600 MiB free: admitted");
   Expect(rs::AdmitRenderTarget(c, 3000ll << 20, rs::RenderTargetBytes(2560, 1440, 4, true)),
          "a 4xMSAA depth target with 3000 MiB free: admitted");
-  Expect(rs::AdmitTexture(c, 1100ll << 20, rs::TextureBytes(2560, 1440, 1, false)), "a scaled texture at 1100 MiB: admitted");
-  Expect(!rs::AdmitTexture(c, 1030ll << 20, rs::TextureBytes(2560, 1440, 1, false)), "a scaled texture at 1030 MiB: at 1x");
-  Expect(!rs::AdmitTexture(c, 500ll << 20, rs::TextureBytes(64, 64, 1, true)), "a small scaled texture at 500 MiB: at 1x");
-  Expect(c.native_classes == 2 && c.textures_at_1x == 2, "two render target classes kept at 1x, two textures at 1x");
+  Expect(c.native_classes == 2, "two render target classes kept at 1x");
+  // Fix 117d: heaps always committed, counted under the floor.
+  rs::NoteHeapCommit(c, 3000ll << 20, kHeap);
+  rs::NoteHeapCommit(c, 1030ll << 20, kHeap);
+  rs::NoteHeapCommit(c, 500ll << 20, kHeap);
+  rs::NoteHeapCommit(c, -1, kHeap);
+  Expect(c.heaps_under_floor == 2, "two heaps committed under the floor (1030 and 500 MiB free)");
+  c.textures_evicted = 7;
+  c.resolves_skipped = 3;
   rs::NoteRenderTarget(c, true, uint64_t(118) << 20);
   rs::NoteRenderTarget(c, true, uint64_t(30) << 20);
   rs::NoteRenderTarget(c, false, uint64_t(4) << 20);
@@ -128,9 +143,9 @@ void CheckHeader() {
   const std::string line = rs::Line(c, driver, 1200ll << 20);
   Expect(line == "Resolution scale (fix 117): 2x, scaled resolve sparse, 2 heaps (32 MiB) committed, 2 refused "
                  "(under 1024 MiB free), 1 failed; render targets made scaled 2 (148 MiB), 1x 1 (4 MiB), classes "
-                 "kept at 1x 2 (under 1536 MiB free); scaled textures made 1 (28 MiB), at 1x 2; texture cache 300 "
-                 "MiB; driver memory 1500 MiB (peak 1600 MiB, 420 allocations); direct free 1200 MiB (lowest at a "
-                 "commit 500 MiB)",
+                 "kept at 1x 2 (under 1536 MiB free); scaled textures made 1 (28 MiB); texture cache 300 MiB, 7 "
+                 "evicted under memory pressure; heaps under the floor 2, resolves skipped 3; driver memory 1500 MiB "
+                 "(peak 1600 MiB, 420 allocations); direct free 1200 MiB (lowest at a commit 500 MiB)",
          "10 s line: " + line);
   c.sparse = false;
   Expect(Has(rs::Line(c, driver, -1), "scaled resolve none,") && Has(rs::Line(c, driver, -1), "direct free -1 MiB"),
@@ -180,12 +195,15 @@ void CheckHeader() {
   Expect(rs::DirectFreeRecent(20000, Query) == answer && queries == 1, "a reading of 1700 MiB");
   int admitted = 0;
   for (int i = 0; i < 20; ++i) {
-    if (rs::AdmitTexture(burst, rs::DirectFreeRecent(20010 + i, Query), depth)) ++admitted;
+    const int64_t reading = rs::DirectFreeRecent(20010 + i, Query);
+    if (rs::MayCommit(reading, depth)) {
+      rs::NoteAdmitted(depth);
+      ++admitted;
+    }
   }
   Expect(queries == 1, "the burst asks no new reading within 250 ms");
-  Expect(admitted == 6, "on one 1700 MiB reading, only six 112 MiB textures pass the 1 GiB floor (" +
+  Expect(admitted == 6, "on one 1700 MiB reading, only six 112 MiB allocations pass the 1 GiB floor (" +
                             std::to_string(admitted) + ")");
-  Expect(burst.textures_at_1x == 14, "the other fourteen are made at 1x");
   Expect(rs::DirectFreeRecent(20100, Query) == answer - int64_t(6 * depth), "the reading less what was admitted");
   answer = int64_t(900) << 20;
   Expect(rs::DirectFreeFresh(20200, Query) == answer && queries == 2 && rs::admitted_since_reading == 0,
@@ -206,6 +224,27 @@ void CheckHeader() {
     }
   }
   Expect(rts == 5, "render targets from 2200 MiB, 112 MiB each, stop at the 1.5 GiB floor (" + std::to_string(rts) + ")");
+
+  // Fix 117d: the texture cache's eviction under pressure.
+  const auto ev1 = rs::TextureEviction(456, 30000, 455, 3000ll << 20);
+  Expect(!ev1.pressure && ev1.soft_mb == 456 && ev1.lifetime_ms == 30000, "3000 MiB free: the cache's own limits");
+  const auto ev2 = rs::TextureEviction(456, 30000, 455, 1400ll << 20);
+  Expect(ev2.pressure && ev2.soft_mb == 227 && ev2.lifetime_ms == 2000,
+         "1400 MiB free: half of 455 MiB, textures unused for 2 s");
+  const auto ev3 = rs::TextureEviction(456, 30000, 200, 900ll << 20);
+  Expect(ev3.pressure && ev3.soft_mb == 128, "a small cache keeps at least 128 MiB");
+  const auto ev4 = rs::TextureEviction(100, 1000, 900, 900ll << 20);
+  Expect(ev4.soft_mb == 100 && ev4.lifetime_ms == 1000, "never above the cache's own limits");
+  const auto ev5 = rs::TextureEviction(456, 30000, 455, -1);
+  Expect(!ev5.pressure && ev5.soft_mb == 456, "unknown free memory: no pressure");
+  // Fix 117d: the warning, once a session, at 2x under 1 GiB.
+  rs::Counters w;
+  Expect(!rs::ShouldWarn(w, 500ll << 20), "1x: no warning");
+  w.scale = 2;
+  Expect(!rs::ShouldWarn(w, 1100ll << 20), "2x with 1100 MiB free: no warning");
+  Expect(!rs::ShouldWarn(w, -1), "unknown: no warning");
+  Expect(rs::ShouldWarn(w, 1000ll << 20), "2x with 1000 MiB free: warned");
+  Expect(!rs::ShouldWarn(w, 500ll << 20), "only once a session");
 
   rs::Device d;
   d.asked_x = d.asked_y = 2;
@@ -285,15 +324,17 @@ void CheckCore() {
   for (const char* outcome : {"Sparse::kMade", "Sparse::kNoSupport", "Sparse::kBufferFailed", "Sparse::kNoMemoryType",
                               "Sparse::kOffByCvar"})
     Expect(Has(texture_cache, std::string("xbox360ps5::resolution_scale::") + outcome), std::string("sparse line ") + outcome);
-  // The sparse heaps: the floor asked just before vkAllocateMemory, its outcome counted after.
+  // The sparse heaps: the floor asked just before vkAllocateMemory (fix 117d: counted, not refused), its
+  // outcome counted after.
   const size_t allocate = texture_cache.find("dfn.vkAllocateMemory(device, &allocate_info, nullptr, &heap)");
-  const size_t admit = allocate == std::string::npos ? std::string::npos
-                                                     : texture_cache.rfind("xbox360ps5::resolution_scale::Admit(", allocate);
+  const size_t admit = allocate == std::string::npos
+                           ? std::string::npos
+                           : texture_cache.rfind("xbox360ps5::resolution_scale::NoteHeapCommit(", allocate);
   const size_t heap_check = texture_cache.rfind("if (scaled_resolve_heaps_[heap_index] == VK_NULL_HANDLE) {", allocate);
   const size_t allocated = texture_cache.find("xbox360ps5::resolution_scale::Allocated(", allocate);
   Expect(allocate != std::string::npos && admit != std::string::npos && heap_check != std::string::npos &&
              admit > heap_check && allocated != std::string::npos && allocated - allocate < 200,
-         "the floor is asked before each heap's allocation, the outcome counted after");
+         "the floor is noted before each heap's allocation, the outcome counted after");
   // The fallback buffers (no sparse buffers while scaled): the same floor before vmaCreateBuffer.
   const size_t vma = texture_cache.find("vmaCreateBuffer(\n            vma_allocator_, &buffer_create_info");
   const size_t fallback_admit =
@@ -334,25 +375,46 @@ void CheckCore() {
   Expect(rt_admit != std::string::npos && rt_keep != std::string::npos && rt_alloc != std::string::npos &&
              rt_keep < rt_alloc && Has(render_targets, "if (!key.scale_native && IsDrawResolutionScaled()) {"),
          "a scaled render target asks the floor first and keeps its class at 1x when refused");
-  // Fix 117c.
+  // Fix 117c, with 117d.
   const std::string common_textures = Read(".deps/xenia-canary/src/xenia/gpu/texture_cache.cc");
-  const size_t find_fn = common_textures.find("TextureCache::Texture* TextureCache::FindOrCreateTexture(TextureKey key) {");
-  const size_t scaled_set = common_textures.find("key.scaled_resolve = 1;", find_fn);
-  const size_t fallback = common_textures.find("xbox360ps5::resolution_scale::AdmitTexture(", find_fn);
-  const size_t unscaled = common_textures.find("key.scaled_resolve = 0;", find_fn);
-  const size_t lookup = common_textures.find("auto found_texture_it = textures_.find(key);", find_fn);
-  Expect(find_fn != std::string::npos && scaled_set < fallback && fallback < unscaled && unscaled < lookup &&
-             lookup != std::string::npos &&
-             Has(common_textures, "if (key.scaled_resolve && textures_.find(key) == textures_.end() &&"),
-         "a new scaled texture under the floor is looked up and made at 1x (fix 117c)");
+  Expect(!Has(common_textures, "AdmitTexture(") && !Has(common_textures, "key.scaled_resolve = 0;") &&
+             !Has(texture_cache, "AdmitTexture("),
+         "fix 117d: no texture is made at 1x (no fallback in FindOrCreateTexture)");
   Expect(Has(common_textures, "counters.texture_cache_bytes.store(\n      textures_total_host_memory_usage_"),
          "the texture cache's total goes to the line");
-  Expect(!Has(texture_cache, "resolution_scale::AdmitTexture(") &&
-             Has(texture_cache, "xbox360ps5::resolution_scale::NoteScaledTexture("),
-         "vulkan_texture_cache.cc counts scaled textures and refuses none");
-  Expect(Has(texture_cache, "xbox360ps5::resolution_scale::DirectFreeFresh(),\n              kScaledResolveHeapSize)") &&
-             Has(texture_cache, "xbox360ps5::resolution_scale::DirectFreeFresh(), buffer_size)"),
-         "heaps and fallback buffers ask a fresh reading");
+  Expect(Has(texture_cache, "xbox360ps5::resolution_scale::NoteScaledTexture("),
+         "vulkan_texture_cache.cc counts scaled textures");
+  Expect(Has(texture_cache, "xbox360ps5::resolution_scale::NoteHeapCommit(") &&
+             Has(texture_cache, "xbox360ps5::resolution_scale::DirectFreeFresh(),\n          kScaledResolveHeapSize);") &&
+             !Has(texture_cache, "Admit(\n              xbox360ps5::resolution_scale::counters,\n              "
+                                 "xbox360ps5::resolution_scale::DirectFreeFresh(),\n              kScaledResolveHeapSize)"),
+         "fix 117d: heaps are always committed, counted with a fresh reading");
+  Expect(Has(texture_cache, "xbox360ps5::resolution_scale::DirectFreeFresh(), buffer_size)"),
+         "fallback buffers ask a fresh reading");
+  // Fix 117d: the texture cache's eviction.
+  const size_t completed = common_textures.find("void TextureCache::CompletedSubmissionUpdated(");
+  const size_t eviction = common_textures.find("xbox360ps5::resolution_scale::TextureEviction(", completed);
+  const size_t loop = common_textures.find("while (texture_used_first_ != nullptr) {", completed);
+  const size_t evicted = common_textures.find("counters.textures_evicted.fetch_add(", completed);
+  const size_t erase = common_textures.find("textures_.erase(found_texture_it);", completed);
+  Expect(completed != std::string::npos && eviction != std::string::npos && loop != std::string::npos &&
+             eviction < loop && evicted > loop && evicted < erase,
+         "the eviction loop takes the pressure limits and counts what it evicts");
+  // Fix 117d: a scaled resolve without a buffer is skipped before the core's fallback and the copy.
+  const size_t skip = render_targets.find("const bool skip_scaled_copy = copy_dest_scaled && !scaled_buffer_ready;");
+  const size_t guard = render_targets.find("if (!skip_scaled_copy) {", skip);
+  const size_t core_fallback = render_targets.find("if (!scaled_buffer_ready && !use_persistent_dest) {", skip);
+  const size_t copy_dispatch = render_targets.find("command_buffer.CmdVkDispatch(copy_group_count_x, copy_group_count_y,", skip);
+  const size_t guard_end = render_targets.find("}  // !skip_scaled_copy (fix 117d)", skip);
+  Expect(skip != std::string::npos && guard != std::string::npos && core_fallback != std::string::npos &&
+             copy_dispatch != std::string::npos && guard_end != std::string::npos && guard < core_fallback &&
+             core_fallback < copy_dispatch && copy_dispatch < guard_end,
+         "fix 117d: the skip guards the core's unscaled fallback and the copy dispatch");
+  // Fix 117d: the notice.
+  Expect(Has(game_main, "xbox360ps5::resolution_scale::ShouldWarn(xbox360ps5::resolution_scale::counters, scale_free)") &&
+             Has(game_main, "Tr(\"Resolution scale (test) 2x: this game needs more memory than is left. The picture may "
+                            "break; set it to 1x in this game's settings.\")"),
+         "fix 117d: the once-a-session notice through Tr");
   const size_t rt_fresh = render_targets.find("xbox360ps5::resolution_scale::DirectFreeFresh(), bytes)");
   Expect(rt_fresh != std::string::npos && rt_fresh > rt_admit && rt_fresh < rt_alloc,
          "render targets ask a fresh reading");

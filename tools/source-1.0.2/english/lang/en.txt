@@ -404,6 +404,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Rendering
 Resolution\sscale\s(test) = Resolution\sscale\s(test)
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings.
 Restart\semulator = Restart\semulator
 Restart\sgame = Restart\sgame
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport

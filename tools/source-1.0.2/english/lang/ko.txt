@@ -402,6 +402,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = 렌더러
 Rendering = 렌더링
 Resolution\sscale\s(test) = 렌더링\s배율\s(테스트)
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = 렌더링\s배율\s(테스트)\s2x:\s이\s게임에는\s남은\s메모리보다\s더\s많은\s메모리가\s필요합니다.\s화면이\s깨질\s수\s있으니\s이\s게임의\s설정에서\s1x로\s바꾸세요.
 Restart\semulator = 에뮬레이터\s다시\s시작
 Restart\sgame = 게임\s다시\s시작
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 버그\s신고용\s로그와\s함께\s이\s게임\s다시\s시작

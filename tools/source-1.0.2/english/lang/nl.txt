@@ -402,6 +402,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Weergave
 Resolution\sscale\s(test) = Renderschaal\s(test)
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Renderschaal\s(test)\s2x:\sdit\sspel\sheeft\smeer\sgeheugen\snodig\sdan\ser\sover\sis.\sHet\sbeeld\skan\sfouten\stonen;\szet\shet\sop\s1x\sin\sde\sinstellingen\svan\sdit\sspel.
 Restart\semulator = Emulator\sherstarten
 Restart\sgame = Spel\sopnieuw\sstarten
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Dit\sspel\sopnieuw\sstarten\smet\slogs\svoor\seen\sfoutmelding

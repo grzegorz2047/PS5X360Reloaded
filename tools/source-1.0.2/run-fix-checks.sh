@@ -131,7 +131,7 @@ checks=(
   check-swap-pacing.cpp            # fix 116
   check-nui-hud-check.cpp          # fix 118
   check-file-sector.cpp            # fix 121
-  check-resolution-scale.cpp       # fixes 117, 117b and 117c
+  check-resolution-scale.cpp       # fixes 117 to 117d
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -236,7 +236,7 @@ declare -A fix_of=(
   [check-nui-hud-check.cpp]=118
   [check-osk-modes.cpp]="114 114b"
   [check-file-sector.cpp]=121
-  [check-resolution-scale.cpp]="117 117b 117c"
+  [check-resolution-scale.cpp]="117 117b 117c 117d"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

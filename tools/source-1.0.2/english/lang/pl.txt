@@ -402,6 +402,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Renderowanie
 Resolution\sscale\s(test) = Skala\srenderowania\s(test)
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Skala\srenderowania\s(test)\s2x:\sta\sgra\spotrzebuje\swięcej\spamięci,\sniż\szostało.\sObraz\smoże\ssię\spsuć;\sustaw\s1x\sw\sustawieniach\stej\sgry.
 Restart\semulator = Uruchom\semulator\sponownie
 Restart\sgame = Uruchom\sgrę\sponownie
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Uruchom\stę\sgrę\sponownie\sz\sdziennikami\sdo\szgłoszenia\sbłędu

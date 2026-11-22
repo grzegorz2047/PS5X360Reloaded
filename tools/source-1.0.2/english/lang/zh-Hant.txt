@@ -402,6 +402,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = 渲染器
 Rendering = 渲染
 Resolution\sscale\s(test) = 渲染解析度倍數（測試）
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = 渲染解析度倍數（測試）2x：此遊戲需要的記憶體超過剩餘記憶體。畫面可能出錯；請在此遊戲的設定中改為\s1x。
 Restart\semulator = 重啟模擬器
 Restart\sgame = 重新啟動遊戲
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 以錯誤回報記錄重新啟動此遊戲

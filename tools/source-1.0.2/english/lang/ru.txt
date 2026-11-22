@@ -402,6 +402,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Рендерер
 Rendering = Отрисовка
 Resolution\sscale\s(test) = Масштаб\sрендеринга\s(тест)
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Масштаб\sрендеринга\s(тест)\s2x:\sэтой\sигре\sнужно\sбольше\sпамяти,\sчем\sосталось.\sИзображение\sможет\sиспортиться;\sвыберите\s1x\sв\sнастройках\sэтой\sигры.
 Restart\semulator = Перезапустить\sэмулятор
 Restart\sgame = Перезапустить\sигру
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Перезапустить\sэту\sигру\sс\sжурналами\sдля\sотчёта\sоб\sошибке

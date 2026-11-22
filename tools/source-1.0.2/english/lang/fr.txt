@@ -402,6 +402,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Moteur\sde\srendu
 Rendering = Rendu
 Resolution\sscale\s(test) = Échelle\sde\srendu\s(test)
+Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Échelle\sde\srendu\s(test)\s2x\s:\sce\sjeu\sa\sbesoin\sde\splus\sde\smémoire\squ'il\sn'en\sreste.\sL'image\speut\sse\sdégrader\s;\schoisissez\s1x\sdans\sles\sréglages\sde\sce\sjeu.
 Restart\semulator = Redémarrer\sl'émulateur
 Restart\sgame = Relancer\sle\sjeu
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Relancer\sce\sjeu\savec\sdes\sjournaux\spour\sun\srapport\sde\sbug
