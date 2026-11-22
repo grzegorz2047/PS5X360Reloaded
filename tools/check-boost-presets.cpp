@@ -13,6 +13,8 @@
 // Fix 122 adds The Sims 3 (454108E2) with readback Fast ({"readback", 1}): six rows.
 // Fix 123 adds Optimized video memory to that row ({"readback", 1}, {"memory_boost", 1}): live
 // mode 7.7 to 9.5 swaps a second, watch protections 11,800 to 730 a second.
+// Fix 131 adds Kinect Sports (4D5308C9) with readback Fast ({"readback", 1}): its crowd board of
+// flip tiles was garbage for a moment after Show Off & Share with readback off; seven rows.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -74,7 +76,9 @@ void CheckTree() {
   Expect(value("454108E2") == R"({"readback", 1}, {"memory_boost", 1})",
          "The Sims 3 is recommended readback Fast (fix 122) and Optimized video memory (fix 123) (" +
              value("454108E2") + ")");
-  Expect(rows.size() == 6, "six built-in rows (" + std::to_string(rows.size()) + ")");
+  Expect(value("4D5308C9") == R"({"readback", 1})",
+         "Kinect Sports is recommended readback Fast alone, fix 131 (" + value("4D5308C9") + ")");
+  Expect(rows.size() == 7, "seven built-in rows (" + std::to_string(rows.size()) + ")");
 
   const std::regex option(R"re(\{"memory_boost", &S::memory_boost, (\d+), W::(\w+), (\d+), (true|false),)re");
   std::smatch m;
