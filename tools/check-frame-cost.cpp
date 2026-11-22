@@ -220,7 +220,11 @@ void CheckTree() {
              close != std::string::npos,
          "start before the recorded commands, end after them, before the buffer ends");
   Expect(Contains(vk, "if (!submission || submission > completed) {"), "read only once completed");
-  Expect(Count(vk, "xbox360ps5::frame_cost::kMemexport);") == 1, "the memexport readback wait");
+  // Fix 136 adds the batch's one wait (FlushMemexportBatch) next to fix 30's.
+  const size_t memexport_waits = Count(vk, "xbox360ps5::frame_cost::kMemexport);");
+  Expect(memexport_waits == 1 ||
+             (memexport_waits == 2 && Contains(vk, "void VulkanCommandProcessor::FlushMemexportBatch(uint32_t reason) {")),
+         "the memexport readback wait (and fix 136's batch wait)");
   Expect(Count(vk, "xbox360ps5::frame_cost::kResolve);") == 3, "the resolve readback waits");
   Expect(Count(vk, "xbox360ps5::frame_cost::kQuery);") == 3, "the query waits");
   Expect(Contains(vk, "is_opening_frame ? xbox360ps5::frame_cost::kThrottle"), "the frames-in-flight wait");

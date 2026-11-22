@@ -1,0 +1,576 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h b/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h
+@@ -0,0 +1,133 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 136: memory exports read back once per sync period instead of at every
++// exporting draw.
++//
++// Fix 30 reads a draw's exports back to guest memory right after the draw: a submission, a wait
++// for the GPU and a merge of the dwords the shader wrote (memexport_merge.h). Fix 133 counted
++// those waits and the periods between the points where the CPU can learn that the GPU went on
++// (the command processor writing guest memory, a new part of the ring, a swap): Kinect Sports'
++// boxing 42,103-55,894 waits in 3,458-3,516 periods per 30 s (129-192 ms/s, about 1,500
++// submissions a second), Modern Warfare 2 3.9-8.4 waits per period (56-83 ms/s).
++//
++// With readback_memexport_batching on, the copies are recorded as before, each export into its
++// own place in the readback buffer (Batch::Reserve), and the wait and the merges run once, at
++// the first of: the command processor writing guest memory (MEM_WRITE, EVENT_WRITE_SHD,
++// COND_WRITE, REG_TO_MEM, a scratch register's write-back), an interrupt, a WAIT_REG_MEM on
++// memory, the end of a part of the ring, a swap, a draw or resolve whose pending export units the
++// CPU wrote meanwhile (their GPU copy would be replaced by an upload), the readback buffer full.
++// Until merged, the units are marked GPU-only (fix 48), so an upload over them is counted as
++// exported data lost. The merges run in export order; fix 30's merge keeps the dwords the CPU
++// changed after the draw.
++#ifndef XENIA_GPU_VULKAN_MEMEXPORT_BATCH_H_
++#define XENIA_GPU_VULKAN_MEMEXPORT_BATCH_H_
++
++#include <cstdint>
++#include <sstream>
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace xe {
++namespace gpu {
++namespace memexport_batch {
++
++enum FlushReason : uint32_t {
++  kCpWrite = 0,
++  kInterrupt,
++  kWaitRegMem,
++  kRingPart,
++  kSwap,
++  kInvalidated,
++  kFull,
++  kOther,
++  kReasons
++};
++inline const char* ReasonName(uint32_t reason) {
++  static const char* const names[] = {"CP write", "interrupt", "WAIT_REG_MEM", "ring part",
++                                      "swap",     "units written", "buffer full", "other"};
++  return reason < kReasons ? names[reason] : "?";
++}
++
++struct Range {
++  uint32_t start = 0, size = 0;
++};
++// An export waiting for its merge: its ranges, and where its copies are in the readback buffer
++// (the copy from after the draw at base, the one from before at base + before_offset).
++struct Pending {
++  std::vector<Range> ranges;
++  uint32_t base = 0, before_offset = 0, total = 0;
++  uint64_t shader = 0;
++};
++
++constexpr uint32_t kAlign = 256;
++constexpr uint32_t kMaxBytes = 32u << 20;
++
++class Batch {
++ public:
++  // Where the next export's copies go, or UINT32_MAX when it does not fit after the pending ones
++  // (or at all: more than `capacity` or kMaxBytes); it is then read back at once, after them.
++  uint32_t Reserve(uint32_t before_offset, uint32_t total, uint32_t capacity) const {
++    const uint64_t need = uint64_t(before_offset) + total;
++    if (need > capacity || need > kMaxBytes) return UINT32_MAX;
++    if (pending_.empty()) return 0;
++    const uint64_t end = uint64_t(offset_) + need;
++    return end <= capacity && end <= kMaxBytes ? offset_ : UINT32_MAX;
++  }
++  void Add(Pending pending) {
++    const uint64_t end = uint64_t(pending.base) + pending.before_offset + pending.total;
++    offset_ = uint32_t((end + kAlign - 1) / kAlign * kAlign);
++    pending_.push_back(std::move(pending));
++  }
++  bool empty() const { return pending_.empty(); }
++  const std::vector<Pending>& pending() const { return pending_; }
++  void Clear() {
++    pending_.clear();
++    offset_ = 0;
++  }
++  // Whether a pending range is no longer valid in the GPU copy (`valid(start, size)` false): the
++  // CPU wrote it, and an upload would replace the exported data.
++  template <class Valid>
++  bool AnyInvalid(Valid valid) const {
++    for (const Pending& pending : pending_) {
++      for (const Range& range : pending.ranges) {
++        if (!valid(range.start, range.size)) return true;
++      }
++    }
++    return false;
++  }
++
++ private:
++  std::vector<Pending> pending_;
++  uint32_t offset_ = 0;
++};
++
++// memexport-batching.txt in the title folder: "on" or "off" (it wins over the cvar), "#" comments.
++// Returns the lines not understood.
++inline int ParseSwitch(const std::string& text, bool& on) {
++  int not_understood = 0;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string word, extra;
++    if (!(words >> word)) continue;
++    if (words >> extra) {
++      ++not_understood;
++    } else if (word == "on") {
++      on = true;
++    } else if (word == "off") {
++      on = false;
++    } else {
++      ++not_understood;
++    }
++  }
++  return not_understood;
++}
++
++}  // namespace memexport_batch
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_MEMEXPORT_BATCH_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -22,6 +22,7 @@
+ 
+ #include "xenia/base/math.h"
+ #include "xenia/gpu/cp_trace.h"  // Xbox360PS5 (fix 24)
++#include "xenia/gpu/memexport_batch.h"  // Xbox360PS5 (fix 136)
+ #include "xenia/base/ring_buffer.h"
+ #include "xenia/gpu/register_file.h"
+ #include "xenia/gpu/trace_writer.h"
+@@ -308,6 +309,9 @@ class CommandProcessor {
+   // Fix 125: at the start of each part of the ring, the shared memory's units
+   // checked by content (the Vulkan command processor's shared memory).
+   virtual void CheckContentUnits() {}
++  // Fix 136 (memexport_batch.h): at a point where the CPU can learn that the GPU went on,
++  // memory exports read back in a batch are merged into guest memory first.
++  virtual void FlushDeferredReadbacks(uint32_t reason) {}
+ 
+   // Used by strict ZPD to distinguish normal in flight latency from a
+   // genuinely stuck report.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -697,6 +697,7 @@ void CommandProcessor::HandleSpecialRegisterWrite(uint32_t index,
+       // Enabled - write to address.
+       uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
+       uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
++      FlushDeferredReadbacks(memexport_batch::kCpWrite);  // Xbox360PS5 (fix 136)
+       xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
+       xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kScratch, mem_addr,
+                            value);  // Xbox360PS5 (fix 24)
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -659,6 +659,7 @@ XE_NOINLINE
+ bool COMMAND_PROCESSOR::ExecutePacketType3_INTERRUPT(
+     uint32_t packet, uint32_t count) XE_RESTRICT {
+   SCOPE_profile_cpu_f("gpu");
++  FlushDeferredReadbacks(memexport_batch::kInterrupt);  // Xbox360PS5 (fix 136)
+ 
+   // generate interrupt from the command stream
+   uint32_t cpu_mask = reader_.ReadAndSwap<uint32_t>();
+@@ -673,6 +674,7 @@ XE_NOINLINE
+ bool COMMAND_PROCESSOR::ExecutePacketType3_XE_SWAP(uint32_t packet,
+                                                    uint32_t count) XE_RESTRICT {
+   SCOPE_profile_cpu_f("gpu");
++  FlushDeferredReadbacks(memexport_batch::kSwap);  // Xbox360PS5 (fix 136)
+ 
+   Profiler::Flip();
+ 
+@@ -738,6 +740,10 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+   uint32_t wait = reader_.ReadAndSwap<uint32_t>();
+ 
+   bool is_memory = (wait_info & 0x10) != 0;
++  if (is_memory) {
++    // Xbox360PS5 (fix 136): the CPU may wait for exported data before writing the word.
++    FlushDeferredReadbacks(memexport_batch::kWaitRegMem);
++  }
+   assert_true(is_memory || poll_reg_addr < RegisterFile::kRegisterCount);
+   const volatile uint32_t& value_ref =
+       is_memory ? *reinterpret_cast<uint32_t*>(memory_->TranslatePhysical(
+@@ -869,6 +875,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_RMW(uint32_t packet,
+ 
+ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(
+     uint32_t packet, uint32_t count) XE_RESTRICT {
++  FlushDeferredReadbacks(memexport_batch::kCpWrite);  // Xbox360PS5 (fix 136)
+   // Copy Register to Memory (?)
+   // Count is 2, assuming a Register Addr and a Memory Addr.
+ 
+@@ -893,6 +900,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(
+ XE_NOINLINE
+ bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(
+     uint32_t packet, uint32_t count) XE_RESTRICT {
++  FlushDeferredReadbacks(memexport_batch::kCpWrite);  // Xbox360PS5 (fix 136)
+   uint32_t write_addr = reader_.ReadAndSwap<uint32_t>();
+   for (uint32_t i = 0; i < count - 1; i++) {
+     uint32_t write_data = reader_.ReadAndSwap<uint32_t>();
+@@ -912,6 +920,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(
+ XE_NOINLINE
+ bool COMMAND_PROCESSOR::ExecutePacketType3_COND_WRITE(
+     uint32_t packet, uint32_t count) XE_RESTRICT {
++  FlushDeferredReadbacks(memexport_batch::kCpWrite);  // Xbox360PS5 (fix 136)
+   // conditional write to memory or register
+   uint32_t wait_info = reader_.ReadAndSwap<uint32_t>();
+   uint32_t poll_reg_addr = reader_.ReadAndSwap<uint32_t>();
+@@ -978,6 +987,7 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE(
+ XE_NOINLINE
+ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(
+     uint32_t packet, uint32_t count) XE_RESTRICT {
++  FlushDeferredReadbacks(memexport_batch::kCpWrite);  // Xbox360PS5 (fix 136)
+   // generate a VS|PS_done event
+   uint32_t initiator = reader_.ReadAndSwap<uint32_t>();
+   uint32_t address = reader_.ReadAndSwap<uint32_t>();
+@@ -1541,6 +1551,8 @@ uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,
+     }
+   } while (reader_.read_count());
+ 
++  // Xbox360PS5 (fix 136): the read pointer the CPU sees moves on after this part.
++  FlushDeferredReadbacks(memexport_batch::kRingPart);
+   COMMAND_PROCESSOR::OnPrimaryBufferEnd();
+ 
+   trace_writer_.WritePrimaryBufferEnd();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -1001,6 +1001,21 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   uint64_t readback_family_late_ = 0;
+   readback_batching::WouldBatch readback_memexport_batches_, readback_own_batches_;
+   readback_batching::SyncPoint ReadbackSyncPoint() const;
++  // Fix 136 (xenia/gpu/memexport_batch.h): memory exports read back in a batch, merged at the
++  // next sync point; their own readback buffer (kMaxBytes, made on first use).
++  memexport_batch::Batch memexport_batch_;
++  VkBuffer memexport_batch_buffer_ = VK_NULL_HANDLE;
++  VkDeviceMemory memexport_batch_memory_ = VK_NULL_HANDLE;
++  bool memexport_batch_host_coherent_ = false;
++  bool memexport_batch_flushing_ = false;
++  bool memexport_batching_on_ = false;
++  bool memexport_batching_logged_ = false;
++  uint64_t memexport_batch_deferred_ = 0, memexport_batch_at_once_ = 0, memexport_batch_merged_ = 0;
++  std::array<uint64_t, memexport_batch::kReasons> memexport_batch_flushes_{};
++  bool MemexportBatchingOn();
++  bool EnsureMemexportBatchBuffer();
++  void FlushMemexportBatch(uint32_t reason);
++  void FlushDeferredReadbacks(uint32_t reason) override;
+   void* readback_read_callback_ = nullptr;
+   // 1.0.5-work-fix91g: the read watch made observable: callbacks fired (in the fault handler),
+   // reads dropped (ring full), watches armed and keys flagged (GPU command thread).
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -59,6 +59,13 @@
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
+ DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
++// Xbox360PS5, fix 136 (memexport_batch.h): memory exports read back once per sync period. Per
++// game in assets/config/<title>.config.toml ([GPU]), or live in memexport-batching.txt ("on" or
++// "off") in the title folder.
++DEFINE_bool(readback_memexport_batching, false,
++            "Read memory exports back to guest memory once per sync point (the command processor "
++            "writing guest memory, an interrupt, a swap) instead of after every exporting draw.",
++            "GPU");
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -1464,6 +1471,159 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
+ }
+ #endif
+ 
++// Fix 136 (memexport_batch.h): whether memory exports are batched, from memexport-batching.txt in
++// the title folder when it exists (read again at most once a second), else the cvar; every 30 s
++// the batch's counters.
++bool VulkanCommandProcessor::MemexportBatchingOn() {
++  static auto checked = std::chrono::steady_clock::time_point();
++  static auto summary = std::chrono::steady_clock::now();
++  const auto now = std::chrono::steady_clock::now();
++  if (!memexport_batching_logged_ || now - checked >= std::chrono::seconds(1)) {
++    checked = now;
++    bool on = cvars::readback_memexport_batching;
++    bool from_file = false;
++    int not_understood = 0;
++    const char* const path = XBOX360PS5_DATA_ROOT "/memexport-batching.txt";
++    if (FILE* file = std::fopen(path, "rb")) {
++      std::string text;
++      char chunk[256];
++      size_t got;
++      while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++      std::fclose(file);
++      not_understood = memexport_batch::ParseSwitch(text, on);
++      from_file = true;
++    }
++    if (!memexport_batching_logged_ || on != memexport_batching_on_) {
++      // Switched off: what is pending is merged at the next sync point or before the next
++      // export read back at once (not here, in the middle of a draw).
++      memexport_batching_on_ = on;
++      memexport_batching_logged_ = true;
++      XELOGW("Memexport batching (fix 136): {}, from {}{}", on ? "on" : "off",
++             from_file ? path : "the settings",
++             not_understood ? fmt::format(", {} lines not understood", not_understood)
++                            : std::string());
++    }
++  }
++  if (now - summary >= std::chrono::seconds(30)) {
++    summary = now;
++    if (memexport_batching_on_ || memexport_batch_deferred_ || memexport_batch_at_once_) {
++      std::string reasons;
++      for (uint32_t reason = 0; reason < memexport_batch::kReasons; ++reason) {
++        if (!memexport_batch_flushes_[reason]) continue;
++        reasons += fmt::format("{}{} {}", reasons.empty() ? "" : ", ",
++                               memexport_batch::ReasonName(reason),
++                               memexport_batch_flushes_[reason]);
++      }
++      uint64_t flushes = 0;
++      for (uint64_t count : memexport_batch_flushes_) flushes += count;
++      XELOGW("Memexport batching, last 30 s (fix 136, {}): {} exports batched, merged in {} waits "
++             "({}); {} read back at once",
++             memexport_batching_on_ ? "on" : "off", memexport_batch_deferred_, flushes,
++             reasons.empty() ? "none" : reasons, memexport_batch_at_once_);
++      memexport_batch_deferred_ = memexport_batch_at_once_ = 0;
++      memexport_batch_flushes_.fill(0);
++    }
++  }
++  return memexport_batching_on_;
++}
++
++// Fix 136: the batch's readback buffer, kMaxBytes, host-readable like RequestReadbackBuffer's.
++bool VulkanCommandProcessor::EnsureMemexportBatchBuffer() {
++  if (memexport_batch_buffer_ != VK_NULL_HANDLE) {
++    return true;
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  VkBufferCreateInfo buffer_info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
++  buffer_info.size = memexport_batch::kMaxBytes;
++  buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
++  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++  VkBuffer buffer;
++  if (dfn.vkCreateBuffer(device, &buffer_info, nullptr, &buffer) != VK_SUCCESS) {
++    XELOGE("Memexport batching (fix 136): failed to create the readback buffer");
++    return false;
++  }
++  VkMemoryRequirements requirements;
++  dfn.vkGetBufferMemoryRequirements(device, buffer, &requirements);
++  const uint32_t memory_type = ui::vulkan::util::ChooseMemoryType(
++      vulkan_device->memory_types(), requirements.memoryTypeBits,
++      ui::vulkan::util::MemoryPurpose::kReadback);
++  VkMemoryAllocateInfo allocate_info = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
++  allocate_info.allocationSize = requirements.size;
++  allocate_info.memoryTypeIndex = memory_type;
++  VkDeviceMemory memory;
++  if (memory_type == UINT32_MAX ||
++      dfn.vkAllocateMemory(device, &allocate_info, nullptr, &memory) != VK_SUCCESS) {
++    XELOGE("Memexport batching (fix 136): failed to allocate the readback buffer's memory");
++    dfn.vkDestroyBuffer(device, buffer, nullptr);
++    return false;
++  }
++  if (dfn.vkBindBufferMemory(device, buffer, memory, 0) != VK_SUCCESS) {
++    XELOGE("Memexport batching (fix 136): failed to bind the readback buffer's memory");
++    dfn.vkFreeMemory(device, memory, nullptr);
++    dfn.vkDestroyBuffer(device, buffer, nullptr);
++    return false;
++  }
++  memexport_batch_buffer_ = buffer;
++  memexport_batch_memory_ = memory;
++  memexport_batch_host_coherent_ =
++      (vulkan_device->memory_types().host_coherent & (uint32_t(1) << memory_type)) != 0;
++  return true;
++}
++
++// Fix 136: one wait for the GPU, then each pending export's merge in order (fix 30's: only the
++// dwords the shader wrote), and its units back to normal (fix 48).
++void VulkanCommandProcessor::FlushMemexportBatch(uint32_t reason) {
++  if (memexport_batch_.empty() || memexport_batch_flushing_) {
++    return;
++  }
++  memexport_batch_flushing_ = true;
++  ++memexport_batch_flushes_[std::min<uint32_t>(reason, memexport_batch::kReasons - 1)];
++  {
++#if XE_PLATFORM_PS5
++    xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
++        xbox360ps5::frame_cost::kMemexport);
++#endif
++    readback_memexport_batches_.Note(ReadbackSyncPoint());  // fix 133: the one wait
++    if (AwaitAllQueueOperationsCompletion()) {
++      const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++      void* mapped_data = nullptr;
++      if (MapReadbackMemory(memexport_batch_memory_, memexport_batch_host_coherent_,
++                            &mapped_data) &&
++          mapped_data) {
++        const uint8_t* const bytes = static_cast<const uint8_t*>(mapped_data);
++        for (const memexport_batch::Pending& pending : memexport_batch_.pending()) {
++          const uint8_t* after = bytes + pending.base;
++          const uint8_t* before = after + pending.before_offset;
++          for (const memexport_batch::Range& range : pending.ranges) {
++            xbox360ps5::memexport_merge::ApplyExports(memory_->TranslatePhysical(range.start),
++                                                      before, after, range.size);
++            shared_memory_->ClearGpuOnly(range.start, range.size);
++            after += range.size;
++            before += range.size;
++          }
++          ++memexport_batch_merged_;
++        }
++        vulkan_device->functions().vkUnmapMemory(vulkan_device->device(),
++                                                 memexport_batch_memory_);
++      } else {
++        XELOGE("Memexport batching (fix 136): failed to map the readback buffer");
++      }
++    } else {
++      XELOGE("Memexport batching (fix 136): failed to complete the queue operations");
++    }
++  }
++  memexport_batch_.Clear();
++  memexport_batch_flushing_ = false;
++}
++
++void VulkanCommandProcessor::FlushDeferredReadbacks(uint32_t reason) {
++  if (!memexport_batch_.empty()) {
++    FlushMemexportBatch(reason);
++  }
++}
++
+ // Fix 133: where the command processor stands as far as the CPU can tell (readback_batching.h).
+ readback_batching::SyncPoint VulkanCommandProcessor::ReadbackSyncPoint() const {
+   namespace ct = xbox360ps5::cp_trace;
+@@ -1556,6 +1716,10 @@ void VulkanCommandProcessor::ShutdownContext() {
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device,
+                                          memexport_readback_buffer_memory_);
+   memexport_readback_buffer_size_ = 0;
++  // Fix 136: the batch's buffer (all its exports awaited above; their merges dropped).
++  memexport_batch_.Clear();
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device, memexport_batch_buffer_);
++  ui::vulkan::util::DestroyAndNullHandle(dfn.vkFreeMemory, device, memexport_batch_memory_);
+ 
+   ui::vulkan::util::DestroyAndNullHandle(dfn.vkDestroyBuffer, device,
+                                          resolve_downscale_buffer_);
+@@ -2960,6 +3124,16 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                             uint32_t index_count,
+                                             IndexBufferInfo* index_buffer_info,
+                                             bool major_mode_explicit) {
++#if XE_PLATFORM_PS5
++  // Fix 136: exports pending a merge whose units the CPU wrote meanwhile are merged before an
++  // upload for this draw could replace their GPU copy.
++  if (!memexport_batch_.empty() &&
++      memexport_batch_.AnyInvalid([this](uint32_t start, uint32_t size) {
++        return shared_memory_->IsRangeValid(start, size);
++      })) {
++    FlushMemexportBatch(memexport_batch::kInvalidated);
++  }
++#endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::gpu_diag::Scope ps5_stage(xbox360ps5::gpu_diag::Kind::cpu_draw);
+   namespace fc = xbox360ps5::frame_cost;
+@@ -3778,13 +3952,35 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   const uint32_t memexport_before_offset =
+       xbox360ps5::memexport_merge::BeforeOffset(memexport_total_bytes);
+   bool memexport_before_copied = false;
++  // Fix 136: this export's place in the batch's buffer, or UINT32_MAX: read back at once.
++  uint32_t memexport_batch_base = UINT32_MAX;
++  bool memexport_batch_full = false;
++#if XE_PLATFORM_PS5
++  if (memexport_readback && MemexportBatchingOn()) {
++    memexport_batch_base = memexport_batch_.Reserve(
++        memexport_before_offset, uint32_t(memexport_total_bytes), memexport_batch::kMaxBytes);
++    // Full: this export is read back at once, after the batch's (in order).
++    memexport_batch_full = memexport_batch_base == UINT32_MAX && !memexport_batch_.empty();
++    if (memexport_batch_base != UINT32_MAX && !EnsureMemexportBatchBuffer()) {
++      memexport_batch_base = UINT32_MAX;
++    }
++    if (memexport_batch_base == UINT32_MAX) {
++      ++memexport_batch_at_once_;
++    }
++  }
++#endif
+   if (memexport_readback) {
+-    VkBuffer readback_buffer = RequestReadbackBuffer(
+-        memexport_before_offset + uint32_t(memexport_total_bytes));
++    VkBuffer readback_buffer =
++        memexport_batch_base != UINT32_MAX
++            ? memexport_batch_buffer_
++            : RequestReadbackBuffer(memexport_before_offset +
++                                    uint32_t(memexport_total_bytes));
+     if (readback_buffer != VK_NULL_HANDLE) {
+       shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
+       SubmitBarriers(true);
+-      uint32_t before_offset = memexport_before_offset;
++      uint32_t before_offset =
++          (memexport_batch_base != UINT32_MAX ? memexport_batch_base : 0) +
++          memexport_before_offset;  // fix 136
+       for (const draw_util::MemExportRange& memexport_range :
+            memexport_ranges_) {
+         VkBufferCopy copy_region = {};
+@@ -3946,7 +4142,10 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+     }
+ 
+     if (memexport_total_size > 0) {
+-      VkBuffer readback_buffer = RequestReadbackBuffer(memexport_total_size);
++      VkBuffer readback_buffer =
++          memexport_batch_base != UINT32_MAX
++              ? memexport_batch_buffer_
++              : RequestReadbackBuffer(memexport_total_size);  // fix 136
+       if (readback_buffer != VK_NULL_HANDLE) {
+         const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+         const ui::vulkan::VulkanDevice::Functions& dfn =
+@@ -3962,7 +4161,8 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+         SubmitBarriers(true);
+ 
+         // Copy each memexport range to the readback buffer.
+-        uint32_t readback_buffer_offset = 0;
++        uint32_t readback_buffer_offset =
++            memexport_batch_base != UINT32_MAX ? memexport_batch_base : 0;  // fix 136
+         for (const draw_util::MemExportRange& memexport_range :
+              memexport_ranges_) {
+           VkBufferCopy copy_region = {};
+@@ -3982,6 +4182,29 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+             VK_ACCESS_HOST_READ_BIT);
+         SubmitBarriers(true);
+ 
++#if XE_PLATFORM_PS5
++        // Fix 136: batched, merged at the next sync point. Until then the units are GPU-only
++        // (fix 48), so an upload over them counts as exported data lost.
++        if (memexport_batch_base != UINT32_MAX) {
++          memexport_batch::Pending pending;
++          pending.base = memexport_batch_base;
++          pending.before_offset = memexport_before_offset;
++          pending.total = memexport_total_size;
++          pending.shader = vertex_shader->ucode_data_hash();
++          for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++            pending.ranges.push_back(
++                {memexport_range.base_address_dwords << 2, memexport_range.size_bytes});
++            shared_memory_->MarkGpuOnly(memexport_range.base_address_dwords << 2,
++                                        memexport_range.size_bytes, pending.shader);
++          }
++          memexport_batch_.Add(std::move(pending));
++          ++memexport_batch_deferred_;
++          return true;
++        }
++        // Fix 136: exports batched before this one are merged first, in order.
++        FlushMemexportBatch(memexport_batch_full ? memexport_batch::kFull
++                                                 : memexport_batch::kOther);
++#endif
+         // Wait for GPU to finish (SYNCHRONIZATION STALL)
+ #if XE_PLATFORM_PS5
+         xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+@@ -4274,6 +4497,13 @@ const char* ResolveDumpFolder() {
+ 
+ bool VulkanCommandProcessor::IssueCopy() {
+ #if XE_PLATFORM_PS5
++  // Fix 136: as before a draw.
++  if (!memexport_batch_.empty() &&
++      memexport_batch_.AnyInvalid([this](uint32_t start, uint32_t size) {
++        return shared_memory_->IsRangeValid(start, size);
++      })) {
++    FlushMemexportBatch(memexport_batch::kInvalidated);
++  }
+   xbox360ps5::gpu_diag::Scope ps5_stage(xbox360ps5::gpu_diag::Kind::cpu_copy);
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+       xbox360ps5::frame_cost::kCopy);
