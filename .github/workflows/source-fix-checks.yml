@@ -115,6 +115,7 @@ on:
       - 'tools/check-texture-set-reuse.cpp'
       - 'tools/check-fetch-unchanged.cpp'
       - 'tools/check-guide-quick.cpp'
+      - 'tools/check-guide-header.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
