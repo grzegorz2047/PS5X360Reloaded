@@ -15,10 +15,17 @@
 #include <sstream>
 #include <string>
 
+#include "../port/phone_camera_page.hpp"  // the server includes both (its namespace xbox360ps5::phone_camera)
 #include "../port/phone_camera_tracker.hpp"  // the check runs as <tree>/tools/check-kinect-tracker.cpp
 #include "xbox360ps5/phone_latency.hpp"
 
 namespace pl = xbox360ps5::phone_latency;
+
+// The server names the module from inside namespace xbox360ps5 (phone_camera_tls.cpp); so does this
+// line, so a header in another namespace fails to compile here, not only in the console build.
+namespace xbox360ps5 {
+inline const char* ServedTracker() { return phone_camera::kTrackerModule; }
+}  // namespace xbox360ps5
 
 static int failures = 0;
 #define CHECK(cond)                                                \
@@ -71,7 +78,7 @@ int main() {
   CHECK(!pl::ReasonsLine("{\"reasons\":{},\"no_body\":9}").has_value());
 
   // (c) The module.
-  const std::string tracker = phone_camera::kTrackerModule;
+  const std::string tracker = xbox360ps5::ServedTracker();
   CHECK(tracker.find("export class KinectTracker") != std::string::npos);
   CHECK(tracker.find("import {skeleton} from './pose.mjs?v=kinect2';") != std::string::npos);
   CHECK(tracker.find("PS5X360Reloaded fix 106") != std::string::npos);
@@ -85,6 +92,9 @@ int main() {
     std::printf("no assembled tree here; the server not checked\n");
   } else {
     CHECK(header.find("MIT, Copyright (c) 2026 Xbox360PS5\n// contributors") != std::string::npos);
+    // The same namespace as the page's header, whose names the server uses the same way.
+    CHECK(header.find("namespace xbox360ps5::phone_camera {") != std::string::npos);
+    CHECK(ReadText("port/phone_camera_page.hpp").find("namespace xbox360ps5::phone_camera {") != std::string::npos);
     // (b) Served before the package's files, and the new line logged with the stages'.
     const size_t ours = tls.find("if (method == \"GET\" && target == \"/kinect_tracker.mjs\")  // fix 106");
     const size_t theirs = tls.find("target == \"/pose.mjs\" || target == \"/kinect_tracker.mjs\"");

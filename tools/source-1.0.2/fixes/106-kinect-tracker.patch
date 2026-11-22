@@ -190,7 +190,7 @@ index 5fbb3a2..78b3a4a 100644
    if (method == "POST" && target == "/api/motion/frame") {
 diff --git a/port/phone_camera_tracker.hpp b/port/phone_camera_tracker.hpp
 new file mode 100644
-index 0000000..2ae68d9
+index 0000000..2852249
 --- /dev/null
 +++ b/port/phone_camera_tracker.hpp
 @@ -0,0 +1,475 @@
@@ -201,7 +201,7 @@ index 0000000..2ae68d9
 +// contributors; the changes are marked "fix 106"). Checked with node by tools/check-kinect-tracker.mjs.
 +#pragma once
 +
-+namespace phone_camera {
++namespace xbox360ps5::phone_camera {  // as phone_camera_page.hpp
 +
 +inline constexpr char kTrackerModule[] = R"KINECTTRACKER(// Kinect-style body tracking from one camera (MediaPipe Pose) for the PS5X360 motion bridge.
 +//
@@ -668,4 +668,4 @@ index 0000000..2ae68d9
 +}
 +)KINECTTRACKER";
 +
-+}  // namespace phone_camera
++}  // namespace xbox360ps5::phone_camera
