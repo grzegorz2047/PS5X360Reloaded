@@ -146,6 +146,7 @@ checks=(
   check-game-language.cpp          # fix 132
   check-readback-batching.cpp      # fix 133
   check-async-submit.cpp           # fix 134
+  check-vulkan-fxaa.cpp            # fix 137
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -270,6 +271,7 @@ declare -A fix_of=(
   [check-game-language.cpp]=132
   [check-readback-batching.cpp]=133
   [check-async-submit.cpp]="134 134b"
+  [check-vulkan-fxaa.cpp]=137
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -300,6 +302,37 @@ for name in "${checks[@]}"; do
     status=1
   fi
 done
+# Fix 137: the FXAA pixel shaders through the core's own SPIR-V step (tools/build/compile_shader_spirv.py,
+# as XeniaHelpers.cmake runs it at the compile), where glslangValidator, spirv-opt and spirv-dis are on
+# the PATH (the source build installs the Vulkan SDK's before these checks); a shader error then shows
+# here instead of in the compile.
+echo "=== fix 137 shaders (glslangValidator)"
+if [[ " $skipped_fixes " == *" 137 "* ]]; then
+  echo "skip fix 137 shaders (fix 137 left out of this build)"
+elif ! command -v glslangValidator > /dev/null || ! command -v spirv-opt > /dev/null || ! command -v spirv-dis > /dev/null; then
+  echo "skip fix 137 shaders (no glslangValidator, spirv-opt and spirv-dis on the PATH)"
+else
+  shader_status=0
+  mkdir -p "$tree/build/fix-checks/spirv"
+  for shader in fxaa.ps.glsl fxaa_extreme.ps.glsl; do
+    # fxaa.ps.glsl -> fxaa_ps.h, as XeniaHelpers.cmake names it.
+    header="$tree/build/fix-checks/spirv/$(echo "${shader%.glsl}" | tr . _).h"
+    if "$python" -I "$tree/.deps/xenia-canary/tools/build/compile_shader_spirv.py" \
+          "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/$shader" "$header" &&
+       grep -q 'OpEntryPoint Fragment' "$header"; then
+      echo "compiled $shader"
+    else
+      echo "FAIL: $shader"
+      shader_status=1
+    fi
+  done
+  if [[ $shader_status == 0 ]]; then
+    echo "pass fix 137 shaders"
+  else
+    echo "FAIL fix 137 shaders"
+    status=1
+  fi
+fi
 echo "=== check-patch-syntax.py"
 if "$python" -I "$repo/tools/check-patch-syntax.py"; then
   echo "pass check-patch-syntax.py"

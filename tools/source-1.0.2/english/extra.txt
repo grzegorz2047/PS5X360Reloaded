@@ -321,6 +321,12 @@ Height = Altura
 Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
 Weight = Peso
 A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Antisserrilhamento
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza as bordas serrilhadas da imagem do jogo antes de ela ser ajustada à tela. FXAA: leve, mantém o texto nítido. FXAA Extremo: bordas mais suaves, imagem um pouco mais suave. Só no Vulkan; custa pouco.
+FXAA = FXAA
+FXAA Extreme = FXAA Extremo
+Anti-aliasing works with the Vulkan renderer only. = O antisserrilhamento funciona apenas com o renderizador Vulkan.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -454,6 +460,12 @@ Height = Altura
 Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
 Weight = Peso
 A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Suavização de arestas
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza as arestas serrilhadas da imagem do jogo antes de esta ser ajustada ao ecrã. FXAA: leve, mantém o texto nítido. FXAA Extremo: arestas mais suaves, imagem um pouco mais suave. Só em Vulkan; custa pouco.
+FXAA = FXAA
+FXAA Extreme = FXAA Extremo
+Anti-aliasing works with the Vulkan renderer only. = A suavização de arestas só funciona com o renderizador Vulkan.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -587,6 +599,12 @@ Height = Altura
 Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
 Weight = Peso
 A thinner or heavier build. = Una complexión más delgada o más robusta.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Suavizado de bordes
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza los bordes dentados de la imagen del juego antes de escalarla a la pantalla. FXAA: ligero, mantiene el texto nítido. FXAA Extremo: bordes más suaves, imagen algo más blanda. Solo con Vulkan; cuesta poco.
+FXAA = FXAA
+FXAA Extreme = FXAA Extremo
+Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -720,6 +738,12 @@ Height = Altura
 Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
 Weight = Peso
 A thinner or heavier build. = Una complexión más delgada o más robusta.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Suavizado de bordes
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza los bordes dentados de la imagen del juego antes de escalarla a la pantalla. FXAA: ligero, mantiene el texto nítido. FXAA Extremo: bordes más suaves, imagen un poco más suave. Solo con Vulkan; cuesta poco.
+FXAA = FXAA
+FXAA Extreme = FXAA Extremo
+Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -853,6 +877,12 @@ Height = Größe
 Shorter or taller limbs and body. = Kürzere oder längere Gliedmaßen und Rumpf.
 Weight = Gewicht
 A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Kantenglättung
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Glättet die gezackten Kanten des Spielbilds, bevor es auf den Bildschirm skaliert wird. FXAA: leicht, Text bleibt scharf. FXAA Extrem: glattere Kanten, etwas weicheres Bild. Nur mit Vulkan; kostet wenig.
+FXAA = FXAA
+FXAA Extreme = FXAA Extrem
+Anti-aliasing works with the Vulkan renderer only. = Kantenglättung funktioniert nur mit dem Vulkan-Renderer.
 
 [added fr]
 Console storage = Stockage de la console
@@ -986,6 +1016,12 @@ Height = Taille
 Shorter or taller limbs and body. = Membres et corps plus courts ou plus longs.
 Weight = Corpulence
 A thinner or heavier build. = Une silhouette plus mince ou plus forte.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Anticrénelage
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Adoucit les bords crénelés de l'image du jeu avant sa mise à l'échelle à l'écran. FXAA : léger, garde le texte net. FXAA Extrême : bords plus lisses, image un peu plus douce. Vulkan uniquement ; coûte peu.
+FXAA = FXAA
+FXAA Extreme = FXAA Extrême
+Anti-aliasing works with the Vulkan renderer only. = L'anticrénelage ne fonctionne qu'avec le moteur de rendu Vulkan.
 
 [added it]
 Console storage = Memoria della console
@@ -1119,6 +1155,12 @@ Height = Altezza
 Shorter or taller limbs and body. = Arti e corpo più corti o più lunghi.
 Weight = Peso
 A thinner or heavier build. = Una corporatura più magra o più robusta.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Anti-aliasing
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Smussa i bordi seghettati dell'immagine del gioco prima che venga adattata allo schermo. FXAA: leggero, mantiene il testo nitido. FXAA Estremo: bordi più morbidi, immagine leggermente più morbida. Solo Vulkan; costa poco.
+FXAA = FXAA
+FXAA Extreme = FXAA Estremo
+Anti-aliasing works with the Vulkan renderer only. = L'anti-aliasing funziona solo con il renderer Vulkan.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1252,6 +1294,12 @@ Height = 身長
 Shorter or taller limbs and body. = 手足と胴体を短く、または長くします。
 Weight = 体重
 A thinner or heavier build. = 細め、またはがっしりした体格にします。
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = アンチエイリアス
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 画面に合わせて拡大する前に、ゲーム映像のギザギザした輪郭をなめらかにします。FXAA：軽く、文字はくっきりしたままです。FXAA エクストリーム：輪郭がよりなめらかになり、映像が少し柔らかくなります。Vulkan のみ。負荷はわずかです。
+FXAA = FXAA
+FXAA Extreme = FXAA エクストリーム
+Anti-aliasing works with the Vulkan renderer only. = アンチエイリアスは Vulkan レンダラーでのみ使えます。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1385,6 +1433,12 @@ Height = 키
 Shorter or taller limbs and body. = 팔다리와 몸통을 더 짧게 또는 길게 합니다.
 Weight = 체중
 A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = 안티에일리어싱
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 게임 화면을 화면 크기에 맞추기 전에 들쭉날쭉한 가장자리를 부드럽게 합니다. FXAA: 가볍고 글자가 선명하게 유지됩니다. FXAA 익스트림: 가장자리가 더 매끄럽고 화면이 약간 더 부드러워집니다. Vulkan 전용이며 부담이 적습니다.
+FXAA = FXAA
+FXAA Extreme = FXAA 익스트림
+Anti-aliasing works with the Vulkan renderer only. = 안티에일리어싱은 Vulkan 렌더러에서만 작동합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1518,6 +1572,12 @@ Height = Lengte
 Shorter or taller limbs and body. = Kortere of langere ledematen en romp.
 Weight = Gewicht
 A thinner or heavier build. = Een slankere of zwaardere bouw.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Anti-aliasing
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Maakt de gekartelde randen van het spelbeeld glad voordat het naar het scherm wordt geschaald. FXAA: licht, tekst blijft scherp. FXAA Extreem: gladdere randen, een iets zachter beeld. Alleen Vulkan; kost weinig.
+FXAA = FXAA
+FXAA Extreme = FXAA Extreem
+Anti-aliasing works with the Vulkan renderer only. = Anti-aliasing werkt alleen met de Vulkan-renderer.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1651,6 +1711,12 @@ Height = Wzrost
 Shorter or taller limbs and body. = Krótsze lub dłuższe kończyny i tułów.
 Weight = Waga
 A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Wygładzanie krawędzi
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Wygładza poszarpane krawędzie obrazu gry, zanim zostanie on dopasowany do ekranu. FXAA: lekkie, tekst zostaje ostry. FXAA Extreme: gładsze krawędzie, nieco bardziej miękki obraz. Tylko Vulkan; kosztuje niewiele.
+FXAA = FXAA
+FXAA Extreme = FXAA Extreme
+Anti-aliasing works with the Vulkan renderer only. = Wygładzanie krawędzi działa tylko z rendererem Vulkan.
 
 [added ru]
 Console storage = Память консоли
@@ -1784,6 +1850,12 @@ Height = Рост
 Shorter or taller limbs and body. = Более короткие или длинные конечности и туловище.
 Weight = Вес
 A thinner or heavier build. = Более худое или более плотное телосложение.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Сглаживание
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Сглаживает зубчатые края изображения игры перед масштабированием на экран. FXAA: лёгкое, текст остаётся чётким. FXAA Экстрим: более гладкие края, чуть более мягкое изображение. Только Vulkan; почти не нагружает.
+FXAA = FXAA
+FXAA Extreme = FXAA Экстрим
+Anti-aliasing works with the Vulkan renderer only. = Сглаживание работает только с рендерером Vulkan.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1917,6 +1989,12 @@ Height = Boy
 Shorter or taller limbs and body. = Daha kısa veya daha uzun uzuvlar ve gövde.
 Weight = Kilo
 A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = Kenar yumuşatma
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Oyun görüntüsü ekrana ölçeklenmeden önce tırtıklı kenarlarını yumuşatır. FXAA: hafif, yazılar net kalır. FXAA Ekstrem: daha yumuşak kenarlar, biraz daha yumuşak bir görüntü. Yalnızca Vulkan; maliyeti düşüktür.
+FXAA = FXAA
+FXAA Extreme = FXAA Ekstrem
+Anti-aliasing works with the Vulkan renderer only. = Kenar yumuşatma yalnızca Vulkan oluşturucuyla çalışır.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2050,6 +2128,12 @@ Height = 身高
 Shorter or taller limbs and body. = 更短或更长的四肢和躯干。
 Weight = 体重
 A thinner or heavier build. = 更瘦或更壮的体格。
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = 抗锯齿
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 在游戏画面缩放到屏幕之前，平滑其锯齿状边缘。FXAA：轻量，文字保持清晰。FXAA 极致：边缘更平滑，画面略为柔和。仅限 Vulkan，性能开销很小。
+FXAA = FXAA
+FXAA Extreme = FXAA 极致
+Anti-aliasing works with the Vulkan renderer only. = 抗锯齿仅适用于 Vulkan 渲染器。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2183,3 +2267,9 @@ Height = 身高
 Shorter or taller limbs and body. = 更短或更長的四肢和軀幹。
 Weight = 體重
 A thinner or heavier build. = 更瘦或更壯的體格。
+# Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
+Anti-aliasing = 反鋸齒
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 在遊戲畫面縮放至螢幕之前，平滑其鋸齒狀邊緣。FXAA：輕量，文字保持清晰。FXAA 極致：邊緣更平滑，畫面略為柔和。僅限 Vulkan，效能負擔很小。
+FXAA = FXAA
+FXAA Extreme = FXAA 極致
+Anti-aliasing works with the Vulkan renderer only. = 反鋸齒僅適用於 Vulkan 繪圖器。
