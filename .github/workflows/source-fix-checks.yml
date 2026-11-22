@@ -109,6 +109,7 @@ on:
       - 'tools/check-timer-apc.cpp'
       - 'tools/check-dark-default.cpp'
       - 'tools/check-content-folders.cpp'
+      - 'tools/check-osk-keyboard.cpp'
       - 'tools/check-content-create.*'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
