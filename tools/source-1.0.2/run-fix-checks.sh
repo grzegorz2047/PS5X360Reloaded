@@ -148,6 +148,7 @@ checks=(
   check-resolution-scale.cpp       # fixes 117 to 117k
   check-library-groups.cpp         # fixes 112 to 112f
   check-vulkan-fxaa.cpp            # fixes 137 and 137b
+  check-swap-effects.cpp           # fix 141
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -275,6 +276,7 @@ declare -A fix_of=(
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
   [check-async-submit.cpp]="134 134b 134c"
   [check-vulkan-fxaa.cpp]="137 137b"
+  [check-swap-effects.cpp]=141
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -309,7 +311,7 @@ done
 # as XeniaHelpers.cmake runs it at the compile), where glslangValidator, spirv-opt and spirv-dis are on
 # the PATH (the source build installs the Vulkan SDK's before these checks); a shader error then shows
 # here instead of in the compile.
-echo "=== fix 137 shaders (glslangValidator)"
+echo "=== fix 137 and 141 shaders (glslangValidator)"
 if [[ " $skipped_fixes " == *" 137 "* ]]; then
   echo "skip fix 137 shaders (fix 137 left out of this build)"
 elif ! command -v glslangValidator > /dev/null || ! command -v spirv-opt > /dev/null || ! command -v spirv-dis > /dev/null; then
@@ -317,7 +319,12 @@ elif ! command -v glslangValidator > /dev/null || ! command -v spirv-opt > /dev/
 else
   shader_status=0
   mkdir -p "$tree/build/fix-checks/spirv"
-  for shader in fxaa.ps.glsl fxaa_extreme.ps.glsl; do
+  shader_list="fxaa.ps.glsl fxaa_extreme.ps.glsl"
+  # Fix 141: the effect path's pass without AA (and its colour preset in swap_post.glsli).
+  if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.ps.glsl" ]]; then
+    shader_list+=" swap_post.ps.glsl"
+  fi
+  for shader in $shader_list; do
     # fxaa.ps.glsl -> fxaa_ps.h, as XeniaHelpers.cmake names it.
     header="$tree/build/fix-checks/spirv/$(echo "${shader%.glsl}" | tr . _).h"
     if "$python" -I "$tree/.deps/xenia-canary/tools/build/compile_shader_spirv.py" \

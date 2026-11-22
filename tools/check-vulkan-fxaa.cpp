@@ -200,7 +200,11 @@ void Model() {
 void Tree() {
   const std::string core = ".deps/xenia-canary/";
   const std::string shaders = core + "src/xenia/gpu/shaders/";
-  const std::string glsli = Read(shaders + "fxaa.glsli");
+  // Fix 141 makes fix 137's FXAA passes the shared effect path (FXAA, a colour preset, an overscan
+  // crop): fxaa.glsli becomes swap_post.glsli and the swap's functions are renamed. With it, the
+  // swap's wiring is check-swap-effects.cpp's; the rest of this part holds for both.
+  const bool fix141 = !Read(core + "src/xenia/gpu/vulkan/swap_effects.h").empty();
+  const std::string glsli = Read(shaders + (fix141 ? "swap_post.glsli" : "fxaa.glsli"));
   const std::string fxaa = Read(shaders + "fxaa.ps.glsl");
   const std::string extreme = Read(shaders + "fxaa_extreme.ps.glsl");
   Expect(!glsli.empty() && !fxaa.empty() && !extreme.empty(), "the FXAA shaders are in the tree");
@@ -246,7 +250,9 @@ void Tree() {
          "the effect numbers are asserted against SwapPostEffect");
   Expect(cc.find("// TODO(Triang3l): FXAA can result in more than 8 bits of precision.") ==
                  std::string::npos &&
-             cc.find("context.SetIs8bpc(swap_fxaa::Is8bpc(use_pwl_gamma_ramp, use_fxaa));") !=
+             cc.find(fix141
+                         ? "context.SetIs8bpc(swap_fxaa::Is8bpc(use_pwl_gamma_ramp, swap_plan.use));"
+                         : "context.SetIs8bpc(swap_fxaa::Is8bpc(use_pwl_gamma_ramp, use_fxaa));") !=
                  std::string::npos &&
              cc.find("context.SetIs8bpc(!use_pwl_gamma_ramp);") == std::string::npos,
          "the 8 bpc TODO: SetIs8bpc counts FXAA");
@@ -254,6 +260,7 @@ void Tree() {
              std::string::npos,
          "the descriptor pool's FXAA TODO is answered");
 
+  if (!fix141) {
   const std::string swap =
       Between(cc, "void VulkanCommandProcessor::IssueSwap(", "\nbool VulkanCommandProcessor::");
   Expect(!swap.empty(), "IssueSwap found");
@@ -319,6 +326,7 @@ void Tree() {
              prepare.find("swap_fxaa::NeedsNewSource(") != std::string::npos &&
              prepare.find("RetireSwapFxaaSource(") != std::string::npos,
          "PrepareSwapFxaa: retired sources destroyed when completed, a new one on a size change");
+  }  // !fix141
   Expect(cc.find("swap_fxaa::CanDestroy(") != std::string::npos &&
              cc.find("last_submission = GetCurrentSubmission();") != std::string::npos,
          "the source's last submission is recorded and checked before destruction");

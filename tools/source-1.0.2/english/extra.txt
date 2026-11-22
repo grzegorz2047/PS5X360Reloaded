@@ -334,6 +334,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = O antisserrilhamento funciona apenas com o renderizador Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Predefinição de cores
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Muda as cores da imagem do jogo antes de ela ser ajustada à tela. OLED preto profundo: pretos mais profundos, mantendo os detalhes das sombras. Vívido: cores mais ricas e mais contraste. Neutro limpo: imagem um pouco mais clara e nítida. Só no Vulkan.
+OLED Deep Black = OLED preto profundo
+Vibrant = Vívido
+Clean Neutral = Neutro limpo
+Overscan crop = Corte de overscan
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Corta uma borda fina de cada lado da imagem do jogo e amplia o resto, mantendo as proporções: para jogos que mostram uma faixa ou lixo nas bordas. Só no Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan funcionam apenas com o renderizador Vulkan.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -480,6 +489,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = A suavização de arestas só funciona com o renderizador Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Predefinição de cores
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Muda as cores da imagem do jogo antes de esta ser ajustada ao ecrã. OLED preto profundo: pretos mais profundos, mantendo os detalhes das sombras. Vívido: cores mais ricas e mais contraste. Neutro limpo: imagem um pouco mais clara e nítida. Só em Vulkan.
+OLED Deep Black = OLED preto profundo
+Vibrant = Vívido
+Clean Neutral = Neutro limpo
+Overscan crop = Corte de overscan
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Corta uma margem fina de cada lado da imagem do jogo e amplia o resto, mantendo as proporções: para jogos que mostram uma faixa ou lixo nas margens. Só em Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan só funcionam com o renderizador Vulkan.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -626,6 +644,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Ajuste de color
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia los colores de la imagen del juego antes de escalarla a la pantalla. OLED negro profundo: negros más profundos, sin perder detalle en las sombras. Vívido: colores más ricos y más contraste. Neutro limpio: imagen algo más clara y nítida. Solo con Vulkan.
+OLED Deep Black = OLED negro profundo
+Vibrant = Vívido
+Clean Neutral = Neutro limpio
+Overscan crop = Recorte de overscan
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Recorta un borde fino de cada lado de la imagen del juego y amplía el resto, manteniendo sus proporciones: para juegos que muestran una franja o basura en los bordes. Solo con Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -772,6 +799,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Ajuste de color
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia los colores de la imagen del juego antes de escalarla a la pantalla. OLED negro profundo: negros más profundos, sin perder detalle en las sombras. Vívido: colores más ricos y más contraste. Neutro limpio: imagen un poco más clara y nítida. Solo con Vulkan.
+OLED Deep Black = OLED negro profundo
+Vibrant = Vívido
+Clean Neutral = Neutro limpio
+Overscan crop = Recorte de overscan
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Recorta un borde delgado de cada lado de la imagen del juego y amplía el resto, manteniendo sus proporciones: para juegos que muestran una franja o basura en los bordes. Solo con Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -918,6 +954,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extrem
 Anti-aliasing works with the Vulkan renderer only. = Kantenglättung funktioniert nur mit dem Vulkan-Renderer.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Farbvoreinstellung
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Ändert die Farben des Spielbilds, bevor es auf den Bildschirm skaliert wird. OLED Tiefschwarz: tieferes Schwarz, Details in den Schatten bleiben. Lebendig: kräftigere Farben und mehr Kontrast. Klar neutral: ein etwas helleres, klareres Bild. Nur mit Vulkan.
+OLED Deep Black = OLED Tiefschwarz
+Vibrant = Lebendig
+Clean Neutral = Klar neutral
+Overscan crop = Overscan-Beschnitt
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Schneidet an jedem Rand des Spielbilds einen schmalen Streifen ab und vergrößert den Rest, ohne die Proportionen zu ändern: für Spiele mit einem Streifen oder Bildmüll an den Rändern. Nur mit Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Farbvoreinstellungen und Overscan-Beschnitt funktionieren nur mit dem Vulkan-Renderer.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1064,6 +1109,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extrême
 Anti-aliasing works with the Vulkan renderer only. = L'anticrénelage ne fonctionne qu'avec le moteur de rendu Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Préréglage de couleurs
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Modifie les couleurs de l'image du jeu avant sa mise à l'échelle à l'écran. OLED noir profond : noirs plus profonds, détails des ombres conservés. Éclatant : couleurs plus riches et plus de contraste. Neutre net : image un peu plus claire et plus nette. Vulkan uniquement.
+OLED Deep Black = OLED noir profond
+Vibrant = Éclatant
+Clean Neutral = Neutre net
+Overscan crop = Recadrage overscan
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Retire une fine bordure de chaque bord de l'image du jeu et agrandit le reste en gardant ses proportions : pour les jeux qui affichent une bande ou des artefacts sur les bords. Vulkan uniquement.
+Color presets and overscan crop work with the Vulkan renderer only. = Les préréglages de couleurs et le recadrage overscan ne fonctionnent qu'avec le moteur de rendu Vulkan.
 
 [added it]
 Console storage = Memoria della console
@@ -1210,6 +1264,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Estremo
 Anti-aliasing works with the Vulkan renderer only. = L'anti-aliasing funziona solo con il renderer Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Preset colore
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Cambia i colori dell'immagine del gioco prima che venga adattata allo schermo. OLED nero profondo: neri più profondi, mantenendo i dettagli nelle ombre. Vivace: colori più ricchi e più contrasto. Neutro pulito: immagine un po' più chiara e nitida. Solo Vulkan.
+OLED Deep Black = OLED nero profondo
+Vibrant = Vivace
+Clean Neutral = Neutro pulito
+Overscan crop = Ritaglio overscan
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Taglia un bordo sottile da ogni lato dell'immagine del gioco e ingrandisce il resto mantenendo le proporzioni: per i giochi che mostrano una striscia o artefatti ai bordi. Solo Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = I preset colore e il ritaglio overscan funzionano solo con il renderer Vulkan.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1356,6 +1419,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA エクストリーム
 Anti-aliasing works with the Vulkan renderer only. = アンチエイリアスは Vulkan レンダラーでのみ使えます。
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = カラープリセット
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 画面に合わせて拡大する前に、ゲーム映像の色を調整します。OLED 深い黒：暗部の細部を残したまま黒を深くします。鮮やか：色を豊かにし、コントラストを上げます。ニュートラル：少し明るく、すっきりした映像にします。Vulkan のみ。
+OLED Deep Black = OLED 深い黒
+Vibrant = 鮮やか
+Clean Neutral = ニュートラル
+Overscan crop = オーバースキャン切り取り
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = ゲーム映像の各辺から細い縁を切り取り、縦横比を保ったまま残りを拡大します。端に線やノイズが出るゲーム向けです。Vulkan のみ。
+Color presets and overscan crop work with the Vulkan renderer only. = カラープリセットとオーバースキャン切り取りは Vulkan レンダラーでのみ使えます。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1502,6 +1574,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA 익스트림
 Anti-aliasing works with the Vulkan renderer only. = 안티에일리어싱은 Vulkan 렌더러에서만 작동합니다.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = 색상 프리셋
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 게임 화면을 화면 크기에 맞추기 전에 색상을 바꿉니다. OLED 깊은 검정: 어두운 부분의 디테일을 살리면서 검정을 더 깊게 합니다. 선명하게: 색을 더 풍부하게 하고 대비를 높입니다. 깔끔한 중립: 조금 더 밝고 깨끗한 화면입니다. Vulkan 전용.
+OLED Deep Black = OLED 깊은 검정
+Vibrant = 선명하게
+Clean Neutral = 깔끔한 중립
+Overscan crop = 오버스캔 자르기
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 게임 화면의 각 가장자리에서 얇은 테두리를 잘라내고 비율을 유지한 채 나머지를 확대합니다. 가장자리에 줄이나 깨진 화면이 보이는 게임용입니다. Vulkan 전용.
+Color presets and overscan crop work with the Vulkan renderer only. = 색상 프리셋과 오버스캔 자르기는 Vulkan 렌더러에서만 작동합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1648,6 +1729,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extreem
 Anti-aliasing works with the Vulkan renderer only. = Anti-aliasing werkt alleen met de Vulkan-renderer.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Kleurvoorinstelling
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Past de kleuren van het spelbeeld aan voordat het naar het scherm wordt geschaald. OLED diepzwart: dieper zwart, met behoud van details in de schaduwen. Levendig: rijkere kleuren en meer contrast. Helder neutraal: een iets helderder, duidelijker beeld. Alleen Vulkan.
+OLED Deep Black = OLED diepzwart
+Vibrant = Levendig
+Clean Neutral = Helder neutraal
+Overscan crop = Overscan bijsnijden
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Snijdt een smalle rand van elke zijde van het spelbeeld af en vergroot de rest, met behoud van de verhoudingen: voor spellen die een streep of rommel aan de randen tonen. Alleen Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Kleurvoorinstellingen en overscan bijsnijden werken alleen met de Vulkan-renderer.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1794,6 +1884,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Extreme
 Anti-aliasing works with the Vulkan renderer only. = Wygładzanie krawędzi działa tylko z rendererem Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Profil kolorów
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Zmienia kolory obrazu gry, zanim zostanie on dopasowany do ekranu. OLED głęboka czerń: głębsza czerń, z zachowaniem szczegółów w cieniach. Żywe: bogatsze kolory i większy kontrast. Czyste neutralne: nieco jaśniejszy, czystszy obraz. Tylko Vulkan.
+OLED Deep Black = OLED głęboka czerń
+Vibrant = Żywe
+Clean Neutral = Czyste neutralne
+Overscan crop = Przycięcie overscanu
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Odcina cienki pasek z każdej krawędzi obrazu gry i powiększa resztę, zachowując proporcje: dla gier, które pokazują pasek lub śmieci na krawędziach. Tylko Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Profile kolorów i przycięcie overscanu działają tylko z rendererem Vulkan.
 
 [added ru]
 Console storage = Память консоли
@@ -1940,6 +2039,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Экстрим
 Anti-aliasing works with the Vulkan renderer only. = Сглаживание работает только с рендерером Vulkan.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Цветовой профиль
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Меняет цвета изображения игры перед масштабированием на экран. OLED глубокий чёрный: более глубокий чёрный с сохранением деталей в тенях. Насыщенный: более богатые цвета и больше контраста. Чистый нейтральный: чуть более светлое и чистое изображение. Только Vulkan.
+OLED Deep Black = OLED глубокий чёрный
+Vibrant = Насыщенный
+Clean Neutral = Чистый нейтральный
+Overscan crop = Обрезка оверскана
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Обрезает тонкую полоску с каждого края изображения игры и увеличивает остальное с сохранением пропорций: для игр с полосой или мусором по краям. Только Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Цветовые профили и обрезка оверскана работают только с рендерером Vulkan.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2086,6 +2194,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA Ekstrem
 Anti-aliasing works with the Vulkan renderer only. = Kenar yumuşatma yalnızca Vulkan oluşturucuyla çalışır.
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = Renk ön ayarı
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = Oyun görüntüsünün renklerini ekrana ölçeklenmeden önce değiştirir. OLED derin siyah: gölgelerdeki ayrıntıları koruyarak daha derin siyahlar. Canlı: daha zengin renkler ve daha fazla kontrast. Temiz nötr: biraz daha aydınlık, daha temiz bir görüntü. Yalnızca Vulkan.
+OLED Deep Black = OLED derin siyah
+Vibrant = Canlı
+Clean Neutral = Temiz nötr
+Overscan crop = Overscan kırpma
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Oyun görüntüsünün her kenarından ince bir şerit keser ve oranları koruyarak geri kalanı büyütür: kenarlarda çizgi veya bozuk görüntü gösteren oyunlar için. Yalnızca Vulkan.
+Color presets and overscan crop work with the Vulkan renderer only. = Renk ön ayarları ve overscan kırpma yalnızca Vulkan oluşturucuyla çalışır.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2232,6 +2349,15 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA 极致
 Anti-aliasing works with the Vulkan renderer only. = 抗锯齿仅适用于 Vulkan 渲染器。
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = 色彩预设
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 在游戏画面缩放到屏幕之前调整其色彩。OLED 深邃黑：黑色更深，同时保留暗部细节。鲜艳：色彩更丰富，对比度更高。清爽中性：画面略微更亮、更通透。仅限 Vulkan。
+OLED Deep Black = OLED 深邃黑
+Vibrant = 鲜艳
+Clean Neutral = 清爽中性
+Overscan crop = 过扫描裁切
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 从游戏画面的每条边裁掉一圈细边，并在保持比例的同时放大其余部分：适用于边缘出现条纹或杂乱画面的游戏。仅限 Vulkan。
+Color presets and overscan crop work with the Vulkan renderer only. = 色彩预设和过扫描裁切仅适用于 Vulkan 渲染器。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2378,3 +2504,12 @@ Smooths the jagged edges of the game's picture before it is scaled to the screen
 FXAA = FXAA
 FXAA Extreme = FXAA 極致
 Anti-aliasing works with the Vulkan renderer only. = 反鋸齒僅適用於 Vulkan 繪圖器。
+# Fix 141: the colour preset and the overscan crop in the Vulkan swap (color_preset, overscan_crop).
+Color preset = 色彩預設
+Changes the colors of the game's picture before it is scaled to the screen. OLED Deep Black: deeper blacks, shadow detail kept. Vibrant: richer colors and more contrast. Clean Neutral: a slightly brighter, clearer picture. Vulkan only. = 在遊戲畫面縮放至螢幕之前調整其色彩。OLED 深邃黑：黑色更深，同時保留暗部細節。鮮豔：色彩更豐富，對比更高。清爽中性：畫面略為更亮、更通透。僅限 Vulkan。
+OLED Deep Black = OLED 深邃黑
+Vibrant = 鮮豔
+Clean Neutral = 清爽中性
+Overscan crop = 過掃描裁切
+Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 從遊戲畫面的每條邊裁掉一圈細邊，並在保持比例的同時放大其餘部分：適用於邊緣出現條紋或雜亂畫面的遊戲。僅限 Vulkan。
+Color presets and overscan crop work with the Vulkan renderer only. = 色彩預設和過掃描裁切僅適用於 Vulkan 繪圖器。

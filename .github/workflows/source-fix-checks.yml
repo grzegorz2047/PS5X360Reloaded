@@ -153,6 +153,7 @@ on:
       - 'tools/check-async-submit.cpp'
       - 'tools/check-library-groups.cpp'
       - 'tools/check-vulkan-fxaa.cpp'
+      - 'tools/check-swap-effects.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
