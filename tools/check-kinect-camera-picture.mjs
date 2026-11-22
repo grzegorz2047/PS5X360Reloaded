@@ -148,6 +148,11 @@ check('(d) the page', () => {
     assert.ok(TEXT[code].picture_note_console_off.includes(TEXT[code].picture_label), code);
   }
   assert.equal(TEXT.en.picture_label, 'Camera picture for the game');  // the console setting's name
+  // 1.0.5-work-fix119b: the latency report (every 2 s) tells the console the switch and counts.
+  assert.ok(page.includes("  report.picture_on = pictureChoice.value === 'on' ? 1 : 0;\n" +
+                          "  report.picture_sent = pictures.sent;\n  report.picture_skipped = pictures.skipped;\n"));
+  assert.ok(page.indexOf('report.picture_on =') > page.indexOf('report.recentred = recentring.done;') &&
+            page.indexOf('report.picture_on =') < page.indexOf("fetch('/api/motion/latency'"));
   // While pictures go, a line under the camera picture, outside the (folded) options.
   assert.ok(page.includes('<p id="picture_live" role="status" hidden></p><p id="calibration" role="status"></p>'));
   assert.ok(page.indexOf('<p id="picture_live"') < page.indexOf('<details id="settings">'));

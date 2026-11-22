@@ -168,11 +168,52 @@ int main(int argc, char** argv) {
     CHECK(!m::picture_wanted.load());  // off by default
   }
 
+  // (d2) 1.0.5-work-fix119b: the 10 s line and the page's report.
+  {
+    CHECK(m::ReportNumber("{\"fps\":25,\"picture_on\":1,\"picture_sent\":512}", "picture_on") == 1);
+    CHECK(m::ReportNumber("{\"picture_sent\":512,\"x\":1}", "picture_sent") == 512);
+    CHECK(m::ReportNumber("{\"fps\":25}", "picture_on") == -1 && m::ReportNumber("", "picture_on") == -1);
+    CHECK(m::ReportNumber("{\"picture_on\":x}", "picture_on") == -1);
+    m::PictureStats stats;
+    CHECK(stats.Due(1000, true).empty());                 // the first call starts the window
+    CHECK(stats.Due(10999, true).empty());                // not 10 s yet
+    std::string line = stats.Due(11000, true);            // nothing came: still a line, setting on
+    CHECK(line == "Virtual Kinect: camera picture in 10 s (fix 119): 0 taken, refused 0 (setting off 0, not a picture 0); "
+                  "colour frames 0 from the picture, 0 grey; setting on; phone page: no report (an older page, or not paired)");
+    for (int n = 0; n < 47; ++n) stats.Received(160, 120);
+    stats.Refused(true);
+    stats.Refused(false);
+    stats.Refused(false);
+    for (int n = 0; n < 290; ++n) stats.Frame(true);
+    for (int n = 0; n < 10; ++n) stats.Frame(false);
+    stats.Page("{\"fps\":30,\"picture_on\":1,\"picture_sent\":512,\"picture_skipped\":31}");
+    stats.Page("{\"fps\":30}");                           // a report without them changes nothing
+    line = stats.Due(21000, true);
+    CHECK(line == "Virtual Kinect: camera picture in 10 s (fix 119): 47 taken (last 160x120), refused 3 (setting off 1, "
+                  "not a picture 2); colour frames 290 from the picture, 10 grey; setting on; phone page: switch on, 512 sent, "
+                  "31 skipped for the network");
+    stats.Page("{\"picture_on\":0,\"picture_sent\":512,\"picture_skipped\":31}");
+    for (int n = 0; n < 300; ++n) stats.Frame(false);
+    line = stats.Due(31000, true);                       // the counters started again
+    CHECK(line.find(": 0 taken (last 160x120), refused 0") != std::string::npos);
+    CHECK(line.find("colour frames 0 from the picture, 300 grey; setting on; phone page: switch off, 512 sent") != std::string::npos);
+    for (int n = 0; n < 300; ++n) stats.Frame(false);
+    CHECK(stats.Due(41000, false).empty());               // setting off and nothing came: no line
+    stats.Refused(true);
+    CHECK(stats.Due(51000, false).find("setting off; ") != std::string::npos);  // a refusal is told
+  }
+
   // (e) The tree.
   const std::string camera = ReadText("include/xbox360ps5/virtual_depth_camera.hpp");
   CHECK(camera.find("#include \"xbox360ps5/camera_picture.hpp\"") != std::string::npos);
-  CHECK(camera.find("if (picture_store.Copy(SteadyMs(), picture_wanted.load() && enabled.load(), out)) return sequence;\n"
+  CHECK(camera.find("if (picture_store.Copy(SteadyMs(), picture_wanted.load() && enabled.load(), out)) {\n"
+                    "      picture_stats.Frame(true);") != std::string::npos);
+  CHECK(camera.find("    picture_stats.Frame(false);\n"
                     "    out.assign(kColorFrameBytes,kNoPictureLevel);return sequence;") != std::string::npos);
+  const std::string pscam = ReadText(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc");
+  CHECK(pscam.find("++xbox360ps5::motion::guest_color_frames;\n"
+                   "      // Fix 119b: what became of the phone's pictures, every 10 s (camera_picture.hpp).\n"
+                   "      if (const std::string line = xbox360ps5::motion::picture_stats.Due(") != std::string::npos);
   CHECK(camera.find("if (sensor_.active()) return sensor_.CopyColor(after,out);") != std::string::npos);  // a real Kinect first
   CHECK(camera.find("out.assign(kColorFrameBytes,128)") == std::string::npos);
 
@@ -189,6 +230,9 @@ int main(int argc, char** argv) {
   CHECK(tls.find("\"Virtual Kinect: the phone sends its camera picture for the game's colour camera (fix 119)\"") !=
         std::string::npos);
   CHECK(tls.find("motion::PictureJson(motion::picture_wanted.load()) + \"}\");") != std::string::npos);
+  CHECK(tls.find("motion::picture_stats.Received(taken.width, taken.height);") != std::string::npos);
+  CHECK(tls.find("motion::picture_stats.Refused(result == motion::PictureResult::off);") != std::string::npos);
+  CHECK(tls.find("motion::picture_stats.Page(body);  // fix 119b") < tls.find("phone_latency::Recentred(body)"));
   // The picture route is after the key check.
   CHECK(tls.find("if (given != key)") < tls.find("target == \"/api/motion/picture\""));
   const std::string input = ReadText("include/xbox360ps5/motion_input.hpp");
