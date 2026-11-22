@@ -4,7 +4,7 @@ new file mode 100644
 +++ b/include/xbox360ps5/swap_pacing.hpp
 @@ -0,0 +1,73 @@
 +// SPDX-License-Identifier: MIT
-+// Fix 112: VdSwap pacing (fix 10) only for a game that would swap faster than the vblank.
++// Fix 116: VdSwap pacing (fix 10) only for a game that would swap faster than the vblank.
 +//
 +// Fix 10 paces swaps on a 16.60 ms grid while VSync is on, so that a game unlocked by a 60 FPS
 +// patch with a fixed 1/60 s step (Battlefield: Bad Company: 80 frames and more) is not too fast.
@@ -83,7 +83,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.d
  #include "xenia/xbox.h"
  #if __has_include("xbox360ps5/patch_runtime.hpp")
  #include "xbox360ps5/patch_runtime.hpp"
-+#include "xbox360ps5/swap_pacing.hpp"  // fix 112
++#include "xbox360ps5/swap_pacing.hpp"  // fix 116
 +#include <mutex>
  #define XBOX360PS5_SWAP_CAP 1
  #endif
@@ -92,7 +92,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.d
  // An early swap sleeps until its deadline. A swap late by less than one period
  // keeps the grid (the next frames may catch up, so a fixed-step game keeps its
  // average speed); one further behind, or the first, restarts the grid.
-+// Fix 112: only while the game's own swaps come faster than the vblank
++// Fix 116: only while the game's own swaps come faster than the vblank
 +// (xbox360ps5/swap_pacing.hpp). Pro Evolution Soccer 6 waits for the vblank
 +// itself; its early swaps slept here and missed the next vblank: 54 frames a
 +// second with VSync on, 60 with it off.
@@ -119,12 +119,12 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.d
 +  {
 +    std::lock_guard<std::mutex> lock(pacer_mutex);
 +    sleep_ns = pacer.OnSwap(now);
-+    // Fix 112: every 30 s, what the pacing did since the previous line.
++    // Fix 116: every 30 s, what the pacing did since the previous line.
 +    if (!last_report_ns) last_report_ns = now;
 +    if (now - last_report_ns >= INT64_C(30000000000)) {
 +      const double seconds = double(now - last_report_ns) / 1e9;
 +      XELOGW(
-+          "Performance swap pacing (fix 112): {:.1f} swaps/s, {:.1f} slept/s "
++          "Performance swap pacing (fix 116): {:.1f} swaps/s, {:.1f} slept/s "
 +          "({:.1f} ms/s); {}; {} decisions changed",
 +          double(pacer.swaps - reported.swaps) / seconds,
 +          double(pacer.slept - reported.slept) / seconds,
