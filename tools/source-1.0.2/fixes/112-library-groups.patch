@@ -1,0 +1,655 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index d29606c..d53cd32 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -251,7 +251,14 @@ class Launcher {
+   // Builds the shelf again and says what changed: in the settings row when
+   // the user asked, as a notice on the shelf when the folders changed.
+   void RefreshLibrary(bool automatic);
+-  const GameEntry* Selected() const;
++  const GameEntry* Selected() const;  // Null for a group's tile (fix 112).
++  // Fix 112: the player's folders in the game folders, shown as groups of games.
++  int SelectedGroup() const;            // The selected tile's group, else -1.
++  std::string Kept() const;             // The selection, kept across a rebuild of the view.
++  const GameEntry& Tile(int n) const;   // What view_[n] shows: a game, or a group's tile.
++  void OpenGroup(int group);
++  void LeaveGroup();                    // Back to the group (or the library) it is in.
++  int RevealGame(int index);            // Shows games_[index] in its group; its place in view_, else -1.
+   void OpenGameSheet(int tab = 0);
+   void FillGameRows();
+   void RefreshPerGame();
+@@ -296,7 +303,7 @@ class Launcher {
+   xe::ui::ImmediateDrawer* drawer_ = nullptr;
+   std::vector<std::unique_ptr<xe::ui::ImmediateTexture>> textures_;
+   std::vector<CoverArt> arts_;        // Front and spine of each texture.
+-  std::vector<int> view_;             // The games the current filter shows.
++  std::vector<int> view_;             // The games the current filter shows (fix 112: -1 - n is group n).
+   int filter_ = 0;
+   std::vector<GameEntry> games_;      // Recently played first, then by name.
+   std::vector<std::string> recents_;  // Paths, most recent first.
+diff --git a/port/kinect_press.inc b/port/kinect_press.inc
+index 102032d..80709ad 100644
+--- a/port/kinect_press.inc
++++ b/port/kinect_press.inc
+@@ -23,7 +23,8 @@
+           mode_ = Mode::profiles; sheet_ = 0.0f;
+           break;
+         case KinectAction::achievements:
+-          if (!view_.empty()) OpenGameSheet(3);
++          if (!Selected() && !games_.empty()) RevealGame(0);  // fix 112: a group's tile is chosen
++          if (Selected()) OpenGameSheet(3);
+           else message_ = Tr("Add a game to see your achievements.");
+           break;
+         case KinectAction::library:
+@@ -31,14 +32,8 @@
+           break;
+         case KinectAction::game: {
+           // A game played last: its sheet (play, its own settings, patches, DLC, saves).
+-          auto shown = std::find(view_.begin(), view_.end(), slot.game);
+-          if (shown == view_.end() && filter_ != 0) {
+-            filter_ = 0;
+-            ApplyFilter();
+-            shown = std::find(view_.begin(), view_.end(), slot.game);
+-          }
+-          if (shown != view_.end()) {
+-            selected_ = int(shown - view_.begin());
++          // Fix 112: in the group it is in (the All filter when another one hides it).
++          if (RevealGame(slot.game) >= 0) {
+             game_return_ = Mode::shelf;
+             OpenGameSheet(0);
+           }
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 61c8407..e112515 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -12,6 +12,7 @@
+ #include "game_art.hpp"
+ #include "dark_theme.hpp"  // reconstructed: 1.0.2 dark home theme
+ #include "disc_library.hpp"
++#include "library_groups.hpp"  // fix 112
+ #include "disc_scan.hpp"
+ #include "dlc_manager.hpp"
+ #include "update_manager.hpp"
+@@ -230,6 +231,35 @@ bool SearchMatches(const GameEntry& game) {
+   return lower(game.name).find(wanted) != std::string::npos || lower(game.title_id).find(wanted) != std::string::npos;
+ }
+ bool IsRunning(const GameEntry& game) { return !g_running_path.empty() && game.path.string() == g_running_path; }
++// Fix 112: the player's folders in a game folder are groups of games (library_groups.hpp). The
++// shelf shows the open group's games and groups (the library's at the top); X opens a group,
++// Circle goes back to the one it is in. A filter other than All, or a search, shows every game of
++// the open group (its groups' too) without the group tiles. A group's place in the view is
++// -1 - its index in g_groups.groups; its tile is drawn from g_group_tiles (name, first cover).
++library_groups::Layout g_groups;
++std::string g_group;                    // The open group's key, "" for the library.
++std::vector<GameEntry> g_group_tiles;   // One per group.
++std::vector<size_t> g_group_recency;    // One per group: its most recently played game's place in recent.txt.
++std::vector<size_t> g_game_recency;     // One per game.
++const char kGroupKept[] = "\x01group:";  // A kept selection that is a group: this, then its key.
++// Where `keep` (a game's path, or kGroupKept and a group's key) is in the view, else -1.
++int FindKept(const std::vector<int>& view, const std::vector<GameEntry>& games, const std::string& keep) {
++  if (keep.empty()) return -1;
++  for (int n = 0; n < int(view.size()); ++n) {
++    const int item = view[size_t(n)];
++    if (item >= 0 ? HasDiscPath(games[size_t(item)], keep)
++                  : size_t(-1 - item) < g_groups.groups.size() && keep == kGroupKept + g_groups.groups[size_t(-1 - item)].key)
++      return n;
++  }
++  return -1;
++}
++std::string GroupTrail(const std::string& key) {
++  const int at = g_groups.Find(key);
++  std::string text;
++  if (at < 0) return text;
++  for (const auto& name : g_groups.groups[size_t(at)].trail) text += (text.empty() ? "" : "  /  ") + name;
++  return text;
++}
+ // Fix 89: a set whose disc runs behind the library chooses that disc, once each time the running
+ // game or the list changes (a disc chosen afterwards in the game's sheet is left as it is).
+ std::string g_running_synced;
+@@ -957,14 +987,15 @@ void Launcher::Scan() {
+   ImportContentFolder();
+   // The game that is selected stays selected when the list is rebuilt. It is
+   // found again by its path: the old positions mean nothing in the new list.
+-  const GameEntry* shown = Selected();
+-  const std::string keep = shown ? shown->path.string() : std::string();
++  const std::string keep = Kept();  // fix 112: a selected group is kept too
+   view_.clear();
+   games_.clear();
+   textures_.clear();
+   arts_.clear();
+   std::set<std::string> seen_games, seen_roots;
+   std::set<std::string> titled;  // fix 89: the games named by their first launch
++  std::map<std::string, std::string> game_roots;  // fix 112: each game's path, the game folder it was found in
++  std::string scanning_root;
+   const auto add = [&](GameEntry game, const std::vector<uint8_t>& embedded_cover) {
+     // All scan paths are absolute. Keep the complete lexical path as the
+     // key without depending on the console's libc realpath implementation.
+@@ -974,6 +1005,7 @@ void Launcher::Scan() {
+       return;
+     }
+     XELOGI("LAUNCHER game {}", identity);
++    game_roots[game.path.string()] = scanning_root;
+     // What the first launch learned: the game's own name, id, hash and icon.
+     const fs::path cache = kStorage / "library" / CacheKey(game.path.string());
+     std::ifstream info(cache.string() + ".txt");
+@@ -1081,8 +1113,10 @@ void Launcher::Scan() {
+     }
+     const bool visible = fs::is_directory(root, error);
+     XELOGI("LAUNCHER root {} {}", root.string(), visible ? "visible" : "not visible");
++    scanning_root = root.string();
+     if (visible) scan(root, 0, root);
+   }
++  scanning_root.clear();
+   // Games on a disc in a drive: a burned Xbox 360 game, or .iso files on a data DVD.
+   {
+     const fs::path folder = kStorage / "disc";
+@@ -1166,8 +1200,42 @@ void Launcher::Scan() {
+     const size_t ra = recency(a), rb = recency(b);
+     return ra != rb ? ra < rb : Lower(a.name) < Lower(b.name);
+   });
++  // Fix 112: the player's folders become groups. An entry's folders: those below its game
++  // folder that hold it (an extracted game's own folder, or a disc set's, is the game itself).
++  {
++    std::vector<std::vector<std::string>> folders(games_.size());
++    g_game_recency.assign(games_.size(), recents_.size());
++    for (size_t n = 0; n < games_.size(); ++n) {
++      const GameEntry& game = games_[n];
++      g_game_recency[n] = recency(game);
++      const GameEntry& first = game.discs.empty() ? game : game.discs.front();
++      const auto root = game_roots.find(first.path.string());
++      if (root == game_roots.end() || root->second.empty()) continue;  // a disc in the drive
++      folders[n] = library_groups::EntryFolders(root->second, first.kind, first.path.string(), first.folder);
++    }
++    g_groups = library_groups::Build(folders);
++    g_group_tiles.clear();
++    g_group_recency.clear();
++    for (const auto& group : g_groups.groups) {
++      GameEntry tile;
++      tile.name = group.name;
++      size_t best = recents_.size();
++      for (const size_t n : group.games) {
++        if (tile.cover < 0) tile.cover = games_[n].cover;  // the first game's cover that has one
++        best = std::min(best, g_game_recency[n]);
++      }
++      char count[48];
++      std::snprintf(count, sizeof(count), "%d %s", int(group.games.size()), group.games.size() == 1 ? Tr("game") : Tr("games"));
++      tile.size = count;
++      g_group_tiles.push_back(std::move(tile));
++      g_group_recency.push_back(best);
++      XELOGI("LAUNCHER group {}: {} games", group.key, group.games.size());
++    }
++    g_group = library_groups::StillThere(g_groups, g_group);
++    if (!g_groups.groups.empty()) XELOGW("LAUNCHER {} groups from the game folders' own folders", g_groups.groups.size());
++  }
+   ApplyFilter();
+-  for (int n = 0; n < int(view_.size()); ++n) if (HasDiscPath(games_[size_t(view_[size_t(n)])], keep)) selected_ = n;
++  if (const int kept = FindKept(view_, games_, keep); kept >= 0) selected_ = kept;
+   scroll_ = float(selected_);
+   SelectionChanged();
+   if (mode_ == Mode::settings && settings_tab_ == 1) RefreshPerGame();
+@@ -1211,23 +1279,98 @@ void Launcher::RefreshLibrary(bool automatic) {
+ }
+ 
+ const GameEntry* Launcher::Selected() const {
+-  return view_.empty() ? nullptr : &games_[size_t(view_[size_t(std::clamp(selected_, 0, int(view_.size()) - 1))])];
++  if (view_.empty()) return nullptr;
++  const int item = view_[size_t(std::clamp(selected_, 0, int(view_.size()) - 1))];
++  return item < 0 ? nullptr : &games_[size_t(item)];  // fix 112: a group's tile is no game
++}
++
++// Fix 112.
++int Launcher::SelectedGroup() const {
++  if (view_.empty()) return -1;
++  const int item = view_[size_t(std::clamp(selected_, 0, int(view_.size()) - 1))];
++  return item < 0 && size_t(-1 - item) < g_groups.groups.size() ? -1 - item : -1;
++}
++std::string Launcher::Kept() const {
++  if (const GameEntry* game = Selected()) return game->path.string();
++  const int group = SelectedGroup();
++  return group >= 0 ? kGroupKept + g_groups.groups[size_t(group)].key : std::string();
++}
++const GameEntry& Launcher::Tile(int n) const {
++  const int item = view_[size_t(n)];
++  return item >= 0 ? games_[size_t(item)] : g_group_tiles[size_t(-1 - item)];
++}
++void Launcher::OpenGroup(int group) {
++  if (group < 0 || size_t(group) >= g_groups.groups.size()) return;
++  g_group = g_groups.groups[size_t(group)].key;
++  XELOGI("LAUNCHER group {} opened ({} games)", g_group, g_groups.groups[size_t(group)].games.size());
++  ApplyFilter();
++  selected_ = 0;
++  scroll_ = 0.0f;
++  SelectionChanged();
++}
++void Launcher::LeaveGroup() {
++  const int at = g_groups.Find(g_group);
++  if (at < 0) { g_group.clear(); ApplyFilter(); return; }
++  const std::string left = kGroupKept + g_group;
++  g_group = g_groups.groups[size_t(at)].parent;
++  ApplyFilter();
++  if (const int kept = FindKept(view_, games_, left); kept >= 0) selected_ = kept;  // the group just left
++  scroll_ = float(selected_);
++  SelectionChanged();
++}
++// The game games_[index] on the shelf, in the group it is in (with the All filter when another
++// filter hides it): its place in the view, else -1.
++int Launcher::RevealGame(int index) {
++  if (index < 0 || size_t(index) >= games_.size()) return -1;
++  const auto find = [&] {
++    const auto at = std::find(view_.begin(), view_.end(), index);
++    return at == view_.end() ? -1 : int(at - view_.begin());
++  };
++  if (find() < 0) {
++    filter_ = 0;
++    g_group = size_t(index) < g_groups.shown_in.size() ? g_groups.shown_in[size_t(index)] : std::string();
++    ApplyFilter();
++  }
++  const int shown = find();
++  if (shown >= 0) { selected_ = shown; scroll_ = float(selected_); SelectionChanged(); }
++  return shown;
+ }
+ 
+ void Launcher::ApplyFilter() {
+-  const GameEntry* before = Selected();
+-  const std::string keep = before ? before->path.string() : std::string();
++  const std::string keep = Kept();
+   view_.clear();
++  // Fix 112: with the All filter and no search, the open group's games and groups, in the
++  // shelf's order (recently played first, then by name; a group by its most recent game).
++  const bool flat = filter_ != 0 || !g_search.empty();
+   for (int n = 0; n < int(games_.size()); ++n) {
+     const GameEntry& game = games_[size_t(n)];
++    if (!g_groups.Inside(size_t(n), g_group)) continue;
++    if (!flat && size_t(n) < g_groups.shown_in.size() && g_groups.shown_in[size_t(n)] != g_group) continue;
+     bool recent = false;  // fix 89: a set when any of its discs was played
+     for (const auto& path : recents_) recent = recent || HasDiscPath(game, path);
+     const bool shown = filter_ == 0 || (filter_ == 1 && recent) || (filter_ == 2 && game.kind == "XEX") ||
+                        (filter_ == 3 && game.kind == "ISO") || (filter_ == 4 && game.kind == "GOD/STFS");
+     if (shown && SearchMatches(game)) view_.push_back(n);
+   }
++  if (!flat) {
++    for (size_t g = 0; g < g_groups.groups.size(); ++g)
++      if (g_groups.groups[g].parent == g_group) view_.push_back(-1 - int(g));
++    const auto rank = [](int item) {
++      return item >= 0 ? (size_t(item) < g_game_recency.size() ? g_game_recency[size_t(item)] : ~size_t(0))
++                       : g_group_recency[size_t(-1 - item)];
++    };
++    const auto name = [this](int item) { return Lower(item >= 0 ? games_[size_t(item)].name : g_group_tiles[size_t(-1 - item)].name); };
++    std::stable_sort(view_.begin(), view_.end(), [&](int a, int b) {
++      const size_t ra = rank(a), rb = rank(b);
++      if (ra != rb) return ra < rb;
++      const std::string na = name(a), nb = name(b);
++      if (na != nb) return na < nb;
++      if ((a >= 0) != (b >= 0)) return a < 0;  // of one name, the group first
++      return a < b;  // games of one name in the library's own order
++    });
++  }
+   selected_ = 0;
+-  for (int n = 0; n < int(view_.size()); ++n) if (HasDiscPath(games_[size_t(view_[size_t(n)])], keep)) selected_ = n;
++  if (const int kept = FindKept(view_, games_, keep); kept >= 0) selected_ = kept;
+   scroll_ = float(selected_);
+   SelectionChanged();
+ }
+@@ -1271,7 +1414,7 @@ std::vector<GameEntry> Launcher::EntriesWithDiscs() const {
+   return entries;
+ }
+ void Launcher::StepDisc(int step) {
+-  if (view_.empty()) return;
++  if (!Selected()) return;  // fix 112: nor a group's tile
+   GameEntry& game = games_[size_t(view_[size_t(std::clamp(selected_, 0, int(view_.size()) - 1))])];
+   const int count = int(game.discs.size());
+   if (count < 2) return;
+@@ -1744,6 +1887,10 @@ void Launcher::Press(Key key) {
+   if (mode_ == Mode::shelf && NxeUi() && !home_library_open) {
+ #include "kinect_press.inc"
+   }
++  if (mode_ == Mode::shelf && key == Key::circle && !g_group.empty()) {
++    LeaveGroup();  // fix 112: out of the open group first
++    return;
++  }
+   if (mode_ == Mode::shelf && home_library_open && key == Key::circle) {
+     home_library_open = false;
+     return;
+@@ -1761,8 +1908,12 @@ void Launcher::Press(Key key) {
+         break;
+       }
+       if (selected_ != before) SelectionChanged();
+-      // A game opens its sheet first: play, its patches, its own settings.
+-      if ((key == Key::cross || key == Key::down) && count) OpenGameSheet(0);
++      // A game opens its sheet first: play, its patches, its own settings. Fix 112: a group opens.
++      if ((key == Key::cross || key == Key::down) && count) {
++        if (SelectedGroup() >= 0) OpenGroup(SelectedGroup());
++        else OpenGameSheet(0);
++        break;
++      }
+       if (key == Key::triangle && count) OpenGameSheet(2);
+       if (key == Key::square) { mode_ = Mode::settings; sheet_ = 0.0f; settings_row_ = 0; settings_tab_ = 0; }
+       if (key == Key::options) RefreshLibrary(false);
+@@ -1928,8 +2079,7 @@ void Launcher::Press(Key key) {
+           const int wanted = per_game_[size_t(per_game_row_)];
+           filter_ = 0;
+           ApplyFilter();
+-          for (int n = 0; n < int(view_.size()); ++n) if (view_[size_t(n)] == wanted) selected_ = n;
+-          scroll_ = float(selected_);
++          RevealGame(wanted);  // fix 112: in the group it is in
+           OpenGameSheet(2);
+           game_return_ = Mode::settings;
+           sheet_ = 1.0f;  // One sheet turns into the other: no slide.
+@@ -3034,6 +3184,7 @@ void Launcher::DrawShelf(Canvas& c) {
+     NxeText(c, channel(filter_), 146, 196 + slide, 72, fade, 0, 1100);
+     NxeText(c, channel(filter_ + 1), 150, 962 + std::min(slide, 0.0f) * 0.5f, 36, 0.85f * fade);
+     NxeText(c, Tr("L1 / R1   Filter"), 150 + c.Width(channel(filter_ + 1), 36) + 28, 975, 20, 0.6f);
++    if (!g_group.empty()) NxeText(c, GroupTrail(g_group), 150, 286 + slide, 28, 0.9f * fade, 0, 1100);  // fix 112
+     // The player's card.
+     std::string who;
+     for (const auto& profile : profiles_) if (profile.active) who = profile.name;
+@@ -3075,15 +3226,29 @@ void Launcher::DrawShelf(Canvas& c) {
+       std::sort(order.begin(), order.end(), [&](int a, int b) { return std::fabs(float(a) - scroll_) > std::fabs(float(b) - scroll_); });
+       for (int n : order) {
+         const float d = float(n) - scroll_;
+-        const GameEntry& entry = games_[size_t(view_[size_t(n)])];
+-        std::string detail = entry.kind;
+-        if (!entry.size.empty()) detail += "  \xC2\xB7  " + entry.size;
+-        std::string detail2 = IsRunning(entry) ? std::string(Tr("RUNNING  ·  X: CONTINUE"))
++        const GameEntry& entry = Tile(n);
++        const bool group = view_[size_t(n)] < 0;  // fix 112: "Group", its number of games
++        std::string detail = group ? std::string(Tr("Group")) : entry.kind;
++        if (!group && !entry.size.empty()) detail += "  \xC2\xB7  " + entry.size;
++        std::string detail2 = group ? entry.size : IsRunning(entry) ? std::string(Tr("RUNNING  ·  X: CONTINUE"))
+                             : !entry.title_id.empty() ? "ID " + entry.title_id : std::string();
+         const float alpha = c.alpha;
+         // A tile leaving to the left fades as it goes.
+         if (d < 0.0f) c.alpha = alpha * std::clamp(1.0f + d * 1.4f, 0.0f, 1.0f);
+         const float glow = std::clamp(1.0f - std::fabs(d) * 1.5f, 0.0f, 1.0f) * (0.92f + 0.08f * std::sin(time_ * 2.0f));
++        if (group) {
++          // A group is a little stack: two tiles behind its own, up and to the right.
++          const NxeSlot s = NxeSlotAt(d);
++          for (int layer = 2; layer >= 1; --layer) {
++            NxeSlot back = s;
++            back.x += 14.0f * float(layer) * s.w / 640.0f;
++            back.y -= 12.0f * float(layer) * s.w / 640.0f;
++            const NxeQuad q = NxeQuadOf(c, back);
++            const uint32_t tone = layer == 2 ? 0xb9c0b0 : 0xd3d9cb;
++            NxeQuadColors(c.list, q.tl, q.tr, q.br, q.bl, c.Color(tone), c.Color(tone), c.Color(0xa9b19f), c.Color(0xa9b19f));
++            c.list->AddQuad(q.tl, q.tr, q.br, q.bl, c.Color(kNxeShadow, 0.25f), 1.5f * c.scale);
++          }
++        }
+         DrawNxeTile(c, textures_, arts_, entry, NxeSlotAt(d), n == selected_, detail, detail2, glow);
+         c.alpha = alpha;
+       }
+@@ -3120,8 +3285,9 @@ void Launcher::DrawShelf(Canvas& c) {
+     right = NxeHint(c, 'm', Tr("Reload list"), right, 990);
+     if (!games_.empty()) right = NxeHint(c, 'v', Tr("Search"), right, 990);
+     right = NxeHint(c, 's', Tr("Settings"), right, 990);
++    if (!g_group.empty()) right = NxeHint(c, 'o', Tr("Back"), right, 990);  // fix 112: out of the group
+     if (count) {
+-      right = NxeHint(c, 't', Tr("Game settings"), right, 990);
++      if (Selected()) right = NxeHint(c, 't', Tr("Game settings"), right, 990);
+       right = NxeHint(c, 'x', Tr("Open"), right, 990);
+     }
+     c.alpha = 1.0f;
+@@ -3155,6 +3321,7 @@ void Launcher::DrawShelf(Canvas& c) {
+   if (!g_search.empty()) right -= c.Chip(Tr("Search: ") + g_search + "  (" + std::to_string(count) + ")", right, 50, kAccent, true) + 12;
+   right -= c.Chip(pad_connected_ ? Tr("Controller connected") : Tr("No controller"), right, 50, pad_connected_ ? kAccent : kWarning, true) + 12;
+   for (const auto& profile : profiles_) if (profile.active) c.Chip(profile.name, right, 50, kText, true);
++  if (!g_group.empty()) c.Chip(GroupTrail(g_group), 96, 124, kAccent);  // fix 112: the open group
+ 
+   const float cases = enter(0.05f, 0.40f);
+   c.alpha = cases;
+@@ -3177,7 +3344,8 @@ void Launcher::DrawShelf(Canvas& c) {
+     c.Text(Tr("Use L1 and R1 to change filters."), 960, 480, 24, kMuted, 1.0f, 1);
+   } else {
+     scroll_ = Smooth(scroll_, float(selected_), c.dt, 11);
+-    const GameEntry& game = games_[size_t(view_[size_t(selected_)])];
++    const GameEntry& game = Tile(selected_);  // fix 112: a game, or a group's tile
++    const bool group_chosen = view_[size_t(selected_)] < 0;
+     // The cases stand on a floor that mirrors them faintly. The selected one
+     // faces the viewer; its neighbours turn towards it and step back.
+     const auto place = [&](float distance) {
+@@ -3195,7 +3363,7 @@ void Launcher::DrawShelf(Canvas& c) {
+       const float alpha = c.alpha;
+       c.alpha = alpha * 0.22f;
+       // Only the lower part of the case shows in the floor.
+-      const GameEntry& entry = games_[size_t(view_[size_t(n)])];
++      const GameEntry& entry = Tile(n);
+       const Quad lower{mirror.tl, mirror.tr, mirror.br, mirror.bl};
+       c.list->AddQuadFilled(lower.tl, lower.tr, lower.br, lower.bl, c.Color(NxeUi() && (!KinectSkin(nullptr).own || KinectSkin(nullptr).bright) ? 0xc9ccd0 : 0x20262f));
+       if (entry.cover >= 0 && size_t(entry.cover) < textures_.size()) {
+@@ -3224,7 +3392,18 @@ void Launcher::DrawShelf(Canvas& c) {
+                ImVec2(q.br.x + spread, q.br.y + reach), ImVec2(q.bl.x - spread, q.bl.y + reach), dark, dark, clear, clear);
+       // The spine shows on the middle case too, so the shelf reads as boxes.
+       const auto box=covers3d::Project(distance,floor);
+-      DrawCase(c, textures_, arts_, games_[size_t(view_[size_t(n)])], q,
++      if (view_[size_t(n)] < 0) {
++        // Fix 112: a group is a little stack of cases, two behind its own, up and to the right.
++        const float light = 1.0f - 0.5f * std::min(1.0f, std::fabs(distance));
++        for (int layer = 2; layer >= 1; --layer) {
++          const float dx = 12.0f * float(layer) * c.scale, dy = -10.0f * float(layer) * c.scale;
++          const ImVec2 tl(q.tl.x + dx, q.tl.y + dy), tr(q.tr.x + dx, q.tr.y + dy), br(q.br.x + dx, q.br.y + dy), bl(q.bl.x + dx, q.bl.y + dy);
++          const float k = light * (layer == 2 ? 0.55f : 0.75f);
++          c.list->AddQuadFilled(tl, tr, br, bl, IM_COL32(int(0x2a * k), int(0x33 * k), int(0x3d * k), int(255 * c.alpha)));
++          c.list->AddQuad(tl, tr, br, bl, c.Color(kWhite, 0.14f), 1.0f * c.scale);
++        }
++      }
++      DrawCase(c, textures_, arts_, Tile(n), q,
+                1.0f - 0.5f * std::min(1.0f, std::fabs(distance)), true,box.spine,
+                Projected(c,box.side),Projected(c,box.top));
+       // Layered strokes make a feathered glow without a translucent green panel.
+@@ -3244,6 +3423,7 @@ void Launcher::DrawShelf(Canvas& c) {
+     if (IsRunning(game)) c.Chip(Tr("RUNNING  ·  X: CONTINUE"), 96, 742, kAccent);
+     c.Text(game.name, 96, 790, 48, kText, 1.0f, 0, 1300);
+     std::string line = game.kind;
++    if (group_chosen) line = Tr("Group");  // fix 112: "Group · 5 games"
+     if (game.disc) {  // fix 52: the details line is never cut, the name may be
+       char disc[64];
+       if (game.discs.size() > 1)  // fix 89: one entry for the set, the disc it starts
+@@ -3274,13 +3454,13 @@ void Launcher::DrawShelf(Canvas& c) {
+   float x = 96;
+   if (count) {
+     x = c.Hint('x', Tr("Open"), x, 990);
+-    x = c.Hint('t', Tr("Game settings"), x, 990);
++    if (Selected()) x = c.Hint('t', Tr("Game settings"), x, 990);  // fix 112: not for a group
+   }
+   x = c.Hint('s', Tr("Settings"), x, 990);
+   if (count > 1) x = c.Hint('h', Tr("Change game"), x, 990);
+   if (!games_.empty()) x = c.Hint('v', Tr("Search"), x, 990);
+   x = c.Hint('m', Tr("Reload list"), x, 990);
+-  if (NxeUi()) x = c.Hint('o', Tr("Back"), x, 990);
++  if (NxeUi() || !g_group.empty()) x = c.Hint('o', Tr("Back"), x, 990);  // fix 112: out of the group
+   c.Text(Tr("L1 / R1   Filter"), 1824, 992, 20, kMuted, 1.0f, 2);
+   c.alpha = 1.0f;
+   c.offset_y = 0.0f;
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+new file mode 100644
+index 0000000..45edfdb
+--- /dev/null
++++ b/port/library_groups.hpp
+@@ -0,0 +1,188 @@
++// SPDX-License-Identifier: MIT
++// Fix 112: the player's own folders in a game folder, shown by the library as groups of games.
++//
++// The scan (Launcher::Scan) finds every game below a configured game folder, up to six folders
++// deep. Each library entry (a game, or a set of discs that fix 89 made into one entry) is placed
++// by the folders between its game folder and the folder that holds it: an image's or a package's
++// folder; for an extracted game the folder above its own (the game is its folder, so a folder
++// holding one extracted game is never a group); for an extracted disc set the folder above the
++// set's. Folders named by 8 hex digits (a GOD/STFS package's title ID and content type folders,
++// "4D5307E6/00007000") are not the player's and are passed through.
++//
++// A folder is a group when it holds two or more entries, counted with its subfolders. A folder
++// that holds one entry (a game in a folder of its own, a disc set's folder) is not: the entry is
++// shown where the folder is. A folder whose entries are all in one of its subfolders is passed
++// through too (that subfolder takes its place), and so is a group that would be the only thing at
++// the top of the library ("xbox360/games/<every game>"). Groups nest as deep as the folders do:
++// a group's own groups are shown inside it. Folders of the same name in two game folders are one
++// group (compared without case), named as found first. Empty folders hold nothing and never show.
++#pragma once
++#include <algorithm>
++#include <cstddef>
++#include <map>
++#include <set>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::library_groups {
++
++struct Group {
++  std::string key;                 // The folders' path below the game folder, lower case ("racing/rally").
++  std::string parent;              // The key of the group it is shown in, "" for the library itself.
++  std::string name;                // The folder's name, as found first.
++  std::vector<std::string> trail;  // The names of the groups from the library down to this one.
++  std::vector<size_t> games;       // Every entry inside it, its groups' too, in the order given.
++};
++
++struct Layout {
++  std::vector<Group> groups;            // A parent before its groups.
++  std::vector<std::string> shown_in;    // For each entry: the key of the group it is shown in, "" the library.
++  int Find(const std::string& key) const {
++    for (size_t n = 0; n < groups.size(); ++n)
++      if (groups[n].key == key) return int(n);
++    return -1;
++  }
++  // Whether the entry is inside the group `key` (directly or in one of its groups); every entry
++  // is inside the library ("").
++  bool Inside(size_t entry, const std::string& key) const {
++    if (key.empty()) return true;
++    if (entry >= shown_in.size()) return false;
++    const std::string& at = shown_in[entry];
++    return at == key || (at.size() > key.size() && at.compare(0, key.size(), key) == 0 && at[key.size()] == '/');
++  }
++};
++
++inline std::string Slashes(std::string path) {
++  for (char& ch : path) if (ch == '\\') ch = '/';
++  while (path.size() > 1 && path.back() == '/') path.pop_back();
++  return path;
++}
++
++inline std::string LowerAscii(std::string text) {
++  for (char& ch : text) if (ch >= 'A' && ch <= 'Z') ch = char(ch - 'A' + 'a');
++  return text;
++}
++
++// The folders of `path` below `root` ("/mnt/ext1/xbox360", "/mnt/ext1/xbox360/Racing/Rally" ->
++// {"Racing", "Rally"}); none when `path` is `root` or not below it.
++inline std::vector<std::string> FoldersBelow(const std::string& root, const std::string& path) {
++  const std::string r = Slashes(root), p = Slashes(path);
++  std::vector<std::string> folders;
++  if (r.empty() || p.size() <= r.size() || p.compare(0, r.size(), r) != 0) return folders;
++  size_t at = r.size();
++  if (r.back() != '/') {
++    if (p[at] != '/') return folders;  // "/data/xbox3600" is not below "/data/xbox360"
++    ++at;
++  }
++  while (at < p.size()) {
++    const size_t end = p.find('/', at);
++    const std::string part = p.substr(at, end == std::string::npos ? std::string::npos : end - at);
++    if (!part.empty() && part != ".") folders.push_back(part);
++    if (end == std::string::npos) break;
++    at = end + 1;
++  }
++  return folders;
++}
++
++// The folders that hold a library entry below its game folder `root`. An extracted game (kind
++// "XEX") is its folder `folder` (for a disc set, the set's folder), so the folder above that one
++// holds it; a game at the top of `root` itself is held by none. An image or a package (`path`)
++// is held by its own folder.
++inline std::vector<std::string> EntryFolders(const std::string& root, const std::string& kind, const std::string& path,
++                                             const std::string& folder) {
++  if (kind == "XEX") {
++    auto folders = FoldersBelow(root, folder);
++    if (!folders.empty()) folders.pop_back();
++    return folders;
++  }
++  const std::string p = Slashes(path);
++  const size_t slash = p.rfind('/');
++  return slash == std::string::npos ? std::vector<std::string>() : FoldersBelow(root, p.substr(0, slash));
++}
++
++// A GOD/STFS package's own folders: its title ID and content type ("4D5307E6", "00007000").
++inline bool PackageFolder(const std::string& name) {
++  if (name.size() != 8) return false;
++  for (const char ch : name)
++    if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))) return false;
++  return true;
++}
++
++// `folders`: for each library entry, the folders that hold it below its game folder (FoldersBelow;
++// empty for an entry at the top of a game folder, or one that is in none, like a disc in the drive).
++inline Layout Build(const std::vector<std::vector<std::string>>& folders) {
++  struct Node {
++    std::string name, parent;
++    std::vector<size_t> direct;   // Entries held by this folder itself.
++    std::set<std::string> children;
++    size_t total = 0;
++    bool shown = false;
++  };
++  std::map<std::string, Node> nodes;
++  std::vector<std::string> holder(folders.size());
++  for (size_t entry = 0; entry < folders.size(); ++entry) {
++    std::string key;
++    for (const auto& folder : folders[entry]) {
++      if (folder.empty() || PackageFolder(folder)) continue;
++      const std::string parent = key;
++      key += (key.empty() ? "" : "/") + LowerAscii(folder);
++      auto [at, made] = nodes.try_emplace(key);
++      if (made) { at->second.name = folder; at->second.parent = parent; }
++      if (!parent.empty()) nodes[parent].children.insert(key);
++    }
++    holder[entry] = key;
++    if (!key.empty()) nodes[key].direct.push_back(entry);
++  }
++  // Totals: the deepest folders first (a longer key sorts after its parent's).
++  for (auto at = nodes.rbegin(); at != nodes.rend(); ++at) {
++    at->second.total += at->second.direct.size();
++    if (!at->second.parent.empty()) nodes[at->second.parent].total += at->second.total;
++  }
++  for (auto& [key, node] : nodes) {
++    size_t filled = 0;
++    for (const auto& child : node.children) filled += nodes[child].total ? 1 : 0;
++    node.shown = node.total >= 2 && !(node.direct.empty() && filled == 1);
++  }
++  const auto shown_ancestor = [&nodes](std::string key) {
++    while (!key.empty() && !nodes[key].shown) key = nodes[key].parent;
++    return key;
++  };
++  // A group that would be alone at the top of the library: its contents are the top instead.
++  for (;;) {
++    std::vector<std::string> top_groups;
++    bool top_entry = false;
++    for (const auto& [key, node] : nodes)
++      if (node.shown && shown_ancestor(node.parent).empty()) top_groups.push_back(key);
++    for (const auto& key : holder) top_entry = top_entry || shown_ancestor(key).empty();
++    if (top_entry || top_groups.size() != 1) break;
++    nodes[top_groups.front()].shown = false;
++  }
++  Layout layout;
++  layout.shown_in.resize(folders.size());
++  for (size_t entry = 0; entry < folders.size(); ++entry) layout.shown_in[entry] = shown_ancestor(holder[entry]);
++  for (const auto& [key, node] : nodes) {
++    if (!node.shown) continue;
++    Group group;
++    group.key = key;
++    group.parent = shown_ancestor(node.parent);
++    group.name = node.name;
++    for (std::string at = key; !at.empty(); at = shown_ancestor(nodes[at].parent)) group.trail.insert(group.trail.begin(), nodes[at].name);
++    layout.groups.push_back(std::move(group));
++  }
++  for (auto& group : layout.groups)
++    for (size_t entry = 0; entry < folders.size(); ++entry)
++      if (layout.Inside(entry, group.key)) group.games.push_back(entry);
++  return layout;
++}
++
++// The group to stay in when the library is built again: `key`, else the nearest of its parent
++// folders that is still a group, else the library ("").
++inline std::string StillThere(const Layout& layout, std::string key) {
++  while (!key.empty() && layout.Find(key) < 0) {
++    const size_t slash = key.rfind('/');
++    key = slash == std::string::npos ? std::string() : key.substr(0, slash);
++  }
++  return key;
++}
++
++}  // namespace xbox360ps5::library_groups

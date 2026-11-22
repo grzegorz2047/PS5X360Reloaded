@@ -1,0 +1,184 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
+@@ -719,9 +719,12 @@ bool RenderTargetCache::IsScaleNativeForPitch(
+     uint32_t pitch_tiles_at_32bpp, xenos::MsaaSamples msaa_samples) const {
+ #if XE_PLATFORM_PS5
+   // Fix 117b: kept at 1x after a scaled render target was refused.
++  // Fix 117k: or named by the game's class list.
+   if (pitch_tiles_at_32bpp < 256 && IsDrawResolutionScaled() &&
+       GetPath() == Path::kHostRenderTargets &&
+-      kept_native_[pitch_tiles_at_32bpp * 4 + uint32_t(msaa_samples)]) {
++      (kept_native_[pitch_tiles_at_32bpp * 4 + uint32_t(msaa_samples)] ||
++       xbox360ps5::resolution_scale::IsNativeClass(pitch_tiles_at_32bpp,
++                                                   uint32_t(msaa_samples)))) {
+     return true;
+   }
+ #endif
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -61,9 +61,18 @@
+ // post-processing surface among them while the 2xMSAA scene stayed 2x (a roof looked odd). Its render targets are the
+ // 1280-pixel scene and post-processing and passes at 800 (the shadow cascade's depth), 640, 560, 400, 320, 280, 200,
+ // 160, 120, 80 and 40 pixels of pitch. Its threshold, 800, compiled in.
++// Fix 117k: with that threshold Red Dead Redemption drew green, red and magenta noise on almost every surface
++// (1.0.5-work-fix117j): some of its passes up to 800 pixels share EDRAM with the 1280-pixel frame, and moving their
++// data between the 1x and 2x classes read the wrong layout. A threshold cannot tell them apart, so a game may name
++// the exact classes (pitch in pixels and MSAA) that render at 1x instead: compiled in (Red Dead Redemption: its
++// shadow cascade at 800 and the passes of 40 to 200 pixels, no threshold any more), or from the console's own file
++// /download0/xbox360ps5/resolution-scale/<TITLE ID>.txt ("800x1 40x4 ..." ; # comments), which wins, so other sets
++// can be tried without a new build.
+ #pragma once
+ 
+ #include <atomic>
++#include <bitset>
++#include <cctype>
+ #include <chrono>
+ #include <cstddef>
+ #include <cstdint>
+@@ -71,6 +80,7 @@
+ #include <mutex>
+ #include <string>
+ #include <unordered_map>
++#include <vector>
+ 
+ #if defined(__PROSPERO__)
+ extern "C" {
+@@ -277,7 +287,7 @@ inline int CompiledThreshold(const std::string& title_id) {
+   } kBuiltIn[] = {
+       {"4E4D0859", 1040},  // Tekken Tag Tournament 2: fighters dark at 2x (fix 117e)
+       {"45410950", 640},   // Battlefield 3: smoke drawn as dark discs at 2x (fix 117i)
+-      {"5454082B", 800},   // Red Dead Redemption: memory floor reached at 2x (fix 117j)
++      // Red Dead Redemption: 800 (fix 117j) broke its frame; it has a class list now (fix 117k).
+   };
+   for (const auto& row : kBuiltIn) {
+     if (title_id.size() != 8) continue;
+@@ -304,6 +314,78 @@ inline std::string RenderTargetKeyLine(uint32_t host_width, uint32_t host_height
+                 depth ? "depth" : "colour", scaled ? "scaled" : "1x");
+   return line;
+ }
++// Fix 117k: render target classes (pitch in pixels, MSAA samples) a game renders at 1x when at 2x.
++struct NativeClass {
++  uint32_t pitch_px = 0;
++  uint32_t samples = 1;
++};
++// The EDRAM tiles of a pitch (80 samples wide: 80 pixels, or 40 at 4xMSAA); 0 when it is not a whole number.
++inline uint32_t PitchTiles(uint32_t pitch_px, uint32_t samples) {
++  const uint32_t tile_px = samples >= 4 ? 40 : 80;
++  return pitch_px && pitch_px % tile_px == 0 ? pitch_px / tile_px : 0;
++}
++// xenos::MsaaSamples: 0 is 1x, 1 is 2x, 2 is 4x.
++inline uint32_t MsaaIndex(uint32_t samples) { return samples >= 4 ? 2 : samples == 2 ? 1 : 0; }
++// "800x1 40x4, 80x4" with # comments; anything else is skipped.
++inline std::vector<NativeClass> ParseNativeClasses(const std::string& text) {
++  std::vector<NativeClass> classes;
++  size_t i = 0;
++  while (i < text.size()) {
++    if (text[i] == '#') {
++      while (i < text.size() && text[i] != '\n') ++i;
++      continue;
++    }
++    if (!std::isdigit(static_cast<unsigned char>(text[i]))) {
++      ++i;
++      continue;
++    }
++    uint32_t pitch = 0;
++    while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i])) && pitch < 100000)
++      pitch = pitch * 10 + uint32_t(text[i++] - '0');
++    if (i >= text.size() || (text[i] != 'x' && text[i] != 'X')) continue;
++    ++i;
++    uint32_t samples = 0;
++    while (i < text.size() && std::isdigit(static_cast<unsigned char>(text[i])) && samples < 100)
++      samples = samples * 10 + uint32_t(text[i++] - '0');
++    if ((samples == 1 || samples == 2 || samples == 4) && PitchTiles(pitch, samples) && PitchTiles(pitch, samples) < 256)
++      classes.push_back({pitch, samples});
++  }
++  return classes;
++}
++inline std::vector<NativeClass> CompiledNativeClasses(const std::string& title_id) {
++  std::string id;
++  for (char ch : title_id) id += char(std::toupper(static_cast<unsigned char>(ch)));
++  // Red Dead Redemption: the shadow cascade's depth and the passes of 40 to 200 pixels (fix 117k).
++  if (id == "5454082B") return ParseNativeClasses("800x1 40x4 80x4 80x1 120x4 160x4 160x1 200x4");
++  return {};
++}
++// Set as a game starts (before it draws), read while it draws.
++inline std::bitset<256 * 4> native_class_bits;
++inline bool IsNativeClass(uint32_t pitch_tiles, uint32_t msaa_index) {
++  return pitch_tiles < 256 && msaa_index < 4 && native_class_bits[pitch_tiles * 4 + msaa_index];
++}
++// Only at 2x; returns how many classes apply.
++inline size_t SetNativeClasses(const std::vector<NativeClass>& classes, uint32_t scale) {
++  native_class_bits.reset();
++  if (scale <= 1) return 0;
++  size_t applied = 0;
++  for (const NativeClass& c : classes) {
++    const uint32_t tiles = PitchTiles(c.pitch_px, c.samples);
++    if (!tiles || tiles >= 256) continue;
++    native_class_bits[tiles * 4 + MsaaIndex(c.samples)] = true;
++    ++applied;
++  }
++  return applied;
++}
++inline std::string NativeClassesLine(const std::vector<NativeClass>& classes, const std::string& title_id,
++                                     const char* from) {
++  std::string line = "Resolution scale (fix 117k): classes at 1x for " +
++                     (title_id.empty() ? std::string("no identified title") : title_id) + " (" +
++                     (from && *from ? from : "unknown") + "):";
++  for (const NativeClass& c : classes)
++    line += " " + std::to_string(c.pitch_px) + "x" + std::to_string(c.samples);
++  return line;
++}
+ // Fix 117e: the core's draw_resolution_scale_threshold for a game: its preset's scale_threshold at 2x, else 0.
+ inline constexpr int kMaxScaleThreshold = 8192;  // the widest guest surface
+ inline uint32_t ThresholdFor(uint32_t scale, int preset) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -34,6 +34,7 @@ void RequestTextureCapture();  // reads the textures of the next frame back (dia
+ bool FsiWantedFor(const std::string& title_id);
+ bool FsiInEffect();
+ int ScaleThresholdFor(const std::string& title_id, const char** from);  // launcher.cpp, fixes 117e, 117f
++std::string NativeClassesTextFor(const std::string& title_id);  // launcher.cpp, fix 117k
+ bool FsiForNextStart(bool enabled);
+ }
+ namespace config {
+@@ -3353,6 +3354,18 @@ int main(int argc, char** argv) {
+                                                                      scale_threshold_from));
+           }
+         }
++        // Fix 117k: at 2x, the game's own render target classes at 1x (the console's file wins).
++        {
++          const std::string classes_text = xbox360ps5::NativeClassesTextFor(settings_title);
++          const char* classes_from = classes_text.empty() ? "compiled-in" : "resolution-scale file";
++          const std::vector<xbox360ps5::resolution_scale::NativeClass> classes =
++              classes_text.empty() ? xbox360ps5::resolution_scale::CompiledNativeClasses(settings_title)
++                                   : xbox360ps5::resolution_scale::ParseNativeClasses(classes_text);
++          if (xbox360ps5::resolution_scale::SetNativeClasses(
++                  classes, xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale))) {
++            XELOGW("{}", xbox360ps5::resolution_scale::NativeClassesLine(classes, settings_title, classes_from));
++          }
++        }
+         // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
+         // the next start is an ordinary one. A title switch of the session goes on with it.
+         // Fix 93d: the game's own value counts too (its sheet, the guide's restart); both are
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -2332,6 +2332,15 @@ bool FsiInEffect() { return FsiAtStart(); }
+ // Fix 117e: the surface pitch (pixels) up to which a game renders at 1x when it is at 2x, from its
+ // assets/presets.txt section (scale_threshold=); 0 when it has none.
+ // Fix 117f: else the compiled-in value (the staged package may lack the row); *from names the source.
++// Fix 117k: the console's own list of a game's render target classes at 1x
++// (/download0/xbox360ps5/resolution-scale/<TITLE ID>.txt); empty when there is none.
++std::string NativeClassesTextFor(const std::string& title_id) {
++  if (title_id.empty()) return {};
++  std::ifstream input(kStorage / "resolution-scale" / (title_id + ".txt"), std::ios::binary);
++  if (!input) return {};
++  std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
++  return text;
++}
+ int ScaleThresholdFor(const std::string& title_id, const char** from) {
+   if (from) *from = "";
+   if (title_id.empty()) return 0;

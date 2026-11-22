@@ -227,6 +227,13 @@ Disc %u = Disco %u
 Disc = Disco
 Disc %u of %u = Disco %u de %u
 Choose the disc = Escolher o disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d jogo
+%d games = %d jogos
+%d games||few = %d jogos
+%d games||one = %d jogos
 # Fix 60 (issue #12): the empty library names the other folders it scans (the same key in every section).
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
 Kinect game = Jogo de Kinect
@@ -367,6 +374,13 @@ Disc %u = Disco %u
 Disc = Disco
 Disc %u of %u = Disco %u de %u
 Choose the disc = Escolher o disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d jogo
+%d games = %d jogos
+%d games||few = %d jogos
+%d games||one = %d jogos
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
 Kinect game = Jogo Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequer o Kinect. Ativar o Camera motion para este jogo?
@@ -506,6 +520,13 @@ Disc %u = Disco %u
 Disc = Disco
 Disc %u of %u = Disco %u de %u
 Choose the disc = Elegir el disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d juego
+%d games = %d juegos
+%d games||few = %d juegos
+%d games||one = %d juegos
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
 Kinect game = Juego de Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
@@ -645,6 +666,13 @@ Disc %u = Disco %u
 Disc = Disco
 Disc %u of %u = Disco %u de %u
 Choose the disc = Elegir el disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d juego
+%d games = %d juegos
+%d games||few = %d juegos
+%d games||one = %d juegos
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
 Kinect game = Juego de Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
@@ -784,6 +812,13 @@ Disc %u = Disc %u
 Disc = Disc
 Disc %u of %u = Disc %u von %u
 Choose the disc = Disc wählen
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Gruppe
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d Spiel
+%d games = %d Spiele
+%d games||few = %d Spiele
+%d games||one = %d Spiele
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oder in /data/xbox360/ oder in einen Ordner xbox360 im Hauptverzeichnis eines USB- oder M.2-Laufwerks.
 Kinect game = Kinect-Spiel
 \srequires Kinect. Turn on Camera motion for this game? = \sbenötigt Kinect. Camera motion für dieses Spiel einschalten?
@@ -923,6 +958,13 @@ Disc %u = Disque %u
 Disc = Disque
 Disc %u of %u = Disque %u sur %u
 Choose the disc = Choisir le disque
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Groupe
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d jeu
+%d games = %d jeux
+%d games||few = %d jeux
+%d games||one = %d jeux
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou dans /data/xbox360/, ou dans un dossier xbox360 à la racine d'un disque USB ou M.2.
 Kinect game = Jeu Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \snécessite Kinect. Activer Camera motion pour ce jeu ?
@@ -1062,6 +1104,13 @@ Disc %u = Disco %u
 Disc = Disco
 Disc %u of %u = Disco %u di %u
 Choose the disc = Scegli il disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Gruppo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d gioco
+%d games = %d giochi
+%d games||few = %d giochi
+%d games||one = %d giochi
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oppure in /data/xbox360/ o in una cartella xbox360 nella radice di un'unità USB o M.2.
 Kinect game = Gioco Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srichiede Kinect. Attivare Camera motion per questo gioco?
@@ -1201,6 +1250,13 @@ Disc %u = ディスク %u
 Disc = ディスク
 Disc %u of %u = ディスク %u/%u
 Choose the disc = ディスクを選ぶ
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = グループ
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d 本のゲーム
+%d games = %d 本のゲーム
+%d games||few = %d 本のゲーム
+%d games||one = %d 本のゲーム
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = または /data/xbox360/、あるいは USB / M.2 ドライブ直下の xbox360 フォルダー。
 Kinect game = Kinect ゲーム
 \srequires Kinect. Turn on Camera motion for this game? = \sには Kinect が必要です。このゲームで Camera motion をオンにしますか？
@@ -1340,6 +1396,13 @@ Disc %u = 디스크 %u
 Disc = 디스크
 Disc %u of %u = 디스크 %u/%u
 Choose the disc = 디스크 선택
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = 그룹
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = 게임 %d개
+%d games = 게임 %d개
+%d games||few = 게임 %d개
+%d games||one = 게임 %d개
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 또는 /data/xbox360/ 이나 USB / M.2 드라이브 최상위의 xbox360 폴더.
 Kinect game = Kinect 게임
 \srequires Kinect. Turn on Camera motion for this game? = \s에는 Kinect가 필요합니다. 이 게임에서 Camera motion을 켜시겠습니까?
@@ -1479,6 +1542,13 @@ Disc %u = Schijf %u
 Disc = Schijf
 Disc %u of %u = Schijf %u van %u
 Choose the disc = Schijf kiezen
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Groep
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d game
+%d games = %d games
+%d games||few = %d games
+%d games||one = %d games
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = of in /data/xbox360/, of in een map xbox360 in de hoofdmap van een USB- of M.2-schijf.
 Kinect game = Kinect-game
 \srequires Kinect. Turn on Camera motion for this game? = \svereist Kinect. Camera motion voor deze game inschakelen?
@@ -1618,6 +1688,13 @@ Disc %u = Płyta %u
 Disc = Płyta
 Disc %u of %u = Płyta %u z %u
 Choose the disc = Wybierz płytę
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupa
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d gra
+%d games = %d gier
+%d games||few = %d gry
+%d games||one = %d gier
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = albo do /data/xbox360/, albo do folderu xbox360 w katalogu głównym dysku USB lub M.2.
 Kinect game = Gra na Kinecta
 \srequires Kinect. Turn on Camera motion for this game? = \swymaga Kinecta. Włączyć Camera motion dla tej gry?
@@ -1757,6 +1834,13 @@ Disc %u = Диск %u
 Disc = Диск
 Disc %u of %u = Диск %u из %u
 Choose the disc = Выбрать диск
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Группа
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d игра
+%d games = %d игр
+%d games||few = %d игры
+%d games||one = %d игра
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = или в /data/xbox360/, или в папку xbox360 в корне USB- или M.2-накопителя.
 Kinect game = Игра для Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \sтребует Kinect. Включить Camera motion для этой игры?
@@ -1896,6 +1980,13 @@ Disc %u = Disk %u
 Disc = Disk
 Disc %u of %u = Disk %u / %u
 Choose the disc = Diski seç
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grup
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d oyun
+%d games = %d oyun
+%d games||few = %d oyun
+%d games||one = %d oyun
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ya da /data/xbox360/ içine veya bir USB ya da M.2 sürücüsünün kökündeki xbox360 klasörüne.
 Kinect game = Kinect oyunu
 \srequires Kinect. Turn on Camera motion for this game? = \sKinect gerektirir. Bu oyun için Camera motion açılsın mı?
@@ -2035,6 +2126,13 @@ Disc %u = 光盘 %u
 Disc = 光盘
 Disc %u of %u = 光盘 %u/%u
 Choose the disc = 选择光盘
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = 分组
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d 个游戏
+%d games = %d 个游戏
+%d games||few = %d 个游戏
+%d games||one = %d 个游戏
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 驱动器根目录下的 xbox360 文件夹。
 Kinect game = Kinect 游戏
 \srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要为此游戏开启 Camera motion 吗？
@@ -2174,6 +2272,13 @@ Disc %u = 光碟 %u
 Disc = 光碟
 Disc %u of %u = 光碟 %u/%u
 Choose the disc = 選擇光碟
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = 分組
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d 個遊戲
+%d games = %d 個遊戲
+%d games||few = %d 個遊戲
+%d games||one = %d 個遊戲
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 磁碟機根目錄下的 xbox360 資料夾。
 Kinect game = Kinect 遊戲
 \srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要為此遊戲開啟 Camera motion 嗎？
