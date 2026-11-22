@@ -8,7 +8,8 @@
   <a href="docs/INSTALLATION.md">Installation guide</a> ·
   <a href="docs/GAME-CONTENT.md">DLC, updates and discs</a> ·
   <a href="https://github.com/grzegorz2047/PS5X360Reloaded/issues">Report an issue</a>
-  <a href='https://ko-fi.com/A0A21SWG1P' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+  <a href='https://ko-fi.com/A0A21SWG1P' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/brandasset/v2/support_me_on_kofi_blue.png' border='0' alt='Support project' /></a>
+  
 </p>
 
 # PS5X360Reloaded
