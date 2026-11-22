@@ -1,0 +1,143 @@
+diff --git a/include/xbox360ps5/swap_pacing.hpp b/include/xbox360ps5/swap_pacing.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/swap_pacing.hpp
+@@ -0,0 +1,73 @@
++// SPDX-License-Identifier: MIT
++// Fix 112: VdSwap pacing (fix 10) only for a game that would swap faster than the vblank.
++//
++// Fix 10 paces swaps on a 16.60 ms grid while VSync is on, so that a game unlocked by a 60 FPS
++// patch with a fixed 1/60 s step (Battlefield: Bad Company: 80 frames and more) is not too fast.
++// A game that waits for the vblank itself (Pro Evolution Soccer 6: its GPU waits once a frame on
++// a word the vblank interrupt raises) swaps about every 16.67 ms with some jitter, and an early
++// swap slept until the grid point, which pushed the frame past the next vblank: 53.5 to 54 frames
++// a second with VSync on, 59.9 with it off (1.0.5_candidate_65, same menus).
++//
++// The game's own rate is measured: the time between its swaps minus what the pacing slept.
++// Every kWindow swaps the pacer decides for the next ones: an average of kSelfPacedNs or more
++// (about 61 Hz or slower) means the game paces itself, and no swap sleeps; a faster one is paced
++// on the grid exactly as fix 10 did. It starts paced, as fix 10.
++#pragma once
++
++#include <cstdint>
++
++namespace xbox360ps5 {
++namespace swap_pacing {
++
++inline constexpr int64_t kPeriodNs = 16600000;     // fix 10's grid, about 60.2 Hz
++inline constexpr int64_t kSelfPacedNs = 16400000;  // about 61 Hz: not faster than the vblank
++inline constexpr uint32_t kWindow = 32;
++
++struct Pacer {
++  int64_t deadline = 0;    // the grid's next point (fix 10)
++  int64_t last_swap = 0;   // when the previous swap came
++  int64_t last_sleep = 0;  // what the pacing slept in it
++  int64_t window_own_ns = 0;
++  uint32_t window_swaps = 0;
++  bool pacing = true;
++  // For the summary: swaps, those that slept, the time slept, the decisions that changed.
++  uint64_t swaps = 0, slept = 0, slept_ns = 0, changes = 0;
++
++  // A swap at `now` (steady clock, ns): how long it sleeps before it goes on.
++  int64_t OnSwap(int64_t now) {
++    ++swaps;
++    if (last_swap) {
++      int64_t own = now - last_swap - last_sleep;
++      if (own < 0) own = 0;
++      window_own_ns += own;
++      if (++window_swaps == kWindow) {
++        const bool faster_than_vblank = window_own_ns < kSelfPacedNs * int64_t(kWindow);
++        if (faster_than_vblank != pacing) {
++          pacing = faster_than_vblank;
++          ++changes;
++          deadline = 0;  // a new grid from the next swap
++        }
++        window_own_ns = 0;
++        window_swaps = 0;
++      }
++    }
++    last_swap = now;
++    int64_t sleep = 0;
++    if (pacing) {
++      // Fix 10: an early swap sleeps until its deadline; one late by less than a period keeps
++      // the grid; one further behind, or the first, restarts it.
++      const bool on_grid = deadline != 0 && now < deadline + kPeriodNs;
++      if (on_grid && deadline > now) sleep = deadline - now;
++      deadline = on_grid ? deadline + kPeriodNs : now + kPeriodNs;
++    }
++    last_sleep = sleep;
++    if (sleep) {
++      ++slept;
++      slept_ns += uint64_t(sleep);
++    }
++    return sleep;
++  }
++};
++
++}  // namespace swap_pacing
++}  // namespace xbox360ps5
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+@@ -24,6 +24,8 @@
+ #include "xenia/xbox.h"
+ #if __has_include("xbox360ps5/patch_runtime.hpp")
+ #include "xbox360ps5/patch_runtime.hpp"
++#include "xbox360ps5/swap_pacing.hpp"  // fix 112
++#include <mutex>
+ #define XBOX360PS5_SWAP_CAP 1
+ #endif
+ 
+@@ -484,21 +486,44 @@ DECLARE_XBOXKRNL_EXPORT1(VdRetrainEDRAM, kVideo, kStub);
+ // An early swap sleeps until its deadline. A swap late by less than one period
+ // keeps the grid (the next frames may catch up, so a fixed-step game keeps its
+ // average speed); one further behind, or the first, restarts the grid.
++// Fix 112: only while the game's own swaps come faster than the vblank
++// (xbox360ps5/swap_pacing.hpp). Pro Evolution Soccer 6 waits for the vblank
++// itself; its early swaps slept here and missed the next vblank: 54 frames a
++// second with VSync on, 60 with it off.
+ static void PaceSwap() {
+   if (!xbox360ps5::EffectiveVsync(cvars::vsync)) {
+     return;
+   }
+-  constexpr int64_t kPeriodNs = 16600000;
+-  static std::atomic<int64_t> deadline_ns{0};
++  static std::mutex pacer_mutex;
++  static xbox360ps5::swap_pacing::Pacer pacer;
++  static int64_t last_report_ns = 0;
++  static xbox360ps5::swap_pacing::Pacer reported;
+   const int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                           .count();
+-  const int64_t deadline = deadline_ns.load(std::memory_order_relaxed);
+-  const bool on_grid = deadline != 0 && now < deadline + kPeriodNs;
+-  deadline_ns.store(on_grid ? deadline + kPeriodNs : now + kPeriodNs,
+-                    std::memory_order_relaxed);
+-  if (on_grid) {
+-    xe::threading::NanoSleep(deadline - now);  // Returns at once if late.
++  int64_t sleep_ns;
++  {
++    std::lock_guard<std::mutex> lock(pacer_mutex);
++    sleep_ns = pacer.OnSwap(now);
++    // Fix 112: every 30 s, what the pacing did since the previous line.
++    if (!last_report_ns) last_report_ns = now;
++    if (now - last_report_ns >= INT64_C(30000000000)) {
++      const double seconds = double(now - last_report_ns) / 1e9;
++      XELOGW(
++          "Performance swap pacing (fix 112): {:.1f} swaps/s, {:.1f} slept/s "
++          "({:.1f} ms/s); {}; {} decisions changed",
++          double(pacer.swaps - reported.swaps) / seconds,
++          double(pacer.slept - reported.slept) / seconds,
++          double(pacer.slept_ns - reported.slept_ns) / 1e6 / seconds,
++          pacer.pacing ? "paced (the game swaps faster than the vblank)"
++                       : "not paced (the game paces itself)",
++          pacer.changes - reported.changes);
++      reported = pacer;
++      last_report_ns = now;
++    }
++  }
++  if (sleep_ns > 0) {
++    xe::threading::NanoSleep(sleep_ns);
+   }
+ }
+ #endif

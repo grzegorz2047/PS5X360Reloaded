@@ -114,6 +114,7 @@ on:
       - 'tools/check-register-writes.cpp'
       - 'tools/check-texture-set-reuse.cpp'
       - 'tools/check-fetch-unchanged.cpp'
+      - 'tools/check-swap-pacing.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
