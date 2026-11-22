@@ -8,6 +8,7 @@
   <a href="docs/INSTALLATION.md">Installation guide</a> ·
   <a href="docs/GAME-CONTENT.md">DLC, updates and discs</a> ·
   <a href="https://github.com/grzegorz2047/PS5X360Reloaded/issues">Report an issue</a>
+  [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A0A21SWG1P)
 </p>
 
 # PS5X360Reloaded
