@@ -565,9 +565,16 @@ GIT = ['git', '-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', '-c', 'c
        '-c', 'color.ui=false']
 
 
+def fix_order(patch):
+    """A fix's place in the order the fixes apply: by number, then letter (08, 08b, 09, ..., 99,
+    100). Name order alone would put 100-... before 11-...; names without a number go last."""
+    match = re.match(r'(\d+)([a-z]*)-', patch.name)
+    return (int(match.group(1)), match.group(2), patch.name) if match else (1 << 30, '', patch.name)
+
+
 def later_fixes():
-    """The fixes assemble.py applies after fix 25 (it applies fixes/*.patch in name order)."""
-    return [path for path in sorted(FIX.parent.glob('*.patch')) if path.name > FIX_NAME]
+    """The fixes assemble.py applies after fix 25 (in number order, as its fix_order)."""
+    return [path for path in sorted(FIX.parent.glob('*.patch'), key=fix_order) if fix_order(path) > fix_order(FIX)]
 
 
 def before_tree(tree, work):

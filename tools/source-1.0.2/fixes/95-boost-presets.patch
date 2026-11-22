@@ -1,0 +1,17 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -492,6 +492,13 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // level starts unless memory exports are read back (fix 30; research/bf3/
+       // ANALYSIS.md; menu and levels on the console with candidate 36).
+       {"45410950", {{"memexport", 1}}},
++      // Fix 95: "Optimized video memory" for Modern Warfare 2 and Red Dead
++      // Redemption (1.0.5 perf builds, development console). Modern Warfare 2:
++      // 26.5 frames a second without it, 30.9 to 33.5 with it and fix 87 (with
++      // it and without fix 87, 20.6). Red Dead Redemption: 22 to 28 without it,
++      // 24 to 30 with it. The player's own choice for the game still wins.
++      {"41560817", {{"memory_boost", 1}}},
++      {"5454082B", {{"memory_boost", 1}}},
+   };
+   GameOverrides preset;
+   for (const auto& [id, values] : built_in) if (Lower(title_id) == Lower(id)) preset = values;

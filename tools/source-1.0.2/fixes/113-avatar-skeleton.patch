@@ -1,0 +1,485 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+@@ -17,6 +17,9 @@
+ #include <cstring>
+ 
+ #include "xbox360ps5/avatar_assets.hpp"  // fix 99
++
++#include "xenia/kernel/xam/xam_state.h"
++#include "xbox360ps5/avatar_skeleton.hpp"  // fix 113
+ 
+ DEFINE_bool(allow_avatar_initialization, false,
+             "Enable Avatar Initialization\n"
+@@ -166,9 +169,43 @@
+         xbox360ps5::avatar_assets::kGpuBytes);
+   }
+ 
++  // Xbox360PS5 fix 113: room for the generated skeleton as well (avatar_skeleton.hpp).
++  static_assert(xbox360ps5::avatar_skeleton::kResultBytes >= xbox360ps5::avatar_assets::kResultBytes &&
++                    xbox360ps5::avatar_skeleton::kSkeletonAt >= xbox360ps5::avatar_assets::kClearedBytes,
++                "the skeleton after fix 99's empty set");
++  *result_buffer_size_ptr = xbox360ps5::avatar_skeleton::kResultBytes;
++
+   return X_STATUS_SUCCESS;
+ }
+ DECLARE_XAM_EXPORT1(XamAvatarGetAssetsResultSize, kAvatars, kStub);
++
++// Xbox360PS5 fix 113 (avatar milestone 1): the set's skeleton is a generated one, 71 joints
++// with the body shape (body type, height, weight) of the profile the avatar belongs to: the
++// manifest's owner (+0x380) when it is a profile of this console, else the first signed-in player.
++// 1.0.5-work-fix113b: Kinect Sports falls back to its own built-in manifests (their owners are not
++// local profiles), so the owner alone never named the user's profile. The shape is the launcher's
++// (profile sheet, Triangle), in /download0/xbox360ps5/avatars/<XUID>.txt; none: the default shape.
++static void WriteGeneratedSkeleton(pointer_t<X_AVATAR_METADATA> metadata, lpdword_t result) {
++  namespace sk = xbox360ps5::avatar_skeleton;
++  uint8_t* assets = reinterpret_cast<uint8_t*>(result.host_address());
++  const uint32_t address = result.guest_address();
++  uint64_t xuid = 0;
++  if (metadata) xuid = xe::load_and_swap<uint64_t>(reinterpret_cast<const uint8_t*>(metadata.host_address()) + 0x380);
++  if (xuid && !kernel_state()->xam_state()->GetUserProfile(xuid)) xuid = 0;  // not a profile here
++  if (!xuid) {
++    if (const auto* profile = kernel_state()->xam_state()->GetUserProfile(uint32_t(0)))
++      xuid = profile->xuid();
++  }
++  sk::Shape shape;
++  const bool saved = xuid && sk::Load(sk::kFolder, xuid, &shape);
++  sk::WriteSkeleton(assets, address, shape);
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 4)
++    XELOGW("Avatars: a generated skeleton of {} joints at {:08X} for profile {:016X}: body {}, height {}%, "
++           "weight {}% ({}) (fix 113)",
++           sk::kJoints, address + sk::kSkeletonAt, xuid, shape.body == 2 ? "female" : "male", shape.height,
++           shape.weight, saved ? "its avatar settings" : "no avatar settings saved, the default shape");
++}
+ 
+ dword_result_t XamAvatarGetAssets_entry(
+     pointer_t<X_AVATAR_METADATA> avatar_metadata_ptr,
+@@ -187,6 +224,7 @@
+       XELOGW("Avatars: an empty asset set at {:08X}, its skeleton at {:08X} with no bones (fix 99)",
+              result_buffer_ptr.guest_address(),
+              result_buffer_ptr.guest_address() + xbox360ps5::avatar_assets::kSkeletonAt);
++    WriteGeneratedSkeleton(avatar_metadata_ptr, result_buffer_ptr);  // fix 113
+   }
+   // 58410907 doesn't crash if we return failure.
+   if (overlapped_ptr) {
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -242,7 +242,7 @@
+   void RecordLaunch(const GameEntry& game, uint32_t title_id, const std::string& title_name,
+                     const std::vector<uint8_t>& icon, uint64_t hash);
+  private:
+-  enum class Mode { shelf, game, settings, options, profiles, name, paths, folders, saves };
++  enum class Mode { shelf, game, settings, options, profiles, name, paths, folders, saves, avatar };
+   struct PatchRow { size_t file, patch; };
+   void SelectionChanged();
+   // Fix 89: the selected entry's next (+1) or previous (-1) disc.
+@@ -289,6 +289,12 @@
+   void DrawProfilesSheet(Canvas& c);
+   void DrawNameSheet(Canvas& c);
+   void RefreshProfiles();
++  // Fix 113: the body shape of one profile's avatar (avatar_skeleton.hpp), from the
++  // profiles sheet with Triangle; saved when the sheet closes.
++  void DrawAvatarSheet(Canvas& c);
++  uint64_t avatar_xuid_ = 0;
++  std::string avatar_name_;
++  int avatar_row_ = 0, avatar_body_ = 1, avatar_height_ = 0, avatar_weight_ = 0;
+   void DrawPaths(Canvas& c);
+   void DrawFolders(Canvas& c);
+   void RefreshFolders();
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -4,6 +4,7 @@
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/cover_geometry.hpp"
+ #include "xbox360ps5/launcher.hpp"
++#include "xbox360ps5/avatar_skeleton.hpp"  // fix 113
+ #include "xbox360ps5/covers.hpp"  // fix 57: GameRequiresKinect
+ #include "home_navigation.hpp"
+ #include "interface_choices.hpp"
+@@ -2219,6 +2220,18 @@
+           RefreshProfiles(); profile_row_ = std::min(profile_row_, int(profiles_.size()));
+         }
+       }
++      if (key == Key::triangle && profile_row_ < int(profiles_.size())) {
++        // Fix 113: this profile's avatar.
++        const auto& profile = profiles_[size_t(profile_row_)];
++        avatar_skeleton::Shape shape;
++        avatar_skeleton::Load(avatar_skeleton::kFolder, profile.xuid, &shape);
++        avatar_xuid_ = profile.xuid;
++        avatar_name_ = profile.name;
++        avatar_body_ = shape.body, avatar_height_ = shape.height, avatar_weight_ = shape.weight;
++        avatar_row_ = 0;
++        mode_ = Mode::avatar;
++        break;
++      }
+       if (key == Key::cross) {
+         if (profile_row_ < int(profiles_.size())) {
+           if (profile_hooks_.use_player) {
+@@ -2235,6 +2248,28 @@
+         }
+       }
+       if (key == Key::circle) mode_ = Mode::settings;
++      break;
++    }
++    case Mode::avatar: {
++      // Fix 113: body type, height, weight; left and right change, Circle saves and goes back.
++      const int rows = 3;
++      if (key == Key::up) avatar_row_ = (avatar_row_ + rows - 1) % rows;
++      if (key == Key::down) avatar_row_ = (avatar_row_ + 1) % rows;
++      if (key == Key::left || key == Key::right || key == Key::cross) {
++        const int step = key == Key::left ? -avatar_skeleton::kStep : avatar_skeleton::kStep;
++        if (avatar_row_ == 0) avatar_body_ = avatar_body_ == 2 ? 1 : 2;
++        else if (avatar_row_ == 1) avatar_height_ = avatar_skeleton::Clamp(avatar_height_ + step, -100, 100);
++        else avatar_weight_ = avatar_skeleton::Clamp(avatar_weight_ + step, -100, 100);
++      }
++      if (key == Key::square) avatar_body_ = 1, avatar_height_ = 0, avatar_weight_ = 0;
++      if (key == Key::circle) {
++        avatar_skeleton::Shape shape;
++        shape.body = avatar_body_, shape.height = avatar_height_, shape.weight = avatar_weight_;
++        message_ = avatar_skeleton::Save(avatar_skeleton::kFolder, avatar_xuid_, shape)
++                       ? Tr("Avatar saved. Games that show avatars use it from their next start.")
++                       : Tr("Could not save the avatar.");
++        mode_ = Mode::profiles;
++      }
+       break;
+     }
+     case Mode::name: {
+@@ -2875,6 +2910,7 @@
+     else if (mode_ == Mode::folders) DrawFolders(c);
+     else if (mode_ == Mode::profiles) DrawProfilesSheet(c);
+     else if (mode_ == Mode::name) DrawNameSheet(c);
++    else if (mode_ == Mode::avatar) DrawAvatarSheet(c);
+     else DrawGameSheet(c);
+   }
+   // The search keyboard: it comes down from the top bar and the shelf below follows it.
+@@ -4394,9 +4430,43 @@
+   float hint = c.Hint('x', profile_row_ < int(profiles_.size()) ? Tr("Use this profile") : Tr("Create"), x + 56, 1004);
+   hint = c.Hint('o', Tr("Back"), hint, 1004);
+   if (profile_row_ < int(profiles_.size())) hint = c.Hint('s', Tr("Remove profile"), hint, 1004);
++  if (profile_row_ < int(profiles_.size())) hint = c.Hint('t', Tr("Avatar"), hint, 1004);  // fix 113
+   c.Hint('v', Tr("Navigate"), hint, 1004);
+   c.Text("L1 / R1 · " + std::string(Tr("Player")), x + 820, 956, 20, kMuted, 1, 2);
+   if (!message_.empty()) c.Wrapped(message_, x + 56, 904, 20, kWarning, 750);
++}
++
++// Fix 113: one profile's avatar body shape, for games that show the player's avatar.
++void Launcher::DrawAvatarSheet(Canvas& c) {
++  const float x = 1920 - 860 * sheet_;
++  c.Fill(x, 0, 860, 1080, kSheet, 0.98f);
++  c.Fill(x, 0, 3, 1080, kAccent, 0.9f);
++  c.Text(Tr("Avatar") + std::string(" · ") + avatar_name_, x + 56, 64, 36, kText, 1.0f, 0, 750);
++  c.Wrapped(Tr("The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet."),
++            x + 56, 118, 20, kMuted, 750);
++  const auto percent = [](int value) {
++    char text[16];
++    std::snprintf(text, sizeof(text), "%+d%%", value);
++    return value ? std::string(text) : std::string("0%");
++  };
++  struct Row { const char* label; std::string value; const char* about; };
++  const Row rows[] = {
++      {Tr("Body type"), avatar_body_ == 2 ? Tr("Female") : Tr("Male"), Tr("The avatar's build: a female body has slightly wider hips and narrower shoulders.")},
++      {Tr("Height"), percent(avatar_height_), Tr("Shorter or taller limbs and body.")},
++      {Tr("Weight"), percent(avatar_weight_), Tr("A thinner or heavier build.")}};
++  for (int n = 0; n < 3; ++n) {
++    const float y = 220 + n * 78.0f;
++    const bool focused = n == avatar_row_;
++    c.Fill(x + 40, y, 780, 68, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
++    if (focused) c.Edge(x + 40, y, 780, 68, kAccent, 0.9f, 12, 2.0f);
++    c.Text(rows[n].label, x + 64, y + 20, 24, focused ? kText : kBody);
++    c.Text(std::string("<  ") + rows[n].value + "  >", x + 796, y + 20, 24, focused ? kAccent : kMuted, 1.0f, 2);
++  }
++  c.Wrapped(rows[avatar_row_].about, x + 56, 480, 20, kBody, 750);
++  float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
++  hint = c.Hint('o', Tr("Back"), hint, 1004);
++  hint = c.Hint('s', Tr("Restore recommended"), hint, 1004);
++  c.Hint('v', Tr("Navigate"), hint, 1004);
+ }
+ 
+ void Launcher::DrawNameSheet(Canvas& c) {
+diff --git a/include/xbox360ps5/avatar_skeleton.hpp b/include/xbox360ps5/avatar_skeleton.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/avatar_skeleton.hpp
+@@ -0,0 +1,279 @@
++// SPDX-License-Identifier: MIT
++// Avatar milestone 1 (1.0.5): a generated avatar skeleton, so a title that reads the player's
++// body shape from XamAvatarGetAssets (Kinect Sports, 4D5308C9) gets one, with no avatar files.
++//
++// What a title reads (research/avatar-creator/REPORT.md, from Kinect Sports' code; the layout is
++// the one public projects document, gibbed's xenia "avatars" branch and xenia-canary PR #768):
++//   XAVATAR_ASSETS +0x00 skeleton -> { u32 joint count; u32 joints } with 71 joints of 0x60 bytes:
++//     +0x00 parent, +0x04 first child, +0x08 next sibling (0xFF = none), +0x0C 0,
++//     +0x10 bind pose position (float4), +0x20 bind pose rotation (quaternion x, y, z, w),
++//     +0x30 pose position, +0x40 pose rotation, +0x50 pose scale (float4).
++// Kinect Sports (0x82524E38) maps each joint to its own rig and applies the scale's girth (x and
++// z, or y and z for the arm's scale joints) where it is not 1: the body shape. Its bind pose comes
++// from its own copy of the standard skeleton, so ours only needs the right order and parents.
++//
++// The joint names and parents are public (the XNA AvatarBone values, the ATG samples' joint enum;
++// parents listed before children). The positions are our own numbers for a simple mannequin in a
++// T-pose, Y up, in metres, the root between the feet; no avatar data is copied from anywhere.
++// The shape: body type, height and weight per player profile, in the launcher's profile sheet,
++// kept in /download0/xbox360ps5/avatars/<XUID>.txt.
++#pragma once
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <sstream>
++#include <string>
++
++namespace xbox360ps5::avatar_skeleton {
++
++constexpr uint32_t kJoints = 71;
++constexpr uint32_t kJointBytes = 0x60;
++constexpr uint32_t kNone = 0xFF;
++
++struct Joint {
++  const char* name;
++  uint8_t parent;
++  float x, y, z;  // the bind pose, relative to the parent
++};
++
++// Left is +x (the avatar faces +z). Scale joints ("SC") are leaves that carry the body shape.
++constexpr Joint kSkeleton[kJoints] = {
++    {"BASE", kNone, 0.0f, 0.0f, 0.0f},          // 0  root, between the feet
++    {"BACKA", 0, 0.0f, 0.58f, 0.0f},            // 1  lower back
++    {"LF_H", 0, 0.09f, 0.55f, 0.0f},            // 2  left hip
++    {"RT_H", 0, -0.09f, 0.55f, 0.0f},           // 3  right hip
++    {"SC_BASE", 0, 0.0f, 0.55f, 0.0f},          // 4
++    {"BACKB", 1, 0.0f, 0.14f, 0.0f},            // 5  upper back
++    {"LF_K", 2, 0.0f, -0.25f, 0.0f},            // 6  left knee
++    {"LF_SC_H", 2, 0.0f, -0.12f, 0.0f},         // 7
++    {"RT_K", 3, 0.0f, -0.25f, 0.0f},            // 8
++    {"RT_SC_H", 3, 0.0f, -0.12f, 0.0f},         // 9
++    {"SC_BACKA", 1, 0.0f, 0.07f, 0.0f},         // 10
++    {"LF_A", 6, 0.0f, -0.25f, 0.0f},            // 11 left ankle
++    {"LF_C", 5, 0.03f, 0.14f, 0.0f},            // 12 left collar
++    {"LF_SC_K", 6, 0.0f, -0.12f, 0.0f},         // 13
++    {"NECK", 5, 0.0f, 0.18f, 0.0f},             // 14
++    {"RT_A", 8, 0.0f, -0.25f, 0.0f},            // 15
++    {"RT_C", 5, -0.03f, 0.14f, 0.0f},           // 16
++    {"RT_SC_K", 8, 0.0f, -0.12f, 0.0f},         // 17
++    {"SC_BACKB", 5, 0.0f, 0.08f, 0.0f},         // 18
++    {"HEAD", 14, 0.0f, 0.06f, 0.0f},            // 19
++    {"LF_S", 12, 0.10f, 0.0f, 0.0f},            // 20 left shoulder
++    {"LF_T", 11, 0.0f, -0.04f, 0.10f},          // 21 left toe
++    {"RT_S", 16, -0.10f, 0.0f, 0.0f},           // 22
++    {"RT_T", 15, 0.0f, -0.04f, 0.10f},          // 23
++    {"SC_NECK", 14, 0.0f, 0.03f, 0.0f},         // 24
++    {"LF_E", 20, 0.18f, 0.0f, 0.0f},            // 25 left elbow
++    {"LF_SC_S", 20, 0.09f, 0.0f, 0.0f},         // 26
++    {"LF_SC_S_SK", 20, 0.09f, 0.0f, 0.0f},      // 27
++    {"RT_E", 22, -0.18f, 0.0f, 0.0f},           // 28
++    {"RT_SC_S", 22, -0.09f, 0.0f, 0.0f},        // 29
++    {"RT_SC_S_SK", 22, -0.09f, 0.0f, 0.0f},     // 30
++    {"LF_E_SKIN", 25, 0.0f, 0.0f, 0.0f},        // 31
++    {"LF_SC_E", 25, 0.08f, 0.0f, 0.0f},         // 32
++    {"LF_W", 25, 0.16f, 0.0f, 0.0f},            // 33 left wrist
++    {"RT_E_SKIN", 28, 0.0f, 0.0f, 0.0f},        // 34
++    {"RT_SC_E", 28, -0.08f, 0.0f, 0.0f},        // 35
++    {"RT_W", 28, -0.16f, 0.0f, 0.0f},           // 36
++    {"LF_FINGA", 33, 0.05f, 0.0f, 0.020f},      // 37 index
++    {"LF_FINGB", 33, 0.05f, 0.0f, 0.007f},      // 38 middle
++    {"LF_FINGC", 33, 0.05f, 0.0f, -0.007f},     // 39 ring
++    {"LF_FINGD", 33, 0.045f, 0.0f, -0.020f},    // 40 small
++    {"LF_PROP", 33, 0.04f, -0.02f, 0.0f},       // 41
++    {"LF_SPECIAL", 33, 0.0f, 0.0f, 0.0f},       // 42
++    {"LF_THUMB", 33, 0.02f, 0.0f, 0.025f},      // 43
++    {"RT_FINGA", 36, -0.05f, 0.0f, 0.020f},     // 44
++    {"RT_FINGB", 36, -0.05f, 0.0f, 0.007f},     // 45
++    {"RT_FINGC", 36, -0.05f, 0.0f, -0.007f},    // 46
++    {"RT_FINGD", 36, -0.045f, 0.0f, -0.020f},   // 47
++    {"RT_PROP", 36, -0.04f, -0.02f, 0.0f},      // 48
++    {"RT_SPECIAL", 36, 0.0f, 0.0f, 0.0f},       // 49
++    {"RT_THUMB", 36, -0.02f, 0.0f, 0.025f},     // 50
++    {"LF_FINGA1", 37, 0.025f, 0.0f, 0.0f},      // 51
++    {"LF_FINGB1", 38, 0.025f, 0.0f, 0.0f},      // 52
++    {"LF_FINGC1", 39, 0.025f, 0.0f, 0.0f},      // 53
++    {"LF_FINGD1", 40, 0.02f, 0.0f, 0.0f},       // 54
++    {"LF_THUMB1", 43, 0.02f, 0.0f, 0.01f},      // 55
++    {"RT_FINGA1", 44, -0.025f, 0.0f, 0.0f},     // 56
++    {"RT_FINGB1", 45, -0.025f, 0.0f, 0.0f},     // 57
++    {"RT_FINGC1", 46, -0.025f, 0.0f, 0.0f},     // 58
++    {"RT_FINGD1", 47, -0.02f, 0.0f, 0.0f},      // 59
++    {"RT_THUMB1", 50, -0.02f, 0.0f, 0.01f},     // 60
++    {"LF_FINGA2", 51, 0.02f, 0.0f, 0.0f},       // 61
++    {"LF_FINGB2", 52, 0.02f, 0.0f, 0.0f},       // 62
++    {"LF_FINGC2", 53, 0.02f, 0.0f, 0.0f},       // 63
++    {"LF_FINGD2", 54, 0.016f, 0.0f, 0.0f},      // 64
++    {"LF_THUMB2", 55, 0.016f, 0.0f, 0.008f},    // 65
++    {"RT_FINGA2", 56, -0.02f, 0.0f, 0.0f},      // 66
++    {"RT_FINGB2", 57, -0.02f, 0.0f, 0.0f},      // 67
++    {"RT_FINGC2", 58, -0.02f, 0.0f, 0.0f},      // 68
++    {"RT_FINGD2", 59, -0.016f, 0.0f, 0.0f},     // 69
++    {"RT_THUMB2", 60, -0.016f, 0.0f, 0.008f},   // 70
++};
++
++// The body shape of one profile. Height and weight in percent, -100 (shortest, thinnest) to 100.
++struct Shape {
++  int body = 1;  // 1 male, 2 female (XAVATAR_BODY_TYPE)
++  int height = 0;
++  int weight = 0;
++};
++constexpr int kStep = 10;  // what one press changes in the launcher
++
++inline int Clamp(int value, int low, int high) { return value < low ? low : value > high ? high : value; }
++inline Shape Clamped(Shape shape) {
++  shape.body = shape.body == 2 ? 2 : 1;
++  shape.height = Clamp(shape.height, -100, 100);
++  shape.weight = Clamp(shape.weight, -100, 100);
++  return shape;
++}
++
++// The file's text: "body=1\nheight=0\nweight=0\n". Unknown lines are ignored, missing ones keep
++// the default, values are clamped.
++inline std::string Format(const Shape& shape) {
++  const Shape s = Clamped(shape);
++  return "body=" + std::to_string(s.body) + "\nheight=" + std::to_string(s.height) +
++         "\nweight=" + std::to_string(s.weight) + "\n";
++}
++inline Shape Parse(const std::string& text) {
++  Shape shape;
++  size_t at = 0;
++  while (at < text.size()) {
++    size_t end = text.find('\n', at);
++    if (end == std::string::npos) end = text.size();
++    const std::string line = text.substr(at, end - at);
++    at = end + 1;
++    const size_t equals = line.find('=');
++    if (equals == std::string::npos) continue;
++    const std::string key = line.substr(0, equals);
++    int value = 0;
++    if (std::sscanf(line.c_str() + equals + 1, "%d", &value) != 1) continue;
++    if (key == "body") shape.body = value;
++    else if (key == "height") shape.height = value;
++    else if (key == "weight") shape.weight = value;
++  }
++  return Clamped(shape);
++}
++constexpr const char* kFolder = "/download0/xbox360ps5/avatars";
++inline std::string FileName(uint64_t xuid) {
++  char name[32];
++  std::snprintf(name, sizeof(name), "%016llX.txt", static_cast<unsigned long long>(xuid));
++  return name;
++}
++
++// A profile's shape from `folder` (kFolder on the console). False, and the default shape, when the
++// profile has none saved.
++inline bool Load(const std::string& folder, uint64_t xuid, Shape* shape) {
++  *shape = Shape();
++  std::ifstream in(folder + "/" + FileName(xuid), std::ios::binary);
++  if (!in) return false;
++  std::stringstream text;
++  text << in.rdbuf();
++  *shape = Parse(text.str());
++  return true;
++}
++// Saves it there (a new file, then renamed over the old one).
++inline bool Save(const std::string& folder, uint64_t xuid, const Shape& shape) {
++  std::error_code error;
++  std::filesystem::create_directories(folder, error);
++  const std::string path = folder + "/" + FileName(xuid), temporary = path + ".new";
++  {
++    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
++    if (!out) return false;
++    out << Format(shape);
++    if (!out.flush()) return false;
++  }
++  std::filesystem::rename(temporary, path, error);
++  return !error;
++}
++
++// The scale joints and which way they run in the T-pose: along y (spine, legs, neck) or along x
++// (the arms, whose girth is in y and z).
++inline bool IsScaleJoint(uint32_t joint) {
++  const char* name = kSkeleton[joint].name;
++  return name[0] == 'S' || (name[2] == '_' && name[3] == 'S' && name[4] == 'C');
++}
++inline bool RunsAlongX(uint32_t joint) {
++  switch (joint) {
++    case 26: case 27: case 29: case 30: case 32: case 35: return true;
++    default: return false;
++  }
++}
++
++struct Scale { float x = 1, y = 1, z = 1; };
++// Our own proportions: weight widens or narrows the limbs and trunk by up to 25 %, height
++// lengthens or shortens them by up to 12 %; a female body has slightly wider hips and narrower
++// shoulders and arms. Joints that are not scale joints keep 1.
++inline Scale ScaleOf(uint32_t joint, const Shape& shape) {
++  Scale scale;
++  if (joint >= kJoints || !IsScaleJoint(joint)) return scale;
++  const Shape s = Clamped(shape);
++  float girth = 1.0f + 0.25f * float(s.weight) / 100.0f;
++  const float length = 1.0f + 0.12f * float(s.height) / 100.0f;
++  if (s.body == 2) {
++    if (joint == 4 || joint == 7 || joint == 9) girth *= 1.06f;  // hips and thighs
++    if (joint == 18 || RunsAlongX(joint)) girth *= 0.94f;        // chest, arms
++  }
++  if (RunsAlongX(joint)) scale = {length, girth, girth};
++  else scale = {girth, length, girth};
++  return scale;
++}
++
++// The skeleton in a result buffer: the joint count and pointer at kSkeletonAt, the joints at
++// kJointsAt (16-byte aligned), all big-endian; the set's +0 points at the skeleton.
++constexpr uint32_t kSkeletonAt = 0x100;  // after fix 99's empty set (0x100 bytes, cleared)
++constexpr uint32_t kJointsAt = 0x110;
++constexpr uint32_t kResultBytes = 0x2000;  // what XamAvatarGetAssetsResultSize asks for at least
++static_assert(kJointsAt + kJoints * kJointBytes <= kResultBytes, "the joints fit");
++
++inline void Put32(uint8_t* at, uint32_t value) {
++  at[0] = uint8_t(value >> 24), at[1] = uint8_t(value >> 16), at[2] = uint8_t(value >> 8), at[3] = uint8_t(value);
++}
++inline void PutFloat(uint8_t* at, float value) {
++  uint32_t bits;
++  static_assert(sizeof(bits) == sizeof(value), "float is 32 bits");
++  std::memcpy(&bits, &value, sizeof(bits));
++  Put32(at, bits);
++}
++inline uint32_t FirstChild(uint32_t joint) {
++  for (uint32_t n = joint + 1; n < kJoints; ++n)
++    if (kSkeleton[n].parent == joint) return n;
++  return kNone;
++}
++inline uint32_t NextSibling(uint32_t joint) {
++  for (uint32_t n = joint + 1; n < kJoints; ++n)
++    if (kSkeleton[n].parent == kSkeleton[joint].parent) return n;
++  return kNone;
++}
++
++// Writes the skeleton for `shape` into `assets` (kResultBytes at the guest address `address`) and
++// points the set's +0 at it. The rest of the set is left as it is (fix 99's empty set: no
++// components).
++inline void WriteSkeleton(uint8_t* assets, uint32_t address, const Shape& shape) {
++  uint8_t* skeleton = assets + kSkeletonAt;
++  Put32(skeleton, kJoints);
++  Put32(skeleton + 4, address + kJointsAt);
++  for (uint32_t n = 0; n < kJoints; ++n) {
++    uint8_t* joint = assets + kJointsAt + n * kJointBytes;
++    for (uint32_t i = 0; i < kJointBytes; ++i) joint[i] = 0;
++    const Joint& j = kSkeleton[n];
++    Put32(joint + 0x00, j.parent);
++    Put32(joint + 0x04, FirstChild(n));
++    Put32(joint + 0x08, NextSibling(n));
++    for (uint32_t pose : {0x10u, 0x30u}) {  // bind pose and pose: the same, at rest
++      PutFloat(joint + pose + 0x0, j.x);
++      PutFloat(joint + pose + 0x4, j.y);
++      PutFloat(joint + pose + 0x8, j.z);
++      PutFloat(joint + pose + 0x1C, 1.0f);  // rotation w: no rotation
++    }
++    const Scale scale = ScaleOf(n, shape);
++    PutFloat(joint + 0x50, scale.x);
++    PutFloat(joint + 0x54, scale.y);
++    PutFloat(joint + 0x58, scale.z);
++    PutFloat(joint + 0x5C, 1.0f);
++  }
++  Put32(assets, address + kSkeletonAt);
++}
++
++}  // namespace xbox360ps5::avatar_skeleton

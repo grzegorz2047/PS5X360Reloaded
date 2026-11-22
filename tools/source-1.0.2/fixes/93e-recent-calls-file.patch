@@ -1,0 +1,187 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.h b/.deps/xenia-canary/src/xenia/base/logging.h
+--- a/.deps/xenia-canary/src/xenia/base/logging.h
++++ b/.deps/xenia-canary/src/xenia/base/logging.h
+@@ -105,6 +105,11 @@
+ // not kept.
+ void KeepRecentLines(bool keep);
+ void WriteRecentLines();
++// Xbox360PS5 (fix 93e): the kept lines as text, oldest first (one copy under
++// the lock), and no more are kept. For a file of their own: through the log
++// they are a line each, a megabyte of them queued behind the log's writer
++// just as the title restarts.
++std::string TakeRecentLines();
+ namespace internal {
+ 
+ uint32_t GetLogLevel();
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.cc b/.deps/xenia-canary/src/xenia/base/logging.cc
+--- a/.deps/xenia-canary/src/xenia/base/logging.cc
++++ b/.deps/xenia-canary/src/xenia/base/logging.cc
+@@ -623,6 +623,33 @@
+   }
+ }
+ 
++std::string logging::TakeRecentLines() {
++  std::string lines;
++  bool cut = false;
++  {
++    xe::threading::SuspensionDeferral deferral;  // fix 45: as in RememberLine
++    std::lock_guard<std::mutex> lock(recent_mutex_);
++    keep_recent_lines_ = false;
++    if (!recent_lines_) {
++      return lines;
++    }
++    cut = recent_wrapped_;
++    if (recent_wrapped_) {
++      lines.assign(recent_lines_.get() + recent_end_,
++                   kRecentBytes - recent_end_);
++    }
++    lines.append(recent_lines_.get(), recent_end_);
++    recent_end_ = 0;
++    recent_wrapped_ = false;
++  }
++  if (cut) {
++    // The oldest line lost its beginning when the memory came round.
++    const size_t first = lines.find('\n');
++    lines.erase(0, first == std::string::npos ? lines.size() : first + 1);
++  }
++  return lines;
++}
++
+ bool logging::ShouldLog(LogLevel log_level, uint32_t log_mask) {
+   return GoesToLog(log_level, log_mask) || IsKept(log_level, log_mask);
+ }
+diff --git a/include/xbox360ps5/bug_report.hpp b/include/xbox360ps5/bug_report.hpp
+index 99a745b..1256185 100644
+--- a/include/xbox360ps5/bug_report.hpp
++++ b/include/xbox360ps5/bug_report.hpp
+@@ -27,6 +27,7 @@
+ #include <sstream>
+ #include <string>
+ #include <system_error>
++#include <thread>
+ #include <vector>
+ namespace xbox360ps5::bug_report {
+ namespace fs = std::filesystem;
+@@ -163,7 +164,9 @@ inline std::vector<File> Files(const State& state, const std::vector<fs::path>&
+       const bool text = name.size() > 4 && name.compare(name.size() - 4, 4, ".txt") == 0;
+       const bool ucode = name.size() > 6 && name.compare(name.size() - 6, 6, ".ucode") == 0;
+       // A second's slack: the hang watch names its file in the same second the log starts.
+-      if (name.rfind("hang-", 0) == 0 && (text || ucode) && ModifiedAt(it->path()) >= state.started - 1)
++      // Fix 93e: the game's last system calls (recent-calls-<title>-<UTC>.txt) too.
++      const bool recent = name.rfind("recent-calls-", 0) == 0 && text;
++      if (((name.rfind("hang-", 0) == 0 && (text || ucode)) || recent) && ModifiedAt(it->path()) >= state.started - 1)
+         found.push_back(it->path());
+     }
+     std::sort(found.begin(), found.end());
+@@ -280,6 +283,36 @@ inline std::string SizeText(uintmax_t bytes) {
+   else std::snprintf(text, sizeof(text), "%llu KB", (unsigned long long)((bytes + 1023) / 1024));
+   return text;
+ }
++// Fix 93e: the game's last system calls, in a file of their own beside the game log:
++// "recent-calls-<title ID>-<YYYYMMDD-HHMMSS>-UTC.txt".
++inline std::string RecentCallsName(uint32_t title_id, int64_t now) {
++  std::tm utc{};
++  char name[64] = "recent-calls.txt";
++  if (log_zip::UtcTime(std::time_t(now), &utc))
++    std::snprintf(name, sizeof(name), "recent-calls-%08X-%04d%02d%02d-%02d%02d%02d-UTC.txt", title_id, utc.tm_year + 1900,
++                  utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec);
++  return name;
++}
++// Writes `text` to `file` in one go on a thread of its own and returns at once; `done` is set
++// when the file is closed (written or not). The thread owns what it uses: the caller may stop
++// waiting for it (the title restarts) without harm.
++struct Writing {
++  std::atomic<bool> done{false};
++  std::atomic<bool> ok{false};
++};
++inline std::shared_ptr<Writing> StartWriting(const fs::path& file, std::shared_ptr<const std::string> text) {
++  auto writing = std::make_shared<Writing>();
++  std::thread([writing, file, text] {
++    bool ok = false;
++    if (std::FILE* output = std::fopen(file.string().c_str(), "wb")) {
++      ok = text->empty() || std::fwrite(text->data(), 1, text->size(), output) == text->size();
++      ok = std::fclose(output) == 0 && ok;
++    }
++    writing->ok.store(ok, std::memory_order_release);
++    writing->done.store(true, std::memory_order_release);
++  }).detach();
++  return writing;
++}
+ // The archive being made in the background while the launcher shows the report.
+ struct Archive {
+   enum Status { working, done, failed };
+diff --git a/include/xbox360ps5/leaving_notice.hpp b/include/xbox360ps5/leaving_notice.hpp
+index 2013602..723b4c1 100644
+--- a/include/xbox360ps5/leaving_notice.hpp
++++ b/include/xbox360ps5/leaving_notice.hpp
+@@ -53,6 +53,20 @@ void WhilePainting(Task&& task, Paint&& paint) {
+   }
+   worker.join();
+ }
++// Fix 93e: paints frames until `done` or `limit` has passed; whether it was done. For work that
++// runs on a thread of its own and may be left behind (the title restarts anyway).
++template <class Paint>
++bool PaintUntil(const std::atomic<bool>& done, std::chrono::milliseconds limit, Paint&& paint) {
++  const auto until = std::chrono::steady_clock::now() + limit;
++  while (!done.load(std::memory_order_acquire)) {
++    if (std::chrono::steady_clock::now() >= until) return false;
++    const auto frame = std::chrono::steady_clock::now();
++    paint();
++    const auto spent = std::chrono::steady_clock::now() - frame;
++    if (spent < std::chrono::milliseconds(16)) std::this_thread::sleep_for(std::chrono::milliseconds(16) - spent);
++  }
++  return true;
++}
+ // Fix 93c: the notice across the restart. The system shows black from LoadExec until the new
+ // process draws (console: "Returning to the menu...", black, then the menu). What was shown is
+ // written before LoadExec ("kind=<n>\nat=<ms since 1970>\n", leaving-notice.txt in the title's
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 8ae19d7..264e9be 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3753,13 +3753,27 @@ int main(int argc, char** argv) {
+         leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)  // fix 93d
+                               : leaving::Kind::closing);
+         const auto paint_notice = [&context, &window] { context.Tick(); window.Paint(); };
++        // Fix 93e: the game's sound stops with the notice (as under the library), while the cache
++        // checkpoint below still needs the game's threads running (the GPU waits on them).
++        {
++          xbox360ps5::Settings quiet = settings;
++          quiet.mute = 1;
++          quiet.Apply();
++        }
+         paint_notice();
++        // Fix 93e (GTA IV with logs for a bug report stood on "Returning to the menu..." with its
++        // music playing, the dots still): the game's last system calls, about a megabyte, went
++        // through the log a line each on this thread. They are taken at once and written to a
++        // file of their own on a thread of its own, waited for below (at most 3 s) while the
++        // notice is drawn.
++        std::shared_ptr<xbox360ps5::bug_report::Writing> recent_calls;
+         if (xbox360ps5::bug_report::Active()) {
+-          // Fix 93: what the game asked of the system last, for the bug report.
+-          XELOGW("Bug report: the game loop ended; the game's recent system calls, oldest first:");
+-          xe::logging::WriteRecentLines();
+-          XELOGW("Bug report: recent system calls end");
+-          xe::FlushLog();
++          auto calls = std::make_shared<const std::string>(xe::logging::TakeRecentLines());
++          const auto file = game_log->session.Path().parent_path() /
++                            xbox360ps5::bug_report::RecentCallsName(emulator.title_id(), int64_t(std::time(nullptr)));
++          XELOGW("Bug report: the game loop ended; its last system calls ({} KiB) go to {}", calls->size() / 1024,
++                 file.string());
++          recent_calls = xbox360ps5::bug_report::StartWriting(file, calls);
+         }
+         xe::ui::controller_keyboard::Cancel();
+         // Publish cancellation and signal any keyboard fence while the drawer
+@@ -3778,6 +3792,12 @@ int main(int argc, char** argv) {
+         // Fix 22: a network change from the guide uses the emulator; let it finish first.
+         leaving::WhilePainting([] { xbox360ps5::guide_network::WaitIdle(std::chrono::seconds(25)); },
+                                paint_notice);  // fix 93b
++        if (recent_calls) {
++          // Fix 93e: the file of the last system calls, 3 s at most.
++          const bool written = leaving::PaintUntil(recent_calls->done, std::chrono::seconds(3), paint_notice);
++          XELOGW("Bug report: last system calls {}", !written ? "still being written; going on without waiting"
++                                                     : recent_calls->ok.load() ? "written" : "could not be written");
++        }
+         if (cvars::network_mode == 2) {
+           // As the desktop build does on exit: this console's sessions off the Xenia server
+           // (others would find a game that is gone) and the router's ports closed. At most

@@ -1,0 +1,217 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -14,6 +14,7 @@
+ // No Xenia headers: tools/check-frame-cost.cpp drives it.
+ #pragma once
+ #include <algorithm>
++#include <pthread.h>  // fix 75: pthread_self
+ #include <array>
+ #include <atomic>
+ #include <chrono>
+@@ -53,7 +54,16 @@ inline std::atomic<bool> timestamps{false};
+ // The GPU command thread, and the reason its next GPU wait has (set by CauseScope).
+ inline thread_local bool gpu_thread = false;
+ inline thread_local uint32_t cause = kOther;
+-inline void MarkGpuThread() { gpu_thread = true; }
++// Fix 75: the GPU thread also by its pthread id, a cheap test (thread_local is emulated on the
++// console: every access is a call), for code that runs for every packet or draw.
++inline std::atomic<uintptr_t> gpu_thread_self{0};
++inline void MarkGpuThread() {
++  gpu_thread = true;
++  gpu_thread_self.store(reinterpret_cast<uintptr_t>(pthread_self()), std::memory_order_relaxed);
++}
++inline bool OnGpuThread() {
++  return reinterpret_cast<uintptr_t>(pthread_self()) == gpu_thread_self.load(std::memory_order_relaxed);
++}
+ class CauseScope {
+  public:
+   explicit CauseScope(uint32_t now) : previous_(cause) { cause = now; }
+@@ -287,7 +297,7 @@ inline const char* DrawPartName(uint32_t part) {
+ inline std::array<std::atomic<uint64_t>, kDrawParts> draw_part_ticks{};
+ inline std::atomic<uint64_t> draw_calls{0}, draw_sampled{0};
+ inline std::atomic<uint32_t> draw_sample_every{8};
+-inline thread_local uint32_t draw_sample_counter = 0;
++inline uint32_t draw_sample_counter = 0;  // the GPU thread's alone (fix 75: not thread_local)
+ // One writer (the GPU thread): a plain add, readable by the summary without a data race.
+ inline void AddOwn(std::atomic<uint64_t>& counter, uint64_t value) {
+   counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
+@@ -301,7 +311,7 @@ inline uint64_t OtherSectionTicks() {
+ }
+ class DrawTimer {
+  public:
+-  DrawTimer() : active_(gpu_thread) {
++  DrawTimer() : active_(OnGpuThread()) {  // fix 75: no thread_local access per draw
+     if (!active_) return;
+     AddOwn(draw_calls, 1);
+     const uint32_t every = draw_sample_every.load(std::memory_order_relaxed);
+@@ -475,6 +485,142 @@ class ArmReporter {
+   double last_ns_per_tick_ = 0;
+ };
+ 
++// Fix 75: the GPU command thread's "rest of executing" (the summary's time no section covers:
++// 1.0.4_candidate_31, Battlefield 3 468 ms/s, Tekken Tag Tournament 2 316, Modern Warfare 2 150)
++// by PM4 packet kind. One in packet_sample_every packets read at the top of the ring is timed,
++// together with every packet nested in it (indirect buffers); each timed packet's own time is its
++// wall time less the sections (draws, uploads, resolves, ...) and the nested packets in it. The
++// counters are the GPU thread's own (relaxed load and store); the summary scales the timed
++// packets back by the share of top packets timed.
++enum PacketKind : uint32_t {
++  kPacketRegisters = 0, kPacketType1, kPacketConstants, kPacketAluConstants, kPacketImLoad, kPacketDraw,
++  kPacketEvents, kPacketWaitRegMem, kPacketRegMem, kPacketSwap, kPacketIndirect, kPacketState, kPacketOther,
++  kPacketKinds
++};
++inline const char* PacketKindName(uint32_t kind) {
++  static const char* const names[] = {"register writes (type 0)", "type 1", "SET_CONSTANT", "LOAD_ALU_CONSTANT",
++                                      "IM_LOAD", "DRAW_INDX (decoding)", "EVENT_WRITE*", "WAIT_REG_MEM",
++                                      "register/memory (REG_RMW, REG_TO_MEM, MEM_WRITE, COND_WRITE)", "XE_SWAP",
++                                      "INDIRECT_BUFFER", "INVALIDATE_STATE / VIZ_QUERY", "other"};
++  return kind < kPacketKinds ? names[kind] : "?";
++}
++// The PM4 type 3 opcodes (xenia/gpu/xenos.h) the kinds need.
++inline uint32_t PacketKindOf(uint32_t packet) {
++  switch (packet >> 30) {
++    case 0: return kPacketRegisters;
++    case 1: return kPacketType1;
++    case 3: break;
++    default: return kPacketOther;
++  }
++  switch ((packet >> 8) & 0x7F) {
++    case 0x2D: return kPacketConstants;       // PM4_SET_CONSTANT
++    case 0x2F: return kPacketAluConstants;    // PM4_LOAD_ALU_CONSTANT
++    case 0x27: case 0x2B: return kPacketImLoad;  // PM4_IM_LOAD, PM4_IM_LOAD_IMMEDIATE
++    case 0x22: case 0x36: return kPacketDraw;    // PM4_DRAW_INDX, PM4_DRAW_INDX_2
++    case 0x46: case 0x58: case 0x5A: case 0x5B: return kPacketEvents;  // EVENT_WRITE, _SHD, _EXT, _ZPD
++    case 0x3C: return kPacketWaitRegMem;      // PM4_WAIT_REG_MEM
++    case 0x21: case 0x3E: case 0x3D: case 0x45: return kPacketRegMem;  // REG_RMW, REG_TO_MEM, MEM_WRITE, COND_WRITE
++    case 0x64: return kPacketSwap;            // PM4_XE_SWAP
++    case 0x3F: return kPacketIndirect;        // PM4_INDIRECT_BUFFER
++    case 0x3B: case 0x23: return kPacketState;  // PM4_INVALIDATE_STATE, PM4_VIZ_QUERY
++    default: return kPacketOther;
++  }
++}
++inline std::array<std::atomic<uint64_t>, kPacketKinds> packet_ticks{}, packet_counts{};
++inline std::atomic<uint64_t> packet_top{0}, packet_top_sampled{0};
++inline std::atomic<uint32_t> packet_sample_every{16};
++// Packets run on the GPU thread alone: plain variables (not thread_local, emulated on the console).
++inline uint32_t packet_depth = 0, packet_sample_counter = 0;
++inline bool packet_sampling = false;
++inline uint64_t packet_nested_ticks = 0;
++class PacketTimer {
++ public:
++  explicit PacketTimer(uint32_t packet) {
++    if (!OnGpuThread()) return;
++    if (packet_depth == 0) {
++      AddOwn(packet_top, 1);
++      const uint32_t every = packet_sample_every.load(std::memory_order_relaxed);
++      packet_sampling = every <= 1 || packet_sample_counter++ % every == 0;
++      if (packet_sampling) AddOwn(packet_top_sampled, 1);
++    }
++    ++packet_depth;
++    entered_ = true;
++    if (!packet_sampling) return;
++    active_ = true;
++    kind_ = PacketKindOf(packet);
++    start_ = Ticks();
++    other_ = OtherSectionTicks() + OwnSectionTicks();
++    nested_before_ = packet_nested_ticks;
++  }
++  ~PacketTimer() {
++    if (entered_) --packet_depth;
++    if (!active_) return;
++    const uint64_t wall = Ticks() - start_;
++    const uint64_t sections = OtherSectionTicks() + OwnSectionTicks() - other_;
++    const uint64_t nested = packet_nested_ticks - nested_before_;
++    const uint64_t own = wall > sections + nested ? wall - sections - nested : 0;
++    AddOwn(packet_ticks[kind_], own);
++    AddOwn(packet_counts[kind_], 1);
++    // The enclosing packet takes this one's whole time out of its own.
++    packet_nested_ticks = nested_before_ + wall - sections;
++    if (packet_depth == 0) packet_sampling = false;
++  }
++  PacketTimer(const PacketTimer&) = delete;
++  PacketTimer& operator=(const PacketTimer&) = delete;
++
++ private:
++  // kDraw's own time too: a draw is a section here, not part of DRAW_INDX's decoding.
++  static uint64_t OwnSectionTicks() { return section_ticks[kDraw].load(std::memory_order_relaxed); }
++  bool entered_ = false, active_ = false;
++  uint32_t kind_ = kPacketOther;
++  uint64_t start_ = 0, other_ = 0, nested_before_ = 0;
++};
++// "Frame time packets (GPU thread, own time by kind): kind x ms/s in n/s, ..." largest first,
++// since its previous line.
++class PacketReporter {
++ public:
++  std::string Line(double seconds) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    const uint64_t top = packet_top.load(std::memory_order_relaxed);
++    const uint64_t sampled = packet_top_sampled.load(std::memory_order_relaxed);
++    const double scale = sampled != last_sampled_ ? double(top - last_top_) / double(sampled - last_sampled_) : 0.0;
++    last_top_ = top;
++    last_sampled_ = sampled;
++    struct Row { uint32_t kind; double ms, rate; };
++    std::array<Row, kPacketKinds> rows{};
++    for (uint32_t k = 0; k < kPacketKinds; ++k) {
++      const uint64_t ticks = packet_ticks[k].load(std::memory_order_relaxed);
++      const uint64_t count = packet_counts[k].load(std::memory_order_relaxed);
++      rows[k] = {k, double(ticks - last_ticks_by_[k]) * scale * ns_per_tick / 1e6 / s,
++                 double(count - last_counts_[k]) * scale / s};
++      last_ticks_by_[k] = ticks;
++      last_counts_[k] = count;
++    }
++    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.ms > b.ms; });
++    std::string parts;
++    for (const Row& row : rows) {
++      if (row.ms < 0.05 && row.rate < 1) continue;
++      char item[128];
++      std::snprintf(item, sizeof(item), "%s%s %.1f ms/s in %.0f/s", parts.empty() ? "" : ", ", PacketKindName(row.kind),
++                    row.ms, row.rate);
++      parts += item;
++    }
++    return "Frame time packets (GPU thread, own time by kind): " + (parts.empty() ? std::string("none") : parts);
++  }
++
++ private:
++  std::array<uint64_t, kPacketKinds> last_ticks_by_{}, last_counts_{};
++  uint64_t last_top_ = 0, last_sampled_ = 0, last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++};
++
+ // "Frame time uploads (GPU thread): ..." since its previous line.
+ class UploadReporter {
+  public:
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -273,6 +273,10 @@ bool COMMAND_PROCESSOR::ExecutePacket() {
+ #endif
+   const uint32_t packet = reader_.ReadAndSwap<uint32_t>();
+   const uint32_t packet_type = packet >> 30;
++#if XE_PLATFORM_PS5
++  // Fix 75: the packet's own time by kind, for one in packet_sample_every top packets.
++  xbox360ps5::frame_cost::PacketTimer frame_cost_packet(packet);
++#endif
+ 
+   XE_LIKELY_IF(packet && packet != 0x0BADF00D) {
+     XE_LIKELY_IF((packet != 0xCDCDCDCD)) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3451,6 +3451,9 @@ int main(int argc, char** argv) {
+                 // Fix 74: watch arming by view of physical memory.
+                 static xbox360ps5::frame_cost::ArmReporter frame_cost_arming;
+                 XELOGW("{}", frame_cost_arming.Line(double(summary_samples)));
++                // Fix 75: the rest of executing by PM4 packet kind.
++                static xbox360ps5::frame_cost::PacketReporter frame_cost_packets;
++                XELOGW("{}", frame_cost_packets.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

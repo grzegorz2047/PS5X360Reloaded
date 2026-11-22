@@ -1,0 +1,143 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.h b/.deps/xenia-canary/src/xenia/base/logging.h
+--- a/.deps/xenia-canary/src/xenia/base/logging.h
++++ b/.deps/xenia-canary/src/xenia/base/logging.h
+@@ -109,7 +109,9 @@
+ // the lock), and no more are kept. For a file of their own: through the log
+ // they are a line each, a megabyte of them queued behind the log's writer
+ // just as the title restarts.
+-std::string TakeRecentLines();
++// Xbox360PS5 (fix 93i): `keep_on`: the lines are kept on afterwards (a STALL
++// report while the game goes on).
++std::string TakeRecentLines(bool keep_on = false);
+ namespace internal {
+ 
+ uint32_t GetLogLevel();
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.cc b/.deps/xenia-canary/src/xenia/base/logging.cc
+--- a/.deps/xenia-canary/src/xenia/base/logging.cc
++++ b/.deps/xenia-canary/src/xenia/base/logging.cc
+@@ -623,13 +623,13 @@
+   }
+ }
+ 
+-std::string logging::TakeRecentLines() {
++std::string logging::TakeRecentLines(bool keep_on) {
+   std::string lines;
+   bool cut = false;
+   {
+     xe::threading::SuspensionDeferral deferral;  // fix 45: as in RememberLine
+     std::lock_guard<std::mutex> lock(recent_mutex_);
+-    keep_recent_lines_ = false;
++    keep_recent_lines_ = keep_on;
+     if (!recent_lines_) {
+       return lines;
+     }
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 4cb651c..0dd2f8f 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -635,11 +635,47 @@ class LeavingNoticeOverlay final : public xe::ui::ImGuiDialog {
+ // disk before the title restarts, while the notice is drawn. Left to the next start, they made its
+ // first steps slow (the saves' check 2.9 s, the emulator's setup 1.9 s instead of 0.3 s) with
+ // nothing on the screen.
++// Fix 93i: at most 3 s. A game still writing (GTA IV copying its 40 MB of .img data to its cache
++// as it was left) keeps the drive busy; the sync goes on by itself on its own thread, and the way
++// out does not wait for it any longer.
+ void FlushWritesBeforeRestart(const char* why) {
+   const auto start = std::chrono::steady_clock::now();
+-  ::sync();
+-  XELOGW("Leaving: pending disk writes flushed in {} ms ({})",
+-         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(), why);
++  auto done = std::make_shared<std::atomic<bool>>(false);
++  std::thread([done] {
++    ::sync();
++    done->store(true, std::memory_order_release);
++  }).detach();
++  while (!done->load(std::memory_order_acquire) && std::chrono::steady_clock::now() - start < std::chrono::seconds(3))
++    std::this_thread::sleep_for(std::chrono::milliseconds(10));
++  // To the boot log as well, written at once: the game log's writer may be far behind (a busy
++  // drive) and is given only 3 s before the restart (93i), so its copy of this line can be lost.
++  char line[160];
++  std::snprintf(line, sizeof(line), "Leaving: pending disk writes %s in %lld ms (%s)",
++                done->load() ? "flushed" : "still being flushed; going on",
++                (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(),
++                why);
++  XELOGW("{}", line);
++  const char* const lines[] = {line};
++  xbox360ps5::StageBlock(lines, 1, false);
++}
++// Fix 93i: a STALL or WAITING report's recent system calls, with logs for a bug report: to a file
++// of their own (as the way out's, fix 93e), and kept on. Through the log they were about 14,000
++// lines (GTA IV, 88 s into a stop) that its writer, with the drive busy, had not written when the
++// game was left: the restart waited for them for minutes on "Returning to the menu...".
++// One file a session (the first report's): each is a megabyte, written while the game may be
++// filling the drive itself (GTA IV wrote two 40 s apart during its cache copy); the way out writes
++// the last calls anyway (fix 93e).
++void SaveStallCalls(const std::filesystem::path& folder, uint32_t title_id) {
++  static bool saved = false;
++  if (saved) {
++    XELOGW("STALL recent lines: already saved once this session; the end of the game saves the last ones");
++    return;
++  }
++  saved = true;
++  auto calls = std::make_shared<const std::string>(xe::logging::TakeRecentLines(true));
++  const auto file = folder / xbox360ps5::bug_report::RecentCallsName(title_id, int64_t(std::time(nullptr)));
++  XELOGW("STALL recent lines ({} KiB) go to {}", calls->size() / 1024, file.string());
++  xbox360ps5::bug_report::StartWriting(file, calls);
+ }
+ // Fix 93c: a start's stages with the time since main() began, to see where a black screen goes.
+ // Fix 93f: without a sync of the boot log each (StageBlock): a start right after a game found the
+@@ -3639,9 +3675,13 @@ int main(int argc, char** argv) {
+                        xbox360ps5::guest_crash::NowMs(),emulator.title_id(),game_name,watch_seconds,frames,swaps));
+                 ReportStall(emulator, 1);
+                 // What the game asked of the system before it stopped.
+-                XELOGW("STALL recent lines, oldest first:");
+-                xe::logging::WriteRecentLines();
+-                XELOGW("STALL recent lines end");
++                if (xbox360ps5::bug_report::Active()) {
++                  SaveStallCalls(game_log->session.Path().parent_path(), emulator.title_id());  // fix 93i
++                } else {
++                  XELOGW("STALL recent lines, oldest first:");
++                  xe::logging::WriteRecentLines();
++                  XELOGW("STALL recent lines end");
++                }
+                 // Fix 76: at most kCaptureDebugLines of them.
+                 xbox360ps5::hang_watch::capture_debug_lines.store(xbox360ps5::hang_watch::kCaptureDebugLines);
+                 cvars::log_level = 3;  // Every system call, for a moment.
+@@ -3798,9 +3838,13 @@ int main(int argc, char** argv) {
+                   XELOGW("WAITING title {:08X} '{}': {:.1f} frames a second, unchanged for two minutes; what its threads are at, then its recent system calls",
+                          emulator.title_id(), game_name, average);
+                   ReportStall(emulator, 1);
+-                  XELOGW("STALL recent lines, oldest first:");
+-                  xe::logging::WriteRecentLines();
+-                  XELOGW("STALL recent lines end");
++                  if (xbox360ps5::bug_report::Active()) {
++                    SaveStallCalls(game_log->session.Path().parent_path(), emulator.title_id());  // fix 93i
++                  } else {
++                    XELOGW("STALL recent lines, oldest first:");
++                    xe::logging::WriteRecentLines();
++                    XELOGW("STALL recent lines end");
++                  }
+                 }
+               }
+               if (xbox360ps5::gpu_diag::enabled) xe::FlushLog();
+@@ -3930,7 +3974,19 @@ int main(int argc, char** argv) {
+       xbox360ps5::leaving_notice::Remember(storage / "leaving-notice.txt", xbox360ps5::leaving_notice::Current(),
+                                            xbox360ps5::leaving_notice::NowMs());
+       Stage("BOOT restarting the title");
+-      xe::ShutdownLogging();
++      {
++        // Fix 93i: the log's writer is given 3 s to write what it holds, then the title restarts
++        // anyway (GTA IV's leave waited minutes here: thousands of lines behind a busy drive).
++        auto stopped = std::make_shared<std::atomic<bool>>(false);
++        std::thread([stopped] {
++          xe::ShutdownLogging();
++          stopped->store(true, std::memory_order_release);
++        }).detach();
++        const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
++        while (!stopped->load(std::memory_order_acquire) && std::chrono::steady_clock::now() < until)
++          std::this_thread::sleep_for(std::chrono::milliseconds(10));
++        if (!stopped->load()) Stage("BOOT the log's writer is still busy after 3 s; restarting without it");
++      }
+       const int refused = sceSystemServiceLoadExec("/app0/eboot.bin", nullptr);
+       char text[64];
+       std::snprintf(text, sizeof(text), "BOOT restart refused %08x", unsigned(refused));

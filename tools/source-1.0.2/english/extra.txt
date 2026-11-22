@@ -223,6 +223,17 @@ Saves and settings were not copied from PS5X360: a folder could not be checked (
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 # Fix 52: the library's details line names the disc of a set (the same key in every section).
 Disc %u = Disco %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Escolher o disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d jogo
+%d games = %d jogos
+%d games||few = %d jogos
+%d games||one = %d jogos
 # Fix 60 (issue #12): the empty library names the other folders it scans (the same key in every section).
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
 Kinect game = Jogo de Kinect
@@ -234,6 +245,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum celular conectado
 Scan with your phone to use it as Kinect. = Escaneie com o celular para usá-lo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
+Step back = Afaste-se
+Step closer = Aproxime-se
+Show your whole body to the camera = Mostre o corpo inteiro para a câmera
+Hand reach (the game needs %.2f) = Alcance da mão (o jogo precisa de %.2f)
+Motion panel = Painel de movimento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmera aparece sobre o jogo (a pose do celular, o que o jogo precisa das mãos, o código para conectar um celular). Desligado mantém só o código enquanto nenhum celular estiver conectado.
+Top right = Canto superior direito
+Top left = Canto superior esquerdo
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nenhum jogador visto. Segure L3 + R3 para trazer de volta a última pose ou pressione-os rapidamente para recentralizar a câmera do celular daqui. Fique a 2,5-3 m do celular com os quadris visíveis.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Solte L3 + R3 para parar; um corpo vindo do celular assume.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentralizando a câmera do celular em %d... Fique parado no seu lugar.
+Re-centring the phone camera... Stand still at your spot. = Recentralizando a câmera do celular... Fique parado no seu lugar.
+Logs for a bug report = Registros para relatório de erro
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = No próximo jogo que você iniciar, o emulador anota mais detalhes do que acontece. Jogue até o problema aparecer e feche o jogo. Uma tela então lista os arquivos para anexar ao seu relatório de erro. A opção desliga sozinha depois desse jogo.
+Next game = Próximo jogo
+Logs for a bug report: on for the next game = Registros para relatório de erro: ligados para o próximo jogo
+Files for your bug report = Arquivos para o seu relatório de erro
+Detailed logs of your last game session are ready. = Os registros detalhados da sua última sessão de jogo estão prontos.
+Files on the console: = Arquivos no console:
+Preparing one .zip file with all of them... = Preparando um arquivo .zip com todos eles...
+All of them in one file: = Todos eles em um único arquivo:
+Could not make the .zip file. Copy the files one by one. = Não foi possível criar o arquivo .zip. Copie os arquivos um por um.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Leia o código com um celular para baixar o .zip, ou abra este endereço em um computador na mesma rede:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Para baixá-los em um celular ou computador, ative a opção Página de configurações pelo celular (Configurações, Sistema).
+With an FTP program, copy them from this folder: = Com um programa de FTP, copie-os desta pasta:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Depois abra uma nova issue no GitHub, descreva o que você fez e o que deu errado, e anexe os arquivos:
+Bug report files (.zip) = Arquivos do relatório de erro (.zip)
+Returning to the menu... = Voltando ao menu...
+Restarting the game... = Reiniciando o jogo...
+Closing the emulator... = Fechando o emulador...
+Please wait, this can take a few seconds. = Aguarde, isso pode levar alguns segundos.
+Problem with a game? Logs for a bug report = Problema com um jogo? Registros para relatório de erro
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo jogo que você iniciar anota mais detalhes. Depois, uma tela lista os arquivos para anexar ao seu relatório de erro.
+Problem with this game? Logs for a bug report = Problema com este jogo? Registros para relatório de erro
+Next start = Próximo início
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo início deste jogo anota mais detalhes. Depois, uma tela lista os arquivos para anexar ao seu relatório de erro.
+Restart this game with logs for a bug report = Reiniciar este jogo com registros para relatório de erro
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sessão não terminou normalmente: o jogo parou ou o emulador foi fechado. Ela começou em
+Saving shaders for faster loading next time... = Salvando shaders para carregar mais rápido na próxima vez...
+Writing data to the drive... = Gravando dados na unidade...
+Signing out of online play... = Saindo do jogo online...
+Saving the logs for the bug report... = Salvando os registros do relatório de erro...
+Starting the menu... = Iniciando o menu...
+Starting the game... = Iniciando o jogo...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Dica: saia com Fechar o emulador em vez do botão PS, para manter os shaders para a próxima vez.
+Restart game = Reiniciar jogo
+Mute game sound = Silenciar o som do jogo
+# Fix 114: the on-screen keyboard.
+Keyboard = Teclado
+Shift = Shift
+Caps = Maiúsc.
+Other characters = Outros caracteres
+Move cursor = Mover cursor
+Maximum length reached = Tamanho máximo atingido
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Remover o DLC?
+Size: %s = Tamanho: %s
+Drive: %s = Unidade: %s
+The package file is deleted from this drive. This can't be undone. = O arquivo do pacote é apagado desta unidade. Não é possível desfazer.
+DLC removed. = DLC removido.
+Could not remove the DLC file. = Não foi possível remover o arquivo do DLC.
+Close the game first: DLC can't be changed while a game is running. = Feche o jogo primeiro: o DLC não pode ser alterado enquanto um jogo estiver aberto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidade tem este DLC Ativada e Desativada: remova uma das duas cópias primeiro.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagem da câmera para o jogo
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
+Resolution scale (test) = Escala de renderização (teste)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e processamento gráfico; alguns efeitos (brilho, sombras, imagens que o jogo lê de volta) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte para 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas configurações deste jogo.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvo. Os jogos que mostram avatares vão usá-lo a partir da próxima vez que forem iniciados.
+Could not save the avatar. = Não foi possível salvar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = O formato do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por enquanto só o formato: o avatar ainda não tem roupas nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem quadris um pouco mais largos e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -270,6 +364,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Os 
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Os jogos guardados e as definições não foram copiados do PS5X360: não foi possível verificar uma pasta (o registo indica o motivo). O próximo arranque tenta novamente.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidade tem as pastas PS5X360/saves e PS5X360Reloaded/saves. É usada a PS5X360Reloaded/saves; a pasta antiga ficou como estava:
 Disc %u = Disco %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Escolher o disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d jogo
+%d games = %d jogos
+%d games||few = %d jogos
+%d games||one = %d jogos
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou em /data/xbox360/, ou numa pasta xbox360 na raiz de um disco USB ou M.2.
 Kinect game = Jogo Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequer o Kinect. Ativar o Camera motion para este jogo?
@@ -280,6 +385,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum telemóvel ligado
 Scan with your phone to use it as Kinect. = Leia o código com o telemóvel para o usar como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
+Step back = Afaste-se
+Step closer = Aproxime-se
+Show your whole body to the camera = Mostre o corpo inteiro à câmara
+Hand reach (the game needs %.2f) = Alcance da mão (o jogo precisa de %.2f)
+Motion panel = Painel de movimento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmara aparece sobre o jogo (a pose do telemóvel, o que o jogo precisa das mãos, o código para ligar um telemóvel). Desligado mantém só o código enquanto nenhum telemóvel estiver ligado.
+Top right = Canto superior direito
+Top left = Canto superior esquerdo
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nenhum jogador visto. Mantenha L3 + R3 premidos para repor a última pose ou prima-os brevemente para recentrar a câmara do telemóvel daqui. Fique a 2,5-3 m do telemóvel com as ancas visíveis.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Largue L3 + R3 para parar; um corpo vindo do telemóvel toma o lugar.
+Re-centring the phone camera in %d... Stand still at your spot. = A recentrar a câmara do telemóvel em %d... Fique parado no seu lugar.
+Re-centring the phone camera... Stand still at your spot. = A recentrar a câmara do telemóvel... Fique parado no seu lugar.
+Logs for a bug report = Registos para relatório de erro
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = No próximo jogo que iniciar, o emulador regista mais detalhes do que acontece. Jogue até o problema aparecer e feche o jogo. Um ecrã mostra então os ficheiros a anexar ao seu relatório de erro. A opção desliga-se sozinha depois desse jogo.
+Next game = Próximo jogo
+Logs for a bug report: on for the next game = Registos para relatório de erro: ligados para o próximo jogo
+Files for your bug report = Ficheiros para o seu relatório de erro
+Detailed logs of your last game session are ready. = Os registos detalhados da sua última sessão de jogo estão prontos.
+Files on the console: = Ficheiros na consola:
+Preparing one .zip file with all of them... = A preparar um ficheiro .zip com todos eles...
+All of them in one file: = Todos num único ficheiro:
+Could not make the .zip file. Copy the files one by one. = Não foi possível criar o ficheiro .zip. Copie os ficheiros um a um.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Leia o código com um telemóvel para transferir o .zip, ou abra este endereço num computador na mesma rede:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Para os transferir para um telemóvel ou computador, ative a opção Página de definições pelo telemóvel (Definições, Sistema).
+With an FTP program, copy them from this folder: = Com um programa de FTP, copie-os desta pasta:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Depois abra uma nova issue no GitHub, descreva o que fez e o que correu mal, e anexe os ficheiros:
+Bug report files (.zip) = Ficheiros do relatório de erro (.zip)
+Returning to the menu... = A voltar ao menu...
+Restarting the game... = A reiniciar o jogo...
+Closing the emulator... = A fechar o emulador...
+Please wait, this can take a few seconds. = Aguarde, isto pode demorar alguns segundos.
+Problem with a game? Logs for a bug report = Problema com um jogo? Registos para relatório de erro
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo jogo que iniciar regista mais detalhes. Depois, um ecrã mostra os ficheiros a anexar ao seu relatório de erro.
+Problem with this game? Logs for a bug report = Problema com este jogo? Registos para relatório de erro
+Next start = Próximo arranque
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = O próximo arranque deste jogo regista mais detalhes. Depois, um ecrã mostra os ficheiros a anexar ao seu relatório de erro.
+Restart this game with logs for a bug report = Reiniciar este jogo com registos para relatório de erro
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sessão não terminou normalmente: o jogo parou ou o emulador foi fechado. Começou em
+Saving shaders for faster loading next time... = A guardar shaders para carregar mais depressa da próxima vez...
+Writing data to the drive... = A gravar dados na unidade...
+Signing out of online play... = A sair do jogo online...
+Saving the logs for the bug report... = A guardar os registos do relatório de erro...
+Starting the menu... = A iniciar o menu...
+Starting the game... = A iniciar o jogo...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Dica: saia com Fechar o emulador em vez do botão PS, para manter os shaders para a próxima vez.
+Restart game = Reiniciar jogo
+Mute game sound = Silenciar o som do jogo
+# Fix 114: the on-screen keyboard.
+Keyboard = Teclado
+Shift = Shift
+Caps = Maiúsc.
+Other characters = Outros caracteres
+Move cursor = Mover cursor
+Maximum length reached = Comprimento máximo atingido
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Remover o DLC?
+Size: %s = Tamanho: %s
+Drive: %s = Unidade: %s
+The package file is deleted from this drive. This can't be undone. = O ficheiro do pacote é apagado desta unidade. Não é possível anular.
+DLC removed. = DLC removido.
+Could not remove the DLC file. = Não foi possível remover o ficheiro do DLC.
+Close the game first: DLC can't be changed while a game is running. = Feche primeiro o jogo: o DLC não pode ser alterado enquanto um jogo estiver aberto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidade tem este DLC Ativada e Desativada: remova primeiro uma das duas cópias.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagem da câmera para o jogo
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Com um celular como Kinect, o celular também pode enviar uma imagem pequena da câmera para jogos que mostram a câmera (replays, fotos). Ela vai só para este console, e o emulador a mantém só na memória, nunca em uma unidade; um jogo ainda pode guardar fotos próprias nos seus saves. Também é preciso ativar Imagem da câmera para o jogo na página do celular. Desligada, os jogos veem uma imagem cinza.
+Resolution scale (test) = Escala de renderização (teste)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Desenha o jogo com o dobro da sua resolução, para uma imagem mais nítida. Usa muito mais memória de vídeo e capacidade gráfica; alguns efeitos (brilho, sombras, imagens que o jogo volta a ler) podem ficar errados. É um teste: se o jogo fechar ou ficar com defeitos, volte a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderização (teste) 2x: este jogo precisa de mais memória do que a que resta. A imagem pode falhar; defina 1x nas definições deste jogo.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Os jogos que mostram avatares vão usá-lo a partir do próximo arranque.
+Could not save the avatar. = Não foi possível guardar o avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = A forma do corpo do avatar deste perfil, para jogos que mostram o jogador como avatar (Kinect Sports). Por agora só a forma: o avatar ainda não tem roupa nem rosto.
+Body type = Tipo de corpo
+Female = Feminino
+Male = Masculino
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = A constituição do avatar: um corpo feminino tem ancas um pouco mais largas e ombros mais estreitos.
+Height = Altura
+Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
+Weight = Peso
+A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -316,6 +504,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Las
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y los ajustes no se han copiado de PS5X360: no se ha podido comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se ha dejado como estaba:
 Disc %u = Disco %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Elegir el disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d juego
+%d games = %d juegos
+%d games||few = %d juegos
+%d games||one = %d juegos
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
 Kinect game = Juego de Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
@@ -326,6 +525,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún móvil conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el móvil para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
+Step back = Aléjate
+Step closer = Acércate
+Show your whole body to the camera = Muestra todo el cuerpo a la cámara
+Hand reach (the game needs %.2f) = Alcance de la mano (el juego necesita %.2f)
+Motion panel = Panel de movimiento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del móvil, lo que el juego necesita de las manos, el código para conectar un móvil). Desactivado deja solo el código mientras no haya un móvil conectado.
+Top right = Arriba a la derecha
+Top left = Arriba a la izquierda
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = No se ve a ningún jugador. Mantén L3 + R3 para recuperar la última postura o púlsalos brevemente para recentrar la cámara del teléfono desde aquí. Colócate a 2,5-3 m del teléfono con las caderas a la vista.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para pararla; un cuerpo del teléfono toma el relevo.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentrando la cámara del teléfono en %d... Quédate quieto en tu sitio.
+Re-centring the phone camera... Stand still at your spot. = Recentrando la cámara del teléfono... Quédate quieto en tu sitio.
+Logs for a bug report = Registros para un informe de error
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = En el próximo juego que inicies, el emulador anota más detalles de lo que ocurre. Juega hasta que aparezca el problema y cierra el juego. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error. La opción se desactiva sola después de ese juego.
+Next game = Próximo juego
+Logs for a bug report: on for the next game = Registros para un informe de error: activados para el próximo juego
+Files for your bug report = Archivos para tu informe de error
+Detailed logs of your last game session are ready. = Los registros detallados de tu última sesión de juego están listos.
+Files on the console: = Archivos en la consola:
+Preparing one .zip file with all of them... = Preparando un archivo .zip con todos ellos...
+All of them in one file: = Todos en un solo archivo:
+Could not make the .zip file. Copy the files one by one. = No se pudo crear el archivo .zip. Copia los archivos uno por uno.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Escanea el código con un móvil para descargar el .zip, o abre esta dirección en un ordenador de la misma red:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Para descargarlos en un móvil u ordenador, activa la opción Página de configuración para el móvil (Configuración, Sistema).
+With an FTP program, copy them from this folder: = Con un programa de FTP, cópialos desde esta carpeta:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Después abre una nueva issue en GitHub, describe lo que hiciste y lo que salió mal, y adjunta los archivos:
+Bug report files (.zip) = Archivos del informe de error (.zip)
+Returning to the menu... = Volviendo al menú...
+Restarting the game... = Reiniciando el juego...
+Closing the emulator... = Cerrando el emulador...
+Please wait, this can take a few seconds. = Espera, esto puede tardar unos segundos.
+Problem with a game? Logs for a bug report = ¿Problemas con un juego? Registros para un informe de error
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo juego que inicies anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Problem with this game? Logs for a bug report = ¿Problemas con este juego? Registros para un informe de error
+Next start = Próximo inicio
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo inicio de este juego anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Restart this game with logs for a bug report = Reiniciar este juego con registros para un informe de error
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sesión no terminó con normalidad: el juego se detuvo o se cerró el emulador. Empezó el
+Saving shaders for faster loading next time... = Guardando shaders para cargar más rápido la próxima vez...
+Writing data to the drive... = Escribiendo datos en la unidad...
+Signing out of online play... = Cerrando la sesión del juego en línea...
+Saving the logs for the bug report... = Guardando los registros del informe de error...
+Starting the menu... = Iniciando el menú...
+Starting the game... = Iniciando el juego...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Consejo: sal con Cerrar el emulador en lugar del botón PS para conservar los shaders para la próxima vez.
+Restart game = Reiniciar juego
+Mute game sound = Silenciar el sonido del juego
+# Fix 114: the on-screen keyboard.
+Keyboard = Teclado
+Shift = Mayús
+Caps = Bloq Mayús
+Other characters = Otros caracteres
+Move cursor = Mover cursor
+Maximum length reached = Longitud máxima alcanzada
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = ¿Quitar el DLC?
+Size: %s = Tamaño: %s
+Drive: %s = Unidad: %s
+The package file is deleted from this drive. This can't be undone. = El archivo del paquete se borra de esta unidad. No se puede deshacer.
+DLC removed. = DLC quitado.
+Could not remove the DLC file. = No se pudo quitar el archivo del DLC.
+Close the game first: DLC can't be changed while a game is running. = Cierra antes el juego: el DLC no se puede cambiar mientras hay un juego abierto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidad tiene este DLC Activada y Desactivada: quita antes una de las dos copias.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagen de la cámara para el juego
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un móvil como Kinect, el móvil también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del móvil. Desactivada, los juegos ven una imagen gris.
+Resolution scale (test) = Escala de renderizado (prueba)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de vídeo y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, vuelve a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; pon 1x en los ajustes de este juego.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo usarán a partir de su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -362,6 +644,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Las
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Las partidas guardadas y la configuración no se copiaron de PS5X360: no se pudo comprobar una carpeta (el registro indica el motivo). El próximo inicio lo intentará de nuevo.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Esta unidad tiene las carpetas PS5X360/saves y PS5X360Reloaded/saves. Se usa PS5X360Reloaded/saves; la carpeta antigua se dejó como estaba:
 Disc %u = Disco %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u de %u
+Choose the disc = Elegir el disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d juego
+%d games = %d juegos
+%d games||few = %d juegos
+%d games||one = %d juegos
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = o en /data/xbox360/, o en una carpeta xbox360 en la raíz de un disco USB o M.2.
 Kinect game = Juego de Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srequiere Kinect. ¿Activar Camera motion para este juego?
@@ -372,6 +665,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún celular conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el celular para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
+Step back = Aléjate
+Step closer = Acércate
+Show your whole body to the camera = Muestra todo el cuerpo a la cámara
+Hand reach (the game needs %.2f) = Alcance de la mano (el juego necesita %.2f)
+Motion panel = Panel de movimiento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del celular, lo que el juego necesita de las manos, el código para conectar un celular). Desactivado deja solo el código mientras no haya un celular conectado.
+Top right = Arriba a la derecha
+Top left = Arriba a la izquierda
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = No se ve a ningún jugador. Mantén presionados L3 + R3 para recuperar la última postura o presiónalos brevemente para recentrar la cámara del celular desde aquí. Colócate a 2,5-3 m del celular con la cadera a la vista.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para detenerla; un cuerpo del celular la reemplaza.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentrando la cámara del celular en %d... Quédate quieto en tu lugar.
+Re-centring the phone camera... Stand still at your spot. = Recentrando la cámara del celular... Quédate quieto en tu lugar.
+Logs for a bug report = Registros para un informe de error
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = En el próximo juego que inicies, el emulador anota más detalles de lo que ocurre. Juega hasta que aparezca el problema y cierra el juego. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error. La opción se desactiva sola después de ese juego.
+Next game = Próximo juego
+Logs for a bug report: on for the next game = Registros para un informe de error: activados para el próximo juego
+Files for your bug report = Archivos para tu informe de error
+Detailed logs of your last game session are ready. = Los registros detallados de tu última sesión de juego están listos.
+Files on the console: = Archivos en la consola:
+Preparing one .zip file with all of them... = Preparando un archivo .zip con todos ellos...
+All of them in one file: = Todos en un solo archivo:
+Could not make the .zip file. Copy the files one by one. = No se pudo crear el archivo .zip. Copia los archivos uno por uno.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Escanea el código con un celular para descargar el .zip, o abre esta dirección en una computadora de la misma red:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Para descargarlos en un celular o computadora, activa la opción Página de configuración para el celular (Configuración, Sistema).
+With an FTP program, copy them from this folder: = Con un programa de FTP, cópialos desde esta carpeta:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Después abre una nueva issue en GitHub, describe lo que hiciste y lo que salió mal, y adjunta los archivos:
+Bug report files (.zip) = Archivos del informe de error (.zip)
+Returning to the menu... = Volviendo al menú...
+Restarting the game... = Reiniciando el juego...
+Closing the emulator... = Cerrando el emulador...
+Please wait, this can take a few seconds. = Espera, esto puede tardar unos segundos.
+Problem with a game? Logs for a bug report = ¿Problemas con un juego? Registros para un informe de error
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo juego que inicies anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Problem with this game? Logs for a bug report = ¿Problemas con este juego? Registros para un informe de error
+Next start = Próximo inicio
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = El próximo inicio de este juego anota más detalles. Después, una pantalla muestra los archivos que debes adjuntar a tu informe de error.
+Restart this game with logs for a bug report = Reiniciar este juego con registros para un informe de error
+This session did not end normally: the game stopped or the emulator was closed. It began on = Esta sesión no terminó con normalidad: el juego se detuvo o se cerró el emulador. Empezó el
+Saving shaders for faster loading next time... = Guardando shaders para cargar más rápido la próxima vez...
+Writing data to the drive... = Escribiendo datos en la unidad...
+Signing out of online play... = Cerrando la sesión del juego en línea...
+Saving the logs for the bug report... = Guardando los registros del informe de error...
+Starting the menu... = Iniciando el menú...
+Starting the game... = Iniciando el juego...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Consejo: sal con Cerrar el emulador en lugar del botón PS para conservar los shaders para la próxima vez.
+Restart game = Reiniciar juego
+Mute game sound = Silenciar el sonido del juego
+# Fix 114: the on-screen keyboard.
+Keyboard = Teclado
+Shift = Mayús
+Caps = Bloq Mayús
+Other characters = Otros caracteres
+Move cursor = Mover cursor
+Maximum length reached = Longitud máxima alcanzada
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = ¿Quitar el DLC?
+Size: %s = Tamaño: %s
+Drive: %s = Unidad: %s
+The package file is deleted from this drive. This can't be undone. = El archivo del paquete se borra de esta unidad. No se puede deshacer.
+DLC removed. = DLC quitado.
+Could not remove the DLC file. = No se pudo quitar el archivo del DLC.
+Close the game first: DLC can't be changed while a game is running. = Cierra primero el juego: el DLC no se puede cambiar mientras hay un juego abierto.
+This drive has this DLC both On and Off: remove one of the two first. = Esta unidad tiene este DLC Activado y Desactivado: quita primero una de las dos copias.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Imagen de la cámara para el juego
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un celular como Kinect, el celular también puede enviar una imagen pequeña de su cámara para los juegos que muestran la cámara (repeticiones, fotos). Va solo a esta consola, y el emulador la guarda solo en la memoria, nunca en una unidad; un juego aún puede conservar sus propias fotos en sus partidas guardadas. También hay que activar Imagen de la cámara para el juego en la página del celular. Desactivada, los juegos ven una imagen gris.
+Resolution scale (test) = Escala de renderizado (prueba)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dibuja el juego al doble de su resolución para una imagen más nítida. Usa mucha más memoria de video y potencia gráfica; algunos efectos (brillos, sombras, imágenes que el juego vuelve a leer) pueden verse mal. Es una prueba: si el juego se cierra o se ve mal, regresa a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Escala de renderizado (prueba) 2x: este juego necesita más memoria de la que queda. La imagen puede fallar; elige 1x en la configuración de este juego.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar guardado. Los juegos que muestran avatares lo van a usar desde su próximo inicio.
+Could not save the avatar. = No se pudo guardar el avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La complexión del avatar de este perfil, para los juegos que muestran al jugador como avatar (Kinect Sports). Por ahora solo la complexión: el avatar aún no tiene ropa ni cara.
+Body type = Tipo de cuerpo
+Female = Mujer
+Male = Hombre
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La complexión del avatar: un cuerpo femenino tiene las caderas algo más anchas y los hombros más estrechos.
+Height = Altura
+Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
+Weight = Peso
+A thinner or heavier build. = Una complexión más delgada o más robusta.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -408,6 +784,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Spi
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Spielstände und Einstellungen wurden nicht aus PS5X360 kopiert: Ein Ordner konnte nicht geprüft werden (das Protokoll nennt den Grund). Der nächste Start versucht es erneut.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dieses Laufwerk hat PS5X360/saves und PS5X360Reloaded/saves. PS5X360Reloaded/saves wird verwendet; der alte Ordner wurde nicht verändert:
 Disc %u = Disc %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disc
+Disc %u of %u = Disc %u von %u
+Choose the disc = Disc wählen
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Gruppe
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d Spiel
+%d games = %d Spiele
+%d games||few = %d Spiele
+%d games||one = %d Spiele
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oder in /data/xbox360/ oder in einen Ordner xbox360 im Hauptverzeichnis eines USB- oder M.2-Laufwerks.
 Kinect game = Kinect-Spiel
 \srequires Kinect. Turn on Camera motion for this game? = \sbenötigt Kinect. Camera motion für dieses Spiel einschalten?
@@ -418,6 +805,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Bewegung: kein Handy verbunden
 Scan with your phone to use it as Kinect. = Mit dem Handy scannen, um es als Kinect zu nutzen.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Gleiches WLAN, 2-3 m Abstand, ganzer Körper sichtbar.
+Step back = Geh einen Schritt zurück
+Step closer = Komm näher
+Show your whole body to the camera = Zeig der Kamera deinen ganzen Körper
+Hand reach (the game needs %.2f) = Handreichweite (das Spiel braucht %.2f)
+Motion panel = Bewegungsfeld
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Wo das Kamera-Bewegungsfeld über dem Spiel angezeigt wird (die Pose vom Handy, was das Spiel von den Händen braucht, der Code zum Verbinden eines Handys). Aus zeigt nur den Code, solange kein Handy verbunden ist.
+Top right = Oben rechts
+Top left = Oben links
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Kein Spieler erkannt. Halte L3 + R3, um die letzte Haltung zurückzuholen, oder drück sie kurz, um die Handykamera von hier aus neu zu zentrieren. Stell dich 2,5-3 m vom Handy entfernt hin, die Hüfte im Bild.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Notfall-Haltung aktiv: Das Spiel sieht die letzte Haltung. Lass L3 + R3 los, um sie zu beenden; ein Körper vom Handy übernimmt.
+Re-centring the phone camera in %d... Stand still at your spot. = Handykamera wird in %d neu zentriert... Bleib still an deinem Platz stehen.
+Re-centring the phone camera... Stand still at your spot. = Handykamera wird neu zentriert... Bleib still an deinem Platz stehen.
+Logs for a bug report = Protokolle für einen Fehlerbericht
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = Beim nächsten Spiel, das du startest, schreibt der Emulator mehr Details mit. Spiele, bis das Problem auftritt, und schließe dann das Spiel. Danach zeigt ein Bildschirm die Dateien, die du deinem Fehlerbericht anhängen sollst. Die Option schaltet sich nach diesem Spiel von selbst aus.
+Next game = Nächstes Spiel
+Logs for a bug report: on for the next game = Protokolle für einen Fehlerbericht: an für das nächste Spiel
+Files for your bug report = Dateien für deinen Fehlerbericht
+Detailed logs of your last game session are ready. = Die ausführlichen Protokolle deiner letzten Spielsitzung sind fertig.
+Files on the console: = Dateien auf der Konsole:
+Preparing one .zip file with all of them... = Eine .zip-Datei mit allen wird erstellt...
+All of them in one file: = Alle in einer Datei:
+Could not make the .zip file. Copy the files one by one. = Die .zip-Datei konnte nicht erstellt werden. Kopiere die Dateien einzeln.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Scanne den Code mit einem Handy, um die .zip herunterzuladen, oder öffne diese Adresse auf einem Computer im selben Netzwerk:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Um sie auf ein Handy oder einen Computer zu laden, schalte die Option Einstellungsseite für das Handy ein (Einstellungen, System).
+With an FTP program, copy them from this folder: = Kopiere sie mit einem FTP-Programm aus diesem Ordner:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Erstelle dann ein neues Issue auf GitHub, beschreibe, was du getan hast und was schiefging, und hänge die Dateien an:
+Bug report files (.zip) = Dateien des Fehlerberichts (.zip)
+Returning to the menu... = Zurück zum Menü...
+Restarting the game... = Spiel wird neu gestartet...
+Closing the emulator... = Emulator wird beendet...
+Please wait, this can take a few seconds. = Bitte warten, das kann einige Sekunden dauern.
+Problem with a game? Logs for a bug report = Problem mit einem Spiel? Protokolle für einen Fehlerbericht
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Das nächste Spiel, das du startest, schreibt mehr Details mit. Danach zeigt ein Bildschirm die Dateien für deinen Fehlerbericht.
+Problem with this game? Logs for a bug report = Problem mit diesem Spiel? Protokolle für einen Fehlerbericht
+Next start = Nächster Start
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Der nächste Start dieses Spiels schreibt mehr Details mit. Danach zeigt ein Bildschirm die Dateien für deinen Fehlerbericht.
+Restart this game with logs for a bug report = Dieses Spiel mit Protokollen für einen Fehlerbericht neu starten
+This session did not end normally: the game stopped or the emulator was closed. It began on = Diese Sitzung wurde nicht normal beendet: Das Spiel blieb stehen oder der Emulator wurde geschlossen. Beginn:
+Saving shaders for faster loading next time... = Shader werden gespeichert, damit es nächstes Mal schneller lädt...
+Writing data to the drive... = Daten werden auf das Laufwerk geschrieben...
+Signing out of online play... = Abmelden vom Online-Spiel...
+Saving the logs for the bug report... = Protokolle für den Fehlerbericht werden gespeichert...
+Starting the menu... = Menü wird gestartet...
+Starting the game... = Spiel wird gestartet...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Tipp: Beende mit Emulator beenden statt mit der PS-Taste, damit die Shader für das nächste Mal erhalten bleiben.
+Restart game = Spiel neu starten
+Mute game sound = Spielton stummschalten
+# Fix 114: the on-screen keyboard.
+Keyboard = Tastatur
+Shift = Umschalt
+Caps = Feststell
+Other characters = Weitere Zeichen
+Move cursor = Cursor bewegen
+Maximum length reached = Maximale Länge erreicht
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC entfernen?
+Size: %s = Größe: %s
+Drive: %s = Laufwerk: %s
+The package file is deleted from this drive. This can't be undone. = Die Paketdatei wird von diesem Laufwerk gelöscht. Das kann nicht rückgängig gemacht werden.
+DLC removed. = DLC entfernt.
+Could not remove the DLC file. = Die DLC-Datei konnte nicht entfernt werden.
+Close the game first: DLC can't be changed while a game is running. = Schließe zuerst das Spiel: DLC kann nicht geändert werden, während ein Spiel läuft.
+This drive has this DLC both On and Off: remove one of the two first. = Dieses Laufwerk hat diesen DLC als Ein und als Aus: Entferne zuerst eine der beiden Kopien.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Kamerabild für das Spiel
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Mit einem Handy als Kinect kann das Handy auch ein kleines Bild seiner Kamera senden, für Spiele, die die Kamera zeigen (Wiederholungen, Fotos). Es geht nur an diese Konsole, und der Emulator hält es nur im Arbeitsspeicher, nie auf einem Laufwerk; ein Spiel kann trotzdem eigene Fotos in seinen Spielständen behalten. Dazu muss auch Kamerabild für das Spiel auf der Handy-Seite eingeschaltet sein. Aus sehen Spiele ein graues Bild.
+Resolution scale (test) = Renderskalierung (Test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Zeichnet das Spiel mit der doppelten eigenen Auflösung für ein schärferes Bild. Braucht viel mehr Videospeicher und Grafikleistung; manche Effekte (Leuchten, Schatten, Bilder, die das Spiel zurückliest) können falsch aussehen. Ein Test: Wenn sich das Spiel schließt oder fehlerhaft aussieht, zurück auf 1x stellen.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderskalierung (Test) 2x: Dieses Spiel braucht mehr Speicher, als noch frei ist. Das Bild kann fehlerhaft werden; stelle in den Einstellungen dieses Spiels 1x ein.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar gespeichert. Spiele mit Avataren verwenden ihn ab dem nächsten Start.
+Could not save the avatar. = Der Avatar konnte nicht gespeichert werden.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Die Körperform des Avatars dieses Profils, für Spiele, die den Spieler als Avatar zeigen (Kinect Sports). Vorerst nur die Form: Der Avatar hat noch keine Kleidung und kein Gesicht.
+Body type = Körpertyp
+Female = Weiblich
+Male = Männlich
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Der Körperbau des Avatars: Ein weiblicher Körper hat etwas breitere Hüften und schmalere Schultern.
+Height = Größe
+Shorter or taller limbs and body. = Kürzere oder längere Gliedmaßen und Rumpf.
+Weight = Gewicht
+A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
 
 [added fr]
 Console storage = Stockage de la console
@@ -454,6 +924,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Les
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Les sauvegardes et les réglages n'ont pas été copiés depuis PS5X360 : un dossier n'a pas pu être vérifié (le journal indique pourquoi). Le prochain démarrage réessaiera.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Ce périphérique contient PS5X360/saves et PS5X360Reloaded/saves. PS5X360Reloaded/saves est utilisé ; l'ancien dossier a été laissé tel quel :
 Disc %u = Disque %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disque
+Disc %u of %u = Disque %u sur %u
+Choose the disc = Choisir le disque
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Groupe
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d jeu
+%d games = %d jeux
+%d games||few = %d jeux
+%d games||one = %d jeux
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ou dans /data/xbox360/, ou dans un dossier xbox360 à la racine d'un disque USB ou M.2.
 Kinect game = Jeu Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \snécessite Kinect. Activer Camera motion pour ce jeu ?
@@ -464,6 +945,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Mouvement : aucun téléphone connecté
 Scan with your phone to use it as Kinect. = Scannez avec votre téléphone pour l'utiliser comme Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Même Wi-Fi, placez-vous à 2-3 m, corps entier visible.
+Step back = Reculez
+Step closer = Rapprochez-vous
+Show your whole body to the camera = Montrez tout votre corps à la caméra
+Hand reach (the game needs %.2f) = Portée de la main (le jeu demande %.2f)
+Motion panel = Panneau de mouvement
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Où le panneau de mouvement de la caméra s'affiche sur le jeu (la pose du téléphone, ce que le jeu attend des mains, le code pour connecter un téléphone). Désactivé ne garde que le code tant qu'aucun téléphone n'est connecté.
+Top right = En haut à droite
+Top left = En haut à gauche
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Aucun joueur détecté. Maintenez L3 + R3 pour rétablir la dernière posture, ou appuyez brièvement dessus pour recentrer la caméra du téléphone d'ici. Placez-vous à 2,5-3 m du téléphone, les hanches visibles.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posture de secours active : le jeu voit la dernière posture. Relâchez L3 + R3 pour l'arrêter ; un corps venant du téléphone prend le relais.
+Re-centring the phone camera in %d... Stand still at your spot. = Recentrage de la caméra du téléphone dans %d... Restez immobile à votre place.
+Re-centring the phone camera... Stand still at your spot. = Recentrage de la caméra du téléphone... Restez immobile à votre place.
+Logs for a bug report = Journaux pour un rapport de bug
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = Pour le prochain jeu que vous lancez, l'émulateur note plus de détails sur ce qui se passe. Jouez jusqu'à ce que le problème apparaisse, puis fermez le jeu. Un écran liste ensuite les fichiers à joindre à votre rapport de bug. L'option se désactive d'elle-même après ce jeu.
+Next game = Prochain jeu
+Logs for a bug report: on for the next game = Journaux pour un rapport de bug : activés pour le prochain jeu
+Files for your bug report = Fichiers pour votre rapport de bug
+Detailed logs of your last game session are ready. = Les journaux détaillés de votre dernière session de jeu sont prêts.
+Files on the console: = Fichiers sur la console :
+Preparing one .zip file with all of them... = Préparation d'un fichier .zip qui les contient tous...
+All of them in one file: = Tous dans un seul fichier :
+Could not make the .zip file. Copy the files one by one. = Impossible de créer le fichier .zip. Copiez les fichiers un par un.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Scannez le code avec un téléphone pour télécharger le .zip, ou ouvrez cette adresse sur un ordinateur du même réseau :
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Pour les télécharger sur un téléphone ou un ordinateur, activez l'option Page de paramètres pour téléphone (Paramètres, Système).
+With an FTP program, copy them from this folder: = Avec un logiciel FTP, copiez-les depuis ce dossier :
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Ouvrez ensuite une nouvelle issue sur GitHub, décrivez ce que vous avez fait et ce qui n'a pas marché, et joignez les fichiers :
+Bug report files (.zip) = Fichiers du rapport de bug (.zip)
+Returning to the menu... = Retour au menu...
+Restarting the game... = Redémarrage du jeu...
+Closing the emulator... = Fermeture de l'émulateur...
+Please wait, this can take a few seconds. = Veuillez patienter, cela peut prendre quelques secondes.
+Problem with a game? Logs for a bug report = Un problème avec un jeu ? Journaux pour un rapport de bug
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Le prochain jeu que vous lancez note plus de détails. Ensuite, un écran liste les fichiers à joindre à votre rapport de bug.
+Problem with this game? Logs for a bug report = Un problème avec ce jeu ? Journaux pour un rapport de bug
+Next start = Prochain lancement
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Le prochain lancement de ce jeu note plus de détails. Ensuite, un écran liste les fichiers à joindre à votre rapport de bug.
+Restart this game with logs for a bug report = Relancer ce jeu avec des journaux pour un rapport de bug
+This session did not end normally: the game stopped or the emulator was closed. It began on = Cette session ne s'est pas terminée normalement : le jeu s'est arrêté ou l'émulateur a été fermé. Début :
+Saving shaders for faster loading next time... = Enregistrement des shaders pour un chargement plus rapide la prochaine fois...
+Writing data to the drive... = Écriture des données sur le disque...
+Signing out of online play... = Déconnexion du jeu en ligne...
+Saving the logs for the bug report... = Enregistrement des journaux du rapport de bug...
+Starting the menu... = Démarrage du menu...
+Starting the game... = Démarrage du jeu...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Astuce : quittez avec Quitter l'émulateur plutôt qu'avec la touche PS, pour garder les shaders la prochaine fois.
+Restart game = Relancer le jeu
+Mute game sound = Couper le son du jeu
+# Fix 114: the on-screen keyboard.
+Keyboard = Clavier
+Shift = Maj
+Caps = Verr. Maj
+Other characters = Autres caractères
+Move cursor = Déplacer le curseur
+Maximum length reached = Longueur maximale atteinte
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Retirer le DLC ?
+Size: %s = Taille : %s
+Drive: %s = Périphérique : %s
+The package file is deleted from this drive. This can't be undone. = Le fichier du paquet est supprimé de ce périphérique. Cette action est irréversible.
+DLC removed. = DLC retiré.
+Could not remove the DLC file. = Impossible de retirer le fichier du DLC.
+Close the game first: DLC can't be changed while a game is running. = Fermez d'abord le jeu : un DLC ne peut pas être modifié pendant qu'un jeu est en cours.
+This drive has this DLC both On and Off: remove one of the two first. = Ce périphérique contient ce DLC Activé et Désactivé : retirez d'abord l'une des deux copies.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Image de la caméra pour le jeu
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Avec un téléphone comme Kinect, le téléphone peut aussi envoyer une petite image de sa caméra pour les jeux qui montrent la caméra (replays, photos). Elle ne va qu'à cette console, et l'émulateur la garde seulement en mémoire, jamais sur un disque ; un jeu peut quand même garder ses propres photos dans ses sauvegardes. Il faut aussi activer Image de la caméra pour le jeu sur la page du téléphone. Désactivée, les jeux voient une image grise.
+Resolution scale (test) = Échelle de rendu (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Dessine le jeu au double de sa résolution pour une image plus nette. Utilise beaucoup plus de mémoire vidéo et de puissance graphique ; certains effets (lueurs, ombres, images que le jeu relit) peuvent être incorrects. C'est un test : si le jeu se ferme ou s'affiche mal, revenez à 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Échelle de rendu (test) 2x : ce jeu a besoin de plus de mémoire qu'il n'en reste. L'image peut se dégrader ; choisissez 1x dans les réglages de ce jeu.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar enregistré. Les jeux qui affichent des avatars l'utiliseront à leur prochain lancement.
+Could not save the avatar. = Impossible d'enregistrer l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La silhouette de l'avatar de ce profil, pour les jeux qui montrent le joueur sous forme d'avatar (Kinect Sports). Seulement la silhouette pour l'instant : l'avatar n'a pas encore de vêtements ni de visage.
+Body type = Morphologie
+Female = Femme
+Male = Homme
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La carrure de l'avatar : un corps féminin a des hanches un peu plus larges et des épaules plus étroites.
+Height = Taille
+Shorter or taller limbs and body. = Membres et corps plus courts ou plus longs.
+Weight = Corpulence
+A thinner or heavier build. = Une silhouette plus mince ou plus forte.
 
 [added it]
 Console storage = Memoria della console
@@ -500,6 +1064,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = I s
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Salvataggi e impostazioni non sono stati copiati da PS5X360: non è stato possibile controllare una cartella (il registro indica il motivo). Il prossimo avvio riproverà.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Questa unità contiene PS5X360/saves e PS5X360Reloaded/saves. Viene usata PS5X360Reloaded/saves; la vecchia cartella è stata lasciata com'era:
 Disc %u = Disco %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disco
+Disc %u of %u = Disco %u di %u
+Choose the disc = Scegli il disco
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Gruppo
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d gioco
+%d games = %d giochi
+%d games||few = %d giochi
+%d games||one = %d giochi
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = oppure in /data/xbox360/ o in una cartella xbox360 nella radice di un'unità USB o M.2.
 Kinect game = Gioco Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \srichiede Kinect. Attivare Camera motion per questo gioco?
@@ -510,6 +1085,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nessun telefono connesso
 Scan with your phone to use it as Kinect. = Scansiona con il telefono per usarlo come Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Stessa rete Wi-Fi, stai a 2-3 m, corpo intero visibile.
+Step back = Allontanati
+Step closer = Avvicinati
+Show your whole body to the camera = Mostra tutto il corpo alla fotocamera
+Hand reach (the game needs %.2f) = Portata della mano (il gioco richiede %.2f)
+Motion panel = Pannello del movimento
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dove compare il pannello del movimento della fotocamera sopra il gioco (la posa dal telefono, ciò che il gioco chiede alle mani, il codice per collegare un telefono). Disattivato mostra solo il codice finché nessun telefono è collegato.
+Top right = In alto a destra
+Top left = In alto a sinistra
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nessun giocatore rilevato. Tieni premuti L3 + R3 per riportare l'ultima posa, oppure premili brevemente per ricentrare la fotocamera del telefono da qui. Mettiti a 2,5-3 m dal telefono con i fianchi visibili.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posa di emergenza attiva: il gioco vede l'ultima posa. Rilascia L3 + R3 per fermarla; un corpo dal telefono subentra.
+Re-centring the phone camera in %d... Stand still at your spot. = Ricentratura della fotocamera del telefono tra %d... Resta fermo al tuo posto.
+Re-centring the phone camera... Stand still at your spot. = Ricentratura della fotocamera del telefono... Resta fermo al tuo posto.
+Logs for a bug report = Log per una segnalazione di bug
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = Nel prossimo gioco che avvii, l'emulatore annota più dettagli su ciò che succede. Gioca finché il problema non si presenta, poi chiudi il gioco. Una schermata elenca quindi i file da allegare alla tua segnalazione di bug. L'opzione si disattiva da sola dopo quel gioco.
+Next game = Prossimo gioco
+Logs for a bug report: on for the next game = Log per una segnalazione di bug: attivi per il prossimo gioco
+Files for your bug report = File per la tua segnalazione di bug
+Detailed logs of your last game session are ready. = I log dettagliati della tua ultima sessione di gioco sono pronti.
+Files on the console: = File sulla console:
+Preparing one .zip file with all of them... = Preparazione di un file .zip con tutti i file...
+All of them in one file: = Tutti in un unico file:
+Could not make the .zip file. Copy the files one by one. = Impossibile creare il file .zip. Copia i file uno alla volta.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Inquadra il codice con un telefono per scaricare il .zip, oppure apri questo indirizzo su un computer della stessa rete:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Per scaricarli su un telefono o un computer, attiva l'opzione Pagina delle impostazioni per il telefono (Impostazioni, Sistema).
+With an FTP program, copy them from this folder: = Con un programma FTP, copiali da questa cartella:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Poi apri una nuova issue su GitHub, descrivi cosa hai fatto e cosa è andato storto e allega i file:
+Bug report files (.zip) = File della segnalazione di bug (.zip)
+Returning to the menu... = Ritorno al menu...
+Restarting the game... = Riavvio del gioco...
+Closing the emulator... = Chiusura dell'emulatore...
+Please wait, this can take a few seconds. = Attendi, potrebbe richiedere qualche secondo.
+Problem with a game? Logs for a bug report = Problemi con un gioco? Log per una segnalazione di bug
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Il prossimo gioco che avvii annota più dettagli. Poi una schermata elenca i file da allegare alla tua segnalazione di bug.
+Problem with this game? Logs for a bug report = Problemi con questo gioco? Log per una segnalazione di bug
+Next start = Prossimo avvio
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Il prossimo avvio di questo gioco annota più dettagli. Poi una schermata elenca i file da allegare alla tua segnalazione di bug.
+Restart this game with logs for a bug report = Riavvia questo gioco con i log per una segnalazione di bug
+This session did not end normally: the game stopped or the emulator was closed. It began on = Questa sessione non è terminata normalmente: il gioco si è fermato o l'emulatore è stato chiuso. Iniziata il
+Saving shaders for faster loading next time... = Salvataggio degli shader per caricare più in fretta la prossima volta...
+Writing data to the drive... = Scrittura dei dati sull'unità...
+Signing out of online play... = Uscita dal gioco online...
+Saving the logs for the bug report... = Salvataggio dei log per la segnalazione di bug...
+Starting the menu... = Avvio del menu...
+Starting the game... = Avvio del gioco...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Suggerimento: esci con Esci dall'emulatore invece del tasto PS, così gli shader restano per la prossima volta.
+Restart game = Riavvia il gioco
+Mute game sound = Disattiva l'audio del gioco
+# Fix 114: the on-screen keyboard.
+Keyboard = Tastiera
+Shift = Maiusc
+Caps = Bloc Maiusc
+Other characters = Altri caratteri
+Move cursor = Sposta il cursore
+Maximum length reached = Lunghezza massima raggiunta
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Rimuovere il DLC?
+Size: %s = Dimensione: %s
+Drive: %s = Unità: %s
+The package file is deleted from this drive. This can't be undone. = Il file del pacchetto viene eliminato da questa unità. L'operazione non può essere annullata.
+DLC removed. = DLC rimosso.
+Could not remove the DLC file. = Impossibile rimuovere il file del DLC.
+Close the game first: DLC can't be changed while a game is running. = Chiudi prima il gioco: il DLC non si può modificare mentre un gioco è in esecuzione.
+This drive has this DLC both On and Off: remove one of the two first. = Questa unità ha questo DLC sia Attivo sia Spento: rimuovi prima una delle due copie.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Immagine della fotocamera per il gioco
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Con un telefono come Kinect, il telefono può anche inviare una piccola immagine della sua fotocamera per i giochi che mostrano la telecamera (replay, foto). Va solo a questa console, e l'emulatore la tiene solo in memoria, mai su un'unità; un gioco può comunque conservare foto proprie nei suoi salvataggi. Serve anche attivare Immagine della fotocamera per il gioco nella pagina del telefono. Disattivata, i giochi vedono un'immagine grigia.
+Resolution scale (test) = Scala di rendering (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Disegna il gioco al doppio della sua risoluzione per un'immagine più nitida. Usa molta più memoria video e potenza grafica; alcuni effetti (bagliori, ombre, immagini che il gioco rilegge) possono apparire errati. È un test: se il gioco si chiude o appare difettoso, torna a 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Scala di rendering (test) 2x: questo gioco richiede più memoria di quella rimasta. L'immagine potrebbe guastarsi; imposta 1x nelle impostazioni di questo gioco.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar salvato. I giochi che mostrano gli avatar lo useranno dal prossimo avvio.
+Could not save the avatar. = Impossibile salvare l'avatar.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = La corporatura dell'avatar di questo profilo, per i giochi che mostrano il giocatore come avatar (Kinect Sports). Per ora solo la corporatura: l'avatar non ha ancora vestiti né volto.
+Body type = Tipo di corpo
+Female = Donna
+Male = Uomo
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = La corporatura dell'avatar: un corpo femminile ha fianchi un po' più larghi e spalle più strette.
+Height = Altezza
+Shorter or taller limbs and body. = Arti e corpo più corti o più lunghi.
+Weight = Peso
+A thinner or heavier build. = Una corporatura più magra o più robusta.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -546,6 +1204,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = PS5
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360 からセーブデータと設定をコピーできませんでした：フォルダーを確認できませんでした（理由はログに記録されています）。次回の起動時に再試行します。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = このドライブには PS5X360/saves と PS5X360Reloaded/saves の両方があります。PS5X360Reloaded/saves を使用し、古いフォルダーはそのままにしました:
 Disc %u = ディスク %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = ディスク
+Disc %u of %u = ディスク %u/%u
+Choose the disc = ディスクを選ぶ
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = グループ
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d 本のゲーム
+%d games = %d 本のゲーム
+%d games||few = %d 本のゲーム
+%d games||one = %d 本のゲーム
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = または /data/xbox360/、あるいは USB / M.2 ドライブ直下の xbox360 フォルダー。
 Kinect game = Kinect ゲーム
 \srequires Kinect. Turn on Camera motion for this game? = \sには Kinect が必要です。このゲームで Camera motion をオンにしますか？
@@ -556,6 +1225,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = モーション: スマートフォン未接続
 Scan with your phone to use it as Kinect. = スマートフォンでスキャンして Kinect として使用します。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 同じ Wi-Fi で、2-3 m 離れて全身が映るように立ってください。
+Step back = 下がってください
+Step closer = 近づいてください
+Show your whole body to the camera = 全身をカメラに映してください
+Hand reach (the game needs %.2f) = 手の伸び (ゲームの必要値 %.2f)
+Motion panel = モーションパネル
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = ゲーム上にカメラモーションのパネルを表示する位置 (スマートフォンからのポーズ、ゲームが手に求める動き、スマートフォンを接続するコード)。オフにすると、スマートフォンが未接続の間だけコードを表示します。
+Top right = 右上
+Top left = 左上
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = プレイヤーが見つかりません。L3 + R3 を長押しすると最後のポーズに戻せます。短く押すと、ここからスマートフォンのカメラを再センタリングできます。腰が映るようにスマートフォンから 2.5-3 m 離れて立ってください。
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急ポーズ中：ゲームには最後のポーズが送られています。L3 + R3 を離すと終了し、スマートフォンで体が見つかると引き継ぎます。
+Re-centring the phone camera in %d... Stand still at your spot. = %d 秒後にスマートフォンのカメラを再センタリングします... その場でじっとしていてください。
+Re-centring the phone camera... Stand still at your spot. = スマートフォンのカメラを再センタリングしています... その場でじっとしていてください。
+Logs for a bug report = 不具合報告用のログ
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = 次に起動するゲームで、エミュレーターは起きたことをより詳しく記録します。問題が起きるまでプレイしてから、ゲームを閉じてください。その後、不具合報告に添付するファイルが画面に表示されます。そのゲームの後は自動でオフになります。
+Next game = 次のゲーム
+Logs for a bug report: on for the next game = 不具合報告用のログ：次のゲームでオン
+Files for your bug report = 不具合報告用のファイル
+Detailed logs of your last game session are ready. = 前回のゲームセッションの詳細なログができました。
+Files on the console: = 本体上のファイル：
+Preparing one .zip file with all of them... = すべてをまとめた .zip ファイルを作成中...
+All of them in one file: = すべてを 1 つのファイルに：
+Could not make the .zip file. Copy the files one by one. = .zip ファイルを作成できませんでした。ファイルを 1 つずつコピーしてください。
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = スマホでコードを読み取って .zip をダウンロードするか、同じネットワークのパソコンでこのアドレスを開いてください：
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = スマホやパソコンにダウンロードするには、スマホ用設定ページ（設定、システム）をオンにしてください。
+With an FTP program, copy them from this folder: = FTP ソフトで次のフォルダーからコピーしてください：
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = 次に GitHub で新しい issue を作成し、何をしたか、何がおかしかったかを書いて、ファイルを添付してください：
+Bug report files (.zip) = 不具合報告のファイル (.zip)
+Returning to the menu... = メニューに戻っています...
+Restarting the game... = ゲームを再起動しています...
+Closing the emulator... = エミュレーターを終了しています...
+Please wait, this can take a few seconds. = しばらくお待ちください。数秒かかることがあります。
+Problem with a game? Logs for a bug report = ゲームに問題がありますか？不具合報告用のログ
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 次に起動するゲームで、より詳しい記録を取ります。その後、不具合報告に添付するファイルが画面に表示されます。
+Problem with this game? Logs for a bug report = このゲームに問題がありますか？不具合報告用のログ
+Next start = 次回の起動
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = このゲームの次回の起動で、より詳しい記録を取ります。その後、不具合報告に添付するファイルが画面に表示されます。
+Restart this game with logs for a bug report = 不具合報告用のログを取ってこのゲームを再起動
+This session did not end normally: the game stopped or the emulator was closed. It began on = このセッションは正常に終了しませんでした（ゲームが止まったか、エミュレーターが閉じられました）。開始：
+Saving shaders for faster loading next time... = 次回の読み込みを速くするためにシェーダーを保存しています...
+Writing data to the drive... = ドライブにデータを書き込んでいます...
+Signing out of online play... = オンラインプレイからサインアウトしています...
+Saving the logs for the bug report... = 不具合報告用のログを保存しています...
+Starting the menu... = メニューを起動しています...
+Starting the game... = ゲームを起動しています...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = ヒント：シェーダーを次回に残すには、PSボタンではなく「エミュレーターを終了」で終了してください。
+Restart game = ゲームを再起動
+Mute game sound = ゲームの音を消す
+# Fix 114: the on-screen keyboard.
+Keyboard = キーボード
+Shift = シフト
+Caps = 大文字
+Other characters = その他の文字
+Move cursor = カーソル移動
+Maximum length reached = 最大文字数に達しました
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC を削除しますか？
+Size: %s = サイズ: %s
+Drive: %s = ドライブ: %s
+The package file is deleted from this drive. This can't be undone. = このドライブからパッケージファイルが削除されます。元に戻すことはできません。
+DLC removed. = DLC を削除しました。
+Could not remove the DLC file. = DLC ファイルを削除できませんでした。
+Close the game first: DLC can't be changed while a game is running. = 先にゲームを閉じてください。ゲームの実行中は DLC を変更できません。
+This drive has this DLC both On and Off: remove one of the two first. = このドライブにはこの DLC がオンとオフの両方にあります。先にどちらかを削除してください。
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = ゲーム用のカメラ画像
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = スマートフォンを Kinect として使うとき、カメラを映すゲーム（リプレイ、写真）のために、スマートフォンのカメラの小さな画像も送れます。画像はこの本体にだけ送られ、エミュレーターはメモリーにだけ置き、ドライブには保存しません。ただし、ゲームが自分の写真をセーブデータに残すことはあります。スマートフォンのページでも「ゲーム用のカメラ画像」をオンにする必要があります。オフのとき、ゲームには灰色の画像が映ります。
+Resolution scale (test) = 描画解像度の倍率（テスト）
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = ゲームを本来の2倍の解像度で描画し、画像を鮮明にします。ビデオメモリとグラフィック性能を大幅に多く使い、一部の効果（光のにじみ、影、ゲームが読み戻す画像）が正しく表示されないことがあります。テスト機能です。ゲームが終了したり表示がおかしくなったりしたら1xに戻してください。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 描画解像度の倍率（テスト）2x：このゲームには残りより多くのメモリが必要です。画面が崩れることがあります。このゲームの設定で1xにしてください。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = アバター
+Avatar saved. Games that show avatars use it from their next start. = アバターを保存しました。アバターを表示するゲームでは、次回の起動から使われます。
+Could not save the avatar. = アバターを保存できませんでした。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = このプロフィールのアバターの体形です。プレイヤーをアバターで表示するゲーム（Kinect Sports）で使われます。今は体形のみで、服や顔はまだありません。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = アバターの体格：女性の体は腰がやや広く、肩が狭くなります。
+Height = 身長
+Shorter or taller limbs and body. = 手足と胴体を短く、または長くします。
+Weight = 体重
+A thinner or heavier build. = 細め、またはがっしりした体格にします。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -592,6 +1344,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = PS5
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = PS5X360에서 저장 데이터와 설정을 복사하지 못했습니다: 폴더를 확인할 수 없었습니다(로그에 이유가 기록됨). 다음 시작 시 다시 시도합니다.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 이 드라이브에 PS5X360/saves와 PS5X360Reloaded/saves가 모두 있습니다. PS5X360Reloaded/saves를 사용하며 이전 폴더는 그대로 두었습니다:
 Disc %u = 디스크 %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = 디스크
+Disc %u of %u = 디스크 %u/%u
+Choose the disc = 디스크 선택
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = 그룹
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = 게임 %d개
+%d games = 게임 %d개
+%d games||few = 게임 %d개
+%d games||one = 게임 %d개
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 또는 /data/xbox360/ 이나 USB / M.2 드라이브 최상위의 xbox360 폴더.
 Kinect game = Kinect 게임
 \srequires Kinect. Turn on Camera motion for this game? = \s에는 Kinect가 필요합니다. 이 게임에서 Camera motion을 켜시겠습니까?
@@ -602,6 +1365,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 모션: 연결된 휴대폰 없음
 Scan with your phone to use it as Kinect. = 휴대폰으로 스캔하여 Kinect로 사용하세요.
 Same Wi-Fi, stand 2-3 m back, full body visible. = 같은 Wi-Fi에서 2-3 m 떨어져 전신이 보이게 서세요.
+Step back = 뒤로 물러나세요
+Step closer = 더 가까이 오세요
+Show your whole body to the camera = 전신이 카메라에 보이게 하세요
+Hand reach (the game needs %.2f) = 손 뻗기 (게임 필요값 %.2f)
+Motion panel = 모션 패널
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 게임 위에 카메라 모션 패널을 표시할 위치 (휴대폰의 자세, 게임이 손에 요구하는 동작, 휴대폰 연결 코드). 끄면 휴대폰이 연결되지 않은 동안 코드만 표시합니다.
+Top right = 오른쪽 위
+Top left = 왼쪽 위
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 플레이어가 보이지 않습니다. L3 + R3를 길게 누르면 마지막 자세를 되돌리고, 짧게 누르면 여기서 휴대폰 카메라를 다시 중앙에 맞춥니다. 엉덩이가 보이도록 휴대폰에서 2.5-3 m 떨어져 서세요.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 비상 자세 사용 중: 게임에 마지막 자세가 전달됩니다. L3 + R3를 놓으면 멈추고, 휴대폰에서 몸이 잡히면 이어받습니다.
+Re-centring the phone camera in %d... Stand still at your spot. = %d초 후 휴대폰 카메라를 다시 중앙에 맞춥니다... 그 자리에 가만히 서 계세요.
+Re-centring the phone camera... Stand still at your spot. = 휴대폰 카메라를 다시 중앙에 맞추는 중... 그 자리에 가만히 서 계세요.
+Logs for a bug report = 버그 신고용 로그
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = 다음에 시작하는 게임에서 에뮬레이터가 일어나는 일을 더 자세히 기록합니다. 문제가 나타날 때까지 플레이한 뒤 게임을 닫으세요. 그러면 버그 신고에 첨부할 파일 목록이 화면에 표시됩니다. 그 게임이 끝나면 자동으로 꺼집니다.
+Next game = 다음 게임
+Logs for a bug report: on for the next game = 버그 신고용 로그: 다음 게임에서 켜짐
+Files for your bug report = 버그 신고용 파일
+Detailed logs of your last game session are ready. = 마지막 게임 세션의 자세한 로그가 준비되었습니다.
+Files on the console: = 본체의 파일:
+Preparing one .zip file with all of them... = 모든 파일을 담은 .zip 파일을 만드는 중...
+All of them in one file: = 모두 하나의 파일로:
+Could not make the .zip file. Copy the files one by one. = .zip 파일을 만들 수 없습니다. 파일을 하나씩 복사하세요.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = 휴대폰으로 코드를 스캔해 .zip을 내려받거나, 같은 네트워크의 컴퓨터에서 이 주소를 여세요:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = 휴대폰이나 컴퓨터로 내려받으려면 휴대폰용 설정 페이지 옵션을 켜세요 (설정, 시스템).
+With an FTP program, copy them from this folder: = FTP 프로그램으로 이 폴더에서 복사하세요:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = 그런 다음 GitHub에서 새 issue를 열고, 무엇을 했고 무엇이 잘못되었는지 설명한 뒤 파일을 첨부하세요:
+Bug report files (.zip) = 버그 신고 파일 (.zip)
+Returning to the menu... = 메뉴로 돌아가는 중...
+Restarting the game... = 게임을 다시 시작하는 중...
+Closing the emulator... = 에뮬레이터를 닫는 중...
+Please wait, this can take a few seconds. = 잠시 기다려 주세요. 몇 초 걸릴 수 있습니다.
+Problem with a game? Logs for a bug report = 게임에 문제가 있나요? 버그 신고용 로그
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 다음에 시작하는 게임에서 더 자세히 기록합니다. 그 후 버그 신고에 첨부할 파일 목록이 화면에 표시됩니다.
+Problem with this game? Logs for a bug report = 이 게임에 문제가 있나요? 버그 신고용 로그
+Next start = 다음 시작
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 이 게임의 다음 시작에서 더 자세히 기록합니다. 그 후 버그 신고에 첨부할 파일 목록이 화면에 표시됩니다.
+Restart this game with logs for a bug report = 버그 신고용 로그와 함께 이 게임 다시 시작
+This session did not end normally: the game stopped or the emulator was closed. It began on = 이 세션은 정상적으로 끝나지 않았습니다. 게임이 멈췄거나 에뮬레이터가 닫혔습니다. 시작:
+Saving shaders for faster loading next time... = 다음에 더 빨리 불러오도록 셰이더를 저장하는 중...
+Writing data to the drive... = 드라이브에 데이터를 쓰는 중...
+Signing out of online play... = 온라인 플레이에서 로그아웃하는 중...
+Saving the logs for the bug report... = 버그 신고용 로그를 저장하는 중...
+Starting the menu... = 메뉴를 시작하는 중...
+Starting the game... = 게임을 시작하는 중...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = 팁: 셰이더를 다음에도 쓰려면 PS 버튼 대신 에뮬레이터 종료로 나가세요.
+Restart game = 게임 다시 시작
+Mute game sound = 게임 소리 끄기
+# Fix 114: the on-screen keyboard.
+Keyboard = 키보드
+Shift = 시프트
+Caps = 대문자
+Other characters = 기타 문자
+Move cursor = 커서 이동
+Maximum length reached = 최대 길이에 도달했습니다
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC를 제거할까요?
+Size: %s = 크기: %s
+Drive: %s = 드라이브: %s
+The package file is deleted from this drive. This can't be undone. = 이 드라이브에서 패키지 파일이 삭제됩니다. 되돌릴 수 없습니다.
+DLC removed. = DLC를 제거했습니다.
+Could not remove the DLC file. = DLC 파일을 제거할 수 없습니다.
+Close the game first: DLC can't be changed while a game is running. = 먼저 게임을 닫으세요. 게임이 실행 중일 때는 DLC를 변경할 수 없습니다.
+This drive has this DLC both On and Off: remove one of the two first. = 이 드라이브에 이 DLC가 켜기와 끄기 양쪽에 있습니다. 먼저 둘 중 하나를 제거하세요.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = 게임용 카메라 이미지
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 휴대폰을 Kinect로 쓸 때, 카메라를 보여 주는 게임(리플레이, 사진)을 위해 휴대폰 카메라의 작은 이미지도 보낼 수 있습니다. 이미지는 이 본체로만 가고, 에뮬레이터는 메모리에만 두며 드라이브에 저장하지 않습니다. 다만 게임이 자체 사진을 세이브에 남길 수는 있습니다. 휴대폰 페이지에서도 게임용 카메라 이미지를 켜야 합니다. 끄면 게임에는 회색 이미지가 보입니다.
+Resolution scale (test) = 렌더링 배율 (테스트)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 게임을 원래 해상도의 두 배로 그려 더 선명한 화면을 만듭니다. 비디오 메모리와 그래픽 성능을 훨씬 많이 사용하며, 일부 효과(빛 번짐, 그림자, 게임이 다시 읽는 이미지)가 잘못 보일 수 있습니다. 테스트 기능입니다. 게임이 종료되거나 화면이 깨지면 1x로 되돌리세요.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 렌더링 배율 (테스트) 2x: 이 게임에는 남은 메모리보다 더 많은 메모리가 필요합니다. 화면이 깨질 수 있으니 이 게임의 설정에서 1x로 바꾸세요.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 아바타
+Avatar saved. Games that show avatars use it from their next start. = 아바타를 저장했습니다. 아바타를 표시하는 게임은 다음 실행부터 사용합니다.
+Could not save the avatar. = 아바타를 저장할 수 없습니다.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 이 프로필 아바타의 체형으로, 플레이어를 아바타로 보여 주는 게임(Kinect Sports)에서 사용됩니다. 지금은 체형만 있으며, 아바타에 아직 옷이나 얼굴이 없습니다.
+Body type = 체형 유형
+Female = 여성
+Male = 남성
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 아바타의 체격: 여성의 몸은 엉덩이가 조금 더 넓고 어깨가 더 좁습니다.
+Height = 키
+Shorter or taller limbs and body. = 팔다리와 몸통을 더 짧게 또는 길게 합니다.
+Weight = 체중
+A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -638,6 +1484,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Opg
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Opgeslagen spellen en instellingen zijn niet gekopieerd uit PS5X360: een map kon niet worden gecontroleerd (het logboek noemt de reden). De volgende start probeert het opnieuw.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Dit station heeft zowel PS5X360/saves als PS5X360Reloaded/saves. PS5X360Reloaded/saves wordt gebruikt; de oude map is ongewijzigd gelaten:
 Disc %u = Schijf %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Schijf
+Disc %u of %u = Schijf %u van %u
+Choose the disc = Schijf kiezen
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Groep
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d game
+%d games = %d games
+%d games||few = %d games
+%d games||one = %d games
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = of in /data/xbox360/, of in een map xbox360 in de hoofdmap van een USB- of M.2-schijf.
 Kinect game = Kinect-game
 \srequires Kinect. Turn on Camera motion for this game? = \svereist Kinect. Camera motion voor deze game inschakelen?
@@ -648,6 +1505,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Beweging: geen telefoon verbonden
 Scan with your phone to use it as Kinect. = Scan met je telefoon om hem als Kinect te gebruiken.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Zelfde wifi, sta 2-3 m achteruit, hele lichaam zichtbaar.
+Step back = Ga achteruit
+Step closer = Kom dichterbij
+Show your whole body to the camera = Laat je hele lichaam aan de camera zien
+Hand reach (the game needs %.2f) = Handbereik (het spel heeft %.2f nodig)
+Motion panel = Bewegingspaneel
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Waar het bewegingspaneel van de camera boven het spel staat (de houding van de telefoon, wat het spel van je handen nodig heeft, de code om een telefoon te verbinden). Uit toont alleen de code zolang er geen telefoon verbonden is.
+Top right = Rechtsboven
+Top left = Linksboven
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Geen speler gezien. Houd L3 + R3 ingedrukt om de laatste houding terug te halen, of druk ze kort in om de telefooncamera van hieruit opnieuw te centreren. Ga op 2,5-3 m van de telefoon staan met je heupen in beeld.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Noodhouding aan: de game ziet de laatste houding. Laat L3 + R3 los om te stoppen; een lichaam van de telefoon neemt het over.
+Re-centring the phone camera in %d... Stand still at your spot. = De telefooncamera wordt over %d opnieuw gecentreerd... Blijf stil op je plek staan.
+Re-centring the phone camera... Stand still at your spot. = De telefooncamera wordt opnieuw gecentreerd... Blijf stil op je plek staan.
+Logs for a bug report = Logs voor een foutmelding
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = Bij het volgende spel dat je start, schrijft de emulator meer details op van wat er gebeurt. Speel tot het probleem optreedt en sluit dan het spel. Een scherm toont daarna de bestanden die je bij je foutmelding voegt. De optie gaat na dat spel vanzelf uit.
+Next game = Volgend spel
+Logs for a bug report: on for the next game = Logs voor een foutmelding: aan voor het volgende spel
+Files for your bug report = Bestanden voor je foutmelding
+Detailed logs of your last game session are ready. = De uitgebreide logs van je laatste spelsessie zijn klaar.
+Files on the console: = Bestanden op de console:
+Preparing one .zip file with all of them... = Eén .zip-bestand met alles wordt gemaakt...
+All of them in one file: = Alles in één bestand:
+Could not make the .zip file. Copy the files one by one. = Het .zip-bestand kon niet worden gemaakt. Kopieer de bestanden één voor één.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Scan de code met een telefoon om de .zip te downloaden, of open dit adres op een computer in hetzelfde netwerk:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Zet de optie Instellingenpagina voor de telefoon aan (Instellingen, Systeem) om ze op een telefoon of computer te downloaden.
+With an FTP program, copy them from this folder: = Kopieer ze met een FTP-programma uit deze map:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Open daarna een nieuwe issue op GitHub, beschrijf wat je deed en wat er misging, en voeg de bestanden toe:
+Bug report files (.zip) = Bestanden van de foutmelding (.zip)
+Returning to the menu... = Terug naar het menu...
+Restarting the game... = Het spel wordt opnieuw gestart...
+Closing the emulator... = De emulator wordt gesloten...
+Please wait, this can take a few seconds. = Even geduld, dit kan een paar seconden duren.
+Problem with a game? Logs for a bug report = Probleem met een spel? Logs voor een foutmelding
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Het volgende spel dat je start, schrijft meer details op. Daarna toont een scherm de bestanden voor je foutmelding.
+Problem with this game? Logs for a bug report = Probleem met dit spel? Logs voor een foutmelding
+Next start = Volgende start
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = De volgende start van dit spel schrijft meer details op. Daarna toont een scherm de bestanden voor je foutmelding.
+Restart this game with logs for a bug report = Dit spel opnieuw starten met logs voor een foutmelding
+This session did not end normally: the game stopped or the emulator was closed. It began on = Deze sessie is niet normaal beëindigd: het spel stopte of de emulator werd gesloten. Begonnen op
+Saving shaders for faster loading next time... = Shaders opslaan zodat het de volgende keer sneller laadt...
+Writing data to the drive... = Gegevens naar de schijf schrijven...
+Signing out of online play... = Afmelden bij online spelen...
+Saving the logs for the bug report... = Logs voor de foutmelding opslaan...
+Starting the menu... = Menu starten...
+Starting the game... = Spel starten...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Tip: sluit af met Emulator afsluiten in plaats van de PS-knop, dan blijven de shaders bewaard voor de volgende keer.
+Restart game = Spel opnieuw starten
+Mute game sound = Spelgeluid dempen
+# Fix 114: the on-screen keyboard.
+Keyboard = Toetsenbord
+Shift = Shift
+Caps = Caps
+Other characters = Andere tekens
+Move cursor = Cursor verplaatsen
+Maximum length reached = Maximale lengte bereikt
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC verwijderen?
+Size: %s = Grootte: %s
+Drive: %s = Station: %s
+The package file is deleted from this drive. This can't be undone. = Het pakketbestand wordt van dit station gewist. Dit kan niet ongedaan worden gemaakt.
+DLC removed. = DLC verwijderd.
+Could not remove the DLC file. = Het DLC-bestand kon niet worden verwijderd.
+Close the game first: DLC can't be changed while a game is running. = Sluit eerst de game: DLC kan niet worden gewijzigd terwijl er een game actief is.
+This drive has this DLC both On and Off: remove one of the two first. = Dit station heeft deze DLC zowel Aan als Uit: verwijder eerst een van de twee.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Camerabeeld voor de game
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Met een telefoon als Kinect kan de telefoon ook een klein beeld van zijn camera sturen, voor games die de camera tonen (herhalingen, foto's). Het gaat alleen naar deze console, en de emulator houdt het alleen in het geheugen, nooit op een schijf; een game kan wel eigen foto's in zijn opslag bewaren. Zet ook Camerabeeld voor de game aan op de pagina van de telefoon. Uit zien games een grijs beeld.
+Resolution scale (test) = Renderschaal (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Tekent het spel op twee keer de eigen resolutie voor een scherper beeld. Gebruikt veel meer videogeheugen en grafische kracht; sommige effecten (gloed, schaduwen, beelden die het spel terugleest) kunnen er verkeerd uitzien. Een test: sluit het spel af of ziet het er fout uit, zet het dan terug op 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Renderschaal (test) 2x: dit spel heeft meer geheugen nodig dan er over is. Het beeld kan fouten tonen; zet het op 1x in de instellingen van dit spel.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar opgeslagen. Games die avatars tonen gebruiken hem vanaf de volgende start.
+Could not save the avatar. = Kan de avatar niet opslaan.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = De lichaamsvorm van de avatar van dit profiel, voor games die de speler als avatar tonen (Kinect Sports). Voorlopig alleen de vorm: de avatar heeft nog geen kleding of gezicht.
+Body type = Lichaamstype
+Female = Vrouw
+Male = Man
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = De bouw van de avatar: een vrouwelijk lichaam heeft iets bredere heupen en smallere schouders.
+Height = Lengte
+Shorter or taller limbs and body. = Kortere of langere ledematen en romp.
+Weight = Gewicht
+A thinner or heavier build. = Een slankere of zwaardere bouw.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -684,6 +1624,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Zap
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Zapisy i ustawienia nie zostały skopiowane z PS5X360: nie udało się sprawdzić folderu (log podaje powód). Następne uruchomienie spróbuje ponownie.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Na tym dysku są foldery PS5X360/saves i PS5X360Reloaded/saves. Używany jest PS5X360Reloaded/saves; stary folder pozostawiono bez zmian:
 Disc %u = Płyta %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Płyta
+Disc %u of %u = Płyta %u z %u
+Choose the disc = Wybierz płytę
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grupa
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d gra
+%d games = %d gier
+%d games||few = %d gry
+%d games||one = %d gier
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = albo do /data/xbox360/, albo do folderu xbox360 w katalogu głównym dysku USB lub M.2.
 Kinect game = Gra na Kinecta
 \srequires Kinect. Turn on Camera motion for this game? = \swymaga Kinecta. Włączyć Camera motion dla tej gry?
@@ -694,6 +1645,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Ruch: brak połączonego telefonu
 Scan with your phone to use it as Kinect. = Zeskanuj telefonem, aby użyć go jako Kinecta.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Ta sama sieć Wi-Fi, stań 2-3 m dalej, całe ciało widoczne.
+Step back = Odsuń się
+Step closer = Podejdź bliżej
+Show your whole body to the camera = Pokaż kamerze całe ciało
+Hand reach (the game needs %.2f) = Zasięg ręki (gra potrzebuje %.2f)
+Motion panel = Panel ruchu
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Gdzie nad grą rysowany jest panel ruchu z kamery (poza z telefonu, czego gra potrzebuje od rąk, kod do połączenia telefonu). Wyłączony zostawia tylko kod, dopóki żaden telefon nie jest połączony.
+Top right = U góry po prawej
+Top left = U góry po lewej
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nie widać gracza. Przytrzymaj L3 + R3, aby przywrócić ostatnią pozę, albo naciśnij je krótko, aby stąd wyśrodkować kamerę telefonu. Stań 2,5-3 m od telefonu, z biodrami w kadrze.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Poza awaryjna włączona: gra widzi ostatnią pozę. Puść L3 + R3, aby ją wyłączyć; ciało z telefonu przejmie sterowanie.
+Re-centring the phone camera in %d... Stand still at your spot. = Wyśrodkowanie kamery telefonu za %d... Stań nieruchomo w swoim miejscu.
+Re-centring the phone camera... Stand still at your spot. = Wyśrodkowywanie kamery telefonu... Stań nieruchomo w swoim miejscu.
+Logs for a bug report = Dzienniki do zgłoszenia błędu
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = Przy następnej uruchomionej grze emulator zapisze więcej szczegółów tego, co się dzieje. Graj, aż pojawi się problem, a potem zamknij grę. Następnie ekran pokaże pliki do dołączenia do zgłoszenia błędu. Opcja wyłącza się sama po tej grze.
+Next game = Następna gra
+Logs for a bug report: on for the next game = Dzienniki do zgłoszenia błędu: włączone dla następnej gry
+Files for your bug report = Pliki do zgłoszenia błędu
+Detailed logs of your last game session are ready. = Szczegółowe dzienniki z ostatniej sesji gry są gotowe.
+Files on the console: = Pliki na konsoli:
+Preparing one .zip file with all of them... = Przygotowywanie jednego pliku .zip ze wszystkimi...
+All of them in one file: = Wszystkie w jednym pliku:
+Could not make the .zip file. Copy the files one by one. = Nie udało się utworzyć pliku .zip. Skopiuj pliki pojedynczo.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Zeskanuj kod telefonem, aby pobrać plik .zip, albo otwórz ten adres na komputerze w tej samej sieci:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Aby pobrać je na telefon lub komputer, włącz opcję Strona ustawień dla telefonu (Ustawienia, System).
+With an FTP program, copy them from this folder: = Programem FTP skopiuj je z tego folderu:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Następnie utwórz nowe zgłoszenie (issue) na GitHubie, opisz, co się działo i co poszło nie tak, i dołącz pliki:
+Bug report files (.zip) = Pliki zgłoszenia błędu (.zip)
+Returning to the menu... = Powrót do menu...
+Restarting the game... = Ponowne uruchamianie gry...
+Closing the emulator... = Zamykanie emulatora...
+Please wait, this can take a few seconds. = Proszę czekać, to może potrwać kilka sekund.
+Problem with a game? Logs for a bug report = Problem z grą? Dzienniki do zgłoszenia błędu
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Następna uruchomiona gra zapisze więcej szczegółów. Potem ekran pokaże pliki do dołączenia do zgłoszenia błędu.
+Problem with this game? Logs for a bug report = Problem z tą grą? Dzienniki do zgłoszenia błędu
+Next start = Następne uruchomienie
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Następne uruchomienie tej gry zapisze więcej szczegółów. Potem ekran pokaże pliki do dołączenia do zgłoszenia błędu.
+Restart this game with logs for a bug report = Uruchom tę grę ponownie z dziennikami do zgłoszenia błędu
+This session did not end normally: the game stopped or the emulator was closed. It began on = Ta sesja nie zakończyła się normalnie: gra się zatrzymała albo emulator został zamknięty. Początek:
+Saving shaders for faster loading next time... = Zapisywanie shaderów, żeby następnym razem wczytywało się szybciej...
+Writing data to the drive... = Zapisywanie danych na dysk...
+Signing out of online play... = Wylogowywanie z gry online...
+Saving the logs for the bug report... = Zapisywanie dzienników do zgłoszenia błędu...
+Starting the menu... = Uruchamianie menu...
+Starting the game... = Uruchamianie gry...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Wskazówka: wychodź przez Zamknij emulator, a nie przyciskiem PS, żeby shadery zostały na następny raz.
+Restart game = Uruchom grę ponownie
+Mute game sound = Wycisz dźwięk gry
+# Fix 114: the on-screen keyboard.
+Keyboard = Klawiatura
+Shift = Shift
+Caps = Caps
+Other characters = Inne znaki
+Move cursor = Przesuń kursor
+Maximum length reached = Osiągnięto maksymalną długość
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Usunąć DLC?
+Size: %s = Rozmiar: %s
+Drive: %s = Dysk: %s
+The package file is deleted from this drive. This can't be undone. = Plik pakietu zostanie usunięty z tego dysku. Tej operacji nie można cofnąć.
+DLC removed. = DLC usunięto.
+Could not remove the DLC file. = Nie można usunąć pliku DLC.
+Close the game first: DLC can't be changed while a game is running. = Najpierw zamknij grę: podczas działania gry nie można zmieniać DLC.
+This drive has this DLC both On and Off: remove one of the two first. = Na tym dysku to DLC jest jednocześnie Włączone i Wyłączone: najpierw usuń jedną z dwóch kopii.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Obraz z kamery dla gry
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Gdy telefon służy jako Kinect, może też wysyłać mały obraz ze swojej kamery do gier, które pokazują kamerę (powtórki, zdjęcia). Trafia on tylko do tej konsoli, a emulator trzyma go wyłącznie w pamięci, nigdy na dysku; gra może jednak zachować własne zdjęcia w swoich zapisach. Trzeba też włączyć Obraz z kamery dla gry na stronie w telefonie. Wyłączone: gry widzą szary obraz.
+Resolution scale (test) = Skala renderowania (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Rysuje grę w dwukrotności jej własnej rozdzielczości, dla ostrzejszego obrazu. Zużywa znacznie więcej pamięci wideo i mocy graficznej; niektóre efekty (poświata, cienie, obrazy odczytywane z powrotem przez grę) mogą wyglądać źle. To test: jeśli gra się zamyka lub wygląda źle, wróć do 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Skala renderowania (test) 2x: ta gra potrzebuje więcej pamięci, niż zostało. Obraz może się psuć; ustaw 1x w ustawieniach tej gry.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Awatar
+Avatar saved. Games that show avatars use it from their next start. = Awatar zapisany. Gry z awatarami użyją go od następnego uruchomienia.
+Could not save the avatar. = Nie udało się zapisać awatara.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Sylwetka awatara tego profilu, dla gier, które pokazują gracza jako awatar (Kinect Sports). Na razie tylko sylwetka: awatar nie ma jeszcze ubrań ani twarzy.
+Body type = Budowa ciała
+Female = Kobieta
+Male = Mężczyzna
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Budowa awatara: ciało kobiety ma nieco szersze biodra i węższe ramiona.
+Height = Wzrost
+Shorter or taller limbs and body. = Krótsze lub dłuższe kończyny i tułów.
+Weight = Waga
+A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
 
 [added ru]
 Console storage = Память консоли
@@ -730,6 +1764,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = С�
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Сохранения и настройки не скопированы из PS5X360: не удалось проверить папку (причина указана в журнале). При следующем запуске будет новая попытка.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = На этом диске есть и PS5X360/saves, и PS5X360Reloaded/saves. Используется PS5X360Reloaded/saves; старая папка оставлена без изменений:
 Disc %u = Диск %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Диск
+Disc %u of %u = Диск %u из %u
+Choose the disc = Выбрать диск
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Группа
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d игра
+%d games = %d игр
+%d games||few = %d игры
+%d games||one = %d игра
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = или в /data/xbox360/, или в папку xbox360 в корне USB- или M.2-накопителя.
 Kinect game = Игра для Kinect
 \srequires Kinect. Turn on Camera motion for this game? = \sтребует Kinect. Включить Camera motion для этой игры?
@@ -740,6 +1785,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Движение: телефон не подключён
 Scan with your phone to use it as Kinect. = Отсканируйте телефоном, чтобы использовать его как Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Та же сеть Wi-Fi, встаньте в 2-3 м, всё тело в кадре.
+Step back = Отойдите назад
+Step closer = Подойдите ближе
+Show your whole body to the camera = Покажите камере всё тело
+Hand reach (the game needs %.2f) = Вынос руки (игре нужно %.2f)
+Motion panel = Панель движения
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Где над игрой показывается панель движения камеры (поза с телефона, что игре нужно от рук, код для подключения телефона). Выключено: только код, пока телефон не подключён.
+Top right = Вверху справа
+Top left = Вверху слева
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Игрок не виден. Удерживайте L3 + R3, чтобы вернуть последнюю позу, или нажмите их коротко, чтобы отсюда заново центрировать камеру телефона. Встаньте в 2,5-3 м от телефона так, чтобы были видны бёдра.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Аварийная поза включена: игра видит последнюю позу. Отпустите L3 + R3, чтобы её выключить; тело с телефона её сменит.
+Re-centring the phone camera in %d... Stand still at your spot. = Камера телефона будет заново центрирована через %d... Стойте неподвижно на своём месте.
+Re-centring the phone camera... Stand still at your spot. = Камера телефона заново центрируется... Стойте неподвижно на своём месте.
+Logs for a bug report = Журналы для отчёта об ошибке
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = В следующей игре, которую вы запустите, эмулятор запишет больше подробностей о происходящем. Играйте, пока не появится проблема, затем закройте игру. После этого на экране появится список файлов, которые нужно приложить к отчёту об ошибке. Параметр отключится сам после этой игры.
+Next game = Следующая игра
+Logs for a bug report: on for the next game = Журналы для отчёта об ошибке: включены для следующей игры
+Files for your bug report = Файлы для отчёта об ошибке
+Detailed logs of your last game session are ready. = Подробные журналы вашей последней игровой сессии готовы.
+Files on the console: = Файлы на консоли:
+Preparing one .zip file with all of them... = Подготовка одного файла .zip со всеми файлами...
+All of them in one file: = Все в одном файле:
+Could not make the .zip file. Copy the files one by one. = Не удалось создать файл .zip. Скопируйте файлы по одному.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = Отсканируйте код телефоном, чтобы скачать .zip, или откройте этот адрес на компьютере в той же сети:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Чтобы скачать их на телефон или компьютер, включите параметр Страница настроек для телефона (Настройки, Система).
+With an FTP program, copy them from this folder: = С помощью FTP-программы скопируйте их из этой папки:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Затем создайте новый issue на GitHub, опишите, что вы делали и что пошло не так, и приложите файлы:
+Bug report files (.zip) = Файлы отчёта об ошибке (.zip)
+Returning to the menu... = Возврат в меню...
+Restarting the game... = Перезапуск игры...
+Closing the emulator... = Закрытие эмулятора...
+Please wait, this can take a few seconds. = Подождите, это может занять несколько секунд.
+Problem with a game? Logs for a bug report = Проблема с игрой? Журналы для отчёта об ошибке
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Следующая запущенная игра запишет больше подробностей. Затем на экране появится список файлов для отчёта об ошибке.
+Problem with this game? Logs for a bug report = Проблема с этой игрой? Журналы для отчёта об ошибке
+Next start = Следующий запуск
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Следующий запуск этой игры запишет больше подробностей. Затем на экране появится список файлов для отчёта об ошибке.
+Restart this game with logs for a bug report = Перезапустить эту игру с журналами для отчёта об ошибке
+This session did not end normally: the game stopped or the emulator was closed. It began on = Эта сессия завершилась ненормально: игра остановилась или эмулятор был закрыт. Начало:
+Saving shaders for faster loading next time... = Сохранение шейдеров для более быстрой загрузки в следующий раз...
+Writing data to the drive... = Запись данных на диск...
+Signing out of online play... = Выход из сетевой игры...
+Saving the logs for the bug report... = Сохранение журналов для отчёта об ошибке...
+Starting the menu... = Запуск меню...
+Starting the game... = Запуск игры...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Совет: выходите через «Выйти из эмулятора», а не кнопкой PS, чтобы шейдеры сохранились на следующий раз.
+Restart game = Перезапустить игру
+Mute game sound = Выключить звук игры
+# Fix 114: the on-screen keyboard.
+Keyboard = Клавиатура
+Shift = Shift
+Caps = Caps
+Other characters = Другие символы
+Move cursor = Переместить курсор
+Maximum length reached = Достигнута максимальная длина
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = Удалить DLC?
+Size: %s = Размер: %s
+Drive: %s = Накопитель: %s
+The package file is deleted from this drive. This can't be undone. = Файл пакета будет удалён с этого накопителя. Это действие нельзя отменить.
+DLC removed. = DLC удалено.
+Could not remove the DLC file. = Не удалось удалить файл DLC.
+Close the game first: DLC can't be changed while a game is running. = Сначала закройте игру: DLC нельзя изменить, пока запущена игра.
+This drive has this DLC both On and Off: remove one of the two first. = На этом накопителе это DLC есть и как Вкл., и как Выкл.: сначала удалите одну из двух копий.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Изображение с камеры для игры
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Когда телефон работает как Kinect, он может также отправлять небольшое изображение со своей камеры для игр, которые показывают камеру (повторы, фото). Оно идёт только на эту консоль, и эмулятор держит его только в памяти, никогда на диске; игра всё же может сохранить собственные фото в своих сохранениях. Нужно также включить «Изображение с камеры для игры» на странице в телефоне. Если выключено, игры видят серое изображение.
+Resolution scale (test) = Масштаб рендеринга (тест)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Рисует игру в двойном разрешении для более чёткой картинки. Требует гораздо больше видеопамяти и графической мощности; некоторые эффекты (свечение, тени, изображения, которые игра считывает обратно) могут выглядеть неправильно. Это тест: если игра закрывается или выглядит неправильно, верните 1x.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Масштаб рендеринга (тест) 2x: этой игре нужно больше памяти, чем осталось. Изображение может испортиться; выберите 1x в настройках этой игры.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Аватар
+Avatar saved. Games that show avatars use it from their next start. = Аватар сохранён. Игры с аватарами будут использовать его со следующего запуска.
+Could not save the avatar. = Не удалось сохранить аватар.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Телосложение аватара этого профиля для игр, в которых игрок показан аватаром (Kinect Sports). Пока только телосложение: у аватара ещё нет одежды и лица.
+Body type = Тип тела
+Female = Женский
+Male = Мужской
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Телосложение аватара: у женского тела чуть шире бёдра и уже плечи.
+Height = Рост
+Shorter or taller limbs and body. = Более короткие или длинные конечности и туловище.
+Weight = Вес
+A thinner or heavier build. = Более худое или более плотное телосложение.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -776,6 +1904,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = Kay
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = Kayıtlar ve ayarlar PS5X360'tan kopyalanmadı: bir klasör denetlenemedi (nedeni günlükte yazıyor). Bir sonraki başlatmada yeniden denenecek.
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = Bu sürücüde hem PS5X360/saves hem de PS5X360Reloaded/saves var. PS5X360Reloaded/saves kullanılıyor; eski klasör olduğu gibi bırakıldı:
 Disc %u = Disk %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = Disk
+Disc %u of %u = Disk %u / %u
+Choose the disc = Diski seç
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = Grup
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d oyun
+%d games = %d oyun
+%d games||few = %d oyun
+%d games||one = %d oyun
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = ya da /data/xbox360/ içine veya bir USB ya da M.2 sürücüsünün kökündeki xbox360 klasörüne.
 Kinect game = Kinect oyunu
 \srequires Kinect. Turn on Camera motion for this game? = \sKinect gerektirir. Bu oyun için Camera motion açılsın mı?
@@ -786,6 +1925,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Hareket: bağlı telefon yok
 Scan with your phone to use it as Kinect. = Kinect olarak kullanmak için telefonunuzla tarayın.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Aynı Wi-Fi, 2-3 m geride durun, tüm vücut görünsün.
+Step back = Geri çekilin
+Step closer = Yaklaşın
+Show your whole body to the camera = Tüm vücudunuzu kameraya gösterin
+Hand reach (the game needs %.2f) = El uzanımı (oyunun istediği %.2f)
+Motion panel = Hareket paneli
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Kamera hareket panelinin oyunun üzerinde nerede gösterileceği (telefondan gelen poz, oyunun ellerden beklediği, telefonu bağlama kodu). Kapalı, telefon bağlı değilken yalnızca kodu gösterir.
+Top right = Sağ üst
+Top left = Sol üst
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Oyuncu görünmüyor. Son pozu geri getirmek için L3 + R3'e basılı tutun veya telefon kamerasını buradan yeniden ortalamak için kısa basın. Kalçalarınız görünecek şekilde telefondan 2,5-3 m uzakta durun.
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Acil durum pozu açık: oyun son pozu görüyor. Durdurmak için L3 + R3'ü bırakın; telefondan gelen bir vücut devralır.
+Re-centring the phone camera in %d... Stand still at your spot. = Telefon kamerası %d saniye içinde yeniden ortalanacak... Yerinizde hareketsiz durun.
+Re-centring the phone camera... Stand still at your spot. = Telefon kamerası yeniden ortalanıyor... Yerinizde hareketsiz durun.
+Logs for a bug report = Hata bildirimi için günlükler
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = Başlatacağınız bir sonraki oyunda emülatör olup bitenlerin daha fazla ayrıntısını kaydeder. Sorun ortaya çıkana kadar oynayın, sonra oyunu kapatın. Ardından bir ekran, hata bildiriminize eklemeniz gereken dosyaları listeler. Bu oyundan sonra kendiliğinden kapanır.
+Next game = Sonraki oyun
+Logs for a bug report: on for the next game = Hata bildirimi için günlükler: sonraki oyun için açık
+Files for your bug report = Hata bildiriminiz için dosyalar
+Detailed logs of your last game session are ready. = Son oyun oturumunuzun ayrıntılı günlükleri hazır.
+Files on the console: = Konsoldaki dosyalar:
+Preparing one .zip file with all of them... = Hepsini içeren bir .zip dosyası hazırlanıyor...
+All of them in one file: = Hepsi tek bir dosyada:
+Could not make the .zip file. Copy the files one by one. = .zip dosyası oluşturulamadı. Dosyaları tek tek kopyalayın.
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = .zip dosyasını indirmek için kodu bir telefonla tarayın veya bu adresi aynı ağdaki bir bilgisayarda açın:
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = Bunları bir telefona veya bilgisayara indirmek için Telefon için ayarlar sayfası seçeneğini açın (Ayarlar, Sistem).
+With an FTP program, copy them from this folder: = Bir FTP programıyla bunları bu klasörden kopyalayın:
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = Ardından GitHub'da yeni bir issue açın, ne yaptığınızı ve neyin ters gittiğini anlatın ve dosyaları ekleyin:
+Bug report files (.zip) = Hata bildirimi dosyaları (.zip)
+Returning to the menu... = Menüye dönülüyor...
+Restarting the game... = Oyun yeniden başlatılıyor...
+Closing the emulator... = Emülatör kapatılıyor...
+Please wait, this can take a few seconds. = Lütfen bekleyin, bu birkaç saniye sürebilir.
+Problem with a game? Logs for a bug report = Bir oyunla sorun mu var? Hata bildirimi için günlükler
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = Başlatacağınız bir sonraki oyun daha fazla ayrıntı kaydeder. Ardından bir ekran, hata bildiriminize ekleyeceğiniz dosyaları listeler.
+Problem with this game? Logs for a bug report = Bu oyunla sorun mu var? Hata bildirimi için günlükler
+Next start = Sonraki başlatma
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = Bu oyunun bir sonraki başlatılması daha fazla ayrıntı kaydeder. Ardından bir ekran, hata bildiriminize ekleyeceğiniz dosyaları listeler.
+Restart this game with logs for a bug report = Bu oyunu hata bildirimi günlükleriyle yeniden başlat
+This session did not end normally: the game stopped or the emulator was closed. It began on = Bu oturum normal şekilde bitmedi: oyun durdu ya da emülatör kapatıldı. Başlangıç:
+Saving shaders for faster loading next time... = Bir dahaki sefere daha hızlı yükleme için gölgelendiriciler kaydediliyor...
+Writing data to the drive... = Veriler sürücüye yazılıyor...
+Signing out of online play... = Çevrimiçi oyundan çıkılıyor...
+Saving the logs for the bug report... = Hata bildirimi günlükleri kaydediliyor...
+Starting the menu... = Menü başlatılıyor...
+Starting the game... = Oyun başlatılıyor...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = İpucu: Gölgelendiricilerin bir dahaki sefere korunması için PS düğmesi yerine Emülatörden çık ile çıkın.
+Restart game = Oyunu yeniden başlat
+Mute game sound = Oyun sesini kapat
+# Fix 114: the on-screen keyboard.
+Keyboard = Klavye
+Shift = Shift
+Caps = Caps
+Other characters = Diğer karakterler
+Move cursor = İmleci taşı
+Maximum length reached = En fazla uzunluğa ulaşıldı
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = DLC kaldırılsın mı?
+Size: %s = Boyut: %s
+Drive: %s = Sürücü: %s
+The package file is deleted from this drive. This can't be undone. = Paket dosyası bu sürücüden silinir. Bu işlem geri alınamaz.
+DLC removed. = DLC kaldırıldı.
+Could not remove the DLC file. = DLC dosyası kaldırılamadı.
+Close the game first: DLC can't be changed while a game is running. = Önce oyunu kapatın: Bir oyun çalışırken DLC değiştirilemez.
+This drive has this DLC both On and Off: remove one of the two first. = Bu sürücüde bu DLC hem Açık hem Kapalı olarak var: önce ikisinden birini kaldırın.
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = Oyun için kamera görüntüsü
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = Telefon Kinect olarak kullanılırken, kamerayı gösteren oyunlar (tekrarlar, fotoğraflar) için telefon kamerasından küçük bir görüntü de gönderebilir. Görüntü yalnızca bu konsola gider ve emülatör onu yalnızca bellekte tutar, asla bir sürücüye yazmaz; yine de bir oyun kendi fotoğraflarını kayıtlarında saklayabilir. Telefon sayfasında da Oyun için kamera görüntüsü açık olmalıdır. Kapalıyken oyunlar gri bir görüntü görür.
+Resolution scale (test) = Görüntü işleme ölçeği (test)
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = Daha net bir görüntü için oyunu kendi çözünürlüğünün iki katında çizer. Çok daha fazla video belleği ve grafik gücü kullanır; bazı efektler (parlama, gölgeler, oyunun geri okuduğu görüntüler) yanlış görünebilir. Bu bir testtir: oyun kapanırsa veya bozuk görünürse 1x'e geri dönün.
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = Görüntü işleme ölçeği (test) 2x: bu oyun kalandan daha fazla bellek gerektiriyor. Görüntü bozulabilir; bu oyunun ayarlarında 1x seçin.
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = Avatar
+Avatar saved. Games that show avatars use it from their next start. = Avatar kaydedildi. Avatar gösteren oyunlar onu bir sonraki başlatmadan itibaren kullanır.
+Could not save the avatar. = Avatar kaydedilemedi.
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = Bu profilin avatarının vücut şekli; oyuncuyu avatar olarak gösteren oyunlar için (Kinect Sports). Şimdilik yalnızca şekil: avatarın henüz kıyafeti veya yüzü yok.
+Body type = Vücut tipi
+Female = Kadın
+Male = Erkek
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = Avatarın yapısı: kadın vücudunun kalçaları biraz daha geniş, omuzları daha dardır.
+Height = Boy
+Shorter or taller limbs and body. = Daha kısa veya daha uzun uzuvlar ve gövde.
+Weight = Kilo
+A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -822,6 +2044,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = 未
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未从 PS5X360 复制存档和设置：无法检查某个文件夹（原因见日志）。下次启动时将重试。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此驱动器上同时有 PS5X360/saves 和 PS5X360Reloaded/saves。将使用 PS5X360Reloaded/saves；旧文件夹保持不变：
 Disc %u = 光盘 %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = 光盘
+Disc %u of %u = 光盘 %u/%u
+Choose the disc = 选择光盘
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = 分组
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d 个游戏
+%d games = %d 个游戏
+%d games||few = %d 个游戏
+%d games||one = %d 个游戏
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 驱动器根目录下的 xbox360 文件夹。
 Kinect game = Kinect 游戏
 \srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要为此游戏开启 Camera motion 吗？
@@ -832,6 +2065,89 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 动作：未连接手机
 Scan with your phone to use it as Kinect. = 用手机扫描，即可将其用作 Kinect。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 连接同一 Wi-Fi，站在 2-3 米外，全身入镜。
+Step back = 请后退
+Step closer = 请靠近
+Show your whole body to the camera = 让摄像头看到你的全身
+Hand reach (the game needs %.2f) = 手部伸展（游戏需要 %.2f）
+Motion panel = 动作面板
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 摄像头动作面板在游戏画面上的位置（来自手机的姿势、游戏对手部的要求、连接手机的代码）。关闭时，仅在没有手机连接时显示代码。
+Top right = 右上
+Top left = 左上
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 未检测到玩家。按住 L3 + R3 可恢复上一个姿势，短按则可在这里重新居中手机摄像头。请站在离手机 2.5-3 米处，让臀部进入画面。
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 紧急姿势已开启：游戏看到的是上一个姿势。松开 L3 + R3 即可停止；手机检测到身体后会接管。
+Re-centring the phone camera in %d... Stand still at your spot. = %d 秒后重新居中手机摄像头... 请站在原地不动。
+Re-centring the phone camera... Stand still at your spot. = 正在重新居中手机摄像头... 请站在原地不动。
+Logs for a bug report = 用于错误报告的日志
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = 在你下次启动的游戏中，模拟器会更详细地记录发生的情况。玩到问题出现，然后关闭游戏。随后会有一个画面列出需要附加到错误报告中的文件。该游戏结束后此选项会自动关闭。
+Next game = 下一个游戏
+Logs for a bug report: on for the next game = 用于错误报告的日志：下一个游戏开启
+Files for your bug report = 用于错误报告的文件
+Detailed logs of your last game session are ready. = 你上一次游戏会话的详细日志已准备好。
+Files on the console: = 主机上的文件：
+Preparing one .zip file with all of them... = 正在准备一个包含全部文件的 .zip 文件...
+All of them in one file: = 全部在一个文件中：
+Could not make the .zip file. Copy the files one by one. = 无法创建 .zip 文件。请逐个复制文件。
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = 用手机扫描二维码下载 .zip，或在同一网络中的电脑上打开此地址：
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = 要下载到手机或电脑，请打开手机设置页面选项（设置，系统）。
+With an FTP program, copy them from this folder: = 用 FTP 程序从此文件夹复制：
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = 然后在 GitHub 上新建一个 issue，描述你做了什么、出了什么问题，并附上这些文件：
+Bug report files (.zip) = 错误报告文件 (.zip)
+Returning to the menu... = 正在返回菜单...
+Restarting the game... = 正在重新启动游戏...
+Closing the emulator... = 正在关闭模拟器...
+Please wait, this can take a few seconds. = 请稍候，这可能需要几秒钟。
+Problem with a game? Logs for a bug report = 游戏有问题？用于错误报告的日志
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 你下次启动的游戏会记录更多细节。之后会有一个画面列出需要附加到错误报告中的文件。
+Problem with this game? Logs for a bug report = 这个游戏有问题？用于错误报告的日志
+Next start = 下次启动
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 这个游戏下次启动时会记录更多细节。之后会有一个画面列出需要附加到错误报告中的文件。
+Restart this game with logs for a bug report = 带错误报告日志重新启动此游戏
+This session did not end normally: the game stopped or the emulator was closed. It began on = 此会话未正常结束：游戏停止了，或模拟器被关闭。开始于
+Saving shaders for faster loading next time... = 正在保存着色器，以便下次加载更快...
+Writing data to the drive... = 正在将数据写入驱动器...
+Signing out of online play... = 正在退出在线游戏...
+Saving the logs for the bug report... = 正在保存错误报告日志...
+Starting the menu... = 正在启动菜单...
+Starting the game... = 正在启动游戏...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = 提示：请使用“退出模拟器”而不是 PS 按钮退出，以便保留着色器供下次使用。
+Restart game = 重新启动游戏
+Mute game sound = 游戏静音
+# Fix 114: the on-screen keyboard.
+Keyboard = 键盘
+Shift = Shift
+Caps = 大写
+Other characters = 其他字符
+Move cursor = 移动光标
+Maximum length reached = 已达到最大长度
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = 移除 DLC？
+Size: %s = 大小：%s
+Drive: %s = 驱动器：%s
+The package file is deleted from this drive. This can't be undone. = 包文件将从此驱动器中删除。此操作无法撤销。
+DLC removed. = DLC 已移除。
+Could not remove the DLC file. = 无法移除 DLC 文件。
+Close the game first: DLC can't be changed while a game is running. = 请先关闭游戏：游戏运行时无法更改 DLC。
+This drive has this DLC both On and Off: remove one of the two first. = 此驱动器上的这个 DLC 同时处于开启和关闭状态：请先移除其中一个。
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = 供游戏使用的摄像头画面
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手机当作 Kinect 时，手机还可以为显示摄像头画面的游戏（回放、照片）发送一张小的摄像头画面。画面只发送到这台主机，模拟器只把它放在内存中，绝不写入硬盘；不过游戏仍可能在自己的存档中保存照片。还需要在手机页面上打开“供游戏使用的摄像头画面”。关闭时，游戏看到的是灰色画面。
+Resolution scale (test) = 渲染分辨率倍数（测试）
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以游戏自身分辨率的两倍绘制，画面更清晰。会占用多得多的显存和图形性能；部分效果（光晕、阴影、游戏回读的图像）可能显示错误。这是测试功能：如果游戏关闭或画面异常，请改回 1x。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染分辨率倍数（测试）2x：此游戏需要的内存超过剩余内存。画面可能出错；请在此游戏的设置中改为 1x。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虚拟形象
+Avatar saved. Games that show avatars use it from their next start. = 虚拟形象已保存。显示虚拟形象的游戏将从下次启动起使用它。
+Could not save the avatar. = 无法保存虚拟形象。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此个人资料的虚拟形象体型，用于以虚拟形象显示玩家的游戏（Kinect Sports）。目前只有体型：虚拟形象还没有衣服和脸。
+Body type = 体型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虚拟形象的体格：女性身体的臀部略宽，肩膀较窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更长的四肢和躯干。
+Weight = 体重
+A thinner or heavier build. = 更瘦或更壮的体格。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -868,6 +2184,17 @@ Saves were not copied from PS5X360: this app already has saves of its own. = 未
 Saves and settings were not copied from PS5X360: a folder could not be checked (the log says why). The next start tries again. = 未從 PS5X360 複製存檔和設定：無法檢查某個資料夾（原因見記錄）。下次啟動時將重試。
 This drive has both PS5X360/saves and PS5X360Reloaded/saves. PS5X360Reloaded/saves is used; the old folder was left as it is: = 此磁碟機上同時有 PS5X360/saves 和 PS5X360Reloaded/saves。將使用 PS5X360Reloaded/saves；舊資料夾保持不變：
 Disc %u = 光碟 %u
+# Fix 89: a game of several discs is one library entry; its sheet chooses the disc (the same keys in every section).
+Disc = 光碟
+Disc %u of %u = 光碟 %u/%u
+Choose the disc = 選擇光碟
+# Fix 112: the player's folders in a game folder are groups of games on the shelf (the same key in every section).
+Group = 分組
+# Fix 112b: a group's number of games, in the number's form (1; 2-4, 22-24 ...; 21, 31 ...; the rest).
+%d game = %d 個遊戲
+%d games = %d 個遊戲
+%d games||few = %d 個遊戲
+%d games||one = %d 個遊戲
 or in /data/xbox360/, or in an xbox360 folder at the top of a USB or M.2 drive. = 或 /data/xbox360/，或 USB / M.2 磁碟機根目錄下的 xbox360 資料夾。
 Kinect game = Kinect 遊戲
 \srequires Kinect. Turn on Camera motion for this game? = \s需要 Kinect。要為此遊戲開啟 Camera motion 嗎？
@@ -878,3 +2205,86 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 動作：未連接手機
 Scan with your phone to use it as Kinect. = 用手機掃描，即可將其當作 Kinect 使用。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 連接同一 Wi-Fi，站在 2-3 公尺外，全身入鏡。
+Step back = 請後退
+Step closer = 請靠近
+Show your whole body to the camera = 讓攝影機看到你的全身
+Hand reach (the game needs %.2f) = 手部伸展（遊戲需要 %.2f）
+Motion panel = 動作面板
+Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 攝影機動作面板在遊戲畫面上的位置（來自手機的姿勢、遊戲對手部的要求、連接手機的代碼）。關閉時，僅在沒有手機連接時顯示代碼。
+Top right = 右上
+Top left = 左上
+# Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
+No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 未偵測到玩家。按住 L3 + R3 可恢復上一個姿勢，短按則可在這裡重新置中手機相機。請站在離手機 2.5-3 公尺處，讓臀部進入畫面。
+Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急姿勢已開啟：遊戲看到的是上一個姿勢。放開 L3 + R3 即可停止；手機偵測到身體後會接手。
+Re-centring the phone camera in %d... Stand still at your spot. = %d 秒後重新置中手機相機... 請站在原地不動。
+Re-centring the phone camera... Stand still at your spot. = 正在重新置中手機相機... 請站在原地不動。
+Logs for a bug report = 用於錯誤回報的記錄
+For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game. = 在你下次啟動的遊戲中，模擬器會更詳細地記錄發生的情況。玩到問題出現，然後關閉遊戲。之後會有一個畫面列出要附加到錯誤回報中的檔案。該遊戲結束後此選項會自動關閉。
+Next game = 下一個遊戲
+Logs for a bug report: on for the next game = 用於錯誤回報的記錄：下一個遊戲開啟
+Files for your bug report = 用於錯誤回報的檔案
+Detailed logs of your last game session are ready. = 你上一次遊戲工作階段的詳細記錄已準備好。
+Files on the console: = 主機上的檔案：
+Preparing one .zip file with all of them... = 正在準備一個包含全部檔案的 .zip 檔...
+All of them in one file: = 全部在一個檔案中：
+Could not make the .zip file. Copy the files one by one. = 無法建立 .zip 檔。請逐一複製檔案。
+Scan the code with a phone to download the .zip, or open this address on a computer on the same network: = 用手機掃描 QR 碼下載 .zip，或在同一網路中的電腦上開啟此位址：
+To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System). = 若要下載到手機或電腦，請開啟手機設定頁面選項（設定，系統）。
+With an FTP program, copy them from this folder: = 用 FTP 程式從此資料夾複製：
+Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files: = 然後在 GitHub 上建立新的 issue，描述你做了什麼、出了什麼問題，並附上這些檔案：
+Bug report files (.zip) = 錯誤回報檔案 (.zip)
+Returning to the menu... = 正在返回選單...
+Restarting the game... = 正在重新啟動遊戲...
+Closing the emulator... = 正在關閉模擬器...
+Please wait, this can take a few seconds. = 請稍候，這可能需要幾秒鐘。
+Problem with a game? Logs for a bug report = 遊戲有問題？用於錯誤回報的記錄
+The next game you start records more details. Afterwards a screen lists the files to attach to your bug report. = 你下次啟動的遊戲會記錄更多細節。之後會有一個畫面列出要附加到錯誤回報中的檔案。
+Problem with this game? Logs for a bug report = 這個遊戲有問題？用於錯誤回報的記錄
+Next start = 下次啟動
+This game's next start records more details. Afterwards a screen lists the files to attach to your bug report. = 這個遊戲下次啟動時會記錄更多細節。之後會有一個畫面列出要附加到錯誤回報中的檔案。
+Restart this game with logs for a bug report = 以錯誤回報記錄重新啟動此遊戲
+This session did not end normally: the game stopped or the emulator was closed. It began on = 此工作階段未正常結束：遊戲停止了，或模擬器被關閉。開始於
+Saving shaders for faster loading next time... = 正在儲存著色器，以便下次載入更快...
+Writing data to the drive... = 正在將資料寫入磁碟機...
+Signing out of online play... = 正在登出線上遊戲...
+Saving the logs for the bug report... = 正在儲存錯誤回報記錄...
+Starting the menu... = 正在啟動選單...
+Starting the game... = 正在啟動遊戲...
+Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = 提示：請使用「結束模擬器」而不是 PS 按鈕離開，以便保留著色器供下次使用。
+Restart game = 重新啟動遊戲
+Mute game sound = 遊戲靜音
+# Fix 114: the on-screen keyboard.
+Keyboard = 鍵盤
+Shift = Shift
+Caps = 大寫
+Other characters = 其他字元
+Move cursor = 移動游標
+Maximum length reached = 已達最大長度
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
+Remove DLC? = 移除 DLC？
+Size: %s = 大小：%s
+Drive: %s = 磁碟機：%s
+The package file is deleted from this drive. This can't be undone. = 套件檔案將從此磁碟機刪除。此操作無法復原。
+DLC removed. = DLC 已移除。
+Could not remove the DLC file. = 無法移除 DLC 檔案。
+Close the game first: DLC can't be changed while a game is running. = 請先關閉遊戲：遊戲執行時無法變更 DLC。
+This drive has this DLC both On and Off: remove one of the two first. = 此磁碟機上的這個 DLC 同時為開啟與關閉：請先移除其中一個。
+# Fix 119: the Kinect colour camera from the phone (camera_picture.hpp).
+Camera picture for the game = 供遊戲使用的攝影機畫面
+With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture. = 把手機當作 Kinect 時，手機還可以為顯示攝影機畫面的遊戲（重播、照片）傳送一張小的攝影機畫面。畫面只傳送到這台主機，模擬器只把它放在記憶體中，絕不寫入硬碟；不過遊戲仍可能在自己的存檔中保存照片。還需要在手機頁面上開啟「供遊戲使用的攝影機畫面」。關閉時，遊戲看到的是灰色畫面。
+Resolution scale (test) = 渲染解析度倍數（測試）
+Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x. = 以遊戲本身解析度的兩倍繪製，畫面更清晰。會佔用多得多的顯示記憶體和圖形效能；部分效果（光暈、陰影、遊戲回讀的影像）可能顯示錯誤。這是測試功能：如果遊戲關閉或畫面異常，請改回 1x。
+Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings. = 渲染解析度倍數（測試）2x：此遊戲需要的記憶體超過剩餘記憶體。畫面可能出錯；請在此遊戲的設定中改為 1x。
+# Fix 113: the avatar sheet (profiles, Triangle; avatar_skeleton.hpp).
+Avatar = 虛擬人偶
+Avatar saved. Games that show avatars use it from their next start. = 虛擬人偶已儲存。顯示虛擬人偶的遊戲會從下次啟動起使用它。
+Could not save the avatar. = 無法儲存虛擬人偶。
+The body shape of this profile's avatar, for games that show the player as an avatar (Kinect Sports). Only the shape for now: the avatar has no clothes or face yet. = 此設定檔的虛擬人偶體型，用於以虛擬人偶顯示玩家的遊戲（Kinect Sports）。目前只有體型：虛擬人偶還沒有衣服和臉。
+Body type = 體型
+Female = 女性
+Male = 男性
+The avatar's build: a female body has slightly wider hips and narrower shoulders. = 虛擬人偶的體格：女性身體的臀部稍寬，肩膀較窄。
+Height = 身高
+Shorter or taller limbs and body. = 更短或更長的四肢和軀幹。
+Weight = 體重
+A thinner or heavier build. = 更瘦或更壯的體格。

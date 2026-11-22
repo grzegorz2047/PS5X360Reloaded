@@ -1,0 +1,942 @@
+diff --git a/include/xbox360ps5/bug_report.hpp b/include/xbox360ps5/bug_report.hpp
+new file mode 100644
+index 0000000..99a745b
+--- /dev/null
++++ b/include/xbox360ps5/bug_report.hpp
+@@ -0,0 +1,296 @@
++// SPDX-License-Identifier: MIT
++// Fix 93: logs for a bug report. A player turns on "Logs for a bug report" (Settings, System)
++// before starting a game; that one game session records more detail (Settings::Apply,
++// canary_game_main.cpp) and the setting turns itself off as the game starts. When the launcher
++// next comes up (after the game was closed, or the emulator was started again after a crash)
++// it lists the session's files with their paths on the console, puts them in one .zip beside
++// them and says how to get them to a phone or computer and attach them to a GitHub issue.
++//
++// The state between the starts of the title (every game start and every return to the
++// launcher is a new process) is a small text file, bug-report.txt in the title's storage:
++//   phase=running|ready|shown, game=<name>, title=<title ID>, started=<seconds since 1970, UTC>,
++//   log=<a session log's full path> (one line each).
++// Header-only, no Xenia headers: the host check (tools/check-bug-report.cpp) builds it as it is.
++#pragma once
++#include "xbox360ps5/log_zip.hpp"
++#include <algorithm>
++#include <sys/stat.h>
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <ctime>
++#include <filesystem>
++#include <fstream>
++#include <iterator>
++#include <memory>
++#include <mutex>
++#include <sstream>
++#include <string>
++#include <system_error>
++#include <vector>
++namespace xbox360ps5::bug_report {
++namespace fs = std::filesystem;
++// Where players report problems (shown on the screen, without the scheme).
++inline constexpr const char* kIssues = "github.com/grzegorz2047/PS5X360Reloaded/issues";
++// The archives kept in the logs folder; older ones are removed when a new one is made.
++inline constexpr size_t kArchivesKept = 5;
++// boot.log collects every start of the title: the archive takes its end only.
++inline constexpr size_t kBootLogTail = 4u << 20;
++enum class Phase { none, running, ready, shown };
++struct State {
++  Phase phase = Phase::none;
++  std::string game, title;
++  int64_t started = 0;
++  std::vector<std::string> logs;
++};
++inline const char* PhaseName(Phase phase) {
++  switch (phase) {
++    case Phase::running: return "running";
++    case Phase::ready: return "ready";
++    case Phase::shown: return "shown";
++    default: return "none";
++  }
++}
++inline std::string OneLine(std::string text) {
++  for (char& c : text) if (c == '\n' || c == '\r') c = ' ';
++  return text;
++}
++inline std::string Format(const State& state) {
++  std::string text = std::string("phase=") + PhaseName(state.phase) + "\ngame=" + OneLine(state.game) +
++                     "\ntitle=" + OneLine(state.title) + "\nstarted=" + std::to_string(state.started) + "\n";
++  for (const auto& log : state.logs) text += "log=" + OneLine(log) + "\n";
++  return text;
++}
++inline State Parse(const std::string& text) {
++  State state;
++  std::istringstream lines(text);
++  for (std::string line; std::getline(lines, line);) {
++    if (!line.empty() && line.back() == '\r') line.pop_back();
++    const size_t equals = line.find('=');
++    if (equals == std::string::npos) continue;
++    const std::string key = line.substr(0, equals), value = line.substr(equals + 1);
++    if (key == "phase") {
++      state.phase = value == "running" ? Phase::running : value == "ready" ? Phase::ready
++                  : value == "shown" ? Phase::shown : Phase::none;
++    } else if (key == "game") state.game = value;
++    else if (key == "title") state.title = value;
++    else if (key == "started") state.started = std::strtoll(value.c_str(), nullptr, 10);
++    else if (key == "log" && !value.empty() && state.logs.size() < 64) state.logs.push_back(value);
++  }
++  return state;
++}
++inline State Read(const fs::path& file) {
++  std::ifstream input(file, std::ios::binary);
++  if (!input) return State{};
++  return Parse(std::string((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()));
++}
++// Written to a new file, then renamed over the old one: a start that ends half way through
++// leaves the previous state, never half of one.
++inline bool Write(const fs::path& file, const State& state) {
++  const fs::path next = file.string() + ".new";
++  {
++    std::ofstream output(next, std::ios::binary | std::ios::trunc);
++    output << Format(state);
++    output.flush();
++    if (!output) return false;
++  }
++  std::error_code error;
++  fs::rename(next, file, error);
++  return !error;
++}
++// Whether this process runs a session with detailed logs: read where the extra diagnostics are
++// decided (Settings::Apply's log level, the game loop's summaries and recent system calls). A
++// relaxed atomic load where it is off: nothing else is done.
++inline std::atomic<bool> active{false};
++inline bool Active() { return active.load(std::memory_order_relaxed); }
++// At the title's start. A session that was running has ended (the game was closed, it crashed,
++// or the system ended the title) unless this start goes on with it: a title switch (the game
++// started another of its executables) is the same session. Returns whether it goes on.
++inline bool AtBoot(State& state, bool title_switch) {
++  if (state.phase != Phase::running) return false;
++  if (title_switch) return true;
++  state.phase = Phase::ready;
++  return false;
++}
++// A game starts with the setting on: a new session, replacing any earlier report.
++inline State Begin(const std::string& game, const std::string& title, int64_t now) {
++  State state;
++  state.phase = Phase::running;
++  state.game = game;
++  state.title = title;
++  state.started = now;
++  return state;
++}
++struct File {
++  fs::path path;
++  uintmax_t size = 0;
++  bool tail = false;  // Only its last kBootLogTail bytes go into the archive.
++};
++inline int64_t ModifiedAt(const fs::path& path) {
++  struct stat info{};
++  return ::stat(path.string().c_str(), &info) == 0 ? int64_t(info.st_mtime) : -1;
++}
++// The files of a session: its game logs with their rotated parts (session_log.hpp: <log>.part1
++// to .part3), the hang watch's file and the shader dumps of a hang written in the logs folder
++// since the session started (canary_game_main.cpp: hang-watch-<title>-<UTC>.txt,
++// hang-<hash>-vs|ps.ucode and .txt), then the boot log, where crash records also go: the first
++// of `boot_logs` that exists (one file under two names counts once).
++inline std::vector<File> Files(const State& state, const std::vector<fs::path>& boot_logs) {
++  std::vector<File> files;
++  std::error_code error;
++  const auto add = [&](const fs::path& path, bool tail) {
++    std::error_code e;
++    if (!fs::is_regular_file(path, e)) return false;
++    for (const auto& known : files) {
++      std::error_code same_error;
++      if (known.path == path || fs::equivalent(known.path, path, same_error)) return false;
++    }
++    const uintmax_t size = fs::file_size(path, e);
++    files.push_back({path, e ? 0 : size, tail});
++    return true;
++  };
++  for (const auto& log : state.logs) {
++    const fs::path path = log;
++    add(path, false);
++    for (int part = 1; part <= 3; ++part)
++      add(path.parent_path() / (path.stem().string() + ".part" + std::to_string(part) + ".log"), false);
++  }
++  if (!state.logs.empty()) {
++    const fs::path folder = fs::path(state.logs.front()).parent_path();
++    std::vector<fs::path> found;
++    for (fs::directory_iterator it(folder, error), end; !error && it != end; it.increment(error)) {
++      const std::string name = it->path().filename().string();
++      const bool text = name.size() > 4 && name.compare(name.size() - 4, 4, ".txt") == 0;
++      const bool ucode = name.size() > 6 && name.compare(name.size() - 6, 6, ".ucode") == 0;
++      // A second's slack: the hang watch names its file in the same second the log starts.
++      if (name.rfind("hang-", 0) == 0 && (text || ucode) && ModifiedAt(it->path()) >= state.started - 1)
++        found.push_back(it->path());
++    }
++    std::sort(found.begin(), found.end());
++    for (const auto& path : found) add(path, false);
++  }
++  for (const auto& boot : boot_logs)
++    if (add(boot, true)) break;
++  return files;
++}
++// "BugReport-<game>-<YYYYMMDD-HHMMSS>-UTC.zip": letters, digits, '-' and '_' only, so any
++// FTP program, browser and GitHub take the name as it is.
++inline std::string ArchiveName(const State& state) {
++  std::string game;
++  for (const unsigned char c : state.game) {
++    if (game.size() >= 40) break;
++    const bool plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-';
++    if (plain) game += char(c);
++    else if (!game.empty() && game.back() != '_') game += '_';
++  }
++  while (!game.empty() && game.back() == '_') game.pop_back();
++  if (game.empty()) game = "Game";
++  std::tm utc{};
++  char stamp[32] = "00000000-000000";
++  if (log_zip::UtcTime(std::time_t(state.started), &utc))
++    std::snprintf(stamp, sizeof(stamp), "%04d%02d%02d-%02d%02d%02d", utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday,
++                  utc.tm_hour, utc.tm_min, utc.tm_sec);
++  return "BugReport-" + game + "-" + stamp + "-UTC.zip";
++}
++inline bool IsArchive(const std::string& name) {
++  return name.rfind("BugReport-", 0) == 0 && name.size() > 14 && name.compare(name.size() - 4, 4, ".zip") == 0;
++}
++// An archive's time, "YYYYMMDD-HHMMSS-UTC.zip", for ordering (the name itself when it has none).
++inline std::string ArchiveStamp(const std::string& name) {
++  const size_t utc = name.rfind("-UTC.zip");
++  return utc == std::string::npos || utc < 15 ? name : name.substr(utc - 15);
++}
++// The newest archive in `folder` (by name: the time is in it), or an empty path.
++inline fs::path NewestArchive(const fs::path& folder) {
++  std::error_code error;
++  fs::path newest;
++  for (fs::directory_iterator it(folder, error), end; !error && it != end; it.increment(error)) {
++    const std::string name = it->path().filename().string();
++    if (IsArchive(name) && (newest.empty() || ArchiveStamp(name) > ArchiveStamp(newest.filename().string())))
++      newest = it->path();
++  }
++  return newest;
++}
++// The text that goes into the archive for one file.
++inline std::string Contents(const File& file) {
++  std::ifstream input(file.path, std::ios::binary);
++  if (!input) return {};
++  std::string data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
++  if (file.tail && data.size() > kBootLogTail) {
++    data.erase(0, data.size() - kBootLogTail);
++    const size_t line = data.find('\n');  // From a whole line.
++    if (line != std::string::npos) data.erase(0, line + 1);
++    data = "[... the start of this file is left out ...]\n" + data;
++  }
++  return data;
++}
++// Writes the archive (as <name>.part, then renamed), then keeps the newest kArchivesKept.
++inline bool WriteArchive(const fs::path& archive, const std::vector<File>& files) {
++  const fs::path part = archive.string() + ".part";
++  bool ok = true;
++  {
++    std::ofstream output(part, std::ios::binary | std::ios::trunc);
++    if (!output) return false;
++    log_zip::Writer zip([&output](const std::string& piece) {
++      output.write(piece.data(), std::streamsize(piece.size()));
++      return bool(output);
++    });
++    std::vector<std::string> names;
++    for (const auto& file : files) {
++      const std::string name = file.path.filename().string();
++      if (std::find(names.begin(), names.end(), name) != names.end()) continue;
++      names.push_back(name);
++      ok = zip.Add(name, Contents(file), std::time_t(ModifiedAt(file.path))) && ok;
++    }
++    ok = zip.Finish() && ok;
++    output.flush();
++    ok = ok && bool(output);
++  }
++  std::error_code error;
++  if (ok) fs::rename(part, archive, error);
++  if (!ok || error) {
++    fs::remove(part, error);
++    return false;
++  }
++  std::vector<std::string> archives;
++  for (fs::directory_iterator it(archive.parent_path(), error), end; !error && it != end; it.increment(error)) {
++    const std::string name = it->path().filename().string();
++    if (IsArchive(name)) archives.push_back(name);
++    // A .part left by a start that ended while it wrote.
++    else if (name.rfind("BugReport-", 0) == 0 && name.size() > 9 &&
++             name.compare(name.size() - 9, 9, ".zip.part") == 0 && it->path() != part)
++      fs::remove(it->path(), error);
++  }
++  std::sort(archives.begin(), archives.end(), [](const std::string& a, const std::string& b) {
++    return ArchiveStamp(a) > ArchiveStamp(b);
++  });
++  for (size_t n = kArchivesKept; n < archives.size(); ++n) fs::remove(archive.parent_path() / archives[n], error);
++  return true;
++}
++// The settings page's direct link to the newest archive: "http://<console>:<port>/?k=<key>"
++// becomes "http://<console>:<port>/bug-report.zip?k=<key>". Empty when the page is off.
++inline std::string ZipLink(const std::string& address) {
++  const size_t at = address.find("/?k=");
++  return at == std::string::npos ? std::string() : address.substr(0, at) + "/bug-report.zip" + address.substr(at + 1);
++}
++// "512 KB", "3.4 MB": sizes as the settings page shows them.
++inline std::string SizeText(uintmax_t bytes) {
++  char text[32];
++  if (bytes >= (1u << 20)) std::snprintf(text, sizeof(text), "%.1f MB", double(bytes) / double(1u << 20));
++  else std::snprintf(text, sizeof(text), "%llu KB", (unsigned long long)((bytes + 1023) / 1024));
++  return text;
++}
++// The archive being made in the background while the launcher shows the report.
++struct Archive {
++  enum Status { working, done, failed };
++  std::atomic<int> status{working};
++  fs::path path;  // Set before the start; read once status is done.
++};
++// What the launcher's report screen shows (launcher.cpp, LauncherShowBugReport).
++struct Report {
++  std::string game;
++  std::vector<File> files;
++  fs::path folder;  // The logs folder, for the FTP line.
++  std::shared_ptr<Archive> archive;
++};
++}  // namespace xbox360ps5::bug_report
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index 17cbe05..28eab9b 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -42,6 +42,7 @@ struct Settings {
+   int GameLanguage() const { return language > 0 && language <= 17 ? language : console_language; }
+   int mute = 0;
+   int detailed_logs = 0;
++  int bug_report = 0;     // Fix 93: 1 = the next game start records logs for a bug report (then 0 again).
+   int show_fps = 0;       // A frame counter over the game.
+   int vsync = 1;          // Applied before graphics setup; changes restart the title.
+   int renderer = 0;       // 0 Vulkan, 1 OpenGL; restart required, separate GPU caches.
+diff --git a/include/xbox360ps5/log_zip.hpp b/include/xbox360ps5/log_zip.hpp
+new file mode 100644
+index 0000000..4b247b3
+--- /dev/null
++++ b/include/xbox360ps5/log_zip.hpp
+@@ -0,0 +1,149 @@
++// SPDX-License-Identifier: MIT
++// Fix 93: the ZIP archives of logs. The settings page streams them (web_settings.cpp, its
++// Crc32, its table now made thread-safely, and Deflated moved here) and the bug report's archive is written to a file
++// (bug_report.hpp). Header-only, no Xenia headers: the host check builds it as it is.
++#pragma once
++#include <algorithm>
++#include <array>
++#include <cstdint>
++#include <ctime>
++#include <functional>
++#include <string>
++#include <vector>
++namespace xbox360ps5::log_zip {
++inline uint32_t Crc32(const std::string& data) {
++  // Made once, thread-safely: the settings page's thread and the bug report's both use it.
++  static const std::array<uint32_t, 256> table = [] {
++    std::array<uint32_t, 256> made{};
++    for (uint32_t n = 0; n < 256; ++n) {
++      uint32_t c = n;
++      for (int bit = 0; bit < 8; ++bit) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
++      made[n] = c;
++    }
++    return made;
++  }();
++  uint32_t crc = 0xFFFFFFFFu;
++  for (const unsigned char c : data) crc = table[(crc ^ c) & 0xFF] ^ (crc >> 8);
++  return ~crc;
++}
++// UTC parts of a time (gmtime_r; the host check may build for Windows).
++inline bool UtcTime(std::time_t time, std::tm* out) {
++#ifdef _WIN32
++  return gmtime_s(out, &time) == 0;
++#else
++  return gmtime_r(&time, out) != nullptr;
++#endif
++}
++// Deflate with the fixed codes and the last place each three bytes were seen:
++// small, and enough for logs, whose lines repeat one another.
++inline std::string Deflated(const std::string& in) {
++  static const uint16_t length_base[29] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
++  static const uint8_t length_extra[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
++  static const uint16_t distance_base[30] = {1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
++  static const uint8_t distance_extra[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
++  std::string out;
++  out.reserve(in.size() / 4 + 64);
++  uint64_t bits = 0;
++  int held = 0;
++  const auto put = [&](uint32_t value, int length) {  // Least significant bit first.
++    bits |= uint64_t(value) << held;
++    for (held += length; held >= 8; held -= 8, bits >>= 8) out += char(bits & 0xFF);
++  };
++  const auto code = [&](uint32_t value, int length) {  // A Huffman code goes most significant bit first.
++    uint32_t reversed = 0;
++    for (int bit = 0; bit < length; ++bit) reversed |= ((value >> bit) & 1u) << (length - 1 - bit);
++    put(reversed, length);
++  };
++  const auto symbol = [&](unsigned s) {
++    if (s < 144) code(0x30 + s, 8);
++    else if (s < 256) code(0x190 + s - 144, 9);
++    else if (s < 280) code(s - 256, 7);
++    else code(0xC0 + s - 280, 8);
++  };
++  put(1, 1);  // The last block,
++  put(1, 2);  // with the fixed codes.
++  const auto* bytes = reinterpret_cast<const unsigned char*>(in.data());
++  const size_t size = in.size();
++  std::vector<int32_t> seen(size_t(1) << 15, -1);
++  for (size_t at = 0; at < size;) {
++    size_t match = 0, distance = 0;
++    if (at + 3 <= size) {
++      const uint32_t hash = (uint32_t(bytes[at]) << 16 | uint32_t(bytes[at + 1]) << 8 | bytes[at + 2]) * 2654435761u >> 17;
++      const int32_t before = seen[hash];
++      seen[hash] = int32_t(at);
++      if (before >= 0 && at - size_t(before) <= 32768) {
++        const size_t most = std::min<size_t>(258, size - at);
++        size_t same = 0;
++        while (same < most && bytes[size_t(before) + same] == bytes[at + same]) ++same;
++        if (same >= 3) { match = same; distance = at - size_t(before); }
++      }
++    }
++    if (!match) { symbol(bytes[at++]); continue; }
++    int l = 28;
++    while (length_base[l] > match) --l;
++    symbol(257 + unsigned(l));
++    put(uint32_t(match - length_base[l]), length_extra[l]);
++    int d = 29;
++    while (distance_base[d] > distance) --d;
++    code(uint32_t(d), 5);
++    put(uint32_t(distance - distance_base[d]), distance_extra[d]);
++    at += match;
++  }
++  symbol(256);
++  if (held) put(0, 8 - held);
++  return out;
++}
++// A ZIP archive (deflated entries, no 64-bit extension) given to `sink` piece by piece: one
++// entry's data is in memory at a time. Each Add returns false once the sink refused a piece.
++class Writer {
++ public:
++  explicit Writer(std::function<bool(const std::string&)> sink) : sink_(std::move(sink)) {}
++  bool Add(const std::string& name, std::string data, std::time_t modified) {
++    if (!ok_) return false;
++    if (data.size() > (256u << 20) || offset_ + data.size() > 0xE0000000ull || entries_.size() >= 60000) return true;
++    Entry entry{name, Crc32(data), 0, uint32_t(data.size()), uint32_t(offset_), 8, 0, 0x21};
++    std::tm changed{};
++    if (modified > 0 && UtcTime(modified, &changed) && changed.tm_year >= 80) {
++      entry.time = uint16_t(changed.tm_hour << 11 | changed.tm_min << 5 | changed.tm_sec / 2);
++      entry.date = uint16_t((changed.tm_year - 80) << 9 | (changed.tm_mon + 1) << 5 | changed.tm_mday);
++    }
++    std::string packed = Deflated(data);
++    if (packed.size() >= data.size()) { packed.swap(data); entry.method = 0; }
++    entry.packed = uint32_t(packed.size());
++    std::string local;
++    Le(local, 0x04034B50, 4); Le(local, 20, 2); Le(local, 0x0800, 2); Le(local, entry.method, 2);
++    Le(local, entry.time, 2); Le(local, entry.date, 2); Le(local, entry.crc, 4); Le(local, entry.packed, 4);
++    Le(local, entry.size, 4); Le(local, uint32_t(name.size()), 2); Le(local, 0, 2);
++    local += name;
++    ok_ = sink_(local) && sink_(packed);
++    offset_ += local.size() + packed.size();
++    entries_.push_back(std::move(entry));
++    return ok_;
++  }
++  // The central directory and its end.
++  bool Finish() {
++    if (!ok_) return false;
++    std::string directory;
++    for (const Entry& entry : entries_) {
++      Le(directory, 0x02014B50, 4); Le(directory, 20, 2); Le(directory, 20, 2); Le(directory, 0x0800, 2);
++      Le(directory, entry.method, 2); Le(directory, entry.time, 2); Le(directory, entry.date, 2); Le(directory, entry.crc, 4);
++      Le(directory, entry.packed, 4); Le(directory, entry.size, 4); Le(directory, uint32_t(entry.name.size()), 2);
++      Le(directory, 0, 2); Le(directory, 0, 2); Le(directory, 0, 2); Le(directory, 0, 2); Le(directory, 0, 4);
++      Le(directory, entry.offset, 4);
++      directory += entry.name;
++    }
++    const uint32_t directory_size = uint32_t(directory.size());
++    Le(directory, 0x06054B50, 4); Le(directory, 0, 2); Le(directory, 0, 2); Le(directory, uint32_t(entries_.size()), 2);
++    Le(directory, uint32_t(entries_.size()), 2); Le(directory, directory_size, 4); Le(directory, uint32_t(offset_), 4); Le(directory, 0, 2);
++    return ok_ = sink_(directory);
++  }
++  size_t Count() const { return entries_.size(); }
++ private:
++  struct Entry { std::string name; uint32_t crc, packed, size, offset; uint16_t method, time, date; };
++  static void Le(std::string& out, uint32_t value, int bytes) { for (int n = 0; n < bytes; ++n) out += char(value >> (8 * n)); }
++  std::function<bool(const std::string&)> sink_;
++  std::vector<Entry> entries_;
++  uint64_t offset_ = 0;
++  bool ok_ = true;
++};
++}  // namespace xbox360ps5::log_zip
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+index f72f47b..954471b 100644
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -2,6 +2,8 @@
+ #include "xbox360ps5/web_settings.hpp"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/web_key.hpp"  // fix 46
++#include "xbox360ps5/log_zip.hpp"  // fix 93
++#include "xbox360ps5/bug_report.hpp"  // fix 93: the newest bug report archive
+ #include "phone_camera.hpp"
+ #include "phone_camera_console.hpp"
+ #include "phone_camera_tls.hpp"
+@@ -106,7 +108,8 @@ function render(){
+ async function logs(){
+   const t=state.text,r=await api('/api/logs'),size=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.ceil(b/1024)+' KB';
+   const zip=(game,cls,name,count,bytes)=>'<a class="'+cls+'" href="/logs.zip?k='+key+'&game='+game+'" download>'+esc(name)+'<span>'+count+' · '+size(bytes)+'</span></a>';
+-  $('list').innerHTML='<div class="zip">'+zip('all','all',t.zipAll,r.count,r.size)+'<h3>'+esc(t.zipGame)+'</h3>'+
++  const report=r.report?'<a class="all" href="/bug-report.zip?k='+key+'" download>'+esc(t.report||'Bug report (.zip)')+'<span>'+size(r.report.size)+'</span></a>':'';
++  $('list').innerHTML='<div class="zip">'+report+zip('all','all',t.zipAll,r.count,r.size)+'<h3>'+esc(t.zipGame)+'</h3>'+
+     r.games.map(g=>zip(g.id,'',g.name,g.count,g.size)).join('')+'</div><h3>'+esc(t.files)+'</h3><div class="logs">'+
+     r.files.map(l=>'<a href="/logs/'+encodeURIComponent(l.name)+'?k='+key+'" download>'+esc(l.name)+'<span>'+size(l.size)+'</span></a>').join('')+'</div>';
+ }
+@@ -203,80 +206,9 @@ bool SessionOf(const std::string& file, std::string* id, std::string* name) {
+   *name = file.substr(5, id_at - 5);
+   return true;
+ }
+-uint32_t Crc32(const std::string& data) {
+-  static uint32_t table[256];
+-  static bool made = false;
+-  if (!made) {
+-    for (uint32_t n = 0; n < 256; ++n) {
+-      uint32_t c = n;
+-      for (int bit = 0; bit < 8; ++bit) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+-      table[n] = c;
+-    }
+-    made = true;
+-  }
+-  uint32_t crc = 0xFFFFFFFFu;
+-  for (const unsigned char c : data) crc = table[(crc ^ c) & 0xFF] ^ (crc >> 8);
+-  return ~crc;
+-}
+-// Deflate with the fixed codes and the last place each three bytes were seen:
+-// small, and enough for logs, whose lines repeat one another.
+-std::string Deflated(const std::string& in) {
+-  static const uint16_t length_base[29] = {3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258};
+-  static const uint8_t length_extra[29] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0};
+-  static const uint16_t distance_base[30] = {1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577};
+-  static const uint8_t distance_extra[30] = {0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13};
+-  std::string out;
+-  out.reserve(in.size() / 4 + 64);
+-  uint64_t bits = 0;
+-  int held = 0;
+-  const auto put = [&](uint32_t value, int length) {  // Least significant bit first.
+-    bits |= uint64_t(value) << held;
+-    for (held += length; held >= 8; held -= 8, bits >>= 8) out += char(bits & 0xFF);
+-  };
+-  const auto code = [&](uint32_t value, int length) {  // A Huffman code goes most significant bit first.
+-    uint32_t reversed = 0;
+-    for (int bit = 0; bit < length; ++bit) reversed |= ((value >> bit) & 1u) << (length - 1 - bit);
+-    put(reversed, length);
+-  };
+-  const auto symbol = [&](unsigned s) {
+-    if (s < 144) code(0x30 + s, 8);
+-    else if (s < 256) code(0x190 + s - 144, 9);
+-    else if (s < 280) code(s - 256, 7);
+-    else code(0xC0 + s - 280, 8);
+-  };
+-  put(1, 1);  // The last block,
+-  put(1, 2);  // with the fixed codes.
+-  const auto* bytes = reinterpret_cast<const unsigned char*>(in.data());
+-  const size_t size = in.size();
+-  std::vector<int32_t> seen(size_t(1) << 15, -1);
+-  for (size_t at = 0; at < size;) {
+-    size_t match = 0, distance = 0;
+-    if (at + 3 <= size) {
+-      const uint32_t hash = (uint32_t(bytes[at]) << 16 | uint32_t(bytes[at + 1]) << 8 | bytes[at + 2]) * 2654435761u >> 17;
+-      const int32_t before = seen[hash];
+-      seen[hash] = int32_t(at);
+-      if (before >= 0 && at - size_t(before) <= 32768) {
+-        const size_t most = std::min<size_t>(258, size - at);
+-        size_t same = 0;
+-        while (same < most && bytes[size_t(before) + same] == bytes[at + same]) ++same;
+-        if (same >= 3) { match = same; distance = at - size_t(before); }
+-      }
+-    }
+-    if (!match) { symbol(bytes[at++]); continue; }
+-    int l = 28;
+-    while (length_base[l] > match) --l;
+-    symbol(257 + unsigned(l));
+-    put(uint32_t(match - length_base[l]), length_extra[l]);
+-    int d = 29;
+-    while (distance_base[d] > distance) --d;
+-    code(uint32_t(d), 5);
+-    put(uint32_t(distance - distance_base[d]), distance_extra[d]);
+-    at += match;
+-  }
+-  symbol(256);
+-  if (held) put(0, 8 - held);
+-  return out;
+-}
++// Fix 93: Crc32 and Deflated are in log_zip.hpp, shared with the bug report's archive.
++using log_zip::Crc32;
++using log_zip::Deflated;
+ bool SendAll(int client, const std::string& data) {
+   for (size_t sent = 0; sent < data.size();) {
+     const ssize_t part = send(client, data.data() + sent, data.size() - sent, 0);
+@@ -476,7 +408,14 @@ void Answer(int client) {
+     json += "],\"files\":[";
+     for (size_t n = 0; n < entries.size() && n < 40; ++n)
+       json += std::string(n ? "," : "") + "{\"name\":" + JsonText(entries[n].name) + ",\"size\":" + std::to_string(entries[n].size) + "}";
+-    Send(client, "200 OK", "application/json; charset=utf-8", json + "]}");
++    json += "]";
++    // Fix 93: the newest archive of a session with logs for a bug report.
++    const fs::path report = bug_report::NewestArchive(log_folder);
++    std::error_code report_error;
++    const uintmax_t report_size = report.empty() ? 0 : fs::file_size(report, report_error);
++    if (!report.empty() && !report_error)
++      json += ",\"report\":{\"name\":" + JsonText(report.filename().string()) + ",\"size\":" + std::to_string(report_size) + "}";
++    Send(client, "200 OK", "application/json; charset=utf-8", json + "}");
+   } else if (target == "/logs.zip" && method == "GET") {
+     const std::string game = Parameter(query, "game");
+     bool known = game == "all";
+@@ -486,6 +425,14 @@ void Answer(int client) {
+     }
+     if (!known) { Send(client, "400 Bad Request", "text/plain", "which game"); return; }
+     SendLogsZip(client, game);
++  } else if (target == "/bug-report.zip" && method == "GET") {
++    // Fix 93: the newest bug report archive (bug_report.hpp), as it is on the console.
++    const fs::path report = bug_report::NewestArchive(log_folder);
++    std::ifstream file(report, std::ios::binary);
++    if (report.empty() || !file) { Send(client, "404 Not Found", "text/plain", "no bug report yet"); return; }
++    const std::string data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
++    const std::string disposition = "Content-Disposition: attachment; filename=\"" + report.filename().string() + "\"\r\n";
++    Send(client, "200 OK", "application/zip", data, disposition.c_str());
+   } else if (!target.compare(0, 6, "/logs/") && method == "GET") {
+     const std::string name = Unescaped(target.substr(6));
+     std::ifstream file(log_folder / name, std::ios::binary);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index f4d9b84..ae3b7d5 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -23,6 +23,10 @@ void SelectOpenGLDriver(bool opengl);  // radv_dispatch.cpp
+ namespace xbox360ps5 {
+ bool LauncherShelfFocused();  // launcher.cpp
+ void LauncherSetRunningGame(const std::string& path, const std::string& name);  // launcher.cpp
++}
++#include "xbox360ps5/bug_report.hpp"  // fix 93: logs for a bug report
++namespace xbox360ps5 {
++void LauncherShowBugReport(bug_report::Report report, std::function<void()> closed);  // launcher.cpp, fix 93
+ bool TextureCaptureArmed();    // core vulkan_texture_cache.cc: texture-capture.txt in the title folder
+ void RequestTextureCapture();  // reads the textures of the next frame back (diagnostic)
+ // Accurate render targets (FSI) for one game, launcher.cpp (dev.14).
+@@ -537,7 +541,9 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+   // The options that take effect at once. (The level of logging is left to the
+   // launcher: the watch for stalled games changes it for a while.)
+   const auto shown = [](const xbox360ps5::Option& option) {
+-    return option.when == xbox360ps5::OptionWhen::live && std::strcmp(option.key, "detailed_logs") != 0;
++    // Fix 93: nor the logs for a bug report, which are for the next game start.
++    return option.when == xbox360ps5::OptionWhen::live && std::strcmp(option.key, "detailed_logs") != 0 &&
++           std::strcmp(option.key, "bug_report") != 0;
+   };
+   std::vector<GuideItem> items;
+   if (category < 0) {
+@@ -826,6 +832,7 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
+           ",\"recommended\":" + JsonText(Tr("Recommended: ")) + ",\"running\":" + JsonText(Tr("Playing: ")) +
+           ",\"logs\":" + JsonText(Tr("Logs")) + ",\"saved\":" + JsonText(Tr("Saved")) +
+           ",\"zipAll\":" + JsonText(Tr("Download every log (.zip)")) +
++          ",\"report\":" + JsonText(Tr("Bug report files (.zip)")) +  // fix 93
+           ",\"zipGame\":" + JsonText(Tr("Download one game's logs (.zip)")) +
+           ",\"files\":" + JsonText(Tr("Latest files, one by one")) +
+           ",\"none\":" + JsonText(Tr("No option on this page can be set for one game.")) + ",\"live\":" + JsonText(Tr("applies at once")) +
+@@ -2038,6 +2045,16 @@ int main(int argc, char** argv) {
+       std::filesystem::path(std::string(xe::kernel::xam::kXamModuleLoaderDataFileName)));
+   const std::string switch_restarted =
+       xbox360ps5::switch_title::TakeRestartGuard(storage / "switch-restart.txt");
++  // Fix 93: logs for a bug report (bug_report.hpp). A session that was running has ended, unless
++  // this start is its game's title switch, which goes on with it.
++  const std::filesystem::path bug_report_file = storage / "bug-report.txt";
++  xbox360ps5::bug_report::State bug_report_state = xbox360ps5::bug_report::Read(bug_report_file);
++  {
++    const auto before = bug_report_state.phase;
++    if (xbox360ps5::bug_report::AtBoot(bug_report_state, !switch_pending.host_path.empty()))
++      xbox360ps5::bug_report::active.store(true);
++    if (bug_report_state.phase != before) xbox360ps5::bug_report::Write(bug_report_file, bug_report_state);
++  }
+   if (settings_title.empty() && !switch_pending.host_path.empty()) {
+     settings_title = GameTitleId(switch_pending.host_path);
+     Stage(("BOOT title switch to " + switch_pending.host_path + " (" +
+@@ -2258,6 +2275,33 @@ int main(int argc, char** argv) {
+       std::filesystem::remove(storage / "notice.txt", notice_error);
+     }
+   }
++  // Fix 93: a session with logs for a bug report has ended: its files, with one .zip of them made
++  // beside them in the background, are shown once, when the launcher is what this start shows.
++  if (bug_report_state.phase == xbox360ps5::bug_report::Phase::ready && game.empty()) {
++    namespace report = xbox360ps5::bug_report;
++    report::Report shown;
++    shown.game = bug_report_state.game;
++    shown.folder = bug_report_state.logs.empty() ? log_root
++                                                 : std::filesystem::path(bug_report_state.logs.front()).parent_path();
++    shown.files = report::Files(bug_report_state, {"/app0/logs/boot.log", storage / "boot.log"});
++    shown.archive = std::make_shared<report::Archive>();
++    shown.archive->path = shown.folder / report::ArchiveName(bug_report_state);
++    XELOGW("Bug report: the session of {} ended; {} files, archive {}", shown.game, shown.files.size(),
++           shown.archive->path.string());
++    if (shown.folder.empty()) {
++      shown.archive->status.store(report::Archive::failed);
++    } else {
++      std::thread([archive = shown.archive, files = shown.files] {
++        archive->status.store(report::WriteArchive(archive->path, files) ? report::Archive::done : report::Archive::failed,
++                              std::memory_order_release);
++      }).detach();
++    }
++    xbox360ps5::LauncherShowBugReport(shown, [bug_report_file, state = bug_report_state]() mutable {
++      state.phase = report::Phase::shown;
++      report::Write(bug_report_file, state);
++      XELOGW("Bug report: screen closed");
++    });
++  }
+   Stage("BOOT pad");
+   NativePad pad;
+   int result = 0;
+@@ -2871,6 +2915,16 @@ int main(int argc, char** argv) {
+           restart = true;
+           break;
+         }
++        // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
++        // the next start is an ordinary one. A title switch of the session goes on with it.
++        if (global.bug_report) {
++          global.bug_report = 0;
++          global.Save();
++          bug_report_state = xbox360ps5::bug_report::Begin(chosen.name, log_id, int64_t(std::time(nullptr)));
++          xbox360ps5::bug_report::active.store(true);
++        }
++        settings.bug_report = 0;
++        if (xbox360ps5::bug_report::Active()) xbox360ps5::gpu_diag::stages_enabled = true;
+         settings.Apply();
+         if (game_log->session.Begin(log_root, chosen.name, log_id, game.string(), XBOX360PS5_VERSION)) {
+           const auto log_path = game_log->session.Path();
+@@ -2880,7 +2934,13 @@ int main(int argc, char** argv) {
+           else if (*xbox360ps5::CrashReportNote())
+             XELOGW("Crash report: {}", xbox360ps5::CrashReportNote());
+           XELOGW("Game log: {}", log_path.string());
++          if (xbox360ps5::bug_report::Active()) bug_report_state.logs.push_back(log_path.string());
+         } else XELOGE("Could not create game log; retaining the current destination");
++        if (xbox360ps5::bug_report::Active()) {
++          const bool saved = xbox360ps5::bug_report::Write(bug_report_file, bug_report_state);
++          XELOGW("Bug report: this session keeps logs for a bug report (log level {}, recent system calls, stage "
++                 "timings){}", cvars::log_level, saved ? "" : "; its state could not be saved");
++        }
+         std::error_code space_error;
+         const auto save_space = std::filesystem::space(saves.root, space_error);
+         XELOGW("Save storage: {} available {} bytes, capacity {} bytes, query error {}",
+@@ -3006,6 +3066,10 @@ int main(int argc, char** argv) {
+         // measured. A public build's report has the waits and the callers.
+ #ifdef XBOX360PS5_EXPERIMENTAL_DIAGNOSTICS
+         xe::logging::KeepRecentLines(true);
++#else
++        // Fix 93: and in a session with logs for a bug report, which writes them at a stop
++        // (STALL and WAITING reports, a crash of the game included) and when the game ends.
++        if (xbox360ps5::bug_report::Active()) xe::logging::KeepRecentLines(true);
+ #endif
+         // A game that keeps drawing the same thing at one steady, low rate for
+         // two minutes is probably waiting on a loading screen: reported once.
+@@ -3489,7 +3553,13 @@ int main(int argc, char** argv) {
+               // still for the five seconds it takes, and the summary that
+               // covers them reads lower than the game was.
+ #ifdef XBOX360PS5_EXPERIMENTAL_DIAGNOSTICS
+-              if (xbox360ps5::gpu_diag::enabled && !auto_measured) {
++              const bool sample_when_slow = true;
++#else
++              // Fix 93: a session with logs for a bug report does too (after about two minutes
++              // of slow play: its summaries cover 30 samples).
++              const bool sample_when_slow = xbox360ps5::bug_report::Active();
++#endif
++              if (xbox360ps5::gpu_diag::enabled && !auto_measured && sample_when_slow) {
+                 const float average = fps_sum / summary_samples;
+                 slow_summaries = average > 5.0f && average < 40.0f ? slow_summaries + 1 : 0;
+                 if (slow_summaries >= 4 && !guide.open) {
+@@ -3498,7 +3568,6 @@ int main(int argc, char** argv) {
+                   measure_at = std::chrono::steady_clock::now();
+                 }
+               }
+-#endif
+               {
+                 const float average = fps_sum / summary_samples;
+                 const bool steady = average > 1.0f && average < 25.0f && fps_low > average - 1.5f &&
+@@ -3521,6 +3590,13 @@ int main(int argc, char** argv) {
+           }
+         }
+         hang_watch_thread.reset();  // fix 47
++        if (xbox360ps5::bug_report::Active()) {
++          // Fix 93: what the game asked of the system last, for the bug report.
++          XELOGW("Bug report: the game loop ended; the game's recent system calls, oldest first:");
++          xe::logging::WriteRecentLines();
++          XELOGW("Bug report: recent system calls end");
++          xe::FlushLog();
++        }
+         xe::ui::controller_keyboard::Cancel();
+         // Publish cancellation and signal any keyboard fence while the drawer
+         // and kernel still exist, before ending the guest title.
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index e435b45..c2da85f 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -20,6 +20,7 @@
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/canary_audio.hpp"
+ #include "xbox360ps5/gpu_diagnostics.hpp"
++#include "xbox360ps5/bug_report.hpp"  // fix 93
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
+ #include <algorithm>
+@@ -207,6 +208,12 @@ bool g_kinect_open = false;
+ float g_kinect_shown = 0.0f;
+ std::string g_kinect_asked;  // the start (game path) that has been asked about
+ std::string g_kinect_game;   // its name, for the dialog
++// Fix 93: the files of the last session with logs for a bug report, shown once as the launcher
++// comes up after it (canary_game_main.cpp; bug_report.hpp).
++bool g_report_open = false;
++float g_report_shown = 0.0f;
++bug_report::Report g_report;
++std::function<void()> g_report_closed;
+ // The search by name: up on the shelf opens a keyboard; the shelf shows only the
+ // games whose name (or title ID) has what was typed.
+ std::string g_search;
+@@ -433,6 +440,11 @@ const std::vector<Option>& Options() {
+       {"detailed_logs", &S::detailed_logs, 4, W::live, 0, false, "Detailed logs",
+        "Log every game system call. Slows games down; enable only for troubleshooting.",
+        {"Off||plural", "On||plural"}},
++      // Fix 93: one game session with more detail, then a screen with the files for a bug report
++      // (bug_report.hpp). Turns itself off as that game starts (canary_game_main.cpp).
++      {"bug_report", &S::bug_report, 4, W::live, 0, false, "Logs for a bug report",
++       "For the next game you start, the emulator writes down more of what happens. Play until the problem shows, then close the game. A screen then lists the files to attach to your bug report. It turns itself off after that game.",
++       {"Off||plural", "Next game"}},
+       // Binary release patch group 13: FSI per game. Standard keeps the preset's accurate_targets,
+       // else the general FSI row; the others force it for the game, through the restart into
+       // FSI at launch (canary_game_main.cpp). Translations in the language files.
+@@ -590,7 +602,9 @@ void Settings::Apply() const {
+   // Do not duplicate every line into the platform stdout transport, and do
+   // not let stale debug files silently override the user's visible setting.
+   cvars::log_to_stdout = false;
+-  cvars::log_level = detailed_logs ? 3 : 1;
++  // Fix 93: a session for a bug report adds the information lines (module loads, files, the
++  // graphics system's notes); every system call stays the "Detailed logs" option's.
++  cvars::log_level = detailed_logs ? 3 : bug_report::Active() ? 2 : 1;
+   // Read by the core each time they matter, so they also apply to a running game.
+   cvars::anisotropic_override = anisotropic ? anisotropic + 1 : -1;  // 2x is 2 ... 16x is 5.
+   cvars::saved_storage_device = xe::kernel::xam::storage::SaveDriveDeviceId(save_drive);
+@@ -1529,6 +1543,15 @@ void Launcher::CloseSettings() {
+ void Launcher::Press(Key key) {
+   // Interaction can finish the entrance immediately; never delay a pad action.
+   intro_ = 1.0f;
++  if (g_report_open) {
++    // Fix 93: the bug report's files; Circle or Cross closes it.
++    if (key == Key::circle || key == Key::cross) {
++      g_report_open = false;
++      if (g_report_closed) g_report_closed();
++      g_report_closed = nullptr;
++    }
++    return;
++  }
+   if (g_kinect_open) {
+     // Fix 57: "<game> requires Kinect. Turn on Camera motion for this game?"
+     if (key == Key::cross) {
+@@ -2116,6 +2139,12 @@ void LauncherSetRunningGame(const std::string& path, const std::string& name) {
+   g_running_name = name;
+   g_confirm_open = false;
+ }
++// Fix 93: the report screen; `closed` runs when the player closes it.
++void LauncherShowBugReport(bug_report::Report report, std::function<void()> closed) {
++  g_report = std::move(report);
++  g_report_closed = std::move(closed);
++  g_report_open = true;
++}
+ // Accurate render targets for one game: its preset, else the general choice.
+ bool FsiWantedFor(const std::string& title_id) {
+   if (!title_id.empty()) {
+@@ -2411,10 +2440,12 @@ void DrawNxeProfile(const Launcher::Canvas& c, const std::string& name, const st
+ #include "kinect_home.inc"
+ }  // namespace
+ 
++template <class Surface>  // Below: Launcher::Canvas is private to the class.
++void DrawQrCard(Surface& c, const QrCode& qr, float qx, float qy, float card);
+ void Launcher::Draw(ImGuiIO& io) {
+   ApplyTheme(NxeUi());
+   // The search keyboard and the confirmation take the pad: Circle closes them, not the library.
+-  shelf_focused = mode_ == Mode::shelf && loading_.empty() && !g_search_open && !g_confirm_open;
++  shelf_focused = mode_ == Mode::shelf && loading_.empty() && !g_search_open && !g_confirm_open && !g_report_open;
+   const float dt = std::clamp(io.DeltaTime, 0.0f, 0.1f);
+   time_ += dt;
+   intro_ = std::min(1.0f, intro_ + dt / 0.60f);
+@@ -2585,6 +2616,69 @@ void Launcher::Draw(ImGuiIO& io) {
+     c.Hint('t', Tr("Cancel"), hint, y + h - 56);
+     c.alpha = 1.0f;
+   }
++  // Fix 93: the files for a bug report, where they are and how to send them.
++  g_report_shown = Smooth(g_report_shown, g_report_open ? 1.0f : 0.0f, dt, 18);
++  if (g_report_shown > 0.01f) {
++    const float t = g_report_shown;
++    const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
++    c.alpha = 1.0f;
++    c.Fill(0, 0, 1920, 1080, 0x000000, 0.7f * ease);
++    c.alpha = ease;
++    const float w = 1600, h = 960, x = 160, y = 60 + 30 * (1.0f - ease);
++    c.Fill(x, y, w, h, kSheet, 0.99f, 22);
++    c.Edge(x, y, w, h, kAccent, 0.7f, 22, 2.0f);
++    const float left = x + 48, width = w - 96;
++    c.Text(Tr("Files for your bug report"), left, y + 32, 34, kText);
++    c.Text(Tr("Detailed logs of your last game session are ready.") + std::string("  ") + g_report.game, left, y + 86,
++           24, kBody, 1.0f, 0, width);
++    float line = y + 136;
++    c.Text(Tr("Files on the console:"), left, line, 20, kMuted);
++    line += 32;
++    const size_t shown_files = std::min<size_t>(g_report.files.size(), 8);
++    for (size_t n = 0; n < shown_files; ++n, line += 30) {
++      const auto& file = g_report.files[n];
++      c.Text(file.path.string(), left + 16, line, 20, kText, 1.0f, 0, width - 160);
++      c.Text(bug_report::SizeText(file.size), left + width, line, 20, kMuted, 1.0f, 2);
++    }
++    if (g_report.files.size() > shown_files)
++      c.Text("+ " + std::to_string(g_report.files.size() - shown_files), left + 16, line, 20, kMuted), line += 30;
++    line += 12;
++    const int status = g_report.archive ? g_report.archive->status.load(std::memory_order_acquire)
++                                        : int(bug_report::Archive::failed);
++    if (status == bug_report::Archive::working) {
++      c.Text(Tr("Preparing one .zip file with all of them..."), left, line, 22, kAccent);
++    } else if (status == bug_report::Archive::done) {
++      c.Text(Tr("All of them in one file:"), left, line, 20, kMuted);
++      c.Text(g_report.archive->path.string(), left + 16, line + 30, 22, kAccent, 1.0f, 0, width - 16);
++    } else {
++      c.Text(Tr("Could not make the .zip file. Copy the files one by one."), left, line, 22, kWarning, 1.0f, 0, width);
++    }
++    line += 80;
++    // A phone opens the archive's link from the code; a computer types the address.
++    const std::string link = status == bug_report::Archive::done ? bug_report::ZipLink(web_url_) : std::string();
++    static std::string qr_text;
++    static QrCode qr;
++    if (link != qr_text) { qr_text = link; qr = link.empty() ? QrCode() : MakeQrCode(link); }
++    if (!link.empty() && qr.size) {
++      DrawQrCard(c, qr, left, line, 200);
++      c.Wrapped(Tr("Scan the code with a phone to download the .zip, or open this address on a computer on the same network:"),
++                left + 232, line + 8, 22, kBody, width - 232);
++      c.Text(link, left + 232, line + 100, 22, kAccent, 1.0f, 0, width - 232);
++      line += 224;
++    } else if (web_url_.empty()) {
++      c.Wrapped(Tr("To download them from a phone or computer, turn on the option Settings page for a phone (Settings, System)."),
++                left, line, 22, kBody, width);
++      line += 70;
++    }
++    c.Text(Tr("With an FTP program, copy them from this folder:"), left, line, 22, kBody, 1.0f, 0, width);
++    c.Text(g_report.folder.string(), left + 16, line + 32, 22, kAccent, 1.0f, 0, width - 16);
++    line += 84;
++    c.Wrapped(Tr("Then open a new issue on GitHub, describe what you did and what went wrong, and attach the files:"),
++              left, line, 22, kBody, width);
++    c.Text(bug_report::kIssues, left + 16, line + 64, 24, kAccent, 1.0f, 0, width - 16);
++    c.Hint('o', Tr("Close"), left, y + h - 56);
++    c.alpha = 1.0f;
++  }
+   // What is happening by itself: covers being fetched, a game just found.
+   // Under the name, on the left: the sheets cover the right side.
+   c.alpha = 1.0f;
+@@ -2593,6 +2687,9 @@ void Launcher::Draw(ImGuiIO& io) {
+     c.Chip(status.rfind(Tr("Downloading covers: "), 0) == 0 ? status : std::string(Tr("Downloading covers...")), NxeUi() ? 560.0f : 96.0f, NxeUi() ? 108.0f : 112.0f, kAccent);
+   } else if (!notice_.empty() && time_ < notice_until_) {
+     c.Chip(notice_, NxeUi() ? 560.0f : 96.0f, NxeUi() ? 108.0f : 112.0f, kText);
++  } else if (settings_.bug_report && mode_ == Mode::shelf) {
++    // Fix 93: said while it waits for the next game.
++    c.Chip(Tr("Logs for a bug report: on for the next game"), NxeUi() ? 560.0f : 96.0f, NxeUi() ? 108.0f : 112.0f, kWarning);
+   }
+   draw_version();
+   ImGui::End();

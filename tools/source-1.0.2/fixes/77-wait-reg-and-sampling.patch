@@ -1,0 +1,196 @@
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -297,7 +297,20 @@ inline const char* DrawPartName(uint32_t part) {
+ inline std::array<std::atomic<uint64_t>, kDrawParts> draw_part_ticks{};
+ inline std::atomic<uint64_t> draw_calls{0}, draw_sampled{0};
+ inline std::atomic<uint32_t> draw_sample_every{8};
+-inline uint32_t draw_sample_counter = 0;  // the GPU thread's alone (fix 75: not thread_local)
++// Fix 77: which draws and packets are timed is drawn at random (xorshift32, the GPU thread's
++// alone), not every n-th: a game's ring repeats the same packets every frame, so a counter took the
++// same ones each time (1.0.5_candidate_50: Tekken's WAIT_REG_MEM at 1,300 to 2,000 ms/s, Battlefield
++// 3's packets at almost none of its 424 ms/s).
++inline uint32_t sample_state = 0x9E3779B9u;
++inline bool SampleOneIn(uint32_t every) {
++  if (every <= 1) return true;
++  uint32_t x = sample_state;
++  x ^= x << 13;
++  x ^= x >> 17;
++  x ^= x << 5;
++  sample_state = x;
++  return x % every == 0;
++}
+ // One writer (the GPU thread): a plain add, readable by the summary without a data race.
+ inline void AddOwn(std::atomic<uint64_t>& counter, uint64_t value) {
+   counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
+@@ -314,8 +327,7 @@ class DrawTimer {
+   DrawTimer() : active_(OnGpuThread()) {  // fix 75: no thread_local access per draw
+     if (!active_) return;
+     AddOwn(draw_calls, 1);
+-    const uint32_t every = draw_sample_every.load(std::memory_order_relaxed);
+-    active_ = every <= 1 || draw_sample_counter++ % every == 0;
++    active_ = SampleOneIn(draw_sample_every.load(std::memory_order_relaxed));  // fix 77
+     if (!active_) return;
+     AddOwn(draw_sampled, 1);
+     since_ = Ticks();
+@@ -530,7 +542,7 @@ inline std::array<std::atomic<uint64_t>, kPacketKinds> packet_ticks{}, packet_co
+ inline std::atomic<uint64_t> packet_top{0}, packet_top_sampled{0};
+ inline std::atomic<uint32_t> packet_sample_every{16};
+ // Packets run on the GPU thread alone: plain variables (not thread_local, emulated on the console).
+-inline uint32_t packet_depth = 0, packet_sample_counter = 0;
++inline uint32_t packet_depth = 0;
+ inline bool packet_sampling = false;
+ inline uint64_t packet_nested_ticks = 0;
+ class PacketTimer {
+@@ -539,8 +551,7 @@ class PacketTimer {
+     if (!OnGpuThread()) return;
+     if (packet_depth == 0) {
+       AddOwn(packet_top, 1);
+-      const uint32_t every = packet_sample_every.load(std::memory_order_relaxed);
+-      packet_sampling = every <= 1 || packet_sample_counter++ % every == 0;
++      packet_sampling = SampleOneIn(packet_sample_every.load(std::memory_order_relaxed));  // fix 77
+       if (packet_sampling) AddOwn(packet_top_sampled, 1);
+     }
+     ++packet_depth;
+@@ -621,6 +632,90 @@ class PacketReporter {
+   double last_ns_per_tick_ = 0;
+ };
+ 
++// Fix 77: how the GPU thread waits in WAIT_REG_MEM (a guest memory word or register reaching a
++// value): Tekken Tag Tournament 2 and DBZ spend most of their "rest of executing" there. Every
++// such packet is counted; one that does not match at once is timed from its first poll to its
++// match, split into the time in Xenia's sleeps (the packet's wait field >= 0x100, with vsync on)
++// and the rest (polling without a pause). By the wait field too: 0, 1-0xFF, 0x100-0x3FF, more.
++inline std::atomic<uint64_t> wait_reg_packets{0}, wait_reg_waits{0}, wait_reg_memory_waits{0}, wait_reg_polls{0},
++    wait_reg_sleeps{0}, wait_reg_spin_ticks{0}, wait_reg_sleep_ticks{0};
++inline std::array<std::atomic<uint64_t>, 4> wait_reg_by_field{};
++inline uint32_t WaitFieldBucket(uint32_t wait) { return wait == 0 ? 0 : wait < 0x100 ? 1 : wait < 0x400 ? 2 : 3; }
++class WaitRegTimer {
++ public:
++  WaitRegTimer(bool memory, uint32_t wait) : active_(OnGpuThread()), memory_(memory), wait_(wait) {
++    if (active_) AddOwn(wait_reg_packets, 1);
++  }
++  // Each poll that did not match.
++  void Missed() {
++    if (!active_) return;
++    if (!start_) start_ = Ticks();
++    ++polls_;
++  }
++  uint64_t BeforeSleep() const { return active_ ? Ticks() : 0; }
++  void AfterSleep(uint64_t before) {
++    if (!active_) return;
++    slept_ += Ticks() - before;
++    ++sleeps_;
++  }
++  ~WaitRegTimer() {
++    if (!active_ || !start_) return;
++    const uint64_t total = Ticks() - start_;
++    AddOwn(wait_reg_waits, 1);
++    if (memory_) AddOwn(wait_reg_memory_waits, 1);
++    AddOwn(wait_reg_polls, polls_);
++    AddOwn(wait_reg_sleeps, sleeps_);
++    AddOwn(wait_reg_sleep_ticks, slept_);
++    AddOwn(wait_reg_spin_ticks, total > slept_ ? total - slept_ : 0);
++    AddOwn(wait_reg_by_field[WaitFieldBucket(wait_)], 1);
++  }
++  WaitRegTimer(const WaitRegTimer&) = delete;
++  WaitRegTimer& operator=(const WaitRegTimer&) = delete;
++
++ private:
++  bool active_, memory_;
++  uint32_t wait_;
++  uint64_t start_ = 0, slept_ = 0, polls_ = 0, sleeps_ = 0;
++};
++// "Frame time WAIT_REG_MEM (GPU thread): n/s, w/s waited (m on memory), polling x ms/s, sleeping
++// y ms/s in s sleeps/s, p polls/s; waits by wait field: 0 a/s, 1-FF b/s, 100-3FF c/s, 400+ d/s"
++class WaitRegReporter {
++ public:
++  std::string Line(double seconds) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    const std::atomic<uint64_t>* const counters[11] = {
++        &wait_reg_packets, &wait_reg_waits, &wait_reg_memory_waits, &wait_reg_spin_ticks, &wait_reg_sleep_ticks,
++        &wait_reg_sleeps, &wait_reg_polls, &wait_reg_by_field[0], &wait_reg_by_field[1], &wait_reg_by_field[2],
++        &wait_reg_by_field[3]};
++    double d[11];
++    for (int n = 0; n < 11; ++n) {
++      const uint64_t now = counters[n]->load(std::memory_order_relaxed);
++      d[n] = double(now - last_[n]);
++      last_[n] = now;
++    }
++    char text[384];
++    std::snprintf(text, sizeof(text),
++                  "Frame time WAIT_REG_MEM (GPU thread): %.0f/s, %.0f/s waited (%.0f on memory), polling %.1f ms/s, "
++                  "sleeping %.1f ms/s in %.0f sleeps/s, %.0f polls/s; waits by wait field: 0 %.0f/s, 1-FF %.0f/s, "
++                  "100-3FF %.0f/s, 400+ %.0f/s",
++                  d[0] / s, d[1] / s, d[2] / s, d[3] * ns_per_tick / 1e6 / s, d[4] * ns_per_tick / 1e6 / s, d[5] / s,
++                  d[6] / s, d[7] / s, d[8] / s, d[9] / s, d[10] / s);
++    return text;
++  }
++
++ private:
++  uint64_t last_[11] = {};
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++};
++
+ // "Frame time uploads (GPU thread): ..." since its previous line.
+ class UploadReporter {
+  public:
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -744,6 +744,10 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+   bool matched = false;
+   // Xbox360PS5 (fix 24): a wait that does not match at once, for the STALL report.
+   bool traced = false;
++#if XE_PLATFORM_PS5
++  // Fix 77: how long the GPU thread waits here, polling and sleeping.
++  xbox360ps5::frame_cost::WaitRegTimer frame_cost_wait(is_memory, wait);
++#endif
+ 
+   do {
+     uint32_t value = value_ref;
+@@ -761,6 +765,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+     matched = MatchValueAndRef(value & mask, ref, wait_info);
+ 
+     if (!matched) {
++#if XE_PLATFORM_PS5
++      frame_cost_wait.Missed();  // fix 77
++#endif
+       if (!traced) {
+         // The packet's physical address: the reader is past its 6 dwords.
+         const uint32_t packet = uint32_t(
+@@ -783,7 +790,13 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+           // User wants it fast and dangerous.
+           // do nothing
+         } else {
++#if XE_PLATFORM_PS5
++          const uint64_t frame_cost_sleep = frame_cost_wait.BeforeSleep();  // fix 77
++#endif
+           xe::threading::Sleep(std::chrono::milliseconds(wait / 0x100));
++#if XE_PLATFORM_PS5
++          frame_cost_wait.AfterSleep(frame_cost_sleep);
++#endif
+           ReturnFromWait();
+         }
+ 
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3458,6 +3458,9 @@ int main(int argc, char** argv) {
+                 // Fix 75: the rest of executing by PM4 packet kind.
+                 static xbox360ps5::frame_cost::PacketReporter frame_cost_packets;
+                 XELOGW("{}", frame_cost_packets.Line(double(summary_samples)));
++                // Fix 77: how the GPU thread waits in WAIT_REG_MEM.
++                static xbox360ps5::frame_cost::WaitRegReporter frame_cost_wait_reg;
++                XELOGW("{}", frame_cost_wait_reg.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game

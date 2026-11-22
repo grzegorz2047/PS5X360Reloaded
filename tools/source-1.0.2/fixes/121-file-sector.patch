@@ -1,0 +1,46 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io_info.cc
+@@ -19,6 +19,7 @@
+ #include "xbox360ps5/xctd.hpp"  // fix 90
+ #include "xenia/kernel/xfile.h"
+ #include "xenia/vfs/device.h"
++#include "xenia/vfs/devices/disc_image_entry.h"  // fix 121
+ #include "xenia/xbox.h"
+ 
+ namespace xe {
+@@ -100,10 +101,30 @@ dword_result_t NtQueryInformationFile_entry(
+       // SW that uses this seems to use the output as a way of uniquely
+       // identifying a file for sorting/lookup so we can just give it an
+       // arbitrary 4 byte integer most of the time
+-      XELOGW("Stub XFileSectorInformation!");
+-      auto info = info_ptr.as<uint32_t*>();
+-      size_t fname_hash = xe::memory::hash_combine(82589933LL, file->path());
+-      *info = static_cast<uint32_t>(fname_hash ^ (fname_hash >> 32));
++      // Xbox360PS5 (fix 121): a file on a disc image answers with its start
++      // sector on the disc (its data offset / 2048, big-endian as the guest
++      // reads it), which games use to order their disc reads. The Sims 3
++      // asked about 7,000 times in a 140 s load while every file got a
++      // random-looking number and a log line. Other files keep the stable
++      // hash. One log line for each kind, not one per call.
++      static std::atomic<bool> logged_disc{false}, logged_other{false};
++      auto info = info_ptr.as<xe::be<uint32_t>*>();
++      if (auto* disc = dynamic_cast<vfs::DiscImageEntry*>(file->entry())) {
++        *info = static_cast<uint32_t>(disc->data_offset() / 0x800);
++        if (!logged_disc.exchange(true)) {
++          XELOGW("File sector information (fix 121): disc files answer their "
++                 "start sector ({} for {})",
++                 uint32_t(*info), file->path());
++        }
++      } else {
++        size_t fname_hash = xe::memory::hash_combine(82589933LL, file->path());
++        *info = static_cast<uint32_t>(fname_hash ^ (fname_hash >> 32));
++        if (!logged_other.exchange(true)) {
++          XELOGW("File sector information (fix 121): {} is not on the disc; "
++                 "a stable stand-in number",
++                 file->path());
++        }
++      }
+       out_length = sizeof(uint32_t);
+       break;
+     }

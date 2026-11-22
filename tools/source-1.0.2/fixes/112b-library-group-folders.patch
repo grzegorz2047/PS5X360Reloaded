@@ -1,0 +1,201 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 90e5db5..0c80de0 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -275,6 +275,7 @@ bool IsRunning(const GameEntry& game) { return !g_running_path.empty() && game.p
+ library_groups::Layout g_groups;
+ std::string g_group;                    // The open group's key, "" for the library.
+ std::vector<GameEntry> g_group_tiles;   // One per group.
++std::vector<std::vector<int>> g_group_covers;  // Fix 112b: one per group, up to four of its games' covers.
+ std::vector<size_t> g_group_recency;    // One per group: its most recently played game's place in recent.txt.
+ std::vector<size_t> g_game_recency;     // One per game.
+ const char kGroupKept[] = "\x01group:";  // A kept selection that is a group: this, then its key.
+@@ -1269,19 +1270,26 @@ void Launcher::Scan() {
+     }
+     g_groups = library_groups::Build(folders);
+     g_group_tiles.clear();
++    g_group_covers.clear();
+     g_group_recency.clear();
+     for (const auto& group : g_groups.groups) {
++      // Fix 112b: a group's tile is a folder, never one game's cover: the folder shows up to four of
++      // its games' covers (the shelf's order), the tile itself has none.
+       GameEntry tile;
+       tile.name = group.name;
++      std::vector<int> covers;
+       size_t best = recents_.size();
+       for (const size_t n : group.games) {
+-        if (tile.cover < 0) tile.cover = games_[n].cover;  // the first game's cover that has one
++        const int cover = games_[n].cover;
++        if (cover >= 0 && covers.size() < 4 && std::find(covers.begin(), covers.end(), cover) == covers.end())
++          covers.push_back(cover);
+         best = std::min(best, g_game_recency[n]);
+       }
+-      char count[48];
+-      std::snprintf(count, sizeof(count), "%d %s", int(group.games.size()), group.games.size() == 1 ? Tr("game") : Tr("games"));
++      char count[64];
++      std::snprintf(count, sizeof(count), Tr(library_groups::CountKey(group.games.size())), int(group.games.size()));
+       tile.size = count;
+       g_group_tiles.push_back(std::move(tile));
++      g_group_covers.push_back(std::move(covers));
+       g_group_recency.push_back(best);
+       XELOGI("LAUNCHER group {}: {} games", group.key, group.games.size());
+     }
+@@ -3256,6 +3264,79 @@ void CoverImage(ImDrawList* list,ImTextureID texture,const Quad& q,
+       ImVec2(u0+(u1-u0)*b,v0+(v1-v0)*e),ImVec2(u0+(u1-u0)*a,v0+(v1-v0)*e),color);
+   }
+ }
++// Fix 112b: a group of games drawn as a folder in the quad q (a case's front on the shelf, the box
++// of an NXE tile): the folder's back with its tab, its front lower and a little lighter, on it up to
++// four of its games' covers (one in the middle, two side by side, three or four in a square), the
++// folder's name at its foot and a badge with the number of games in the corner. No game's cover
++// fills it, so it does not look like a game.
++void DrawGroupFolder(const Launcher::Canvas& c, const std::vector<std::unique_ptr<xe::ui::ImmediateTexture>>& textures,
++                     const std::vector<CoverArt>& arts, const std::vector<int>& covers, size_t games,
++                     const std::string& name, const Quad& q, float light, bool nxe) {
++  ImDrawList* list = c.list;
++  const auto shade = [&](uint32_t rgb, float a = 1.0f) {
++    const float k = std::clamp(light, 0.0f, 1.0f);
++    return IM_COL32(int((rgb >> 16 & 255) * k), int((rgb >> 8 & 255) * k), int((rgb & 255) * k), int(255 * a * c.alpha));
++  };
++  const auto fill = [&](const Quad& p, uint32_t rgb, float a = 1.0f) { list->AddQuadFilled(p.tl, p.tr, p.br, p.bl, shade(rgb, a)); };
++  constexpr uint32_t kFolderBack = 0xb8801f, kFolderFront = 0xe9b246, kFolderEdge = 0xffdc8a, kFolderInk = 0x3a2604;
++  // The back and its tab, then the front.
++  const Quad tab = Part(q, 0.03f, 0.0f, 0.42f, 0.10f);
++  list->AddQuadFilled(tab.tl, Mix(tab.tl, tab.tr, 0.86f), tab.br, tab.bl, shade(kFolderBack));
++  fill(Part(q, 0.0f, 0.06f, 1.0f, 1.0f), kFolderBack);
++  const Quad front = Part(q, 0.0f, 0.14f, 1.0f, 1.0f);
++  fill(front, kFolderFront);
++  list->AddLine(front.tl, front.tr, shade(kFolderEdge, 0.9f), 2.0f * c.scale);
++  list->AddQuad(front.tl, front.tr, front.br, front.bl, shade(0x000000, 0.25f), 1.0f * c.scale);
++  // The covers, in the front's middle: u 0.08-0.92, v 0.22-0.78 of the whole folder.
++  std::vector<int> shown;
++  for (const int cover : covers)
++    if (cover >= 0 && size_t(cover) < textures.size()) shown.push_back(cover);
++  const size_t count = std::min<size_t>(shown.size(), 4);
++  const float u0 = 0.10f, u1 = 0.90f, v0 = 0.22f, v1 = 0.80f, gap = 0.025f;
++  for (size_t i = 0; i < count; ++i) {
++    float a0 = u0, a1 = u1, b0 = v0, b1 = v1;
++    if (count == 1) {
++      a0 = 0.28f; a1 = 0.72f;
++    } else if (count == 2) {
++      const float half = (u0 + u1) / 2;
++      a0 = i == 0 ? u0 : half + gap / 2; a1 = i == 0 ? half - gap / 2 : u1;
++    } else {
++      const float hu = (u0 + u1) / 2, hv = (v0 + v1) / 2;
++      a0 = i % 2 == 0 ? u0 : hu + gap / 2; a1 = i % 2 == 0 ? hu - gap / 2 : u1;
++      b0 = i < 2 ? v0 : hv + gap / 2; b1 = i < 2 ? hv - gap / 2 : v1;
++    }
++    const Quad cell = Part(q, a0, b0, a1, b1);
++    fill(Part(q, a0 + 0.012f, b0 + 0.012f, a1 + 0.012f, b1 + 0.012f), 0x000000, 0.30f);  // a little shadow
++    const CoverArt art = size_t(shown[i]) < arts.size() ? arts[size_t(shown[i])] : CoverArt{};
++    CoverImage(list, reinterpret_cast<ImTextureID>(textures[size_t(shown[i])].get()), cell, art.front_u0, 0, art.front_u1, 1,
++               shade(0xffffff));
++    list->AddQuad(cell.tl, cell.tr, cell.br, cell.bl, shade(0xffffff, 0.55f), 1.0f * c.scale);
++  }
++  if (count == 3) fill(Part(q, (u0 + u1) / 2 + gap / 2, (v0 + v1) / 2 + gap / 2, u1, v1), kFolderBack, 0.55f);
++  if (!count) {
++    // No cover yet: a second sheet peeking out of the folder.
++    fill(Part(q, 0.14f, 0.08f, 0.86f, 0.30f), 0xf4efe2);
++    fill(Part(q, 0.0f, 0.24f, 1.0f, 1.0f), kFolderFront);
++  }
++  // The name at the foot, left of the badge; the badge with the number of games at the right.
++  const ImVec2 foot_l = Part(q, 0.07f, 0.84f, 0.70f, 0.97f).tl, foot_r = Part(q, 0.07f, 0.84f, 0.70f, 0.97f).br;
++  const float height = std::max(8.0f, (foot_r.y - foot_l.y));
++  const float size = std::clamp(height * 0.80f, 8.0f, 30.0f * c.scale);
++  list->PushClipRect(foot_l, foot_r, true);
++  list->AddText(c.Font(std::max(16.0f, size / c.scale)), size, ImVec2(foot_l.x, foot_l.y + (height - size) * 0.35f),
++                shade(kFolderInk), name.c_str());
++  list->PopClipRect();
++  const Quad badge_quad = Part(q, 0.74f, 0.82f, 0.96f, 0.98f);
++  const ImVec2 centre = Mix(Mix(badge_quad.tl, badge_quad.tr, 0.5f), Mix(badge_quad.bl, badge_quad.br, 0.5f), 0.5f);
++  const float radius = std::max(6.0f, std::min(badge_quad.br.x - badge_quad.bl.x, badge_quad.bl.y - badge_quad.tl.y) * 0.55f);
++  list->AddCircleFilled(centre, radius, shade(nxe ? 0x4b9a16 : 0x1d2a14), 28);
++  list->AddCircle(centre, radius, shade(0xffffff, 0.85f), 28, 1.5f * c.scale);
++  const std::string number = games > 99 ? "99+" : std::to_string(games);
++  const float number_size = radius * (number.size() > 2 ? 0.95f : 1.15f);
++  ImFont* font = c.Font(std::max(16.0f, number_size / c.scale));
++  const ImVec2 extent = font->CalcTextSizeA(number_size, 1e9f, 0.0f, number.c_str());
++  list->AddText(font, number_size, ImVec2(centre.x - extent.x / 2, centre.y - extent.y / 2), shade(0xffffff), number.c_str());
++}
+ // A game case in the shelf, drawn as a box: its front (the quad q, which may
+ // be slanted: the cases beside the selected one turn towards it) and the side
+ // that faces the middle of the shelf, `depth` design pixels deep. A case to
+@@ -3443,20 +3524,15 @@ void Launcher::DrawShelf(Canvas& c) {
+         // A tile leaving to the left fades as it goes.
+         if (d < 0.0f) c.alpha = alpha * std::clamp(1.0f + d * 1.4f, 0.0f, 1.0f);
+         const float glow = std::clamp(1.0f - std::fabs(d) * 1.5f, 0.0f, 1.0f) * (0.92f + 0.08f * std::sin(time_ * 2.0f));
++        DrawNxeTile(c, textures_, arts_, entry, NxeSlotAt(d), n == selected_, detail, detail2, glow);
+         if (group) {
+-          // A group is a little stack: two tiles behind its own, up and to the right.
+-          const NxeSlot s = NxeSlotAt(d);
+-          for (int layer = 2; layer >= 1; --layer) {
+-            NxeSlot back = s;
+-            back.x += 14.0f * float(layer) * s.w / 640.0f;
+-            back.y -= 12.0f * float(layer) * s.w / 640.0f;
+-            const NxeQuad q = NxeQuadOf(c, back);
+-            const uint32_t tone = layer == 2 ? 0xb9c0b0 : 0xd3d9cb;
+-            NxeQuadColors(c.list, q.tl, q.tr, q.br, q.bl, c.Color(tone), c.Color(tone), c.Color(0xa9b19f), c.Color(0xa9b19f));
+-            c.list->AddQuad(q.tl, q.tr, q.br, q.bl, c.Color(kNxeShadow, 0.25f), 1.5f * c.scale);
+-          }
++          // Fix 112b: the tile's box is a folder (its tab, a mosaic of its games' covers, the number of games).
++          const NxeQuad t = NxeQuadOf(c, NxeSlotAt(d));
++          const Quad box{t.At(0.068f, 0.09f), t.At(0.535f, 0.09f), t.At(0.535f, 0.91f), t.At(0.068f, 0.91f)};
++          const size_t g = size_t(-1 - view_[size_t(n)]);
++          DrawGroupFolder(c, textures_, arts_, g_group_covers[g], g_groups.groups[g].games.size(), entry.name, box,
++                          1.0f - NxeSlotAt(d).shade * 0.5f, true);
+         }
+-        DrawNxeTile(c, textures_, arts_, entry, NxeSlotAt(d), n == selected_, detail, detail2, glow);
+         c.alpha = alpha;
+       }
+       const float details = enter(0.10f, 0.40f);
+@@ -3600,19 +3676,15 @@ void Launcher::DrawShelf(Canvas& c) {
+       // The spine shows on the middle case too, so the shelf reads as boxes.
+       const auto box=covers3d::Project(distance,floor);
+       if (view_[size_t(n)] < 0) {
+-        // Fix 112: a group is a little stack of cases, two behind its own, up and to the right.
+-        const float light = 1.0f - 0.5f * std::min(1.0f, std::fabs(distance));
+-        for (int layer = 2; layer >= 1; --layer) {
+-          const float dx = 12.0f * float(layer) * c.scale, dy = -10.0f * float(layer) * c.scale;
+-          const ImVec2 tl(q.tl.x + dx, q.tl.y + dy), tr(q.tr.x + dx, q.tr.y + dy), br(q.br.x + dx, q.br.y + dy), bl(q.bl.x + dx, q.bl.y + dy);
+-          const float k = light * (layer == 2 ? 0.55f : 0.75f);
+-          c.list->AddQuadFilled(tl, tr, br, bl, IM_COL32(int(0x2a * k), int(0x33 * k), int(0x3d * k), int(255 * c.alpha)));
+-          c.list->AddQuad(tl, tr, br, bl, c.Color(kWhite, 0.14f), 1.0f * c.scale);
+-        }
++        // Fix 112b: a group is a folder (its tab, a mosaic of its games' covers, the number of games).
++        const size_t g = size_t(-1 - view_[size_t(n)]);
++        DrawGroupFolder(c, textures_, arts_, g_group_covers[g], g_groups.groups[g].games.size(), Tile(n).name, q,
++                        1.0f - 0.5f * std::min(1.0f, std::fabs(distance)), false);
++      } else {
++        DrawCase(c, textures_, arts_, Tile(n), q,
++                 1.0f - 0.5f * std::min(1.0f, std::fabs(distance)), true,box.spine,
++                 Projected(c,box.side),Projected(c,box.top));
+       }
+-      DrawCase(c, textures_, arts_, Tile(n), q,
+-               1.0f - 0.5f * std::min(1.0f, std::fabs(distance)), true,box.spine,
+-               Projected(c,box.side),Projected(c,box.top));
+       // Layered strokes make a feathered glow without a translucent green panel.
+       const float pulse = chosen ? 0.94f + 0.06f * std::sin(time_ * 2.0f) : 1.0f;
+       const float strength = (chosen ? 1.0f : 0.24f) * pulse;
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+index 45edfdb..cd8b41a 100644
+--- a/port/library_groups.hpp
++++ b/port/library_groups.hpp
+@@ -175,6 +175,18 @@ inline Layout Build(const std::vector<std::vector<std::string>>& folders) {
+   return layout;
+ }
+ 
++// Fix 112b: the key of a group's "N games", with the number's form: "%d game" for one, "%d games||few"
++// for 2-4, 22-24, ... (not 12-14: Polish "3 gry", Russian "3 игры"), "%d games||one" for 21, 31, ...
++// (not 11: Russian "21 игра", Polish "21 gier"), "%d games" for the rest. Each language translates
++// all four; one with two forms gives "few" and "one" its plural.
++inline const char* CountKey(size_t n) {
++  if (n == 1) return "%d game";
++  const size_t ten = n % 10, hundred = n % 100;
++  if (ten >= 2 && ten <= 4 && !(hundred >= 12 && hundred <= 14)) return "%d games||few";
++  if (ten == 1 && hundred != 11) return "%d games||one";
++  return "%d games";
++}
++
+ // The group to stay in when the library is built again: `key`, else the nearest of its parent
+ // folders that is still a group, else the library ("").
+ inline std::string StillThere(const Layout& layout, std::string key) {

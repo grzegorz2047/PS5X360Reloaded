@@ -1,0 +1,362 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/register_run.h b/.deps/xenia-canary/src/xenia/gpu/register_run.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/register_run.h
+@@ -0,0 +1,127 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 103, a run of registers written a block at a time.         *
++ ******************************************************************************
++ * Grand Theft Auto IV sends about 1.4 million type 0 register packets a
++ * second (about 7 per draw), 132 ms/s of the GPU command thread at 97 ns each
++ * (Modern Warfare 2: 55 ns). Each register of a run was read from the ring by
++ * an out-of-line RingBuffer::Read, then written through the virtual
++ * WriteRegister and the base class's, in other translation units.
++ *
++ * Write() takes the run's big-endian words in place and writes the shader
++ * constants (float, fetch, bool/loop) itself, with exactly the effects
++ * VulkanCommandProcessor::WriteRegister has for each of those registers: the
++ * same values in the register file, the same constant buffers marked
++ * outdated, the same texture bindings out of sync (once for the run's fetch
++ * constants). Any other register goes to `other` (WriteRegister), one at a
++ * time and in order. tools/check-register-writes.cpp compares it with the
++ * register-by-register path.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_REGISTER_RUN_H_
++#define XENIA_GPU_REGISTER_RUN_H_
++
++#include <algorithm>
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace register_run {
++
++// register_table.inc (checked against XE_GPU_REG_* where this is used).
++constexpr uint32_t kFloatFirst = 0x4000;     // SHADER_CONSTANT_000_X
++constexpr uint32_t kFloatLast = 0x47FF;      // SHADER_CONSTANT_511_W
++constexpr uint32_t kFetchFirst = 0x4800;     // SHADER_CONSTANT_FETCH_00_0
++constexpr uint32_t kFetchLast = 0x48BF;      // SHADER_CONSTANT_FETCH_31_5
++constexpr uint32_t kBoolLoopFirst = 0x4900;  // SHADER_CONSTANT_BOOL_000_031
++constexpr uint32_t kBoolLoopLast = 0x4927;   // SHADER_CONSTANT_LOOP_31
++
++// The constant buffers' bits in current_constant_buffers_up_to_date_.
++struct Buffers {
++  uint32_t float_vertex, float_pixel, fetch, bool_loop;
++};
++
++// The command processor's state the constants touch.
++struct State {
++  uint32_t* regs;
++  bool skip_redundant;  // vulkan_skip_redundant_constants
++  bool frame_open;
++  const uint64_t* float_map_vertex;  // current_float_constant_map_vertex_
++  const uint64_t* float_map_pixel;   // current_float_constant_map_pixel_
++  Buffers buffers;
++  uint32_t* up_to_date;  // current_constant_buffers_up_to_date_
++};
++
++inline uint32_t LoadSwapped(const uint32_t* source) {
++  return __builtin_bswap32(*source);
++}
++
++// `fetch_written(first, last)` marks fetch constants first..last written
++// (TextureCache::TextureFetchConstantsWritten); `other(index, value)` writes
++// any other register (WriteRegister).
++template <typename FetchWritten, typename Other>
++inline void Write(const State& state, uint32_t start_index,
++                  const uint32_t* source, uint32_t count,
++                  FetchWritten&& fetch_written, Other&& other) {
++  uint32_t* regs = state.regs;
++  uint32_t i = 0;
++  while (i < count) {
++    const uint32_t index = start_index + i;
++    if (index >= kFloatFirst && index <= kFloatLast) {
++      const uint32_t end = std::min(count, i + (kFloatLast + 1 - index));
++      uint32_t outdated = 0;
++      for (; i < end; ++i) {
++        const uint32_t constant = start_index + i;
++        const uint32_t value = LoadSwapped(source + i);
++        if (state.skip_redundant && regs[constant] == value) {
++          continue;
++        }
++        regs[constant] = value;
++        if (state.frame_open) {
++          uint32_t float_index = (constant - kFloatFirst) >> 2;
++          if (float_index >= 256) {
++            float_index -= 256;
++            if (state.float_map_pixel[float_index >> 6] &
++                (UINT64_C(1) << (float_index & 63))) {
++              outdated |= state.buffers.float_pixel;
++            }
++          } else if (state.float_map_vertex[float_index >> 6] &
++                     (UINT64_C(1) << (float_index & 63))) {
++            outdated |= state.buffers.float_vertex;
++          }
++        }
++      }
++      *state.up_to_date &= ~outdated;
++    } else if (index >= kFetchFirst && index <= kFetchLast) {
++      // Every fetch constant write marks them outdated, changed or not.
++      const uint32_t end = std::min(count, i + (kFetchLast + 1 - index));
++      for (; i < end; ++i) {
++        regs[start_index + i] = LoadSwapped(source + i);
++      }
++      *state.up_to_date &= ~state.buffers.fetch;
++      fetch_written((index - kFetchFirst) / 6,
++                    (start_index + end - 1 - kFetchFirst) / 6);
++    } else if (index >= kBoolLoopFirst && index <= kBoolLoopLast) {
++      const uint32_t end = std::min(count, i + (kBoolLoopLast + 1 - index));
++      bool changed = !state.skip_redundant;
++      for (; i < end; ++i) {
++        const uint32_t value = LoadSwapped(source + i);
++        changed |= regs[start_index + i] != value;
++        regs[start_index + i] = value;
++      }
++      if (changed) {
++        *state.up_to_date &= ~state.buffers.bool_loop;
++      }
++    } else {
++      other(index, LoadSwapped(source + i));
++      ++i;
++    }
++  }
++}
++
++}  // namespace register_run
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_REGISTER_RUN_H_
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -840,6 +840,90 @@ class EventReporter {
+   double last_ns_per_tick_ = 0;
+ };
+ 
++// Fix 103: what the type 0 packets write. Grand Theft Auto IV on 1.0.5-work-fix93e: 1.36 million a
++// second (about 7 per draw), 132 ms/s of the GPU command thread, 97 ns each (Modern Warfare 2: 55).
++// Every type 0 packet is counted (the GPU thread's own counters) by the group of its first
++// register (float, fetch or bool/loop shader constants, or another register) with its register
++// count, and by its first register, so that the summary can name the registers written most.
++enum RegisterGroup : uint32_t { kRegFloat = 0, kRegFetch, kRegBoolLoop, kRegOther, kRegGroups };
++inline uint32_t RegisterGroupOf(uint32_t index) {
++  if (index >= 0x4000 && index <= 0x47FF) return kRegFloat;     // SHADER_CONSTANT_000_X.._511_W
++  if (index >= 0x4800 && index <= 0x48BF) return kRegFetch;     // SHADER_CONSTANT_FETCH_00_0.._31_5
++  if (index >= 0x4900 && index <= 0x4927) return kRegBoolLoop;  // SHADER_CONSTANT_BOOL_000_031..LOOP_31
++  return kRegOther;
++}
++inline const char* RegisterGroupName(uint32_t group) {
++  static const char* const names[] = {"float constants", "fetch constants", "bool/loop constants", "other registers"};
++  return group < kRegGroups ? names[group] : "?";
++}
++inline constexpr uint32_t kRegisterStarts = 0x8000;  // a type 0 packet's base index has 15 bits
++inline std::array<std::atomic<uint64_t>, kRegGroups> register_packets{}, register_values{};
++inline std::array<std::atomic<uint32_t>, kRegisterStarts> register_starts{};
++inline void CountRegisterWrites(uint32_t base_index, uint32_t count) {
++  if (!OnGpuThread()) return;
++  const uint32_t group = RegisterGroupOf(base_index);
++  AddOwn(register_packets[group], 1);
++  AddOwn(register_values[group], count);
++  std::atomic<uint32_t>& start = register_starts[base_index % kRegisterStarts];
++  start.store(start.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
++}
++// "Performance register writes (GPU thread, every type 0 packet): n packets/s, m registers/s (x
++// per packet); float constants n/s (m registers/s), ...; first registers written most: 4000 n/s
++// (float constants), 2180 n/s, ..." since its previous line.
++inline constexpr uint32_t kRegisterStartsShown = 6;
++class RegisterReporter {
++ public:
++  std::string Line(double seconds) {
++    const double s = seconds > 0 ? seconds : 1;
++    uint64_t packets = 0, values = 0;
++    std::string groups;
++    for (uint32_t g = 0; g < kRegGroups; ++g) {
++      const uint64_t p = register_packets[g].load(std::memory_order_relaxed);
++      const uint64_t v = register_values[g].load(std::memory_order_relaxed);
++      const uint64_t dp = p - last_packets_[g], dv = v - last_values_[g];
++      last_packets_[g] = p;
++      last_values_[g] = v;
++      packets += dp;
++      values += dv;
++      if (!dp) continue;
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%s %.0f/s (%.0f registers/s)", groups.empty() ? "" : ", ",
++                    RegisterGroupName(g), double(dp) / s, double(dv) / s);
++      groups += item;
++    }
++    std::array<std::pair<uint32_t, uint32_t>, kRegisterStartsShown> top{};  // (packets, start)
++    for (uint32_t r = 0; r < kRegisterStarts; ++r) {
++      const uint32_t now = register_starts[r].load(std::memory_order_relaxed);
++      const uint32_t d = now - last_starts_[r];
++      last_starts_[r] = now;
++      if (!d || d <= top.back().first) continue;
++      uint32_t at = kRegisterStartsShown - 1;
++      while (at && top[at - 1].first < d) {
++        top[at] = top[at - 1];
++        --at;
++      }
++      top[at] = {d, r};
++    }
++    std::string starts;
++    for (const auto& [d, r] : top) {
++      if (!d) break;
++      char item[64];
++      std::snprintf(item, sizeof(item), "%s%04X %.0f/s", starts.empty() ? "" : ", ", r, double(d) / s);
++      starts += item;
++    }
++    char head[160];
++    std::snprintf(head, sizeof(head),
++                  "Performance register writes (GPU thread, every type 0 packet): %.0f packets/s, %.0f registers/s (%.1f per packet)",
++                  double(packets) / s, double(values) / s, packets ? double(values) / double(packets) : 0.0);
++    if (!packets) return std::string(head);
++    return std::string(head) + "; " + groups + "; first registers written most: " + starts;
++  }
++
++ private:
++  std::array<uint64_t, kRegGroups> last_packets_{}, last_values_{};
++  std::array<uint32_t, kRegisterStarts> last_starts_{};
++};
++
+ // Fix 77: how the GPU thread waits in WAIT_REG_MEM (a guest memory word or register reaching a
+ // value): Tekken Tag Tournament 2 and DBZ spend most of their "rest of executing" there. Every
+ // such packet is counted; one that does not match at once is timed from its first poll to its
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -342,6 +342,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType0(uint32_t packet) XE_RESTRICT {
+ 
+     uint32_t base_index = (packet & 0x7FFF);
+     uint32_t write_one_reg = (packet >> 15) & 0x1;
++#if XE_PLATFORM_PS5
++    xbox360ps5::frame_cost::CountRegisterWrites(base_index, count);  // fix 103
++#endif
+ 
+     if (!write_one_reg) {
+       COMMAND_PROCESSOR::WriteRegisterRangeFromRing(&reader_, base_index,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -288,6 +288,14 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   XE_FORCEINLINE
+   virtual void WriteRegistersFromMem(uint32_t start_index, uint32_t* base,
+                                      uint32_t num_registers) override;
++#if XE_PLATFORM_PS5
++  // Fix 103: a run of registers from the ring (type 0 packets, SET_CONSTANT)
++  // or from memory, the shader constants a block at a time.
++  void WriteRegisterRangeFromRing(xe::RingBuffer* ring, uint32_t base,
++                                  uint32_t num_registers) override;
++  void WriteRegistersSwapped(uint32_t start_index, const uint32_t* source,
++                             uint32_t num_registers);
++#endif
+ 
+   void OnGammaRamp256EntryTableValueWritten() override;
+   void OnGammaRampPWLValueWritten() override;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -31,6 +31,9 @@
+ #include "xenia/gpu/gpu_flags.h"
+ #include "xenia/gpu/packet_disassembler.h"
+ #include "xenia/gpu/registers.h"
++#if XE_PLATFORM_PS5
++#include "xenia/gpu/register_run.h"  // fix 103
++#endif
+ #include "xenia/gpu/shader.h"
+ #include "xenia/gpu/spirv_shader_translator.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+@@ -1622,11 +1625,78 @@ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
+ void VulkanCommandProcessor::WriteRegistersFromMem(uint32_t start_index,
+                                                    uint32_t* base,
+                                                    uint32_t num_registers) {
++#if XE_PLATFORM_PS5
++  WriteRegistersSwapped(start_index, base, num_registers);  // fix 103
++#else
+   for (uint32_t i = 0; i < num_registers; ++i) {
+     uint32_t data = xe::load_and_swap<uint32_t>(base + i);
+     VulkanCommandProcessor::WriteRegister(start_index + i, data);
+   }
++#endif
++}
++#if XE_PLATFORM_PS5
++// Fix 103: a run of registers a block at a time (xenia/gpu/register_run.h):
++// the ring's bytes read in place instead of an out-of-line RingBuffer::Read
++// and two out-of-line WriteRegister calls per register (Grand Theft Auto IV:
++// about 1.4 million type 0 packets a second, 97 ns each).
++static_assert(register_run::kFloatFirst == XE_GPU_REG_SHADER_CONSTANT_000_X &&
++              register_run::kFloatLast == XE_GPU_REG_SHADER_CONSTANT_511_W &&
++              register_run::kFetchFirst ==
++                  XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++              register_run::kFetchLast ==
++                  XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 &&
++              register_run::kBoolLoopFirst ==
++                  XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
++              register_run::kBoolLoopLast == XE_GPU_REG_SHADER_CONSTANT_LOOP_31,
++              "fix 103: the constant ranges of register_table.inc");
++void VulkanCommandProcessor::WriteRegisterRangeFromRing(xe::RingBuffer* ring,
++                                                        uint32_t base,
++                                                        uint32_t num_registers) {
++  const size_t bytes = size_t(num_registers) * sizeof(uint32_t);
++  xe::RingBuffer::ReadRange range = ring->BeginRead(bytes);
++  if (size_t(range.first_length) + size_t(range.second_length) != bytes ||
++      (range.first_length & 3)) {
++    // Not whole registers in place (not with a valid packet): the base
++    // class's reading, register by register.
++    CommandProcessor::WriteRegisterRangeFromRing(ring, base, num_registers);
++    return;
++  }
++  const uint32_t first_count = range.first_length / sizeof(uint32_t);
++  WriteRegistersSwapped(base, reinterpret_cast<const uint32_t*>(range.first),
++                        first_count);
++  if (range.second_length) {
++    WriteRegistersSwapped(base + first_count,
++                          reinterpret_cast<const uint32_t*>(range.second),
++                          range.second_length / sizeof(uint32_t));
++  }
++  ring->EndRead(range);
++}
++void VulkanCommandProcessor::WriteRegistersSwapped(uint32_t start_index,
++                                                   const uint32_t* source,
++                                                   uint32_t num_registers) {
++  const register_run::State state{
++      register_file_->values,
++      cvars::vulkan_skip_redundant_constants,
++      frame_open_,
++      current_float_constant_map_vertex_,
++      current_float_constant_map_pixel_,
++      {UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatVertex,
++       UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel,
++       UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch,
++       UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop},
++      &current_constant_buffers_up_to_date_};
++  register_run::Write(
++      state, start_index, source, num_registers,
++      [this](uint32_t first, uint32_t last) {
++        if (texture_cache_) {
++          texture_cache_->TextureFetchConstantsWritten(first, last);
++        }
++      },
++      [this](uint32_t index, uint32_t value) {
++        VulkanCommandProcessor::WriteRegister(index, value);
++      });
+ }
++#endif  // XE_PLATFORM_PS5
+ #if !XE_PLATFORM_PS5
+ bool CheckRedundantConstants(GraphicsSystem* graphics_system) {
+   return static_cast<VulkanCommandProcessor*>(graphics_system->command_processor())
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3470,6 +3470,9 @@ int main(int argc, char** argv) {
+                 // Fix 96: EVENT_WRITE* by opcode and event type.
+                 static xbox360ps5::frame_cost::EventReporter frame_cost_events;
+                 XELOGW("{}", frame_cost_events.Line(double(summary_samples)));
++                // Fix 103: what the type 0 packets write.
++                static xbox360ps5::frame_cost::RegisterReporter frame_cost_registers;
++                XELOGW("{}", frame_cost_registers.Line(double(summary_samples)));
+                 // Fix 77: how the GPU thread waits in WAIT_REG_MEM.
+                 static xbox360ps5::frame_cost::WaitRegReporter frame_cost_wait_reg;
+                 XELOGW("{}", frame_cost_wait_reg.Line(double(summary_samples)));

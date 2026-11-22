@@ -1,0 +1,631 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+@@ -0,0 +1,156 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 134 (F2): the GPU command thread hands chunks of a frame to a submit worker.
++//
++// Fix 130 measured replaying the deferred command buffer into the Vulkan one on the GPU thread:
++// Grand Theft Auto IV 145-147 ms/s and Red Dead Redemption 92-140 ms/s, both with the GPU thread
++// saturated (986-990 ms/s) and about one submission a frame. That one is the swap's, which must
++// be submitted before the presenter gets the image back, so a worker alone could never run in
++// parallel. Here, once the recorded stream passes the chunk size, the submission ends at the next
++// draw and, in mode 1, a worker thread replays and submits it while the GPU thread records the
++// rest of the frame; the swap's submission and every wait for the GPU first drain the worker, so
++// the queue sees the submissions in their order and nothing waits for one not yet submitted.
++//
++// Modes (gpu_async_submit, or "mode" in async-submit.txt): 0 off, exactly as before; 1 chunks
++// handed to the worker; 2 chunks submitted on the GPU thread (what the extra submissions and
++// render pass breaks cost without the worker). The chunk size: gpu_async_submit_chunk_kib, or
++// "chunk" in the file, in KiB.
++#ifndef XENIA_GPU_VULKAN_ASYNC_SUBMIT_H_
++#define XENIA_GPU_VULKAN_ASYNC_SUBMIT_H_
++
++#include <condition_variable>
++#include <cstddef>
++#include <cstdint>
++#include <deque>
++#include <functional>
++#include <mutex>
++#include <sstream>
++#include <string>
++
++namespace xe {
++namespace gpu {
++namespace async_submit {
++
++enum Mode : uint32_t { kOff = 0, kWorker = 1, kChunkOnly = 2, kModes };
++
++struct Settings {
++  uint32_t mode = kOff;
++  uint32_t chunk_kib = 256;
++  bool operator==(const Settings& other) const { return mode == other.mode && chunk_kib == other.chunk_kib; }
++};
++
++// async-submit.txt: "mode 0|1|2" and "chunk <KiB>" lines, "#" comments. What a line does not set
++// keeps `base`'s value (the cvars). Returns the lines not understood.
++inline int Parse(const std::string& text, Settings& settings) {
++  int not_understood = 0;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string key, extra;
++    long long value = -1;
++    if (!(words >> key)) continue;
++    if (!(words >> value) || (words >> extra)) {
++      ++not_understood;
++    } else if (key == "mode" && value >= 0 && value < kModes) {
++      settings.mode = uint32_t(value);
++    } else if (key == "chunk" && value >= 16 && value <= 65536) {
++      settings.chunk_kib = uint32_t(value);
++    } else {
++      ++not_understood;
++    }
++  }
++  return not_understood;
++}
++
++// At the start of a draw: whether the submission ends here, as a chunk.
++inline bool ChunkDue(uint32_t mode, size_t stream_bytes, uint32_t chunk_kib) {
++  return mode != kOff && chunk_kib && stream_bytes >= size_t(chunk_kib) * 1024;
++}
++
++// At the end of a submission: whether the worker gets it. Never the swap's (the presenter
++// submits after it), nor one with wait semaphores (sparse binds) or query resolves to record.
++inline bool HandOff(uint32_t mode, bool is_swap, bool wait_semaphores, bool query_resolves) {
++  return mode == kWorker && !is_swap && !wait_semaphores && !query_resolves;
++}
++
++enum DrainReason : uint32_t { kDrainSwap = 0, kDrainReadback, kDrainWait, kDrainSync, kDrainOther, kDrainReasons };
++inline const char* DrainReasonName(uint32_t reason) {
++  static const char* const names[] = {"swap", "readback", "wait", "sync", "other"};
++  return reason < kDrainReasons ? names[reason] : "?";
++}
++
++// The jobs, run one at a time in order by Loop on the worker thread. At most kMaxPending are
++// queued or running: Enqueue waits for room.
++template <class Job>
++class Worker {
++ public:
++  static constexpr size_t kMaxPending = 2;
++  // Returns whether it had to wait for room.
++  bool Enqueue(Job&& job) {
++    std::unique_lock<std::mutex> lock(mutex_);
++    const bool waited = queue_.size() + (running_ ? 1 : 0) >= kMaxPending;
++    room_.wait(lock, [&] { return queue_.size() + (running_ ? 1 : 0) < kMaxPending; });
++    queue_.push_back(std::move(job));
++    ++enqueued_;
++    work_.notify_one();
++    return waited;
++  }
++  // Returns whether there was anything to wait for.
++  bool Drain() {
++    std::unique_lock<std::mutex> lock(mutex_);
++    if (queue_.empty() && !running_) return false;
++    idle_.wait(lock, [&] { return queue_.empty() && !running_; });
++    return true;
++  }
++  bool Busy() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return !queue_.empty() || running_;
++  }
++  // The worker thread's body: runs the jobs until Stop, after the queue is empty.
++  void Loop(const std::function<void(Job&)>& run) {
++    std::unique_lock<std::mutex> lock(mutex_);
++    for (;;) {
++      work_.wait(lock, [&] { return stop_ || !queue_.empty(); });
++      if (queue_.empty()) break;  // stopping
++      Job job = std::move(queue_.front());
++      queue_.pop_front();
++      running_ = true;
++      lock.unlock();
++      run(job);
++      lock.lock();
++      running_ = false;
++      ++done_;
++      room_.notify_all();
++      if (queue_.empty()) idle_.notify_all();
++    }
++    idle_.notify_all();
++  }
++  void Stop() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    stop_ = true;
++    work_.notify_all();
++  }
++  uint64_t enqueued() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return enqueued_;
++  }
++  uint64_t done() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return done_;
++  }
++
++ private:
++  mutable std::mutex mutex_;
++  std::condition_variable work_, room_, idle_;
++  std::deque<Job> queue_;
++  bool running_ = false, stop_ = false;
++  uint64_t enqueued_ = 0, done_ = 0;
++};
++
++}  // namespace async_submit
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_ASYNC_SUBMIT_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/deferred_command_buffer.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/deferred_command_buffer.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/deferred_command_buffer.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/deferred_command_buffer.h
+@@ -34,6 +34,13 @@ class DeferredCommandBuffer {
+   void Execute(VkCommandBuffer command_buffer);
+   // Xbox360PS5 (fix 130): the bytes Execute replays.
+   size_t stream_bytes() const { return command_stream_.size() * sizeof(uintmax_t); }
++  // Xbox360PS5 (fix 134): exchanges the recorded commands with `other` (one of the submit
++  // worker's), which takes them to replay while this one records on.
++  void SwapContents(DeferredCommandBuffer& other) {
++    command_stream_.swap(other.command_stream_);
++    image_barriers_with_sample_locations_.swap(other.image_barriers_with_sample_locations_);
++    barrier_sample_locations_.swap(other.barrier_sample_locations_);
++  }
+ 
+   // render_pass_begin->pNext must be null.
+   void CmdVkBeginRenderPass(
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_query_pool.h
+@@ -102,6 +102,10 @@ class VulkanQueryPool {
+   // recorded outside a render pass.
+   void FlushCounterClears(DeferredCommandBuffer& deferred_command_buffer);
+   void RecordResolveBatch(VkCommandBuffer command_buffer);
++  // Xbox360PS5 (fix 134): whether RecordResolveBatch has anything to record.
++  bool HasResolveBatch() const {
++    return !resolve_batch_indices_.empty() || !counter_resolve_batch_indices_.empty();
++  }
+ 
+   void InvalidateReadback();
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -30,6 +30,7 @@
+ #include "xenia/gpu/spirv_shader_translator.h"
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
+ #include "xenia/gpu/vulkan/readback_slots.h"
++#include "xenia/gpu/vulkan/async_submit.h"  // fix 134
+ #include "xenia/gpu/vulkan/readback_batching.h"  // fix 133
+ #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+@@ -731,6 +732,32 @@ class VulkanCommandProcessor final : public CommandProcessor {
+ 
+   std::unique_ptr<VulkanQueryPool> host_query_pool_;
+ 
++  // Fix 134 (async_submit.h): the submit worker. A job is a submission's command buffer, its
++  // fence (acquired on the GPU thread, so the completion timeline stays its own), the recorded
++  // commands and fix 49's timestamp slot.
++  struct AsyncSubmitJob {
++    CommandBuffer command_buffer;
++    VkFence fence = VK_NULL_HANDLE;
++    DeferredCommandBuffer* commands = nullptr;
++    VkQueryPool query_pool = VK_NULL_HANDLE;
++    uint32_t query_first = 0;
++    uint64_t submission = 0;
++  };
++  async_submit::Settings async_settings_;
++  bool async_settings_logged_ = false;
++  std::unique_ptr<async_submit::Worker<AsyncSubmitJob>> async_worker_;
++  kernel::object_ref<kernel::XHostThread> async_worker_thread_;
++  std::vector<std::unique_ptr<DeferredCommandBuffer>> async_command_buffers_;
++  std::vector<DeferredCommandBuffer*> async_free_command_buffers_;
++  std::mutex async_free_mutex_;
++  std::atomic<bool> async_submit_failed_{false};
++  void RefreshAsyncSubmitSettings();
++  bool HandOffSubmission();
++  void RunAsyncSubmitJob(AsyncSubmitJob& job);
++  void DrainAsyncSubmit(uint32_t reason);
++  void StopAsyncSubmit();
++  bool AwaitSubmissionDrained(uint64_t submission);
++
+   VkBuffer viz_predicate_buffer_ = VK_NULL_HANDLE;
+   VkDeviceMemory viz_predicate_buffer_memory_ = VK_NULL_HANDLE;
+   bool viz_predicate_buffer_failed_ = false;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -59,6 +59,16 @@
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
+ DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
++// Xbox360PS5, fix 134 (async_submit.h): chunks of a frame handed to a submit worker. Per game in
++// assets/config/<title>.config.toml ([GPU]), or live in async-submit.txt in the title folder.
++DEFINE_uint32(gpu_async_submit, 0,
++              "0: submit on the GPU thread as before; 1: end a submission at a draw once its "
++              "recorded commands reach gpu_async_submit_chunk_kib and let a worker thread "
++              "replay and submit it; 2: the same chunks, submitted on the GPU thread.",
++              "GPU");
++DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
++              "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
++              "GPU");
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -1477,7 +1487,209 @@ readback_batching::SyncPoint VulkanCommandProcessor::ReadbackSyncPoint() const {
+   return point;
+ }
+ 
++// Fix 134 (async_submit.h): the settings, from async-submit.txt in the title folder when it exists
++// (read again when it changes, at most once a second), else the cvars.
++void VulkanCommandProcessor::RefreshAsyncSubmitSettings() {
++  static auto checked = std::chrono::steady_clock::time_point();
++  const auto now = std::chrono::steady_clock::now();
++  if (async_settings_logged_ && now - checked < std::chrono::seconds(1)) {
++    return;
++  }
++  checked = now;
++  async_submit::Settings next;
++  next.mode = std::min<uint32_t>(cvars::gpu_async_submit, async_submit::kModes - 1);
++  next.chunk_kib = std::max<uint32_t>(cvars::gpu_async_submit_chunk_kib, 16);
++  const char* const path = XBOX360PS5_DATA_ROOT "/async-submit.txt";
++  int not_understood = 0;
++  bool from_file = false;
++  if (FILE* file = std::fopen(path, "rb")) {
++    std::string text;
++    char chunk[1024];
++    size_t got;
++    while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++    std::fclose(file);
++    not_understood = async_submit::Parse(text, next);
++    from_file = true;
++  }
++  if (async_settings_logged_ && next == async_settings_) {
++    return;
++  }
++  if (async_settings_.mode == async_submit::kWorker && next.mode != async_submit::kWorker) {
++    DrainAsyncSubmit(async_submit::kDrainOther);
++  }
++  async_settings_ = next;
++  async_settings_logged_ = true;
++  xbox360ps5::frame_cost::async_mode_now.store(next.mode, std::memory_order_relaxed);
++  xbox360ps5::frame_cost::async_chunk_kib_now.store(next.chunk_kib, std::memory_order_relaxed);
++  XELOGW("Async submit (fix 134): mode {} ({}), chunk {} KiB, from {}{}", next.mode,
++         next.mode == async_submit::kWorker      ? "chunks to the submit worker"
++         : next.mode == async_submit::kChunkOnly ? "chunks submitted on the GPU thread"
++                                                 : "off",
++         next.chunk_kib, from_file ? path : "the settings",
++         not_understood ? fmt::format(", {} lines not understood", not_understood) : std::string());
++}
++
++// Fix 134: the submission goes to the worker. Its fence is acquired here and the timeline told
++// it is pending, so GetCurrentSubmission moves on as after a submit; a wait for it drains the
++// worker first (AwaitSubmissionDrained).
++bool VulkanCommandProcessor::HandOffSubmission() {
++  if (!async_worker_) {
++    async_worker_ = std::make_unique<async_submit::Worker<AsyncSubmitJob>>();
++    for (int n = 0; n < 3; ++n) {
++      async_command_buffers_.push_back(std::make_unique<DeferredCommandBuffer>(*this));
++      async_free_command_buffers_.push_back(async_command_buffers_.back().get());
++    }
++    async_worker_thread_ = kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
++        kernel_state_, 128 * 1024, 0,
++        [this]() {
++          async_worker_->Loop([this](AsyncSubmitJob& job) { RunAsyncSubmitJob(job); });
++          return 0;
++        },
++        kernel_state_->GetIdleProcess()));
++    async_worker_thread_->set_name("GPU Submit worker");
++    async_worker_thread_->Create();
++    XELOGW("Async submit (fix 134): the submit worker thread started");
++  }
++  assert_false(command_buffers_writable_.empty());
++  CommandBuffer command_buffer = command_buffers_writable_.back();
++  VkResult fence_result = VK_SUCCESS;
++  auto fence_acquisition = completion_timeline_.AcquireFenceForSubmission(&fence_result);
++  if (!fence_acquisition) {
++    XELOGE("Failed to acquire a Vulkan fence for a submission handed to the worker: {}",
++           vk::to_string(vk::Result(fence_result)));
++    return false;
++  }
++  AsyncSubmitJob job;
++  job.command_buffer = command_buffer;
++  job.submission = GetCurrentSubmission();
++  job.fence = fence_acquisition->GetFenceForSubmitting();
++  if (frame_cost_query_pool_ != VK_NULL_HANDLE) {
++    // Fix 49's timestamps, written by the worker around the replay.
++    FrameCostReadCompleted();
++    const uint32_t slot = uint32_t(job.submission % kFrameCostSlots);
++    frame_cost_slot_submission_[slot] = job.submission;
++    job.query_pool = frame_cost_query_pool_;
++    job.query_first = 2 * slot;
++  }
++  {
++    std::lock_guard<std::mutex> lock(async_free_mutex_);
++    assert_false(async_free_command_buffers_.empty());
++    job.commands = async_free_command_buffers_.back();
++    async_free_command_buffers_.pop_back();
++  }
++  job.commands->SwapContents(deferred_command_buffer_);
++  // The timeline now has this submission pending with its fence.
++  fence_acquisition.reset();
++  xbox360ps5::hang_watch::Submitted(job.submission, GetCompletedSubmission());  // fix 47
++  command_buffers_submitted_.emplace_back(job.submission, command_buffer);
++  command_buffers_writable_.pop_back();
++  xbox360ps5::frame_cost::async_handoffs.fetch_add(1, std::memory_order_relaxed);
++  if (async_worker_->Enqueue(std::move(job))) {
++    xbox360ps5::frame_cost::async_room_waits.fetch_add(1, std::memory_order_relaxed);
++  }
++  return true;
++}
++
++// Fix 134: on the worker thread, one job: what EndSubmission does from the pool reset to the
++// queue submit, with the job's commands and fence.
++void VulkanCommandProcessor::RunAsyncSubmitJob(AsyncSubmitJob& job) {
++  ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  const auto start = std::chrono::steady_clock::now();
++  bool ok = dfn.vkResetCommandPool(device, job.command_buffer.pool, 0) == VK_SUCCESS;
++  if (ok) {
++    VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
++    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
++    ok = dfn.vkBeginCommandBuffer(job.command_buffer.buffer, &begin_info) == VK_SUCCESS;
++  }
++  if (ok && job.query_pool != VK_NULL_HANDLE) {
++    dfn.vkCmdResetQueryPool(job.command_buffer.buffer, job.query_pool, job.query_first, 2);
++    dfn.vkCmdWriteTimestamp(job.command_buffer.buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
++                            job.query_pool, job.query_first);
++  }
++  if (ok) {
++    job.commands->Execute(job.command_buffer.buffer);
++    if (job.query_pool != VK_NULL_HANDLE) {
++      dfn.vkCmdWriteTimestamp(job.command_buffer.buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
++                              job.query_pool, job.query_first + 1);
++    }
++    ok = dfn.vkEndCommandBuffer(job.command_buffer.buffer) == VK_SUCCESS;
++  }
++  const auto replayed = std::chrono::steady_clock::now();
++  if (ok) {
++    VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
++    submit_info.commandBufferCount = 1;
++    submit_info.pCommandBuffers = &job.command_buffer.buffer;
++    ui::vulkan::VulkanDevice::Queue::Acquisition queue_acquisition =
++        vulkan_device->AcquireQueue(vulkan_device->queue_family_graphics_compute(), 0);
++    ok = dfn.vkQueueSubmit(queue_acquisition.queue(), 1, &submit_info, job.fence) == VK_SUCCESS;
++  }
++  if (!ok) {
++    async_submit_failed_.store(true, std::memory_order_release);
++  }
++  const auto submitted = std::chrono::steady_clock::now();
++  xbox360ps5::frame_cost::async_worker_replay_ns.fetch_add(
++      uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(replayed - start).count()),
++      std::memory_order_relaxed);
++  xbox360ps5::frame_cost::async_worker_submit_ns.fetch_add(
++      uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(submitted - replayed).count()),
++      std::memory_order_relaxed);
++  job.commands->Reset();
++  std::lock_guard<std::mutex> lock(async_free_mutex_);
++  async_free_command_buffers_.push_back(job.commands);
++}
++
++// Fix 134: waits until the worker has submitted everything handed to it.
++void VulkanCommandProcessor::DrainAsyncSubmit(uint32_t reason) {
++  if (!async_worker_) {
++    return;
++  }
++  const auto start = std::chrono::steady_clock::now();
++  if (async_worker_->Drain()) {
++    xbox360ps5::frame_cost::async_drains[std::min<uint32_t>(reason, 4)].fetch_add(
++        1, std::memory_order_relaxed);
++    xbox360ps5::frame_cost::async_drain_ns.fetch_add(
++        uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                     std::chrono::steady_clock::now() - start)
++                     .count()),
++        std::memory_order_relaxed);
++  }
++  if (async_submit_failed_.exchange(false, std::memory_order_acq_rel) && !device_lost_) {
++    XELOGE("Async submit (fix 134): the worker failed to submit a command buffer");
++    device_lost_ = true;
++    graphics_system_->OnHostGpuLossFromAnyThread(true);
++  }
++}
++
++// Fix 134: a wait for a submission, after the worker has submitted it.
++bool VulkanCommandProcessor::AwaitSubmissionDrained(uint64_t submission) {
++  const uint32_t cause = xbox360ps5::frame_cost::cause;
++  DrainAsyncSubmit(cause == xbox360ps5::frame_cost::kMemexport ||
++                           cause == xbox360ps5::frame_cost::kResolve
++                       ? async_submit::kDrainReadback
++                       : async_submit::kDrainWait);
++  if (device_lost_) {
++    return false;
++  }
++  return completion_timeline_.AwaitSubmissionAndUpdateCompleted(submission);
++}
++
++void VulkanCommandProcessor::StopAsyncSubmit() {
++  if (!async_worker_) {
++    return;
++  }
++  DrainAsyncSubmit(async_submit::kDrainOther);
++  async_worker_->Stop();
++  async_worker_thread_->Wait(0, 0, 0, nullptr);
++  async_worker_thread_.reset();
++  async_worker_.reset();
++  async_free_command_buffers_.clear();
++  async_command_buffers_.clear();
++}
++
+ void VulkanCommandProcessor::ShutdownContext() {
++  StopAsyncSubmit();  // fix 134
+   AwaitAllQueueOperationsCompletion();
+   if (readback_read_callback_) {  // fix 91
+     memory_->UnregisterPhysicalMemoryReadCallback(readback_read_callback_);
+@@ -2941,6 +3153,18 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
+                                        uint32_t index_count,
+                                        IndexBufferInfo* index_buffer_info,
+                                        bool major_mode_explicit) {
++#if XE_PLATFORM_PS5
++  // Fix 134: once the recorded commands reach the chunk size, the submission ends before this
++  // draw (handed to the worker in mode 1, submitted here in mode 2).
++  if (submission_open_ &&
++      async_submit::ChunkDue(async_settings_.mode,
++                             deferred_command_buffer_.stream_bytes(),
++                             async_settings_.chunk_kib) &&
++      CanEndSubmissionImmediately()) {
++    xbox360ps5::frame_cost::async_chunks.fetch_add(1, std::memory_order_relaxed);
++    EndSubmission(false);
++  }
++#endif
+   const bool is_copy = register_file_->Get<reg::RB_MODECONTROL>().edram_mode ==
+                        xenos::EdramMode::kCopy;
+ #if XE_PLATFORM_PS5
+@@ -5394,7 +5618,7 @@ CommandProcessor::QueryOpenResult VulkanCommandProcessor::OpenQuery(
+       xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+           xbox360ps5::frame_cost::kQuery);
+ #endif
+-      completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for);
++      AwaitSubmissionDrained(wait_for);  // fix 134
+       PumpQueryResolves();
+     }
+ 
+@@ -5583,7 +5807,7 @@ bool VulkanCommandProcessor::AwaitQueryResolve(ReportHandle report_handle,
+     xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+         xbox360ps5::frame_cost::kQuery);
+ #endif
+-    completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for_submission);
++    AwaitSubmissionDrained(wait_for_submission);  // fix 134
+   }
+ 
+   PumpQueryResolves();
+@@ -5733,7 +5957,7 @@ void VulkanCommandProcessor::AwaitVIZQueryResolve(
+     xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+         xbox360ps5::frame_cost::kQuery);
+ #endif
+-    completion_timeline_.AwaitSubmissionAndUpdateCompleted(wait_for_submission);
++    AwaitSubmissionDrained(wait_for_submission);  // fix 134
+   }
+ 
+   PumpQueryResolves();
+@@ -5789,7 +6013,7 @@ void VulkanCommandProcessor::CheckSubmissionCompletionAndDeviceLoss(
+     await_submission = GetCurrentSubmission() - 1;
+   }
+ 
+-  completion_timeline_.AwaitSubmissionAndUpdateCompleted(await_submission);
++  AwaitSubmissionDrained(await_submission);  // fix 134
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+ 
+@@ -6058,6 +6282,9 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ }
+ 
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
++#if XE_PLATFORM_PS5
++  RefreshAsyncSubmitSettings();  // fix 134
++#endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+       xbox360ps5::frame_cost::kSubmit);
+@@ -6205,6 +6432,23 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ 
+     SubmitBarriers(true);
+ 
++#if XE_PLATFORM_PS5
++    // Fix 134 (async_submit.h): a chunk goes to the submit worker; any other submission first
++    // waits for the worker's, so the queue sees them in their order (the swap's before the
++    // presenter's own commands).
++    const bool async_hand_off = async_submit::HandOff(
++        async_settings_.mode, is_swap, !current_submission_wait_semaphores_.empty(),
++        host_query_pool_ && host_query_pool_->HasResolveBatch());
++    if (async_hand_off) {
++      if (!HandOffSubmission()) {
++        return false;
++      }
++      frame_cost_submit.Mark(xbox360ps5::frame_cost::kSubmitQueue);  // fix 130: the hand-off
++    } else {
++      DrainAsyncSubmit(is_swap ? async_submit::kDrainSwap : async_submit::kDrainSync);
++    }
++    if (!async_hand_off) {
++#endif
+     assert_false(command_buffers_writable_.empty());
+     CommandBuffer command_buffer = command_buffers_writable_.back();
+     if (dfn.vkResetCommandPool(device, command_buffer.pool, 0) != VK_SUCCESS) {
+@@ -6309,6 +6553,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     current_submission_wait_semaphores_.clear();
+     command_buffers_submitted_.emplace_back(submission_index, command_buffer);
+     command_buffers_writable_.pop_back();
++#if XE_PLATFORM_PS5
++    }  // fix 134: not handed off
++#endif
+ 
+     submission_open_ = false;
+ 
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1090,6 +1090,45 @@ class SubmitPartsReporter {
+   double last_ns_per_tick_ = 0;
+ };
+ 
++// Fix 134 (xenia/gpu/vulkan/async_submit.h): the submit worker, next to fix 130's parts. Hand-offs
++// and the chunks ended at a draw (GPU thread), the worker's replay and queue submit (its thread),
++// the drains by reason with the time waited, the waits for room in the worker's queue. "Frame time
++// async submit (fix 134, mode m, chunk k KiB): h hand-offs/s, c chunks per frame; worker replay x
++// ms/s, worker queue submit y ms/s; drains per frame: swap a, readback b, wait c, sync d, other e
++// (waiting z ms/s); waited for room f/s".
++inline std::atomic<uint64_t> async_handoffs{0}, async_chunks{0}, async_room_waits{0}, async_worker_replay_ns{0},
++    async_worker_submit_ns{0}, async_drain_ns{0};
++inline std::array<std::atomic<uint64_t>, 5> async_drains{};
++inline std::atomic<uint32_t> async_mode_now{0}, async_chunk_kib_now{256};
++class AsyncSubmitReporter {
++ public:
++  std::string Line(double seconds, uint64_t frames) {
++    const double s = seconds > 0 ? seconds : 1;
++    const double f = frames ? double(frames) : 1.0;
++    const std::atomic<uint64_t>* const counters[11] = {
++        &async_handoffs, &async_chunks, &async_room_waits, &async_worker_replay_ns, &async_worker_submit_ns,
++        &async_drain_ns, &async_drains[0], &async_drains[1], &async_drains[2], &async_drains[3], &async_drains[4]};
++    double d[11];
++    for (int n = 0; n < 11; ++n) {
++      const uint64_t now = counters[n]->load(std::memory_order_relaxed);
++      d[n] = double(now - last_[n]);
++      last_[n] = now;
++    }
++    char text[384];
++    std::snprintf(text, sizeof(text),
++                  "Frame time async submit (fix 134, mode %u, chunk %u KiB): %.0f hand-offs/s, %.2f chunks per frame; "
++                  "worker replay %.1f ms/s, worker queue submit %.1f ms/s; drains per frame: swap %.2f, readback %.2f, "
++                  "wait %.2f, sync %.2f, other %.2f (waiting %.1f ms/s); waited for room %.0f/s",
++                  async_mode_now.load(std::memory_order_relaxed), async_chunk_kib_now.load(std::memory_order_relaxed),
++                  d[0] / s, d[1] / f, d[3] / 1e6 / s, d[4] / 1e6 / s, d[6] / f, d[7] / f, d[8] / f, d[9] / f,
++                  d[10] / f, d[5] / 1e6 / s, d[2] / s);
++    return text;
++  }
++
++ private:
++  uint64_t last_[11] = {};
++};
++
+ // "Frame time uploads (GPU thread): ..." since its previous line.
+ class UploadReporter {
+  public:
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -4156,6 +4156,13 @@ int main(int argc, char** argv) {
+                 // Fix 130: the submissions' time by part.
+                 static xbox360ps5::frame_cost::SubmitPartsReporter frame_cost_submit_parts;
+                 XELOGW("{}", frame_cost_submit_parts.Line(double(summary_samples)));
++                // Fix 134: the submit worker, the chunks and the drains.
++                static xbox360ps5::frame_cost::AsyncSubmitReporter frame_cost_async_submit;
++                static uint64_t frame_cost_async_swaps = 0;
++                const uint64_t frame_cost_swaps_now = emulator.graphics_system()->command_processor()->swap_count();
++                XELOGW("{}", frame_cost_async_submit.Line(double(summary_samples),
++                                                          frame_cost_swaps_now - frame_cost_async_swaps));
++                frame_cost_async_swaps = frame_cost_swaps_now;
+                 // Fix 78: the blocks of memory the watches are armed on most.
+                 static xbox360ps5::frame_cost::HotReporter frame_cost_hot;
+                 XELOGW("{}", frame_cost_hot.Line(double(summary_samples)));

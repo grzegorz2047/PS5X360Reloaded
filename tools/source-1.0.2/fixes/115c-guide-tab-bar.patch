@@ -1,0 +1,270 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index a92a8d9..62c79c2 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -172,6 +172,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/kernel/xam/xam_state.h"
+ #include "xbox360ps5/global_lock_spin.hpp"  // fix 55: the summary line
+ #include "xbox360ps5/guide_quick.hpp"  // fix 115: the guide's quick actions
++#include "xbox360ps5/tab_bar.hpp"  // fix 115c: the guide's tab bar and its pad
+ #include "third_party/imgui/imgui.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -662,10 +663,37 @@ struct GuideItem {
+   int category = -1;
+   bool apart = false;  // Fix 93d: an action set apart from the options: a button below the list.
+ };
++// Fix 115c: the rows whose value left and right change (shown "< value >"); on the others left and
++// right do nothing.
++inline bool GuideRowHasValue(const GuideItem& item) {
++  return item.action == GuideAction::option || item.action == GuideAction::network;
++}
++// Fix 115c: tab_bar.hpp draws through this: 1080p units, colours faded in with the guide.
++struct GuidePainter {
++  ImDrawList* list;
++  ImFont* font;
++  float scale, reveal;
++  ImU32 Colour(uint32_t rgb, float alpha) const {
++    return IM_COL32((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, int(255 * std::clamp(alpha, 0.0f, 1.0f) * reveal));
++  }
++  void Fill(float x, float y, float w, float h, uint32_t rgb, float alpha, float round) {
++    list->AddRectFilled(ImVec2(x * scale, y * scale), ImVec2((x + w) * scale, (y + h) * scale), Colour(rgb, alpha),
++                        round * scale);
++  }
++  void Text(const char* text, float x, float y, float size, uint32_t rgb, float alpha) {
++    list->AddText(font, size * scale, ImVec2(x * scale, y * scale), Colour(rgb, alpha), text);
++  }
++  float Width(const char* text, float size) { return font->CalcTextSizeA(size * scale, 4096.0f, 0.0f, text).x / scale; }
++  void Triangle(float ax, float ay, float bx, float by, float cx, float cy, uint32_t rgb, float alpha) {
++    list->AddTriangleFilled(ImVec2(ax * scale, ay * scale), ImVec2(bx * scale, by * scale), ImVec2(cx * scale, cy * scale),
++                            Colour(rgb, alpha));
++  }
++};
+ struct GuideState {
+   bool open = false;
+   int page = 0, row = 0;
+   int category = -1;  // On the settings page: -1 lists the categories, otherwise the one open.
++  bool on_bar = true;  // Fix 115c: the tab bar has the pad, no row is focused (tab_bar::Nav).
+   float openness = 0.0f;  // 0 closed, 1 fully revealed.
+   // Motion between pages and categories: the new list slides in from the side it
+   // comes from (slide 1 -> 0), the dark blade of the other page travels across,
+@@ -678,9 +706,6 @@ struct GuideState {
+ };
+ constexpr const char* kGuidePages[] = {"Game", "Settings"};
+ constexpr int kGuideRows = 6;  // Rows of the settings page on screen at once.
+-// Fix 115: rows of the first page on screen at once (the panel holds seven and a half); with
+-// "Restart game" and "Mute game sound" it has eight when BACK and the texture capture show too.
+-constexpr int kGuideGameRows = 7;
+ // Fix 115: "Restart game" is shown over a game, not over the dashboard (set as a game starts).
+ bool g_guide_restart = true;
+ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings, int category = -1) {
+@@ -886,18 +911,6 @@ class Guide final : public xe::ui::ImGuiDialog {
+     list->AddText(font, 24 * scale, ImVec2(x + 42 * scale, y + 1 * scale), IM_COL32(245, 246, 248, (colour >> IM_COL32_A_SHIFT) & 0xFF), label);
+     x += 42 * scale + font->CalcTextSizeA(24 * scale, 4096.0f, 0.0f, label).x + 40 * scale;
+   }
+-  // Fix 115b: a shoulder button (L1, R1) at one end of the tabs, as the game sheet's tabs show them
+-  // (fix 109c): a pill with fully round ends, its name in white on the guide's grey. x is its left
+-  // edge, or its right edge when `from_right`.
+-  static void Shoulder(ImDrawList* list, ImFont* font, float scale, float x, float y, ImU32 colour, const char* name,
+-                       bool from_right) {
+-    const ImVec2 size = font->CalcTextSizeA(20 * scale, 4096.0f, 0.0f, name);
+-    const float width = size.x + 24 * scale, height = 30 * scale;
+-    const float x0 = from_right ? x - width : x;
+-    list->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + width, y + height), colour, height / 2);
+-    list->AddText(font, 20 * scale, ImVec2(x0 + (width - size.x) / 2, y + (height - size.y) / 2),
+-                  IM_COL32(255, 255, 255, (colour >> IM_COL32_A_SHIFT) & 0xFF), name);
+-  }
+   void OnDraw(ImGuiIO& io) override {
+     ImDrawList* list = ImGui::GetForegroundDrawList();
+     const float scale = io.DisplaySize.y / 1080.0f;
+@@ -948,7 +961,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+     list->PushClipRect(ImVec2(centre.x - half_width, centre.y - half_height),
+                        ImVec2(centre.x + half_width, centre.y + half_height), true);
+     const auto at = [&](float x, float y) { return ImVec2(x * scale, y * scale); };
+-    const float left = 412, right = 1508, top = 304, bottom = 778, blade = 66;
++    const float left = 412, right = 1508, top = 304, bottom = 778;
+     // Header: the guide's name, who is signed in, what is running.
+     list->AddText(large, 36 * scale, at(left + 136, 238), fade(245, 247, 250), Tr("PS5X360Reloaded Guide"));
+     char speed[32];
+@@ -968,36 +981,36 @@ class Guide final : public xe::ui::ImGuiDialog {
+           [medium, scale](const std::string& s) { return medium->CalcTextSizeA(28 * scale, 4096.0f, 0.0f, s.c_str()).x; });
+       if (!running.empty()) list->AddText(medium, 28 * scale, ImVec2(game_x, 246 * scale), fade(210, 216, 224), running.c_str());
+     }
+-    // The page that is not open is a dark blade at its side of the panel; on a
+-    // change of page it travels to the other side.
+-    const float page_left = left + (1.0f - state_.blade) * (blade + 2);
+-    const float page_right = right - state_.blade * (blade + 2);
+-    const float other_left = left + state_.blade * (right - blade - left);
+-    list->AddRectFilledMultiColor(at(other_left, top), at(other_left + blade, bottom), fade(118, 124, 130), fade(104, 110, 116),
+-                                  fade(86, 92, 98), fade(98, 104, 110));
+-    Sideways(list, medium, 28 * scale, at(other_left + blade - 14, top + 24), fade(238, 241, 245),
+-             Tr(kGuidePages[1 - state_.page]));
+-    // The open page: its name on a grey strip, then the list.
+-    const float strip = 94;
+-    list->AddRectFilledMultiColor(at(page_left, top), at(page_left + strip, bottom), fade(214, 216, 219), fade(204, 206, 210),
+-                                  fade(182, 185, 190), fade(192, 195, 199));
+-    Sideways(list, medium, 28 * scale, at(page_left + strip - 28, top + 24 + slide_x * 0.4f), fade(70, 76, 84, int(255 * content)),
+-             state_.page == 1 && state_.category >= 0 ? Tr(xbox360ps5::kOptionCategories[state_.category]) : Tr(kGuidePages[state_.page]));
+-    list->AddRectFilledMultiColor(at(page_left + strip, top), at(page_right, bottom), fade(242, 243, 244), fade(242, 243, 244),
++    // Fix 115c: the pages are tabs on a bar along the panel's top (tab_bar.hpp, the user's choice
++    // after the console run of 1.0.5-work-fix115b): L1 and R1 as white pills at its two ends, full
++    // tab names, the open one white with the focus colour; the side blades are gone and the list
++    // takes the panel's width below the bar.
++    namespace tb = xbox360ps5::tab_bar;
++    const float page_left = left, page_right = right, strip = 0;
++    const float list_top = top + tb::kBarHeight;
++    list->AddRectFilledMultiColor(at(left, top), at(right, list_top), fade(92, 98, 106), fade(92, 98, 106), fade(66, 72, 80),
++                                  fade(66, 72, 80));
++    {
++      GuidePainter painter{list, medium, scale, reveal};
++      std::vector<std::string> tabs = {Tr(kGuidePages[0]), Tr(kGuidePages[1])};
++      if (state_.category >= 0) tabs[1] += std::string(": ") + Tr(xbox360ps5::kOptionCategories[state_.category]);
++      tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar);
++    }
++    list->AddRectFilledMultiColor(at(left, list_top), at(right, bottom), fade(242, 243, 244), fade(242, 243, 244),
+                                   fade(214, 216, 219), fade(214, 216, 219));
+     // The list moves inside its own area only.
+-    list->PushClipRect(at(page_left + strip, top), at(page_right, bottom), true);
++    list->PushClipRect(at(left, list_top), at(right, bottom), true);
+     const auto items = GuideItems(state_.page, settings_, state_.category);
+     // Fix 93d: an action set apart (the restart with logs for a bug report) is a button below the
+     // list, not one of its rows: the rows are the others.
+     const bool button = !items.empty() && items.back().apart;
+     const int listed = int(items.size()) - (button ? 1 : 0);
+     // The settings page is longer than the panel: it scrolls with the focus.
+-    // Fix 115: the first page too, past kGuideGameRows rows.
+-    const int first_row = state_.page == 0
+-        ? std::clamp(state_.row - kGuideGameRows / 2, 0, std::max(0, listed - kGuideGameRows))
+-        : std::clamp(state_.row - kGuideRows / 2, 0, std::max(0, listed - kGuideRows));
+-    const int last_row = state_.page == 0 ? std::min(listed, first_row + kGuideGameRows) : std::min(listed, first_row + kGuideRows);
++    // Fix 115c: both pages, kGuideRows rows below the tab bar (one fewer above fix 93d's button).
++    const int shown_rows = button ? kGuideRows - 1 : kGuideRows;
++    const int first_row = std::clamp(state_.row - shown_rows / 2, 0, std::max(0, listed - shown_rows));
++    const int last_row = std::min(listed, first_row + shown_rows);
++    const bool row_focus = !state_.on_bar;  // fix 115c: no row is lit while the tab bar has the pad
+     if (state_.page == 1) {
+       char position[24];
+       std::snprintf(position, sizeof(position), "%d / %d", state_.row + 1, int(items.size()));
+@@ -1006,16 +1019,16 @@ class Guide final : public xe::ui::ImGuiDialog {
+                     fade(96, 102, 110), position);
+     }
+     // The focus bar glides to the focused row; on a new page it starts there.
+-    const float focus_target = top + std::max(0, state_.row - first_row) * 63.0f;
++    const float focus_target = list_top + std::max(0, state_.row - first_row) * 63.0f;
+     if (state_.focus_y < 0.0f || state_.slide > 0.0f) state_.focus_y = focus_target;
+     else state_.focus_y += (focus_target - state_.focus_y) * std::min(1.0f, frame_time * 20.0f);
+-    if (state_.row >= first_row && state_.row < last_row)
++    if (row_focus && state_.row >= first_row && state_.row < last_row)
+       list->AddRectFilledMultiColor(at(page_left + strip + slide_x, state_.focus_y), at(page_right + slide_x, state_.focus_y + 62),
+                                     fade(118, 188, 62, int(255 * content)), fade(118, 188, 62, int(255 * content)),
+                                     fade(76, 146, 34, int(255 * content)), fade(76, 146, 34, int(255 * content)));
+     for (int n = first_row; n < last_row; ++n) {
+-      const float y = top + (n - first_row) * 63.0f;
+-      const bool focused = n == state_.row;
++      const float y = list_top + (n - first_row) * 63.0f;
++      const bool focused = row_focus && n == state_.row;
+       // The text turns white once the bar is under it.
+       const bool lit = focused && std::fabs(state_.focus_y - y) < 20.0f;
+       const int a = int(255 * content);
+@@ -1024,9 +1037,10 @@ class Guide final : public xe::ui::ImGuiDialog {
+       list->AddText(large, (state_.page == 0 ? 34 : 30) * scale,
+                     at(page_left + strip + 24 + slide_x, y + (state_.page == 0 ? 12 : 15)), ink, items[size_t(n)].label.c_str());
+       if (!items[size_t(n)].value.empty()) {
+-        const ImVec2 size = medium->CalcTextSizeA(28 * scale, 4096.0f, 0.0f, items[size_t(n)].value.c_str());
+-        list->AddText(medium, 28 * scale, ImVec2((page_right - 24 + slide_x) * scale - size.x, (y + 16) * scale),
+-                      lit ? fade(255, 255, 255, a) : fade(90, 96, 104, a), items[size_t(n)].value.c_str());
++        // Fix 115c: "< value >" on a row whose value left and right change.
++        GuidePainter painter{list, medium, scale, reveal};
++        tb::DrawValue(painter, items[size_t(n)].value.c_str(), page_right - 24 + slide_x, y + 16, 28,
++                      lit ? 0xFFFFFFu : 0x5A6068u, content, GuideRowHasValue(items[size_t(n)]));
+       }
+     }
+     if (button) {
+@@ -1034,13 +1048,13 @@ class Guide final : public xe::ui::ImGuiDialog {
+       // user's choice after the mock-ups): a soft shadow below it, a light-to-grey gradient with a
+       // highlight along its top, rounded corners, dark text centred, none of the list's green;
+       // focused, a dark, thicker outline as well (none otherwise).
+-      const bool focused = state_.row == listed;
++      const bool focused = row_focus && state_.row == listed;
+       const int a = int(255 * content);
+       const char* label = items.back().label.c_str();
+       const ImVec2 size = medium->CalcTextSizeA(26 * scale, 4096.0f, 0.0f, label);
+       const float width = size.x / scale + 2 * 48, height = 54, round = 14;
+       const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;
+-      const float y = top + std::min(listed - first_row, kGuideRows) * 63.0f + 24;
++      const float y = list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24;
+       // The shadow: rounded rectangles a little lower and wider each, faint, as a blur.
+       for (int n = 4; n >= 1; --n)
+         list->AddRectFilled(at(x + 2 - n, y + 3 + n), at(x + width + 2 + n, y + height + 3 + n), fade(40, 44, 52, a * 7 / 100),
+@@ -1061,10 +1075,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const bool in_category = state_.page == 1 && state_.category >= 0;
+     Button(list, small, scale, x, y, fade(90, 160, 44), "x", state_.page == 0 ? Tr("Select") : in_category ? Tr("Change") : Tr("Open"));
+     Button(list, small, scale, x, y, fade(200, 52, 43), "o", in_category ? Tr("Categories") : Tr("Return to game"));
+-    // Fix 115b: L1 at the left end of the tabs and R1 at the right end (the panel's edges, below the
+-    // "Game" and "Settings" tabs) instead of one squeezed "L1 R1" circle in the legend.
+-    Shoulder(list, small, scale, left * scale, y, fade(110, 116, 124), "L1", false);
+-    Shoulder(list, small, scale, right * scale, y, fade(110, 116, 124), "R1", true);
++    // Fix 115c: L1 and R1 are on the tab bar, not in the legend.
+     list->AddText(small, 20 * scale, at(left + 136, 835), fade(140, 146, 154), xbox360ps5::kBuildVersionLabel);
+     if (!web_.empty()) {
+       const ImVec2 size = small->CalcTextSizeA(20 * scale, 4096.0f, 0.0f, web_.c_str());
+@@ -3624,6 +3635,7 @@ int main(int argc, char** argv) {
+             xbox360ps5::PlayUiSound(guide.open ? xbox360ps5::UiSound::select : xbox360ps5::UiSound::back);
+             guide.page = guide.row = 0;
+             guide.category = -1;
++            guide.on_bar = true;  // fix 115c: no row focused yet
+             guide.hint = 0.0f;
+             guide_held = ~0u;
+             swallow = true;
+@@ -3665,27 +3677,42 @@ int main(int argc, char** argv) {
+             else if (pressed & 0xCF0) xbox360ps5::PlayUiSound(xbox360ps5::UiSound::move);
+             auto items = GuideItems(guide.page, settings, guide.category);
+             const int rows = int(items.size());
+-            if (pressed & 0x10) guide.row = (guide.row + rows - 1) % rows;
+-            if (pressed & 0x40) guide.row = (guide.row + 1) % rows;
+-            if ((pressed & 0x2000) && guide.page == 1 && guide.category >= 0) {
++            // Fix 115c: the pad as tab_bar::Press has it, one key at a time: L1 and R1 always switch
++            // tabs (the bar focused, no row); in the list left and right only change the focused row's
++            // value, and do nothing on other rows; Up on the first row goes to the bar, where left and
++            // right switch tabs and Down or Cross goes back to the list.
++            namespace tb = xbox360ps5::tab_bar;
++            tb::Nav nav{guide.page, guide.on_bar, guide.row};
++            tb::Effect effect;
++            const std::pair<uint32_t, tb::Key> guide_keys[] = {
++                {0x400, tb::Key::l1},  {0x800, tb::Key::r1},   {0x2000, tb::Key::circle}, {0x10, tb::Key::up},
++                {0x40, tb::Key::down}, {0x80, tb::Key::left}, {0x20, tb::Key::right},    {0x4000, tb::Key::cross}};
++            for (const auto& [bit, key] : guide_keys) {
++              if (!(pressed & bit)) continue;
++              effect = tb::Press(nav, key, 2, rows, [&items](int row) { return GuideRowHasValue(items[size_t(row)]); });
++              break;
++            }
++            guide.on_bar = nav.on_bar;
++            guide.row = nav.row;
++            if (effect.back && guide.page == 1 && guide.category >= 0) {
+               // Circle inside a category: back to the list of categories, on the one just left.
+               const auto categories = GuideItems(1, settings, -1);
+               guide.row = 0;
+               for (size_t n = 0; n < categories.size(); ++n) if (categories[n].category == guide.category) guide.row = int(n);
+               guide.category = -1;
++              guide.on_bar = false;
+               guide.slide = 1.0f;
+               guide.slide_direction = -1;
+-            } else if (pressed & 0x2000) {
++            } else if (effect.back) {
+               guide.open = false;
+             }
+-            // L1, R1: the other page. Left and right too, on the page of actions.
+-            if ((pressed & 0xC00) || (guide.page == 0 && (pressed & 0xA0))) {
+-              guide.page = 1 - guide.page; guide.row = 0; guide.category = -1;
++            if (effect.tab_changed) {
++              guide.page = nav.tab; guide.row = 0; guide.category = -1;
+               guide.slide = 1.0f;
+               guide.slide_direction = guide.page == 1 ? 1 : -1;
+             }
+-            else if ((pressed & 0x40A0) && guide.row < rows) {
+-              const int step = (pressed & 0x80) ? -1 : 1;
++            else if ((effect.activate || effect.value_step != 0) && guide.row < rows) {
++              const int step = effect.value_step < 0 ? -1 : 1;
+               bool changed = true;
+               switch (items[size_t(guide.row)].action) {
+                 case GuideAction::resume: guide.open = false; changed = false; break;

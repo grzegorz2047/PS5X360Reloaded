@@ -1,0 +1,18 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index f8067b2..106b013 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -548,6 +548,13 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // 24 to 30 with it. The player's own choice for the game still wins.
+       {"41560817", {{"memory_boost", 1}}},
+       {"5454082B", {{"memory_boost", 1}}},
++      // Fix 122: The Sims 3 reads back what the GPU draws into its own pictures (about 1 MB
++      // targets, some 16 times in 30 s: the Sim's face for the distance, the household
++      // portrait). With readback off they are not copied and the face is black at distance, the
++      // portrait frame empty; Fast gives each of these occasional resolves its own copy (fix 91k)
++      // and keeps the cheap late copy for the frame-sized ones. Console (1.0.5-work-fix114,
++      // research/sims3-fast): face and portrait right, 38 to 43 frames a second.
++      {"454108E2", {{"readback", 1}}},
+   };
+   GameOverrides preset;
+   for (const auto& [id, values] : built_in) if (Lower(title_id) == Lower(id)) preset = values;

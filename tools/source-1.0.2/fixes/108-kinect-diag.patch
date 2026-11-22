@@ -1,0 +1,248 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+index db53bc3..fcc9f0b 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -23,6 +23,7 @@
+ #include "xenia/cpu/ppc/ppc_context.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47: the guest's kernel calls in the beat
++#include "xbox360ps5/kinect_diag.hpp"  // fix 108: a Kinect title's calls and threads
+ #endif
+ #include "xenia/kernel/kernel_flags.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -508,6 +509,43 @@ void AppendKernelCallParams(StringBuffer& string_buffer,
+ 
+ StringBuffer* thread_local_string_buffer();
+ 
++#if XE_PLATFORM_PS5
++// Fix 108 (xbox360ps5/kinect_diag.hpp): a guest word, read only where the memory says it can be
++// (a back chain that leaves the stack ends the walk instead of faulting).
++inline bool KinectDiagRead(uint32_t address, uint32_t* value) {
++  if (!address || (address & 3)) return false;
++  Memory* memory = kernel_state()->memory();
++  BaseHeap* heap = memory->LookupHeap(address);
++  uint32_t protection = 0;
++  if (!heap || !heap->QueryProtect(address, &protection) || !(protection & kMemoryProtectRead))
++    return false;
++  *value = xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++  return true;
++}
++// Fix 108: from every export's trampoline while a Kinect title runs: the first call of each
++// avatar, user, profile, content and NUI export, and this thread's place every 10 s.
++inline void KinectDiagCall(const char* name, PPCContext* context) {
++  namespace kd = xbox360ps5::kinect_diag;
++  if (kd::Watched(name) && kd::first_calls.First(name)) {
++    uint32_t callers[3];
++    const int n = kd::BackChain(uint32_t(context->lr), uint32_t(context->r[1]), KinectDiagRead, callers, 3);
++    XELOGW("Kinect diag: first call of {} from {} (r3 {:08X} r4 {:08X} r5 {:08X} r6 {:08X}), thread {} (fix 108)",
++           name, kd::Chain(callers, n), uint32_t(context->r[3]), uint32_t(context->r[4]),
++           uint32_t(context->r[5]), uint32_t(context->r[6]), context->thread_id);
++  }
++  thread_local int64_t last_snapshot = 0;
++  const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                             std::chrono::steady_clock::now().time_since_epoch())
++                             .count();
++  if (kd::SnapshotDue(now_ms, last_snapshot)) {
++    uint32_t callers[kd::kFrames];
++    const int n = kd::BackChain(uint32_t(context->lr), uint32_t(context->r[1]), KinectDiagRead, callers,
++                                kd::kFrames);
++    XELOGW("Kinect diag: thread {} calls {} from {} (fix 108)", context->thread_id, name, kd::Chain(callers, n));
++  }
++}
++#endif
++
+ template <typename Tuple>
+ XE_NOALIAS void PrintKernelCall(cpu::Export* export_entry,
+                                 const Tuple& params) {
+@@ -563,6 +601,8 @@ struct ExportRegistrerHelper {
+         std::tuple<Ps...> params = {Ps(init)...};
+ #if XE_PLATFORM_PS5
+         xbox360ps5::hang_watch::NoteGuestCall(export_entry->name);  // fix 47
++        if (xbox360ps5::kinect_diag::enabled.load(std::memory_order_relaxed))
++          KinectDiagCall(export_entry->name, ppc_context);  // fix 108
+ #endif
+         if (TAGS & xe::cpu::ExportTag::kLog &&
+             (!(TAGS & xe::cpu::ExportTag::kHighFrequency) ||
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+index baf2fdb..094897a 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+@@ -59,6 +59,31 @@ static void ReportGuestPath(const char* call, X_STATUS status, uint32_t root,
+       call, uint32_t(status), root, callers, raw, path);
+   if (!line.empty()) {
+     XELOGW("{}", line);
++#if XE_PLATFORM_PS5
++    // Fix 108 (Kinect Sports, xbox360ps5/kinect_diag.hpp): an empty name, with 8 callers and the
++    // bytes around its buffer (what the game built it from: a struct, a table, a cleared field).
++    if (raw.empty() && name) {
++      namespace kd = xbox360ps5::kinect_diag;
++      uint32_t deep[kd::kFrames] = {};
++      int n = 0;
++      if (auto* thread_state = cpu::ThreadState::Get()) {
++        const auto* context = thread_state->context();
++        n = kd::BackChain(uint32_t(context->lr), uint32_t(context->r[1]), shim::KinectDiagRead, deep, kd::kFrames);
++      }
++      const uint32_t buffer = name->pointer;
++      uint8_t around[64] = {};
++      bool readable = buffer >= 32;
++      for (uint32_t i = 0; readable && i < 64; i += 4) {
++        uint32_t word = 0;
++        readable = shim::KinectDiagRead((buffer - 32 + i) & ~3u, &word);
++        for (int b = 0; b < 4; ++b) around[i + b] = uint8_t(word >> (24 - 8 * b));
++      }
++      XELOGW("Guest path: the empty name's callers {}; its buffer {:08X} (length {}, maximum {}), 32 bytes "
++             "before and after: {} (fix 108)",
++             kd::Chain(deep, n), buffer, uint32_t(name->length), uint32_t(name->maximum_length),
++             readable ? kd::Hex(around, 64) : std::string("not readable"));
++    }
++#endif
+   }
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+index 2df504f..daf76ca 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -41,6 +41,7 @@
+ #include "xbox360ps5/body_scale.hpp"
+ #include "xbox360ps5/motion_record.hpp"
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107
++#include "xbox360ps5/kinect_diag.hpp"  // fix 108
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+@@ -1227,6 +1228,10 @@ void BindSkeletonSource(KernelState* kernel_state) {
+ void BindVirtualKinectEarly(KernelState* kernel_state) {
+   if (!xbox360ps5::motion::enabled.load() || !KinectRequiredTitle(kernel_state)) return;
+   BindSkeletonSource(kernel_state);
++  // Fix 108: what the title asks the system for from now on (xbox360ps5/kinect_diag.hpp).
++  if (!xbox360ps5::kinect_diag::enabled.exchange(true))
++    XELOGW("Kinect diag: on for this Kinect title (first avatar, user, profile, content and NUI calls; "
++           "where each thread is every 10 s) (fix 108)");
+ }
+ 
+ void ShutdownCameraDevice() {
+@@ -1256,6 +1261,8 @@ void ShutdownCameraDevice() {
+   xbox360ps5::motion::guest_skeleton_bodies = 0;
+   xbox360ps5::motion::ResetVirtualNui();
+   xbox360ps5::motion::emergency_pose.Reset();  // fix 107
++  xbox360ps5::kinect_diag::enabled = false;  // fix 108
++  xbox360ps5::kinect_diag::first_calls.Reset();
+ }
+ 
+ #if !XE_PLATFORM_PS5
+diff --git a/include/xbox360ps5/kinect_diag.hpp b/include/xbox360ps5/kinect_diag.hpp
+new file mode 100644
+index 0000000..1e32a12
+--- /dev/null
++++ b/include/xbox360ps5/kinect_diag.hpp
+@@ -0,0 +1,109 @@
++// SPDX-License-Identifier: MIT
++// Fix 108 (Kinect Sports, issue 15): what a Kinect game asks the system for after "Pick main
++// player". On 1.0.5-work-fix106 the body stayed tracked the whole run, the player was picked by
++// hovering, and then the hand cursors went and nothing followed, with nothing in the log at its
++// usual level: the stall is the game's, after a signed-in profile is chosen.
++//
++// While a Kinect title runs (from the moment it starts its NUI library, xboxkrnl_pscam.cc):
++//  - the first call of each avatar, user, profile, content or NUI export is logged with its
++//    caller and first arguments (xenia/kernel/util/shim_utils.h, the exports' trampoline);
++//  - every guest thread that calls the kernel logs where it is, at most once per 10 s each (its
++//    current call and the return addresses along its stack's back chain), from its own call, so
++//    no thread reads another's state;
++//  - an empty file name (xboxkrnl_io.cc's failed-path report) also gives 8 callers and the bytes
++//    around the name's buffer, which say what the game built the name from.
++#pragma once
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <mutex>
++#include <string>
++#include <unordered_set>
++
++namespace xbox360ps5::kinect_diag {
++
++inline std::atomic<bool> enabled{false};
++constexpr int64_t kSnapshotMs = 10000;
++constexpr size_t kMaxNames = 256;
++constexpr int kFrames = 8;
++
++// The exports whose first call is logged.
++inline bool Watched(const char* name) {
++  if (!name) return false;
++  static constexpr const char* kPrefixes[] = {"XamAvatar", "XamUser", "XamProfile", "XamContent",
++                                              "XContent",  "XamNui",  "XUser",      "XamShow"};
++  for (const char* prefix : kPrefixes)
++    if (std::strncmp(name, prefix, std::strlen(prefix)) == 0) return true;
++  return false;
++}
++
++// True the first time `name` is seen (at most kMaxNames names).
++class FirstCalls {
++ public:
++  bool First(const char* name) {
++    std::lock_guard lock(mutex_);
++    if (seen_.size() >= kMaxNames) return false;
++    return seen_.insert(name).second;
++  }
++  void Reset() {
++    std::lock_guard lock(mutex_);
++    seen_.clear();
++  }
++
++ private:
++  std::mutex mutex_;
++  std::unordered_set<std::string> seen_;
++};
++inline FirstCalls first_calls;
++
++// The calling thread's snapshot is due (once per kSnapshotMs per thread; the first call of a
++// thread is due at once). `last` is the thread's own slot.
++inline bool SnapshotDue(int64_t now_ms, int64_t& last) {
++  if (last && now_ms - last < kSnapshotMs) return false;
++  last = now_ms ? now_ms : 1;
++  return true;
++}
++
++// The return addresses: `lr`, then the saved LR of each frame along the back chain from `sp`
++// (the word at sp is the caller's sp; its saved LR is 8 bytes below that, as the game's code
++// lays frames out). read(address, &value) reads a big-endian guest word, false when it cannot.
++// Stops at a chain that does not go up by less than 1 MiB. Returns how many were found.
++template <typename Read>
++inline int BackChain(uint32_t lr, uint32_t sp, Read read, uint32_t* out, int count) {
++  int n = 0;
++  if (count <= 0) return 0;
++  out[n++] = lr;
++  while (n < count && sp) {
++    uint32_t back = 0, saved = 0;
++    if (!read(sp, &back) || back <= sp || back - sp > 0x100000) break;
++    if (!read(back - 8, &saved)) break;
++    out[n++] = saved;
++    sp = back;
++  }
++  return n;
++}
++
++inline std::string Chain(const uint32_t* callers, int n) {
++  std::string out;
++  char item[16];
++  for (int i = 0; i < n; ++i) {
++    std::snprintf(item, sizeof(item), i ? " < %08X" : "%08X", callers[i]);
++    out += item;
++  }
++  return out;
++}
++
++// "XX XX ..." for `size` bytes (a dump of guest memory around a pointer).
++inline std::string Hex(const uint8_t* bytes, size_t size) {
++  std::string out;
++  char item[4];
++  for (size_t i = 0; i < size; ++i) {
++    std::snprintf(item, sizeof(item), i ? " %02X" : "%02X", bytes[i]);
++    out += item;
++  }
++  return out;
++}
++
++}  // namespace xbox360ps5::kinect_diag

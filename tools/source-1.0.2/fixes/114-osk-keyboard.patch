@@ -1,0 +1,1099 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+index 99968ca..0dd48a9 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -24,6 +24,7 @@
+ #include "xenia/base/png_utils.h"
+ #include "xenia/base/system.h"
+ #include "xenia/hid/input_system.h"
++#include "xenia/cpu/thread_state.h"  // fix 114: the keyboard request's caller
+ #include "xenia/kernel/XLiveAPI.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+@@ -542,8 +543,28 @@ dword_result_t XamShowKeyboardUI_entry(
+     dword_t buffer_length, pointer_t<XAM_OVERLAPPED> overlapped) {
+   // Opaque pointer parameters deliberately prevent the shim call trace from
+   // recording default, output or description strings (including passwords).
+-  if (!buffer || !buffer_length || user_index >= 4 ||
++  // Fix 114: every request in the log at warning level, before anything can refuse it: who
++  // called (the guest's return address), the player, the flags, the buffer and its size, the
++  // game's texts' addresses and how it waits for the answer. (1.0.2 logged nothing: The Sims 3's
++  // "Edit Text" left no line at all.)
++  {
++    auto* caller_state = xe::cpu::ThreadState::Get();
++    const uint32_t caller = caller_state ? uint32_t(caller_state->context()->lr) : 0;
++    const std::string player =
++        user_index < 4 ? std::to_string(uint32_t(user_index) + 1) : fmt::format("any ({:02X})", uint32_t(user_index));
++    XELOGW("Keyboard (fix 114): the game asks for text from {:08X}: player {}, flags {:08X}, "
++           "buffer {:08X} for {} characters and its NUL, default text {:08X}, title {:08X}, "
++           "description {:08X}, XOVERLAPPED {:08X} ({})",
++           caller, player, uint32_t(flags), buffer.guest_address(),
++           buffer_length ? uint32_t(buffer_length) - 1 : 0, default_text.guest_address(),
++           title.guest_address(), description.guest_address(), overlapped.guest_address(),
++           overlapped ? "answered when the keyboard closes" : "none: the game waits");
++  }
++  // Fix 114: any player index is accepted (XUSER_INDEX_ANY and the like let every controller
++  // type); 1.0.2 refused all but 0-3 and the game waited for a keyboard that never came.
++  if (!buffer || !buffer_length ||
+       uint64_t(buffer.guest_address()) + uint64_t(buffer_length) * 2 > 0x100000000ull) {
++    XELOGW("Keyboard (fix 114): the game's request was refused: no buffer for the text");
+     return X_ERROR_INVALID_PARAMETER;
+   }
+ 
+@@ -551,10 +572,19 @@ dword_result_t XamShowKeyboardUI_entry(
+   // pointers into the caller's stack to the async worker.
+ #if XE_PLATFORM_PS5
+   namespace keyboard = xe::ui::controller_keyboard;
++  static_assert(keyboard::codes::kSuccess == X_ERROR_SUCCESS &&
++                keyboard::codes::kInvalidParameter == X_ERROR_INVALID_PARAMETER &&
++                keyboard::codes::kCancelled == X_ERROR_CANCELLED &&
++                keyboard::codes::kCancelledHresult == X_HRESULT_FROM_WIN32(X_ERROR_CANCELLED),
++                "fix 114: the keyboard's result codes are XAM's");
+   auto* state = kernel_state();
+   const auto* emulator = state->emulator();
+   auto* drawer = emulator->imgui_drawer();
+   auto* window = emulator->display_window();
++  const auto refuse = [](const char* why, X_RESULT result) {
++    XELOGW("Keyboard (fix 114): the game's request was refused: {}", why);
++    return result;
++  };
+   // The shim translates addresses but does not validate allocation/access.
+   // Check every 4 KiB page, including a final partial page and range overflow.
+   const auto valid_range = [state](uint32_t address, uint64_t bytes, uint32_t access) {
+@@ -567,11 +597,12 @@ dword_result_t XamShowKeyboardUI_entry(
+   };
+   constexpr uint32_t kMaximumUnits = 65536;
+   if ((buffer.guest_address() & 1) || buffer_length > kMaximumUnits ||
+-      !valid_range(buffer.guest_address(), uint64_t(buffer_length) * 2, kMemoryProtectWrite) ||
+-      (overlapped && ((overlapped.guest_address() & 3) ||
++      !valid_range(buffer.guest_address(), uint64_t(buffer_length) * 2, kMemoryProtectWrite))
++    return refuse("the text buffer is not writable guest memory", X_ERROR_INVALID_PARAMETER);
++  if (overlapped && ((overlapped.guest_address() & 3) ||
+        !valid_range(overlapped.guest_address(), sizeof(XAM_OVERLAPPED),
+-                    kMemoryProtectRead | kMemoryProtectWrite))))
+-    return X_ERROR_INVALID_PARAMETER;
++                    kMemoryProtectRead | kMemoryProtectWrite)))
++    return refuse("the XOVERLAPPED is not writable guest memory", X_ERROR_INVALID_PARAMETER);
+   const auto read_bounded = [&](uint32_t address, size_t limit, std::u16string& text) {
+     return keyboard::ReadText(address, limit, [&](uint32_t at, char16_t& c) {
+       if (!valid_range(at, 2, kMemoryProtectRead)) return false;
+@@ -584,52 +615,107 @@ dword_result_t XamShowKeyboardUI_entry(
+   if (!read_bounded(default_text.guest_address(), kMaximumUnits, initial_text) ||
+       !read_bounded(title.guest_address(), 4096, guest_title) ||
+       !read_bounded(description.guest_address(), 4096, guest_description))
+-    return X_ERROR_INVALID_PARAMETER;
++    return refuse("a text the game gave cannot be read", X_ERROR_INVALID_PARAMETER);
+   if (!drawer || !window || !keyboard::Bridge().available())
+-    return X_ERROR_FUNCTION_FAILED;
+-  if (state->xam_state()->IsUIActive() || !keyboard::Bridge().Begin(user_index))
+-    return X_ERROR_ACCESS_DENIED;
+-  state->xam_state()->is_xam_dialog_present_.store(true);
++    return refuse("the interface is not ready", X_ERROR_FUNCTION_FAILED);
++  // Another XAM dialog is up (the guide is not counted: the keyboard waits behind it).
++  if ((state->xam_state()->is_xam_dialog_present_.owners() & SystemUiFlag::kXamDialog) ||
++      keyboard::Active())
++    return refuse("another system window is open", X_ERROR_ACCESS_DENIED);
+   const auto title_text = xe::to_utf8(keyboard::Fit(guest_title, guest_title.size() + 1));
+   const auto description_text = xe::to_utf8(keyboard::Fit(guest_description, guest_description.size() + 1));
++  const auto options = keyboard::OptionsFromFlags(flags);
++  // Fix 114: the keyboard's words in the interface's language (canary_game_main.cpp's CoreUiText).
++  const auto text = [](const char* english) {
++    const char* shown = ui_text ? ui_text(english) : nullptr;
++    return std::string(shown ? shown : english);
++  };
++  xe::ui::KeyboardLabels labels;
++  labels.keyboard = text("Keyboard");
++  labels.space = text("Space");
++  labels.erase = text("Delete");
++  labels.shift = text("Shift");
++  labels.caps = text("Caps");
++  labels.cancel = text("Cancel");
++  labels.done = text("Done");
++  labels.type = text("Type");
++  labels.other = text("Other characters");
++  labels.cursor = text("Move cursor");
++  labels.full = text("Maximum length reached");
++  const uint32_t user = user_index;
++  // Fix 114: the game's own texts (never what the player types; no default text for a password).
++  const auto shorten = [](std::string text) {
++    if (text.size() > 160) text = text.substr(0, 160) + "...";
++    return text;
++  };
++  XELOGW("Keyboard (fix 114): title \"{}\", description \"{}\", default text {} ({} characters)",
++         shorten(title_text), shorten(description_text),
++         options.password ? std::string("not logged (a password)")
++                          : "\"" + shorten(xe::to_utf8(initial_text)) + "\"",
++         initial_text.size());
+   // Capture the HOST output address, not a reference to a shim parameter.
+   void* output = buffer;
+   const uint32_t capacity = buffer_length;
+   const uint32_t output_address = buffer.guest_address();
+-  auto run = [state, window, drawer, title_text, description_text, initial_text,
+-              output, output_address, valid_range, capacity, asynchronous = bool(overlapped)](uint32_t& extended_error, uint32_t& length) -> X_RESULT {
++  const uint32_t overlapped_address = overlapped.guest_address();
++  auto run = [state, window, drawer, title_text, description_text, initial_text, options,
++              labels, user, output, output_address, valid_range, capacity, overlapped_address,
++              asynchronous = bool(overlapped)](uint32_t& extended_error, uint32_t& length) -> X_RESULT {
+     extended_error = X_ERROR_CANCELLED;
+     length = 0;
++    // Fix 114: the controller and the system interface are taken here, as the keyboard is
++    // shown, not when the game asked. A request the game cancels before it runs
++    // (XCancelOverlapped) never comes here; in 1.0.2 it left them taken, and the game's
++    // buttons were gone for good.
++    if (!keyboard::Bridge().Begin(user)) {
++      XELOGW("Keyboard (fix 114): not shown: another keyboard is open");
++      extended_error = X_ERROR_ACCESS_DENIED;
++      return X_ERROR_ACCESS_DENIED;
++    }
++    state->xam_state()->is_xam_dialog_present_.store(true);
+     auto completion = std::make_shared<xe::ui::ControllerKeyboardCompletion>();
+     xe::threading::Fence fence;
+     const bool dispatched = window->app_context().CallInUIThreadSynchronous([&] {
+       auto* dialog = new xe::ui::ControllerKeyboardDialog(drawer, title_text,
+-          description_text, initial_text, capacity, completion);
++          description_text, initial_text, capacity, completion, options, labels);
+       dialog->Then(&fence);
+     });
+     if (dispatched) fence.Wait();
+     else keyboard::Bridge().End();
+     state->xam_state()->is_xam_dialog_present_.store(false);
+     if (!dispatched) {
++      XELOGW("Keyboard (fix 114): not shown: the interface thread did not take it");
+       extended_error = X_ERROR_FUNCTION_FAILED;
+       return X_ERROR_FUNCTION_FAILED;
+     }
+-    if (completion->result != keyboard::Result::accepted) {
+-      // Cancellation leaves the guest output buffer untouched.
+-      // Preserve Canary's asynchronous XAM dialog convention: success in the
+-      // operation result with cancellation in the extended error. A caller
+-      // with no XOVERLAPPED receives cancellation directly.
+-      return asynchronous ? X_ERROR_SUCCESS : X_ERROR_CANCELLED;
+-    }
+-    // The game may have freed its output while this async UI was open.
+-    if (!valid_range(output_address, uint64_t(capacity) * 2, kMemoryProtectWrite)) {
+-      extended_error = X_ERROR_INVALID_PARAMETER;
+-      return X_ERROR_INVALID_PARAMETER;
+-    }
+-    keyboard::WriteBE(output, capacity, completion->text);
+-    extended_error = X_ERROR_SUCCESS;
++    // Fix 114: the game hears ERROR_CANCELLED for Cancel, as from the console's own keyboard:
++    // XGetOverlappedResult returns it and the extended error is its HRESULT (1.0.2 answered
++    // success with the cancellation only in the extended error, so games took a cancelled
++    // keyboard for a name). The kernel writes exactly that for a running request the game
++    // cancels; asking for it here completes the XOVERLAPPED the same way once this returns.
++    // A caller with no XOVERLAPPED gets ERROR_CANCELLED directly. Cancel leaves the buffer
++    // untouched; the game may have freed it while this async UI was open, so Done checks it.
++    const bool accepted = completion->result == keyboard::Result::accepted;
++    const auto outcome = keyboard::CompletionOf(completion->result, asynchronous,
++        !accepted || valid_range(output_address, uint64_t(capacity) * 2, kMemoryProtectWrite));
++    if (outcome.write_text) {
++      keyboard::WriteBE(output, capacity, completion->text);
++      XELOGW("Keyboard (fix 114): closed with Done, {} characters", completion->text.size());
++    } else if (accepted) {
++      XELOGW("Keyboard (fix 114): closed with Done, but the game's buffer is gone");
++    } else {
++      XELOGW("Keyboard (fix 114): closed with Cancel{}",
++             completion->shown ? "" : " before it was drawn");
++    }
++    if (outcome.cancel_request) state->CancelOverlapped(overlapped_address, false);
++    XELOGW("Keyboard (fix 114): the game is told {:08X}, extended error {:08X}, {}", outcome.result,
++           outcome.extended_error,
++           !asynchronous ? "returned to the waiting call"
++           : outcome.cancel_request ? "its XOVERLAPPED completed as cancelled"
++                                    : "its XOVERLAPPED completed");
++    extended_error = outcome.extended_error;
+     // Keep XAM's existing convention: InternalHigh is not a string length.
+-    return X_ERROR_SUCCESS;
++    return outcome.result;
+   };
+   auto pre = [state] { state->BroadcastNotification(kXNotificationSystemUI, true); };
+   auto post = [state] {
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h b/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h
+index 24f20af..b9e4e65 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard.h
+@@ -50,6 +50,7 @@ inline std::u16string Fit(std::u16string_view text, size_t capacity) {
+   }
+   return out;
+ }
++// The game's buffer gets the text, big-endian, then zeros to its end (so always a NUL).
+ inline void WriteBE(void* buffer, size_t capacity, std::u16string_view text) {
+   auto* bytes = static_cast<uint8_t*>(buffer);
+   const auto fitted = Fit(text, capacity);
+@@ -59,84 +60,249 @@ inline void WriteBE(void* buffer, size_t capacity, std::u16string_view text) {
+   }
+ }
+ 
++// Fix 114: the on-screen keyboard. The game's VKBD_* flags (xbox.h of the Xbox 360 XDK) that
++// change how it opens; the others (the Latin/e-mail/gamertag/... layouts) keep the full keyboard.
++namespace flags {
++constexpr uint32_t kPhone = 0x00000008, kIpAddress = 0x00000010, kNumeric = 0x00000020,
++                   kPassword = 0x00000080, kRussian = 0x00008000, kSelectOk = 0x10000000,
++                   kHighlightText = 0x20000000;
++}
++// The buttons as PadSample carries them (ScePad's layout); L2 and R2 are also read from the
++// triggers' travel.
++namespace pad {
++constexpr uint32_t kOptions = 0x8, kUp = 0x10, kRight = 0x20, kDown = 0x40, kLeft = 0x80,
++                   kL2 = 0x100, kR2 = 0x200, kL1 = 0x400, kR1 = 0x800, kTriangle = 0x1000,
++                   kCircle = 0x2000, kCross = 0x4000, kSquare = 0x8000;
++constexpr uint32_t kDirections = kUp | kRight | kDown | kLeft;
++// Held down, these repeat: moving, deleting, the cursor.
++constexpr uint32_t kRepeating = kDirections | kSquare | kL1 | kR1;
++}
++
+ enum class Result { pending, accepted, cancelled };
++
++// Fix 114: what XamShowKeyboardUI tells the game when the keyboard closes (Win32 codes, as XAM
++// gives them; xam_ui.cc checks they are its X_ERROR_* values).
++namespace codes {
++constexpr uint32_t kSuccess = 0, kInvalidParameter = 0x57, kCancelled = 0x4c7,
++                   kCancelledHresult = 0x800704c7;  // HRESULT_FROM_WIN32(ERROR_CANCELLED)
++}
++struct Completion {
++  uint32_t result, extended_error;
++  bool write_text;      // the text goes into the game's buffer (never on Cancel)
++  bool cancel_request;  // complete the XOVERLAPPED as cancelled (KernelState::CancelOverlapped)
++};
++// Done: success, the text written. Cancel: ERROR_CANCELLED, the buffer untouched; through an
++// XOVERLAPPED its result is ERROR_CANCELLED and its extended error the HRESULT, as the kernel
++// writes for a request the game cancels. Done with a buffer the game freed meanwhile: invalid.
++inline Completion CompletionOf(Result result, bool asynchronous, bool buffer_writable) {
++  if (result != Result::accepted)
++    return {codes::kCancelled, asynchronous ? codes::kCancelledHresult : codes::kCancelled,
++            false, asynchronous};
++  if (!buffer_writable) return {codes::kInvalidParameter, codes::kInvalidParameter, false, false};
++  return {codes::kSuccess, codes::kSuccess, true, false};
++}
++// The four pages of keys, each 4 rows of 10: letters (with the digits), accented letters of the
++// interface's European languages, symbols, Russian.
++enum class Page { letters, accents, symbols, cyrillic };
++constexpr int kPages = 4, kColumns = 10, kCharacterRows = 4, kRows = 5;
++// The last row: what each key does, the column it starts at and how many columns it spans.
++enum class Action { shift, page, space, erase, left, right, cancel, done };
++struct ActionKey { Action action; int column, span; };
++constexpr ActionKey kActions[] = {
++    {Action::shift, 0, 1}, {Action::page, 1, 1},  {Action::space, 2, 2},  {Action::erase, 4, 1},
++    {Action::left, 5, 1},  {Action::right, 6, 1}, {Action::cancel, 7, 1}, {Action::done, 8, 2}};
++constexpr int kActionCount = int(sizeof(kActions) / sizeof(kActions[0]));
++// Shift: off, for the next letter, or locked (capital letters until pressed again).
++enum class Shift { off, once, lock };
++
++inline std::u16string_view PageKeys(Page page) {
++  switch (page) {
++    case Page::letters: return u"1234567890qwertyuiopasdfghjkl'zxcvbnm,.-";
++    // German, Spanish, French, Italian, Dutch, Polish, Portuguese, Turkish; the ordinal sign.
++    case Page::accents:
++      return u"àáâãäæçèéê"
++             u"ëìíîïñòóôõ"
++             u"öœùúûüÿßąć"
++             u"ęłńśźżğışº";
++    case Page::symbols:
++      return u"!@#$%^&*()-_=+[]{}\\/;:\"'<>?|`~"
++             u"¿¡£¥§°«»…©";
++    case Page::cyrillic:
++      return u"йцукенгшщз"
++             u"хъфывапрол"
++             u"джэячсмить"
++             u"бюё,.-!?'\"";
++  }
++  return {};
++}
++// The capital of a key's letter; anything else as it is. Turkish dotless i gives the dotted
++// capital I (the plain I is on the letters page), the ordinal sign its feminine form.
++inline char16_t Upper(char16_t c) {
++  if (c >= 'a' && c <= 'z') return char16_t(c - 32);
++  if (c >= 0xe0 && c <= 0xfe && c != 0xf7) return char16_t(c - 32);
++  if (c == 0xff) return 0x178;
++  if (c == 0x131) return 0x130;
++  if (c == 0xba) return 0xaa;
++  if (c >= 0x100 && c <= 0x17f) {
++    // Latin Extended-A pairs a capital with the small letter after it; in 0x139-0x148 and
++    // 0x179-0x17e the capital is the odd one.
++    const bool odd_capital = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17e);
++    if (odd_capital ? !(c & 1) : (c & 1)) return char16_t(c - 1);
++    return c;
++  }
++  if (c >= 0x430 && c <= 0x44f) return char16_t(c - 32);
++  if (c == 0x451) return 0x401;
++  return c;
++}
++inline const ActionKey& ActionAt(int column) {
++  for (const auto& key : kActions)
++    if (column >= key.column && column < key.column + key.span) return key;
++  return kActions[0];
++}
++
++struct Options {
++  bool password = false;     // shown as dots
++  bool select_done = false;  // Done selected first
++  bool highlight = false;    // the default text is selected: typing replaces it
++  Page page = Page::letters;
++};
++inline Options OptionsFromFlags(uint32_t game_flags) {
++  Options options;
++  options.password = game_flags & flags::kPassword;
++  options.select_done = game_flags & flags::kSelectOk;
++  options.highlight = game_flags & flags::kHighlightText;
++  if (game_flags & flags::kRussian) options.page = Page::cyrillic;
++  return options;
++}
++
+ class Editor {
+  public:
+-  Editor(std::u16string text, size_t capacity)
+-      : capacity_(capacity), text_(Fit(text, capacity)), cursor_(text_.size()) {}
++  Editor(std::u16string text, size_t capacity, Options options = {})
++      : capacity_(capacity), text_(Fit(text, capacity)), cursor_(text_.size()),
++        page_(options.page), password_(options.password),
++        highlighted_(options.highlight && !text_.empty()) {
++    if (options.select_done) { row_ = kRows - 1; column_ = 8; }
++  }
+   const std::u16string& text() const { return text_; }
+   size_t cursor() const { return cursor_; }
+   Result result() const { return result_; }
+-  int selected() const { return selected_; }
+-  bool upper() const { return upper_; }
+-  bool symbols() const { return symbols_; }
+-  char16_t Symbol(int key) const {
+-    constexpr std::u16string_view letters = u"1234567890qwertyuiopasdfghjkl;zxcvbnm,.'";
+-    constexpr std::u16string_view symbols = u"!@#$%^&*()[]{}<>/\\|?+-=_:;\"'`~.,0123456789";
+-    char16_t c = (symbols_ ? symbols : letters)[size_t(key)];
+-    if (!symbols_ && upper_ && c >= u'a' && c <= u'z') c -= 32;
+-    return c;
++  // The most UTF-16 units the game takes (its buffer less the closing NUL).
++  size_t max_length() const { return capacity_ ? capacity_ - 1 : 0; }
++  int row() const { return row_; }
++  int column() const { return column_; }
++  Page page() const { return page_; }
++  Shift shift() const { return shift_; }
++  bool password() const { return password_; }
++  bool highlighted() const { return highlighted_; }
++  // How many inserts the length limit refused (the view flashes the counter on a change).
++  uint32_t refused() const { return refused_; }
++  bool upper() const { return shift_ != Shift::off; }
++
++  // The character a key types now (with Shift on the letter pages).
++  char16_t Key(int row, int column) const {
++    const auto keys = PageKeys(page_);
++    const size_t at = size_t(row * kColumns + column);
++    if (row < 0 || row >= kCharacterRows || column < 0 || column >= kColumns || at >= keys.size())
++      return 0;
++    const char16_t c = keys[at];
++    return upper() && page_ != Page::symbols ? Upper(c) : c;
++  }
++  // What the text field shows: dots for a password.
++  std::u16string Shown() const {
++    return password_ ? std::u16string(text_.size(), char16_t(0x2022)) : text_;
+   }
+   bool Insert(std::u16string_view value) {
+     if (result_ != Result::pending) return false;
+     const auto valid = Fit(value, value.size() + 1);
+-    if (valid.size() + text_.size() >= capacity_) return false;
++    if (highlighted_) { text_.clear(); cursor_ = 0; highlighted_ = false; }
++    if (valid.size() + text_.size() > max_length()) { ++refused_; return false; }
+     text_.insert(cursor_, valid); cursor_ += valid.size(); return true;
+   }
+   void Left() {
++    highlighted_ = false;
+     if (!cursor_) return;
+     --cursor_;
+     if (cursor_ && Low(text_[cursor_]) && High(text_[cursor_ - 1])) --cursor_;
+   }
+   void Right() {
++    highlighted_ = false;
+     if (cursor_ == text_.size()) return;
+     if (High(text_[cursor_]) && cursor_ + 1 < text_.size() && Low(text_[cursor_ + 1])) ++cursor_;
+     ++cursor_;
+   }
+   void Backspace() {
++    if (result_ != Result::pending) return;
++    if (highlighted_) { text_.clear(); cursor_ = 0; highlighted_ = false; return; }
+     const size_t old = cursor_; Left(); text_.erase(cursor_, old - cursor_);
+   }
+-  void Select(int key) { selected_ = std::clamp(key, 0, 49); }
++  void CycleShift() {
++    shift_ = shift_ == Shift::off ? Shift::once : shift_ == Shift::once ? Shift::lock : Shift::off;
++  }
++  void NextPage() { page_ = Page((int(page_) + 1) % kPages); }
++  // Moves the selection; it wraps at the edges. In the last row the column is where the
++  // selected key starts, and left/right go key by key.
++  void Move(int rows, int columns) {
++    if (rows) {
++      row_ = (row_ + rows + kRows) % kRows;
++      if (row_ == kRows - 1) column_ = ActionAt(column_).column;
++    }
++    if (columns) {
++      if (row_ == kRows - 1) {
++        int index = 0;
++        while (index < kActionCount && kActions[index].column != ActionAt(column_).column) ++index;
++        index = (index + columns + kActionCount) % kActionCount;
++        column_ = kActions[index].column;
++      } else {
++        column_ = (column_ + columns + kColumns) % kColumns;
++      }
++    }
++  }
+   void Activate() {
+     if (result_ != Result::pending) return;
+-    if (selected_ < 40) { const char16_t c = Symbol(selected_); Insert({&c, 1}); return; }
+-    switch (selected_) {
+-      case 40: Insert(u" "); break;
+-      case 41: Backspace(); break;
+-      case 42: upper_ = !upper_; break;
+-      case 43: symbols_ = !symbols_; break;
+-      case 44: Left(); break;
+-      case 45: Right(); break;
+-      case 46: cursor_ = 0; break;
+-      case 47: cursor_ = text_.size(); break;
+-      case 48: Finish(Result::cancelled); break;
+-      case 49: Finish(Result::accepted); break;
++    if (row_ < kCharacterRows) {
++      const char16_t c = Key(row_, column_);
++      if (c && Insert(std::u16string_view(&c, 1)) && shift_ == Shift::once) shift_ = Shift::off;
++      return;
++    }
++    switch (ActionAt(column_).action) {
++      case Action::shift: CycleShift(); break;
++      case Action::page: NextPage(); break;
++      case Action::space: Insert(u" "); break;
++      case Action::erase: Backspace(); break;
++      case Action::left: Left(); break;
++      case Action::right: Right(); break;
++      case Action::cancel: Finish(Result::cancelled); break;
++      case Action::done: Finish(Result::accepted); break;
+     }
+   }
+   void Finish(Result result) { if (result_ == Result::pending) result_ = result; }
++  // One sample's newly pressed buttons (PadBridge::TakePressed).
+   void Press(uint32_t pressed) {
+     if (result_ != Result::pending) return;
+     // Cancel wins if multiple actions occur in the same sample.
+-    if (pressed & 0x2000) { Finish(Result::cancelled); return; }
+-    if (pressed & 0x08) { Finish(Result::accepted); return; }
+-    int row = selected_ / 10, col = selected_ % 10;
+-    if (pressed & 0x10) row = (row + 4) % 5;
+-    if (pressed & 0x40) row = (row + 1) % 5;
+-    if (pressed & 0x80) col = (col + 9) % 10;
+-    if (pressed & 0x20) col = (col + 1) % 10;
+-    selected_ = row * 10 + col;
+-    if (pressed & 0x8000) Backspace();
+-    if (pressed & 0x1000) upper_ = !upper_;
+-    if (pressed & 0x400) Left();
+-    if (pressed & 0x800) Right();
+-    if (pressed & 0x4000) Activate();
++    if (pressed & pad::kCircle) { Finish(Result::cancelled); return; }
++    if (pressed & pad::kOptions) { Finish(Result::accepted); return; }
++    if (pressed & pad::kUp) Move(-1, 0);
++    if (pressed & pad::kDown) Move(1, 0);
++    if (pressed & pad::kLeft) Move(0, -1);
++    if (pressed & pad::kRight) Move(0, 1);
++    if (pressed & pad::kSquare) Backspace();
++    if (pressed & pad::kTriangle) Insert(u" ");
++    if (pressed & pad::kL2) CycleShift();
++    if (pressed & pad::kR2) NextPage();
++    if (pressed & pad::kL1) Left();
++    if (pressed & pad::kR1) Right();
++    if (pressed & pad::kCross) Activate();
+   }
+  private:
+   size_t capacity_;
+   std::u16string text_;
+   size_t cursor_;
+-  int selected_ = 0;
+-  bool upper_ = false, symbols_ = false;
++  int row_ = 0, column_ = 0;
++  Page page_ = Page::letters;
++  Shift shift_ = Shift::off;
++  bool password_ = false, highlighted_ = false;
++  uint32_t refused_ = 0;
+   Result result_ = Result::pending;
+ };
+ 
+@@ -149,15 +315,19 @@ class PadBridge {
+     if (!available && active_) cancel_ = true;
+   }
+   bool available() const { std::lock_guard lock(mutex_); return available_; }
++  // user: the player the game asks (0-3); any other value (XUSER_INDEX_ANY 0xFF, ...) lets
++  // every connected controller type.
+   bool Begin(uint32_t user) {
+     std::lock_guard lock(mutex_);
+-    if (!available_ || active_ || user >= 4) return false;
+-    active_ = true; cancel_ = false; user_ = user; drain_.fill(true);
+-    armed_ = false; previous_ = 0; pending_ = 0; repeat_at_ = 0;
++    if (!available_ || active_) return false;
++    active_ = true; cancel_ = false; any_ = user >= 4; user_ = any_ ? 0 : user;
++    drain_.fill(true); armed_.fill(false); previous_.fill(0); repeat_at_.fill(0);
++    pending_ = 0;
+     return true;
+   }
+   void End() { std::lock_guard lock(mutex_); active_ = false; pending_ = 0; }
+   bool active() const { std::lock_guard lock(mutex_); return active_; }
++  bool any_user() const { std::lock_guard lock(mutex_); return any_; }
+   void Cancel() { std::lock_guard lock(mutex_); if (active_) cancel_ = true; }
+   bool cancelled() const { std::lock_guard lock(mutex_); return cancel_; }
+   bool Suppressed(uint32_t user) const {
+@@ -169,36 +339,41 @@ class PadBridge {
+     if (user >= 4) return;
+     uint32_t buttons = pad.connected ? pad.buttons : 0;
+     if (pad.connected) {
+-      if (pad.lx < 64) buttons |= 0x80;
+-      if (pad.lx > 192) buttons |= 0x20;
+-      if (pad.ly < 64) buttons |= 0x10;
+-      if (pad.ly > 192) buttons |= 0x40;
++      if (pad.lx < 64) buttons |= pad::kLeft;
++      if (pad.lx > 192) buttons |= pad::kRight;
++      if (pad.ly < 64) buttons |= pad::kUp;
++      if (pad.ly > 192) buttons |= pad::kDown;
++      if (pad.l2 > 128) buttons |= pad::kL2;
++      if (pad.r2 > 128) buttons |= pad::kR2;
+     }
+     const auto centered = [](uint8_t axis) { return axis >= 96 && axis <= 160; };
+     const bool neutral = !pad.connected || (!pad.buttons && pad.l2 < 16 && pad.r2 < 16 &&
+         centered(pad.lx) && centered(pad.ly) && centered(pad.rx) && centered(pad.ry));
+     if (!active_ && neutral) drain_[user] = false;
+-    if (!active_ || user != user_) return;
++    if (!active_ || (!any_ && user != user_)) return;
+     if (!pad.connected) {
+-      armed_ = false; previous_ = 0; pending_ = 0; return;
++      armed_[user] = false; previous_[user] = 0;
++      if (!any_) pending_ = 0;
++      return;
+     }
+     // Require release on opening: a game's accept press cannot type/close this UI.
+-    if (!armed_) { if (neutral) armed_ = true; previous_ = buttons; return; }
+-    const uint32_t pressed = buttons & ~previous_;
++    if (!armed_[user]) { if (neutral) armed_[user] = true; previous_[user] = buttons; return; }
++    const uint32_t pressed = buttons & ~previous_[user];
+     pending_ |= pressed;
+-    constexpr uint32_t directions = 0xf0;
+-    if (pressed & directions) repeat_at_ = now_ms + 400;
+-    else if ((buttons & directions) && now_ms >= repeat_at_) {
+-      pending_ |= buttons & directions; repeat_at_ = now_ms + 110;
++    if (pressed & pad::kRepeating) repeat_at_[user] = now_ms + 400;
++    else if ((buttons & pad::kRepeating) && now_ms >= repeat_at_[user]) {
++      pending_ |= buttons & pad::kRepeating; repeat_at_[user] = now_ms + 110;
+     }
+-    previous_ = buttons;
++    previous_[user] = buttons;
+   }
+   uint32_t TakePressed() { std::lock_guard lock(mutex_); const auto p = pending_; pending_ = 0; return p; }
+  private:
+   mutable std::mutex mutex_;
+-  bool available_ = false, active_ = false, armed_ = false, cancel_ = false;
+-  uint32_t user_ = 0, previous_ = 0, pending_ = 0;
+-  uint64_t repeat_at_ = 0;
++  bool available_ = false, active_ = false, cancel_ = false, any_ = false;
++  uint32_t user_ = 0, pending_ = 0;
++  std::array<bool, 4> armed_{};
++  std::array<uint32_t, 4> previous_{};
++  std::array<uint64_t, 4> repeat_at_{};
+   std::array<bool, 4> drain_{};
+ };
+ inline PadBridge& Bridge() { static PadBridge bridge; return bridge; }
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.cc b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.cc
+index f33ec01..12536cc 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.cc
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.cc
+@@ -1,15 +1,18 @@
+ // SPDX-License-Identifier: MIT
+ #include "xenia/ui/controller_keyboard_dialog.h"
+ #include "xenia/ui/controller_keyboard_view.h"
++#include "xenia/base/logging.h"
+ #include "xenia/base/string.h"
+ #include "third_party/imgui/imgui.h"
+ 
+ namespace xe::ui {
+ ControllerKeyboardDialog::ControllerKeyboardDialog(ImGuiDrawer* drawer,
+     std::string title, std::string description, std::u16string initial,
+-    size_t capacity, std::shared_ptr<ControllerKeyboardCompletion> completion)
++    size_t capacity, std::shared_ptr<ControllerKeyboardCompletion> completion,
++    controller_keyboard::Options options, KeyboardLabels labels)
+     : ImGuiDialog(drawer), title_(std::move(title)), description_(std::move(description)),
+-      editor_(std::move(initial), capacity), completion_(std::move(completion)) {}
++      editor_(std::move(initial), capacity, options), completion_(std::move(completion)),
++      labels_(std::move(labels)) {}
+ 
+ ControllerKeyboardDialog::~ControllerKeyboardDialog() {
+   // The base destructor signals the waiting fence AFTER publishing this result.
+@@ -21,13 +24,20 @@ ControllerKeyboardDialog::~ControllerKeyboardDialog() {
+ }
+ 
+ void ControllerKeyboardDialog::OnDraw(ImGuiIO& io) {
++  if (!completion_->shown) {
++    completion_->shown = true;
++    // Fix 114: proof in the log that the keyboard reached the screen (never the text).
++    XELOGW("Keyboard (fix 114): on the screen");
++  }
+   if (controller_keyboard::Bridge().cancelled()) {
+     editor_.Finish(controller_keyboard::Result::cancelled);
+     Close();
+     return;
+   }
+   editor_.Press(controller_keyboard::Bridge().TakePressed());
+-  DrawControllerKeyboard(editor_, title_, description_, io);
++  const double now = ImGui::GetTime();
++  if (editor_.refused() != refused_) { refused_ = editor_.refused(); refused_at_ = now; }
++  DrawControllerKeyboard(editor_, title_, description_, labels_, now, refused_at_, io);
+   if (editor_.result() != controller_keyboard::Result::pending) Close();
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.h b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.h
+index a26e9c5..06d3c61 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.h
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_dialog.h
+@@ -3,18 +3,21 @@
+ #define XENIA_UI_CONTROLLER_KEYBOARD_DIALOG_H_
+ #include <memory>
+ #include "xenia/ui/controller_keyboard.h"
++#include "xenia/ui/controller_keyboard_view.h"
+ #include "xenia/ui/imgui_dialog.h"
+ 
+ namespace xe::ui {
+ struct ControllerKeyboardCompletion {
+   controller_keyboard::Result result = controller_keyboard::Result::cancelled;
+   std::u16string text;
++  bool shown = false;  // fix 114: drawn at least once
+ };
+ class ControllerKeyboardDialog final : public ImGuiDialog {
+  public:
+   ControllerKeyboardDialog(ImGuiDrawer* drawer, std::string title,
+       std::string description, std::u16string initial, size_t capacity,
+-      std::shared_ptr<ControllerKeyboardCompletion> completion);
++      std::shared_ptr<ControllerKeyboardCompletion> completion,
++      controller_keyboard::Options options = {}, KeyboardLabels labels = {});
+   ~ControllerKeyboardDialog() override;
+  protected:
+   void OnDraw(ImGuiIO& io) override;
+@@ -22,6 +25,9 @@ class ControllerKeyboardDialog final : public ImGuiDialog {
+   std::string title_, description_;
+   controller_keyboard::Editor editor_;
+   std::shared_ptr<ControllerKeyboardCompletion> completion_;
++  KeyboardLabels labels_;
++  uint32_t refused_ = 0;
++  double refused_at_ = -100.0;
+ };
+ }  // namespace xe::ui
+ #endif
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc
+index b3bed9f..2b8b012 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.cc
+@@ -1,56 +1,249 @@
+ // SPDX-License-Identifier: MIT
+ #include "xenia/ui/controller_keyboard_view.h"
++#include <cfloat>
++#include <cmath>
++#include <cstdio>
+ #include "xenia/base/string.h"
+ #include "third_party/imgui/imgui.h"
+ 
+ namespace xe::ui {
+-void DrawControllerKeyboard(controller_keyboard::Editor& editor,
+-    const std::string& title, const std::string& description, ImGuiIO& io) {
++namespace keyboard = controller_keyboard;
++
++const char* NextPageName(keyboard::Page page) {
++  switch (page) {
++    case keyboard::Page::letters: return "\xc3\xa0\xc3\xa9";       // the accents page
++    case keyboard::Page::accents: return "#+=";                     // symbols
++    case keyboard::Page::symbols: return "\xd0\xb0\xd0\xb1\xd0\xb2";  // Russian
++    case keyboard::Page::cyrillic: return "abc";
++  }
++  return "abc";
++}
++
++namespace {
++// Fix 114: the launcher's dark colours and the guide's raised keys (launcher.cpp's Canvas).
++constexpr uint32_t kInk = 0x0a0c11, kSheet = 0x12161d, kSurface = 0x1a1f28,
++                   kSurfaceHigh = 0x252c38, kAccent = 0x35d07f, kText = 0xf3f5f8,
++                   kBody = 0xd5dae2, kMuted = 0x9aa3b2, kFaint = 0x6f7888,
++                   kWarning = 0xf0a67a, kWhite = 0xffffff;
++// The pad's colours, as the guide's hints draw them (kinect_ui::HintRgb).
++constexpr uint32_t kCross = 0x55a329, kCircle = 0xd84639, kSquare = 0x287ac3,
++                   kTriangle = 0xe3b52d;
++
++struct Canvas {
++  ImDrawList* list;
++  float scale, left, top;
++  ImVec2 At(float x, float y) const { return ImVec2(left + x * scale, top + y * scale); }
++  static ImU32 Color(uint32_t rgb, float alpha = 1.0f) {
++    return IM_COL32(rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, int(alpha * 255.0f));
++  }
++  // The loaded font nearest the size (the launcher loads its fonts at 1080p sizes).
++  static ImFont* Font(float size) {
++    ImFont* best = ImGui::GetFont();
++    float distance = FLT_MAX;
++    for (ImFont* font : ImGui::GetIO().Fonts->Fonts) {
++      const float d = std::fabs(font->FontSize - size);
++      if (d < distance) { distance = d; best = font; }
++    }
++    return best;
++  }
++  void Fill(float x, float y, float w, float h, uint32_t rgb, float alpha, float round = 0) const {
++    list->AddRectFilled(At(x, y), At(x + w, y + h), Color(rgb, alpha), round * scale);
++  }
++  void Edge(float x, float y, float w, float h, uint32_t rgb, float alpha, float round, float thick) const {
++    list->AddRect(At(x, y), At(x + w, y + h), Color(rgb, alpha), round * scale, 0, thick * scale);
++  }
++  float Width(const std::string& text, float size) const {
++    return Font(size)->CalcTextSizeA(size * scale, FLT_MAX, 0, text.c_str()).x / scale;
++  }
++  // align: 0 left, 1 centred on x, 2 right-aligned at x.
++  void Text(const std::string& text, float x, float y, float size, uint32_t rgb, int align = 0) const {
++    if (align) x -= Width(text, size) / (align == 1 ? 2.0f : 1.0f);
++    list->AddText(Font(size), size * scale, At(x, y), Color(rgb), text.c_str());
++  }
++  float Wrapped(const std::string& text, float x, float y, float size, uint32_t rgb, float width) const {
++    if (text.empty()) return 0;
++    ImFont* font = Font(size);
++    list->AddText(font, size * scale, At(x, y), Color(rgb), text.c_str(), nullptr, width * scale);
++    return font->CalcTextSizeA(size * scale, FLT_MAX, width * scale, text.c_str()).y / scale;
++  }
++  // A key that stands off the sheet: a soft shadow, a darker lip under its face.
++  void Raised(float x, float y, float w, float h, uint32_t face, bool selected) const {
++    const auto shade = [](uint32_t rgb, float k) {
++      const auto part = [&](int shift) { return uint32_t(float(rgb >> shift & 255) * k) << shift; };
++      return part(16) | part(8) | part(0);
++    };
++    const float lip = 6;
++    for (int n = 3; n >= 1; --n) Fill(x - n, y + 2.0f * n, w + 2.0f * n, h, 0x000000, 0.10f, 12);
++    Fill(x, y, w, h, shade(face, 0.62f), 1.0f, 12);
++    Fill(x, y, w, h - lip, face, 1.0f, 12);
++    Fill(x + 12, y + 3, w - 24, 2, kWhite, 0.10f, 1);
++    if (selected) Edge(x - 2, y - 2, w + 4, h + 4, kAccent, 1.0f, 14, 3.0f);
++  }
++  // A pad button as the guide's hints draw it, then its label. Returns where the next one goes.
++  float Hint(char button, const std::string& label, float x, float y) const {
++    const ImVec2 centre = At(x + 14, y + 14);
++    const float r = 13 * scale, g = 6 * scale;
++    const uint32_t rgb = button == 'x' ? kCross : button == 'o' ? kCircle
++                       : button == 's' ? kSquare : button == 't' ? kTriangle : kMuted;
++    const ImU32 ink = Color(rgb);
++    if (button == 'x' || button == 'o' || button == 's' || button == 't' || button == 'm') {
++      list->AddCircle(centre, r, Color(rgb, 0.9f), 24, 1.6f * scale);
++      if (button == 'x') {
++        list->AddLine(ImVec2(centre.x - g, centre.y - g), ImVec2(centre.x + g, centre.y + g), ink, 2 * scale);
++        list->AddLine(ImVec2(centre.x + g, centre.y - g), ImVec2(centre.x - g, centre.y + g), ink, 2 * scale);
++      } else if (button == 'o') {
++        list->AddCircle(centre, g, ink, 16, 2 * scale);
++      } else if (button == 't') {
++        list->AddTriangle(ImVec2(centre.x, centre.y - g - scale), ImVec2(centre.x + g, centre.y + g * 0.8f),
++                          ImVec2(centre.x - g, centre.y + g * 0.8f), ink, 2 * scale);
++      } else if (button == 's') {
++        list->AddRect(ImVec2(centre.x - g, centre.y - g), ImVec2(centre.x + g, centre.y + g), ink, 0, 0, 2 * scale);
++      } else {
++        // OPTIONS, as printed on the controller: three short lines.
++        for (float row : {-1.0f, 0.0f, 1.0f})
++          list->AddLine(ImVec2(centre.x - g, centre.y + row * 4.5f * scale),
++                        ImVec2(centre.x + g, centre.y + row * 4.5f * scale), ink, 2 * scale);
++      }
++      Text(label, x + 36, y + 2, 20, kMuted);
++      return x + 36 + Width(label, 20) + 36;
++    }
++    return x;
++  }
++  // A shoulder or trigger button by its name (L1, R2, ...), then its label.
++  float Named(const std::string& name, const std::string& label, float x, float y) const {
++    const float w = Width(name, 18) + 16;
++    Edge(x, y + 1, w, 26, kMuted, 0.9f, 7, 1.6f);
++    Text(name, x + 8, y + 4, 18, kMuted);
++    Text(label, x + w + 10, y + 2, 20, kMuted);
++    return x + w + 10 + Width(label, 20) + 36;
++  }
++};
++}  // namespace
++
++void DrawControllerKeyboard(const keyboard::Editor& editor,
++    const std::string& title, const std::string& description,
++    const KeyboardLabels& labels, double time, double refused_at, ImGuiIO& io) {
+   // Use a stable, private window ID; guest title text cannot inject ImGui IDs.
+-  const float width = std::min(io.DisplaySize.x * 0.94f, 1400.0f);
+-  ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * .5f, io.DisplaySize.y * .5f),
+-                         ImGuiCond_Always, ImVec2(.5f, .5f));
+-  ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
++  ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
++  ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
+   ImGui::SetNextWindowFocus();
+-  constexpr auto flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+-      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_AlwaysAutoResize |
+-      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavInputs;
+-  if (ImGui::Begin("##guest_controller_keyboard", nullptr, flags)) {
+-    ImGui::TextUnformatted(title.empty() ? "Keyboard" : title.c_str());
+-    ImGui::PushTextWrapPos(0);
+-    ImGui::TextUnformatted(description.c_str());
+-    ImGui::PopTextWrapPos();
+-    ImGui::Separator();
+-    auto display = editor.text();
+-    display.insert(editor.cursor(), u"|");
+-    const auto utf8 = xe::to_utf8(display);
+-    // Read only display; editing is exclusively through the controller grid.
+-    ImGui::PushTextWrapPos(0);
+-    ImGui::TextUnformatted(utf8.c_str());
+-    ImGui::PopTextWrapPos();
+-    ImGui::Separator();
+-    const char* actions[] = {"Space", "Delete", "Shift", "Symbols", "Left",
+-                            "Right", "Home", "End", "Cancel", "Done"};
+-    const float key_width = (ImGui::GetContentRegionAvail().x - 9 * ImGui::GetStyle().ItemSpacing.x) / 10;
+-    const float key_height = ImGui::GetFontSize() * 1.8f;
+-    for (int key = 0; key < 50; ++key) {
+-      if (key % 10) ImGui::SameLine();
+-      ImGui::PushID(key);
+-      const bool selected = key == editor.selected();
+-      if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(.08f, .55f, .32f, 1));
++  constexpr auto window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
++      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNavInputs |
++      ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollWithMouse;
++  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
++  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
++  if (ImGui::Begin("##guest_controller_keyboard", nullptr, window_flags)) {
++    // A 1920x1080 page, scaled to the screen and centred.
++    const float scale = std::min(io.DisplaySize.x / 1920.0f, io.DisplaySize.y / 1080.0f);
++    const Canvas c{ImGui::GetWindowDrawList(), scale,
++                   (io.DisplaySize.x - 1920.0f * scale) / 2.0f,
++                   (io.DisplaySize.y - 1080.0f * scale) / 2.0f};
++    c.list->AddRectFilled(ImVec2(0, 0), io.DisplaySize, Canvas::Color(0x000000, 0.55f));
++
++    // Measure the description first: the sheet grows with it.
++    const float sheet_w = 1240, x = (1920 - sheet_w) / 2, inner = sheet_w - 96;
++    const std::string heading = title.empty() ? labels.keyboard : title;
++    const float description_h = description.empty() ? 0.0f :
++        std::min(Canvas::Font(24)->CalcTextSizeA(24 * scale, FLT_MAX, inner * scale,
++                                                 description.c_str()).y / scale, 120.0f);
++    const float key_h = 78, gap = 12, grid_h = keyboard::kRows * key_h + (keyboard::kRows - 1) * gap;
++    const float sheet_h = 40 + 50 + (description_h ? description_h + 14 : 0) + 18 + 84 + 40 +
++                          grid_h + 34 + 40 + 30 + 36;
++    const float y = std::max(20.0f, (1080 - sheet_h) / 2);
++    c.Fill(x, y, sheet_w, sheet_h, kSheet, 0.98f, 20);
++    c.Edge(x, y, sheet_w, sheet_h, kWhite, 0.08f, 20, 1.0f);
++    c.Fill(x + 24, y, sheet_w - 48, 3, kAccent, 0.9f, 1);
++    float at = y + 40;
++    c.Text(heading, x + 48, at, 36, kText);
++    at += 50;
++    if (description_h) {
++      c.list->PushClipRect(c.At(x, at), c.At(x + sheet_w, at + description_h), true);
++      c.Wrapped(description, x + 48, at, 24, kMuted, inner);
++      c.list->PopClipRect();
++      at += description_h + 14;
++    }
++    at += 18;
++
++    // The text so far, with a blinking caret; a selected default text on an accent band.
++    c.Fill(x + 40, at, sheet_w - 80, 84, kSurface, 0.95f, 12);
++    c.Edge(x + 40, at, sheet_w - 80, 84, kAccent, 0.6f, 12, 2.0f);
++    const auto shown = editor.Shown();
++    const std::string before = xe::to_utf8(std::u16string_view(shown).substr(0, editor.cursor()));
++    const std::string all = xe::to_utf8(shown);
++    const float field_x = x + 68, field_w = sheet_w - 136;
++    // Keep the caret in view: the text slides left once it is wider than the field.
++    const float caret_at = c.Width(before, 36);
++    const float slide = std::max(0.0f, caret_at - field_w + 8);
++    c.list->PushClipRect(c.At(x + 44, at), c.At(x + sheet_w - 44, at + 84), true);
++    if (editor.highlighted())
++      c.Fill(field_x - slide - 4, at + 18, c.Width(all, 36) + 8, 48, kAccent, 0.35f, 6);
++    c.Text(all, field_x - slide, at + 20, 36, kText);
++    if (std::fmod(time, 1.0) < 0.55)
++      c.Fill(field_x - slide + caret_at + 1, at + 20, 3, 44, kAccent, 1.0f, 1);
++    c.list->PopClipRect();
++    at += 84;
++
++    // How long it is, and the warning when the game's limit refused a key.
++    const bool warn = time - refused_at < 1.5;
++    char count[48];
++    std::snprintf(count, sizeof(count), "%zu / %zu", editor.text().size(), editor.max_length());
++    c.Text(count, x + sheet_w - 48, at + 8, 20, warn ? kWarning : kFaint, 2);
++    if (warn) c.Text(labels.full, x + 48, at + 8, 20, kWarning);
++    at += 40;
++
++    // The keys: four rows of characters, then the row of actions.
++    const float grid_x = x + 48, grid_w = sheet_w - 96;
++    const float key_w = (grid_w - (keyboard::kColumns - 1) * gap) / keyboard::kColumns;
++    for (int row = 0; row < keyboard::kCharacterRows; ++row) {
++      for (int column = 0; column < keyboard::kColumns; ++column) {
++        const float kx = grid_x + column * (key_w + gap), ky = at + row * (key_h + gap);
++        const bool selected = row == editor.row() && column == editor.column();
++        c.Raised(kx, ky, key_w, key_h, selected ? 0x323b4a : kSurfaceHigh, selected);
++        const char16_t key = editor.Key(row, column);
++        c.Text(xe::to_utf8(std::u16string(1, key)), kx + key_w / 2, ky + 16, 36,
++               selected ? kText : kBody, 1);
++      }
++    }
++    const float action_y = at + keyboard::kCharacterRows * (key_h + gap);
++    const auto selected_action = keyboard::ActionAt(editor.column()).column;
++    for (const auto& key : keyboard::kActions) {
++      const float kx = grid_x + key.column * (key_w + gap);
++      const float kw = key.span * key_w + (key.span - 1) * gap;
++      const bool selected = editor.row() == keyboard::kRows - 1 && key.column == selected_action;
++      uint32_t face = selected ? 0x323b4a : kSurfaceHigh, ink = selected ? kText : kBody;
+       std::string label;
+-      if (key < 40) label = xe::to_utf8(std::u16string(1, editor.Symbol(key)));
+-      else label = actions[key - 40];
+-      if (ImGui::Button(label.c_str(), ImVec2(key_width, key_height))) {
+-        editor.Select(key); editor.Activate();
++      switch (key.action) {
++        case keyboard::Action::shift:
++          label = editor.shift() == keyboard::Shift::lock ? labels.caps : labels.shift;
++          if (editor.shift() != keyboard::Shift::off) { face = kAccent; ink = kInk; }
++          break;
++        case keyboard::Action::page: label = NextPageName(editor.page()); break;
++        case keyboard::Action::space: label = labels.space; break;
++        case keyboard::Action::erase: label = labels.erase; break;
++        case keyboard::Action::left: label = "\xe2\x80\xb9"; break;   // a single left guillemet
++        case keyboard::Action::right: label = "\xe2\x80\xba"; break;  // and right
++        case keyboard::Action::cancel: label = labels.cancel; break;
++        case keyboard::Action::done: label = labels.done; face = kAccent; ink = kInk; break;
+       }
+-      if (selected) ImGui::PopStyleColor();
+-      ImGui::PopID();
++      c.Raised(kx, action_y, kw, key_h, face, selected);
++      // Long words (other languages) get smaller type to fit their key.
++      const float size = std::clamp(24.0f * (kw - 14) / std::max(1.0f, c.Width(label, 24)), 14.0f, 24.0f);
++      c.Text(label, kx + kw / 2, action_y + (key_h - 6) / 2 - size * 0.62f, size, ink, 1);
+     }
+-    ImGui::Separator();
+-    ImGui::TextUnformatted("D-pad / left stick: move   Cross: select   Square: delete");
+-    ImGui::TextUnformatted("Triangle: shift   L1 / R1: cursor   OPTIONS: done   Circle: cancel");
++    at += grid_h + 34;
++
++    // What the buttons do, in two rows: the face buttons, then the shoulders and triggers.
++    float hint = c.Hint('x', labels.type, x + 48, at);
++    hint = c.Hint('s', labels.erase, hint, at);
++    hint = c.Hint('t', labels.space, hint, at);
++    hint = c.Hint('o', labels.cancel, hint, at);
++    c.Hint('m', labels.done, hint, at);
++    at += 40;
++    hint = c.Named("L2", labels.shift, x + 48, at);
++    hint = c.Named("R2", labels.other, hint, at);
++    c.Named("L1 / R1", labels.cursor, hint, at);
+   }
+   ImGui::End();
++  ImGui::PopStyleVar(2);
+ }
+ }  // namespace xe::ui
+diff --git a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h
+index 6be13e2..addbdc4 100644
+--- a/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h
++++ b/.deps/xenia-canary/src/xenia/ui/controller_keyboard_view.h
+@@ -1,11 +1,24 @@
+ // SPDX-License-Identifier: MIT
+ #ifndef XENIA_UI_CONTROLLER_KEYBOARD_VIEW_H_
+ #define XENIA_UI_CONTROLLER_KEYBOARD_VIEW_H_
++#include <string>
+ #include "xenia/ui/controller_keyboard.h"
+ struct ImGuiIO;
+ namespace xe::ui {
+-// Actual grid renderer, also exercised by the offline ImGui frame test.
+-void DrawControllerKeyboard(controller_keyboard::Editor& editor,
+-    const std::string& title, const std::string& description, ImGuiIO& io);
++// Fix 114: the keyboard's own words, in the interface's language (xam_ui.cc asks the title's
++// translation, CoreUiText, for each).
++struct KeyboardLabels {
++  std::string keyboard = "Keyboard", space = "Space", erase = "Delete", shift = "Shift",
++              caps = "Caps", cancel = "Cancel", done = "Done", type = "Type",
++              other = "Other characters", cursor = "Move cursor",
++              full = "Maximum length reached";
++};
++// The page key shows the page it goes to.
++const char* NextPageName(controller_keyboard::Page page);
++// Actual grid renderer, also exercised by the offline ImGui frame test. time: seconds, for the
++// caret's blink and the length warning; refused_at: when the length limit last refused a key.
++void DrawControllerKeyboard(const controller_keyboard::Editor& editor,
++    const std::string& title, const std::string& description,
++    const KeyboardLabels& labels, double time, double refused_at, ImGuiIO& io);
+ }
+ #endif
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index d29606c..7e8ca51 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -339,6 +339,7 @@ class Launcher {
+   int profile_row_ = 0, key_row_ = 0, key_column_ = 0;
+   uint64_t profile_delete_pending_ = 0;
+   std::string new_name_, name_error_;
++  bool name_caps_ = false;  // fix 114: R1 types capital letters in the new profile's name
+   int path_row_ = 0, folder_row_ = 0;
+   std::filesystem::path browser_path_ = "/mnt";
+   std::vector<std::filesystem::path> browser_folders_;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 6e1081b..f2137f8 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -95,6 +95,17 @@ static const char* CoreUiText(const char* english) {
+     {"Slot 1", "Slot 1"},
+     {"Slot 2", "Slot 2"},
+     {"Slot 3", "Slot 3"},
++    // Fix 114: the on-screen keyboard (extra.txt [added]); Cancel is above.
++    {"Keyboard", "Keyboard"},
++    {"Space", "Space"},
++    {"Delete", "Delete"},
++    {"Shift", "Shift"},
++    {"Caps", "Caps"},
++    {"Done", "Done"},
++    {"Type", "Type"},
++    {"Other characters", "Other characters"},
++    {"Move cursor", "Move cursor"},
++    {"Maximum length reached", "Maximum length reached"},
+   };
+   for (const auto& entry : entries) {
+     if (!std::strcmp(entry.core, english)) return xbox360ps5::Tr(entry.key);
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 61c8407..499bb36 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -195,6 +195,9 @@ void ApplyTheme(bool dashboard) {
+ }
+ // The keys of the gamertag keyboard: four rows of nine.
+ const char kNameKeys[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
++// Fix 114: whether a letter key types a capital in the new profile's name: the first letter
++// always, the others while capitals are on (R1).
++static bool NameKeyCapital(const std::string& name, bool caps) { return name.empty() || caps; }
+ const char* const kFilters[] = {"All", "Recent", "Folders", "ISO images", "Arcade & GOD"};
+ // The game left running behind the library (opened from the guide): its case says
+ // "Continue", and choosing another game asks first whether to close it.
+@@ -2096,6 +2099,7 @@ void Launcher::Press(Key key) {
+           mode_ = Mode::name;
+           new_name_.clear();
+           name_error_.clear();
++          name_caps_ = false;
+           key_row_ = key_column_ = 0;
+         }
+       }
+@@ -2111,15 +2115,17 @@ void Launcher::Press(Key key) {
+       if (key == Key::down) key_row_ = (key_row_ + 1) % key_rows;
+       if (key == Key::cross && new_name_.size() < 15) {
+         const char symbol = kNameKeys[key_row_ * columns + key_column_];
+-        // A gamertag starts with a letter; the first is a capital, the rest small.
++        // A gamertag starts with a letter; the first is a capital, the rest small unless R1
++        // turned capitals on (fix 114: 1.0.2 had no way to type a capital after the first).
+         if (std::isdigit(static_cast<unsigned char>(symbol))) {
+           if (new_name_.empty()) name_error_ = Tr("The name must start with a letter.");
+           else new_name_ += symbol;
+         } else {
+-          new_name_ += new_name_.empty() ? symbol : char(std::tolower(static_cast<unsigned char>(symbol)));
++          new_name_ += NameKeyCapital(new_name_, name_caps_) ? symbol : char(std::tolower(static_cast<unsigned char>(symbol)));
+           name_error_.clear();
+         }
+       }
++      if (key == Key::r1) name_caps_ = !name_caps_;  // fix 114
+       if (key == Key::square && !new_name_.empty()) new_name_.pop_back();
+       if (key == Key::triangle) {
+         if (new_name_.empty()) name_error_ = Tr("Enter a name.");
+@@ -4210,12 +4216,17 @@ void Launcher::DrawNameSheet(Canvas& c) {
+       const bool focused = row == key_row_ && column == key_column_;
+       c.Fill(kx, ky, 78, 84, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
+       if (focused) c.Edge(kx, ky, 78, 84, kAccent, 0.9f, 12, 2.0f);
+-      c.Text(std::string(1, kNameKeys[row * 9 + column]), kx + 39, ky + 22, 36, focused ? kText : kBody, 1.0f, 1);
++      // Fix 114: each letter as it will be typed (capital first, then as R1 sets it).
++      const char symbol = kNameKeys[row * 9 + column];
++      const char shown = NameKeyCapital(new_name_, name_caps_) ? symbol : char(std::tolower(static_cast<unsigned char>(symbol)));
++      c.Text(std::string(1, shown), kx + 39, ky + 22, 36, focused ? kText : kBody, 1.0f, 1);
+     }
+   }
+   float hint = c.Hint('x', Tr("Type"), x + 56, 1004);
+   hint = c.Hint('s', Tr("Delete"), hint, 1004);
+   hint = c.Hint('t', Tr("Create profile"), hint, 1004);
+   c.Hint('o', Tr("Cancel"), hint, 1004);
++  // Fix 114: R1 turns capital letters on and off; lit while they are on.
++  c.Text("R1 \xc2\xb7 " + std::string(Tr("Shift")), x + 820, 956, 20, name_caps_ ? kAccent : kMuted, 1, 2);
+ }
+ }
