@@ -271,7 +271,6 @@ declare -A fix_of=(
   [check-submit-parts.cpp]=130
   [check-game-language.cpp]=132
   [check-readback-batching.cpp]=133
-  [check-async-submit.cpp]="134 134b"
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
   [check-async-submit.cpp]="134 134b 134c"
 )
