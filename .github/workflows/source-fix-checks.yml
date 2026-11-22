@@ -101,6 +101,12 @@ on:
       - 'tools/check-timer-apc.cpp'
       - 'tools/check-dark-default.cpp'
       - 'tools/check-content-folders.cpp'
+      - 'tools/check-bug-report-entries.cpp'
+      - 'tools/check-recent-calls.cpp'
+      - 'tools/check-report-session.cpp'
+      - 'tools/check-flush-before-restart.cpp'
+      - 'tools/check-leaving-steps.cpp'
+      - 'tools/check-bounded-leave.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

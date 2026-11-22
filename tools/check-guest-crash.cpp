@@ -786,9 +786,14 @@ void TreeSuspensionDeferral() {
                  {"if (was_deferred_) {", "return;", "pthread_sigmask(SIG_UNBLOCK, &signals, nullptr);"}));
   const std::string log = ReadTree(".deps/xenia-canary/src/xenia/base/logging.cc");
   // Every hold of recent_mutex_ is deferred, and the ring's claim-to-publish too.
-  assert(Count(log, "std::lock_guard<std::mutex> lock(recent_mutex_);") == 3);
-  for (const char* function :
-       {"void RememberLine(", "void logging::KeepRecentLines(bool keep) {", "void logging::WriteRecentLines() {"}) {
+  // Fix 93e adds a fourth, TakeRecentLines, deferred the same way.
+  std::vector<const char*> holders = {"void RememberLine(", "void logging::KeepRecentLines(bool keep) {",
+                                      "void logging::WriteRecentLines() {"};
+  // (Fix 93i gives it a parameter.)
+  if (log.find("std::string logging::TakeRecentLines(") != std::string::npos)
+    holders.push_back("std::string logging::TakeRecentLines(");
+  assert(Count(log, "std::lock_guard<std::mutex> lock(recent_mutex_);") == holders.size());
+  for (const char* function : holders) {
     assert(InOrder(Body(log, function),
                    {"xe::threading::SuspensionDeferral deferral;", "std::lock_guard<std::mutex> lock(recent_mutex_);"}));
   }

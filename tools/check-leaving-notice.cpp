@@ -127,7 +127,9 @@ void CheckTree() {
   const size_t made = main.find("new LeavingNoticeOverlay(&drawer);  // fix 93b");
   Expect(guide != std::string::npos && made != std::string::npos && made > guide, "(d) the overlay is made after the guide (drawn over it)");
   const std::string way_out = Between(main, "hang_watch_thread.reset();  // fix 47", "if (!restart && emulator.is_title_open())");
-  Expect(Has(way_out, "leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);"),
+  // Fix 93d: "Restarting the game..." when the guide restarts this game.
+  Expect(Has(way_out, "leaving::Show(restart ? leaving::Kind::menu : leaving::Kind::closing);") ||
+             Has(way_out, "leaving::Show(restart ? (restart_same_game ? leaving::Kind::restart_game : leaving::Kind::menu)"),
          "(d) the notice as the game loop ends");
   Expect(way_out.find("leaving::Show(restart") < way_out.find("controller_keyboard::Cancel()"),
          "(d) shown before the first wait");
@@ -135,11 +137,20 @@ void CheckTree() {
          "(d) the network change's wait is drawn through");
   Expect(Has(way_out, "std::chrono::steady_clock::now() < limit) paint_notice();") && !Has(way_out, "usleep(20000)"),
          "(d) the sessions' removal is drawn through");
+  // Fix 93h puts the end's checkpoint in a block (its step said first) and the exit's in a lambda
+  // with the flush: either form.
   Expect(Has(way_out, "leaving::Show(leaving::Kind::closing);") &&
-             Has(way_out, "if (!restart) leaving::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); }, paint_notice);"),
+             (Has(way_out, "if (!restart) leaving::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); }, paint_notice);") ||
+              Has(way_out, "leaving::WhilePainting([&exit_cache] { CheckpointExitCache(exit_cache); }, paint_notice);  // fix 93b")),
          "(d) the exit's and the end's checkpoints are drawn through");
-  Expect(!Has(way_out, "          CheckpointExitCache(exit_cache);\r\n") && !Has(way_out, "          CheckpointExitCache(exit_cache);\n"),
-         "(d) no checkpoint of the way out blocks the screen");
+  // Every checkpoint of the way out runs inside a WhilePainting a few lines before it.
+  bool all_drawn = true;
+  for (size_t at = way_out.find("CheckpointExitCache(exit_cache)"); at != std::string::npos;
+       at = way_out.find("CheckpointExitCache(exit_cache)", at + 1)) {
+    const size_t painting = way_out.rfind("WhilePainting(", at);
+    all_drawn = all_drawn && painting != std::string::npos && at - painting < 160;
+  }
+  Expect(all_drawn, "(d) no checkpoint of the way out blocks the screen");
   Expect(Has(main, "if (restart && xbox360ps5::leaving_notice::Current() != xbox360ps5::leaving_notice::Kind::none) {"),
          "(d) the return's checkpoint is drawn through");
   const std::string hook = Between(main, "XamModule::restart_hook = [exit_cache, xam", "CheckpointExitCache(exit_cache);");

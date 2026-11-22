@@ -33,6 +33,7 @@
 
 #include <cctype>
 #include <chrono>
+#include <ctime>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -214,6 +215,14 @@ void CheckState(const fs::path& folder) {
   Expect(!br::Active(), "(e) no session with logs for a bug report unless one turns it on");
 }
 
+// "YYYYMMDD-HHMMSS" in UTC.
+std::string UtcStamp(std::time_t time) {
+  const std::tm* utc = std::gmtime(&time);
+  char text[32];
+  std::snprintf(text, sizeof(text), "%04d%02d%02d-%02d%02d%02d", utc->tm_year + 1900, utc->tm_mon + 1, utc->tm_mday,
+                utc->tm_hour, utc->tm_min, utc->tm_sec);
+  return text;
+}
 void CheckFilesAndArchive(const fs::path& folder) {
   const fs::path logs = folder / "logs";
   fs::create_directories(logs);
@@ -222,7 +231,9 @@ void CheckFilesAndArchive(const fs::path& folder) {
   WriteFile(logs / (log_name + ".part1.log"), "part one\n");
   WriteFile(logs / (log_name + ".part3.log"), "part three\n");
   WriteFile(logs / "Game-Other-11111111-20261121-110000-UTC-0.log", "another game\n");
-  WriteFile(logs / "hang-watch-4D53085C-20261121-120000-UTC.txt", "HANG beat\n");
+  // Named half an hour into the session (fix 93f takes a hang watch's file by its name's time).
+  const std::string watch_name = "hang-watch-4D53085C-" + UtcStamp(std::time(nullptr) - 1800) + "-UTC.txt";
+  WriteFile(logs / watch_name, "HANG beat\n");
   WriteFile(logs / "hang-0123456789abcdef-vs.ucode", std::string("\x00\x01\x02\xff", 4));
   WriteFile(logs / "hang-watch-4D53085C-20261120-090000-UTC.txt", "an older run\n");
   const auto old_time = fs::last_write_time(logs / "hang-watch-4D53085C-20261120-090000-UTC.txt") - std::chrono::hours(3);
@@ -240,7 +251,7 @@ void CheckFilesAndArchive(const fs::path& folder) {
   for (const auto& file : files) names.push_back(file.path.filename().string());
   const std::vector<std::string> expected = {log_name + ".log", log_name + ".part1.log", log_name + ".part3.log",
                                              "hang-0123456789abcdef-vs.ucode",
-                                             "hang-watch-4D53085C-20261121-120000-UTC.txt", "boot.log"};
+                                             watch_name, "boot.log"};
   Expect(names == expected, "(b) the session's logs and parts, the hang files since its start, the boot log once");
   Expect(!files.empty() && files.back().tail && !files.front().tail, "(b) only the boot log is cut to its end");
   Expect(!files.empty() && files.front().size == 20000 + 10, "(b) the sizes are the files' sizes");
@@ -332,14 +343,16 @@ void CheckTree() {
   const std::string launcher = Read("src/launcher.cpp"), main = Read("src/canary_game_main.cpp"),
                     web = Read("platform/ps5/web_settings.cpp"), header = Read("include/xbox360ps5/launcher.hpp");
   Expect(Has(header, "int bug_report = 0;"), "(f) the setting is off by default");
-  Expect(Has(launcher, "{\"bug_report\", &S::bug_report, 4, W::live, 0, false, \"Logs for a bug report\","),
-         "(f) the System row: live, off recommended, general only");
+  // Fix 93d moves it out of System's list (category -1) and lets a game have it.
+  Expect(Has(launcher, "{\"bug_report\", &S::bug_report, 4, W::live, 0, false, \"Logs for a bug report\",") ||
+             Has(launcher, "{\"bug_report\", &S::bug_report, -1, W::live, 0, true, \"Logs for a bug report\","),
+         "(f) the option: live, off recommended (System's row, or fix 93d's own rows)");
   Expect(Has(launcher, "{\"Off||plural\", \"Next game\"}},"), "(f) its two choices");
   Expect(Has(launcher, "cvars::log_level = detailed_logs ? 3 : bug_report::Active() ? 2 : 1;"),
          "(f) information lines in a session, every system call still the Detailed logs option's");
   Expect(Has(launcher, "void LauncherShowBugReport(bug_report::Report report, std::function<void()> closed)"),
          "(f) the launcher's report screen");
-  Expect(Has(launcher, "if (g_report_open) {") && Has(launcher, "bug_report::ZipLink(web_url_)") &&
+  Expect(Has(launcher, "if (g_report_open) {") && (Has(launcher, "bug_report::ZipLink(web_url_)") || Has(launcher, "bug_report::TokenLink(web_plain_, g_report.token)")) &&
              Has(launcher, "bug_report::kIssues"),
          "(f) the screen takes the pad and shows the link and the issues address");
   const std::string start = Between(main, "if (global.bug_report) {", "if (game_log->session.Begin(log_root, chosen.name");
@@ -355,19 +368,24 @@ void CheckTree() {
   Expect(Has(main, "std::strcmp(option.key, \"bug_report\") != 0"), "(f) the in-game guide leaves the row out");
   Expect(Has(main, "if (xbox360ps5::bug_report::Active()) xe::logging::KeepRecentLines(true);"),
          "(f) recent system calls are kept in a session");
-  Expect(Has(Between(main, "hang_watch_thread.reset();  // fix 47", "xe::ui::controller_keyboard::Cancel();"),
-             "xe::logging::WriteRecentLines();"),
+  // Fix 93e writes them to a file of their own (TakeRecentLines) instead of the log.
+  const std::string loop_end = Between(main, "hang_watch_thread.reset();  // fix 47", "xe::ui::controller_keyboard::Cancel();");
+  Expect(Has(loop_end, "xe::logging::WriteRecentLines();") || Has(loop_end, "xe::logging::TakeRecentLines()"),
          "(f) and written when the game loop ends");
   Expect(Has(main, "xbox360ps5::bug_report::AtBoot(bug_report_state, !switch_pending.host_path.empty())"),
          "(f) a title switch goes on with the session");
   Expect(Has(main, "bug_report_state.phase == xbox360ps5::bug_report::Phase::ready && game.empty()"),
          "(f) the report shows when the launcher is what the start shows");
   Expect(Has(main, "JsonText(Tr(\"Bug report files (.zip)\"))"), "(f) the settings page's label");
-  const std::string route = Between(web, "target == \"/bug-report.zip\"", "} else if");
-  Expect(!route.empty() && Has(route, "bug_report::NewestArchive(log_folder)") && Has(route, "application/zip"),
+  // Fix 93f moves the serving into SendBugReport and adds a route by the archive's own download
+  // code before the key check; the keyed route is the "} else if" one.
+  const std::string keyed = Between(web, "else if (target == \"/bug-report.zip\"", "} else if");
+  const std::string sender = Between(web, "void SendBugReport(int client) {", "\n}");
+  const std::string serving = Has(keyed, "SendBugReport(client);") ? sender : keyed;
+  Expect(!keyed.empty() && Has(serving, "bug_report::NewestArchive(log_folder)") && Has(serving, "application/zip"),
          "(f) the settings page serves the newest archive");
   const size_t key_check = web.find("Send(client, \"403 Forbidden\"");
-  Expect(key_check != std::string::npos && key_check < web.find("target == \"/bug-report.zip\""),
+  Expect(key_check != std::string::npos && key_check < web.find("} else if (target == \"/bug-report.zip\""),
          "(f) behind the page's key");
   Expect(Has(web, "/bug-report.zip?k='+key+'") && Has(web, "\\\"report\\\":{\\\"name\\\":"),
          "(f) the page's Logs tab links it");
