@@ -82,7 +82,31 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/x
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
-@@ -943,6 +943,42 @@ std::vector<storage::Skipped> ContentManager::SkippedDrives() const {
+@@ -547,6 +547,8 @@ X_RESULT ContentManager::CreateContent(const std::string_view root_name,
+   if (!CreateAndMountPackage(package_path, root_name, data)) {
+     return X_ERROR_ACCESS_DENIED;
+   }
++  XELOGW("Content (fix 101): {} is a new folder {}", root_name,
++         package_path.string());
+ 
+   return X_ERROR_SUCCESS;
+ }
+@@ -574,6 +576,14 @@ X_RESULT ContentManager::OpenContent(const std::string_view root_name,
+ 
+   // Open package.
+   auto package = OpenAndMountPackage(package_path, root_name, root_path);
++  // Xbox360PS5 (fix 101): a folder or a package file (STFS/SVOD), and where.
++  XELOGW("Content (fix 101): {} is {} {}{}", root_name,
++         std::filesystem::is_directory(package_path) ? "the folder"
++                                                     : "the package file",
++         package_path.string(),
++         !package        ? ", not mountable"
++         : root_path.empty() ? ""
++                             : fmt::format(" (from its {})", root_path));
+   if (!package) {
+     return X_ERROR_FILE_NOT_FOUND;
+   }
+@@ -943,6 +953,42 @@ std::vector<storage::Skipped> ContentManager::SkippedDrives() const {
    return skipped_drives_;
  }
  
@@ -154,6 +178,24 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xeni
        } else if (content_data.device_id ==
                   static_cast<uint32_t>(DummyDeviceId::ODD)) {
          // Or GAME, but D: usually means DVD drive meanwhile GAME always
+@@ -449,6 +464,17 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+     if (license_mask_ptr && XSUCCEEDED(result)) {
+       *license_mask_ptr = content_license;
+     }
++    // Xbox360PS5 (fix 101): what each content request got (Battlefield 3
++    // installs its HD content itself, restarts, and found its content root
++    // empty).
++    XELOGW("Content (fix 101): {} {} for device {}, type {:08X}, file \"{}\" "
++           "(flags {:X}): result {:08X}",
++           disposition == kDispositionState::Create  ? "create"
++           : disposition == kDispositionState::Open ? "open"
++                                                    : "refuse",
++           root_name, uint32_t(content_data.device_id),
++           uint32_t(content_data.content_type.get()), content_data.file_name(),
++           uint32_t(flags & 0xF), uint32_t(result));
+ 
+     extended_error = X_HRESULT_FROM_WIN32(result);
+     length = static_cast<uint32_t>(disposition);
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
