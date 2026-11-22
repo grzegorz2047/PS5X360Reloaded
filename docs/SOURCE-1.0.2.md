@@ -277,6 +277,7 @@ also listed here.
 | 129 (`129-vfs-host-ops-unlocked`) | a 1.0.5 stutter fix: creating and deleting a game's files on the console's disk no longer holds the emulator's global lock (Kinect Sports' replay recording held it up to a second at a time, freezing the GPU thread) | host-checked (`tools/check-vfs-host-ops.cpp`); console: `1.0.5-work-fix129` |
 | 130 (`130-submit-parts`) | a 1.0.5 diagnostics fix: the log splits the GPU thread's submission time into its parts (prepare, begin, replaying the recorded commands, end, queue submit, after), to size an asynchronous submit thread | host-checked (`tools/check-submit-parts.cpp`); console: `1.0.5-work-fix130` |
 | 131 (`131-kinect-sports-readback-preset`) | Kinect Sports gets readback Fast by default (its own setting still wins): its crowd board of flip tiles is a picture it reads back, garbage for a moment with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix131` |
+| 132 (`132-console-game-language`) | the game language "Automatic (console)" follows every PS5 system language the launcher's Language list offers (Polish, Russian, Korean, both Chinese, Dutch, Turkish, English UK), not only six; Dragon Age II on a Polish PS5 opened `locale\en-us` with Automatic and now opens `locale\pl-pl` | host-checked (`tools/check-game-language.cpp`); console: `1.0.5-work-fix132` |
 
 ## Comparison with the official executable
 
