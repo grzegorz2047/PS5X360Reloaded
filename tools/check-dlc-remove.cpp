@@ -18,10 +18,19 @@
 //      unlink only (the console's sandbox refuses lstat, and libc's remove() asks lstat first:
 //      1.0.5-work-fix109 left BF3's HD textures on ext1 with "not removed"), and says which step
 //      failed with its errno (a folder that refuses the unlink: EACCES, POSIX hosts not run as root);
+//  (c2) 1.0.5-work-fix109b: BF3's reinstalled HD textures ended up in 00000002-off with an empty
+//      00000002 beside them and no log line (Off pressed while the game ran behind the library):
+//      dlc2::Switch is refused while a game runs, says its step (rename) and errno, and a drive with
+//      the file both On and Off lists both rows and refuses to switch either (twin) until one is
+//      removed;
 //  (d) launcher.cpp: the tab and the start of a game use the scan's roots, Triangle opens the
 //      "Remove DLC?" window only while no game runs, the window says the name, size and drive and
-//      that it cannot be undone, with the raised buttons;
-//  (e) the language files (argument: tools/source-1.0.2/english/lang) have every text it shows.
+//      that it cannot be undone, with the raised buttons; X (install, on, off) is refused while a
+//      game runs and every change is logged;
+//  (e) the language files (argument: tools/source-1.0.2/english/lang) have every text it shows;
+//  (f) the game sheet: L1 and R1 keys at the two ends of the tab bar (the "L1 / R1" text gone); its
+//      lists (Patches, Settings' subjects, Achievements, DLCs, Updates) start on the tab bar with no
+//      row highlighted, Down enters a list at its first row and Up on the first row leaves it.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/dlc_manager.hpp"
@@ -213,6 +222,44 @@ void CheckRemove(const stdfs::path& base) {
          "Off moves an ext1 package within ext1");
 }
 
+void CheckSwitch(const stdfs::path& base) {
+  const Layout l = MakeLayout(base);
+  dlc2::Found found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  const dlc2::Item hd = *Named(found, "HD Content", "M.2 SSD / extended storage (ext1)");
+  dlc2::RemoveStep step;
+  Expect(dlc2::Switch(hd, l.internal, kBf3, false, true, &step) == dlc2::Switched::game_running &&
+             step.call == "check: a game is running" && stdfs::exists(hd.path) &&
+             !stdfs::exists(dlc2::DisabledFolder(l.ext1, kBf3) / hd.file),
+         "Off is refused while a game is running; the package stays On");
+  Expect(dlc2::Switch(hd, l.internal, kBf3, false, false, &step) == dlc2::Switched::switched && step.call == "rename" &&
+             stdfs::exists(dlc2::DisabledFolder(l.ext1, kBf3) / hd.file) && !stdfs::exists(hd.path) &&
+             stdfs::is_directory(dlc2::ActiveFolder(l.ext1, kBf3)),
+         "Off with no game: renamed into ext1's 00000002-off, its 00000002 folder stays");
+  // The console's state after 109b: the game made the package again in 00000002 while the Off copy
+  // was there. Both rows are listed; neither switches; removing one lets the other switch.
+  Package(dlc2::ActiveFolder(l.ext1, kBf3) / hd.file, kBf3, 0x00000002, "HD Content", 1500000);
+  found = dlc2::FindAll(kBf3, Roots(l), {l.dlc});
+  int on = 0, off = 0;
+  for (const auto& item : found.items)
+    if (item.name == "HD Content") (item.state == dlc2::State::active ? on : off) += 1;
+  Expect(on == 1 && off == 1, "a file both On and Off on one drive: two rows");
+  const dlc2::Item* active = nullptr;
+  const dlc2::Item* disabled = nullptr;
+  for (const auto& item : found.items)
+    if (item.name == "HD Content") (item.state == dlc2::State::active ? active : disabled) = &item;
+  Expect(active && disabled && dlc2::Switch(*active, l.internal, kBf3, false, false, &step) == dlc2::Switched::twin &&
+             dlc2::Switch(*disabled, l.internal, kBf3, true, false) == dlc2::Switched::twin &&
+             stdfs::exists(active->path) && stdfs::exists(disabled->path),
+         "neither copy switches while the other folder has the file (twin), both stay");
+  Expect(Has(step.call, "the other folder has this file too"), "the twin refusal says why");
+  Expect(dlc2::Remove(*disabled, kBf3, false) == dlc2::Removal::removed &&
+             dlc2::Switch(*active, l.internal, kBf3, false, false) == dlc2::Switched::switched,
+         "after removing the Off copy, the On one switches off");
+  dlc2::Item available = *Named(found, "Close Quarters", "");
+  Expect(dlc2::Switch(available, l.internal, kBf3, true, false) == dlc2::Switched::failed && stdfs::exists(available.path),
+         "a dlc folder's package is not switched (it is installed by copying)");
+}
+
 // A folder that refuses the unlink (no write permission on it): failed, the step and errno said,
 // the file kept. POSIX hosts not run as root (root may unlink anyway).
 void CheckRefusedUnlink(const stdfs::path& base) {
@@ -306,7 +353,7 @@ void CheckLauncher() {
   Expect(Has(launcher, "if (!busy && key == Key::triangle && rows) {") &&
              Has(launcher, "if (item.state != dlc2::State::available && !item.root.empty()) {\n"
                            "            if (!g_running_path.empty()) {\n"
-                           "              dlc_result_ = \"remove-running\";\n"
+                           "              dlc_result_ = \"running\";\n"
                            "            } else {\n"
                            "              g_dlc_remove_open = true;"),
          "Triangle on an installed package opens the window only while no game is running");
@@ -339,8 +386,49 @@ void CheckLauncher() {
   Expect(Has(tab, "if (state != dlc2::State::available) hint = c.Hint('t', Tr(\"Remove\"), hint, 1004);"),
          "the Triangle hint for an installed package");
   Expect(Has(tab, "Tr(\"DLC removed.\")") && Has(tab, "Tr(\"Could not remove the DLC file.\")") &&
-             Has(tab, "Tr(\"Close the game first: DLC can be removed only while no game is running.\")"),
+             Has(tab, "Tr(\"Close the game first: DLC can't be changed while a game is running.\")") &&
+             Has(tab, "Tr(\"This drive has this DLC both On and Off: remove one of the two first.\")"),
          "the results are said");
+  // (d) X: refused while a game runs, else install, on or off, each logged.
+  const size_t x_key = press.find("if (!busy && key == Key::cross && rows && !save_root_.empty()) {", press.find("if (game_tab_ == 4) {"));
+  const std::string x_body = x_key == std::string::npos ? "" : press.substr(x_key, 2400);
+  const size_t running = x_body.find("if (!g_running_path.empty()) {");
+  const size_t install = x_body.find("dlc2::copier().Start(item, save_root_, title)");
+  const size_t toggle = x_body.find("dlc2::Switch(item, save_root_, title, enable, false, &step);");
+  Expect(running != std::string::npos && install != std::string::npos && toggle != std::string::npos && running < install &&
+             running < toggle && Has(x_body, "result = \"running\";"),
+         "X installs or switches only while no game runs");
+  Expect(Has(x_body, ": not changed (a game is running)\"") && Has(x_body, "result.empty() ? \"installing\" : \"not installed (the copy did not start)\"") &&
+             Has(x_body, "(enable ? \"switched on\" : \"switched off\") : \"not switched\",\n                   dlc2::Describe(step));") &&
+             Has(x_body, ": switched == dlc2::Switched::twin ? \"twin\" : \"move-failed\";"),
+         "every DLC change and refusal is logged");
+  // (f) The tab bar's L1 / R1 keys, and the lists' focus.
+  const std::string sheet = Body(launcher, "void Launcher::DrawGameSheet(Canvas& c) {");
+  Expect(Has(sheet, "c.Shoulder(\"L1\", tab_x, 272, bar);") && Has(sheet, "c.Shoulder(\"R1\", tab_x + 16, 272, bar);") &&
+             !Has(sheet, "c.Text(\"L1 / R1\"") && Has(sheet, "const bool bar = g_list_focus_tab != game_tab_;"),
+         "L1 and R1 at the two ends of the tab bar, lit while the bar has the pad");
+  Expect(Has(launcher, "float Shoulder(const char* name, float x, float y, bool lit) const {"), "the canvas draws shoulder keys");
+  Expect(Has(launcher, "  game_tab_ = tab;\n  g_list_focus_tab = -1;  // fix 109: the tab bar first\n"),
+         "a sheet opens on its tab bar");
+  Expect(Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = (game_tab_ + (key == Key::r1 ? 1 : 6)) % 7;") &&
+             Has(press, "if (key == Key::right) g_list_focus_tab = -1;  // fix 109: a new tab starts on the tab bar\n"),
+         "a new tab (L1, R1, Right from Play) starts on its tab bar");
+  Expect(Has(press, "if (game_tab_ >= 1 && game_tab_ <= 5 && !(game_tab_ == 2 && game_category_open_)) {") &&
+             Has(press, "if (key == Key::down) { g_list_focus_tab = game_tab_; first_row = 0; break; }") &&
+             Has(press, "if (key == Key::up || key == Key::cross || key == Key::left || key == Key::right ||\n"
+                        "              (game_tab_ == 4 && key == Key::triangle)) break;") &&
+             Has(press, "} else if (key == Key::up && first_row == 0) {\n          g_list_focus_tab = -1;"),
+         "Down enters a list at its first row, Up on it leaves; row keys wait for the list");
+  Expect(press.find("if (game_tab_ >= 1 && game_tab_ <= 5 && !(game_tab_ == 2 && game_category_open_)) {") <
+             press.find("if (game_tab_ == 6) {"),
+         "the focus rule comes before every tab's own keys");
+  for (const char* highlight : {"const bool focused = n == patch_row_ && g_list_focus_tab == 1;",
+                                "const bool focused = n == game_category_ && g_list_focus_tab == 2;",
+                                "const bool row_focused = game_category_ == row && g_list_focus_tab == 2;",
+                                "n == achievement_row_ && g_list_focus_tab == 3 ? kSurfaceHigh : kSurface",
+                                "const bool selected = n == dlc_row_ && g_list_focus_tab == 4;",
+                                "const bool selected = n == sheet.row && g_list_focus_tab == 5;"})
+    Expect(Has(launcher, highlight), std::string("a row is highlighted only once its list has the pad: ") + highlight);
 }
 
 std::string Escaped(const std::string& text) {
@@ -354,7 +442,8 @@ void CheckLanguages(const stdfs::path& folder) {
   const char* const keys[] = {"Remove DLC?", "Size: %s", "Drive: %s",
                               "The package file is deleted from this drive. This can't be undone.",
                               "DLC removed.", "Could not remove the DLC file.",
-                              "Close the game first: DLC can be removed only while no game is running.",
+                              "Close the game first: DLC can't be changed while a game is running.",
+                              "This drive has this DLC both On and Off: remove one of the two first.", "Navigate",
                               "Remove", "Cancel", "Internal storage", "M.2 SSD / extended storage", "USB %s"};
   for (const char* code : codes) {
     const std::string text = "\n" + Read(folder / (std::string(code) + ".txt"));
@@ -378,6 +467,7 @@ int main(int argc, char** argv) {
   CheckListing(base);
   CheckRemove(base);
   CheckRefusedUnlink(base);
+  CheckSwitch(base);
 #ifdef CHECK_DLC_SCAN
   CheckScan(base);
 #else

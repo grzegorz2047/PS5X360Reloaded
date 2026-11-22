@@ -88,7 +88,7 @@ Close = Закрыть
 Close\sand\sopen = Закрыть\sи\sоткрыть
 Close\sand\sreopen\sthe\semulator. = Закрывает\sи\sснова\sоткрывает\sэмулятор.
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = Закрыть\sигру\sи\sвернуться\sв\sменю
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = Сначала\sзакройте\sигру:\sDLC\sможно\sудалить,\sтолько\sкогда\sни\sодна\sигра\sне\sзапущена.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = Сначала\sзакройте\sигру:\sDLC\sнельзя\sизменить,\sпока\sзапущена\sигра.
 Closing\sthe\semulator... = Закрытие\sэмулятора...
 Code:\s = Код:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = Сравнивает\sданные,\sкоторые\sигра\sпостоянно\sперезаписывает,\sпо\sсодержимому,\sа\sне\sследит\sза\sпамятью.\sМеньше\sработы\sдля\sпроцессора.\sВыключайте\sтолько\sдля\sсравнения,\sесли\sв\sигре\sмерцают\sобъекты.
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = Тема
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = Затем\sсоздайте\sновый\sissue\sна\sGitHub,\sопишите,\sчто\sвы\sделали\sи\sчто\sпошло\sне\sтак,\sи\sприложите\sфайлы:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = На\sэтом\sдиске\sесть\sи\sPS5X360/saves,\sи\sPS5X360Reloaded/saves.\sИспользуется\sPS5X360Reloaded/saves;\sстарая\sпапка\sоставлена\sбез\sизменений:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = На\sэтом\sнакопителе\sэто\sDLC\sесть\sи\sкак\sВкл.,\sи\sкак\sВыкл.:\sсначала\sудалите\sодну\sиз\sдвух\sкопий.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = Эта\sпапка\sнедоступна\sприложению.
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = Этой\sигры\sнет\sв\sархиве\sсведений\s(x360db).
 This\sgame\sopens\swith = Эта\sигра\sзапускается\sс

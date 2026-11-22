@@ -88,7 +88,7 @@ Close = Sluiten
 Close\sand\sopen = Sluiten\sen\sopenen
 Close\sand\sreopen\sthe\semulator. = Sluit\sde\semulator\sen\sopent\shem\sopnieuw.
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = Game\ssluiten\sen\sterug\snaar\shet\smenu
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = Sluit\seerst\sde\sgame:\sDLC\skan\salleen\sworden\sverwijderd\sals\ser\sgeen\sgame\sactief\sis.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = Sluit\seerst\sde\sgame:\sDLC\skan\sniet\sworden\sgewijzigd\sterwijl\ser\seen\sgame\sactief\sis.
 Closing\sthe\semulator... = De\semulator\swordt\sgesloten...
 Code:\s = Code:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = Vergelijkt\sgegevens\sdie\seen\sgame\ssteeds\sherschrijft\sop\sinhoud,\sin\splaats\svan\shet\sgeheugen\ste\sbewaken.\sMinder\swerk\svoor\sde\sprocessor.\sZet\shet\salleen\suit\som\ste\svergelijken,\sals\seen\sgame\sflikkerende\sobjecten\stoont.
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = Thema
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = Open\sdaarna\seen\snieuwe\sissue\sop\sGitHub,\sbeschrijf\swat\sje\sdeed\sen\swat\ser\smisging,\sen\svoeg\sde\sbestanden\stoe:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = Dit\sstation\sheeft\szowel\sPS5X360/saves\sals\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\swordt\sgebruikt;\sde\soude\smap\sis\songewijzigd\sgelaten:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = Dit\sstation\sheeft\sdeze\sDLC\szowel\sAan\sals\sUit:\sverwijder\seerst\seen\svan\sde\stwee.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = Deze\smap\sis\sniet\stoegankelijk\svoor\sde\sapp.
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = Deze\sgame\sstaat\sniet\sin\shet\sinformatiearchief\s(x360db).
 This\sgame\sopens\swith = Deze\sgame\sstart\smet

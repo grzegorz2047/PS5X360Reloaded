@@ -88,7 +88,7 @@ Close = Schließen
 Close\sand\sopen = Schließen\sund\söffnen
 Close\sand\sreopen\sthe\semulator. = Schließt\sden\sEmulator\sund\söffnet\sihn\swieder.
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = Spiel\sschließen\sund\szum\sMenü\szurückkehren
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = Schließe\szuerst\sdas\sSpiel:\sDLC\skann\snur\sentfernt\swerden,\swenn\skein\sSpiel\släuft.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = Schließe\szuerst\sdas\sSpiel:\sDLC\skann\snicht\sgeändert\swerden,\swährend\sein\sSpiel\släuft.
 Closing\sthe\semulator... = Emulator\swird\sbeendet...
 Code:\s = Code:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = Vergleicht\sDaten,\sdie\sein\sSpiel\sständig\sneu\sschreibt,\snach\sInhalt,\sstatt\sden\sSpeicher\szu\süberwachen.\sWeniger\sArbeit\sfür\sden\sProzessor.\sNur\szum\sVergleichen\sausschalten,\swenn\sein\sSpiel\sflackernde\sObjekte\szeigt.
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = Design
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = Erstelle\sdann\sein\sneues\sIssue\sauf\sGitHub,\sbeschreibe,\swas\sdu\sgetan\shast\sund\swas\sschiefging,\sund\shänge\sdie\sDateien\san:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = Dieses\sLaufwerk\shat\sPS5X360/saves\sund\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\swird\sverwendet;\sder\salte\sOrdner\swurde\snicht\sverändert:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = Dieses\sLaufwerk\shat\sdiesen\sDLC\sals\sEin\sund\sals\sAus:\sEntferne\szuerst\seine\sder\sbeiden\sKopien.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = Dieser\sOrdner\sist\sfür\sdie\sAnwendung\snicht\szugänglich.
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = Dieses\sSpiel\sist\snicht\sim\sInformationsarchiv\s(x360db).
 This\sgame\sopens\swith = Dieses\sSpiel\sstartet\smit

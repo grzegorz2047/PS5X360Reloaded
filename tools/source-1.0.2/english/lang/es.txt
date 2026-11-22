@@ -84,7 +84,7 @@ Clear = Limpiar
 Close = Cerrar
 Close\sand\sopen = Cerrar\sy\sabrir
 Close\sand\sreopen\sthe\semulator. = Cierra\sy\svuelve\sa\sabrir\sel\semulador.
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = Cierra\santes\sel\sjuego:\sel\sDLC\ssolo\sse\spuede\squitar\scuando\sno\shay\sningún\sjuego\sabierto.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = Cierra\santes\sel\sjuego:\sel\sDLC\sno\sse\spuede\scambiar\smientras\shay\sun\sjuego\sabierto.
 Closing\sthe\semulator... = Cerrando\sel\semulador...
 Code:\s = Código:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = Compara\spor\scontenido\slos\sdatos\sque\sel\sjuego\sreescribe\stodo\sel\stiempo,\sen\svez\sde\svigilar\sla\smemoria.\sReduce\sel\strabajo\sdel\sprocesador.\sDesactívalo\ssolo\spara\scomparar,\ssi\sun\sjuego\smuestra\sobjetos\sparpadeando.
@@ -466,6 +466,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = Tema
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = Después\sabre\suna\snueva\sissue\sen\sGitHub,\sdescribe\slo\sque\shiciste\sy\slo\sque\ssalió\smal,\sy\sadjunta\slos\sarchivos:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = Esta\sunidad\stiene\slas\scarpetas\sPS5X360/saves\sy\sPS5X360Reloaded/saves.\sSe\susa\sPS5X360Reloaded/saves;\sla\scarpeta\santigua\sse\sha\sdejado\scomo\sestaba:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = Esta\sunidad\stiene\seste\sDLC\sActivada\sy\sDesactivada:\squita\santes\suna\sde\slas\sdos\scopias.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = Esta\scarpeta\sno\ses\saccesible\sa\sla\saplicación.
 This\sgame\sopens\swith = Este\sjuego\sse\sabre\scon
 This\sgame\srequires\sKinect.\sTurn\son\sCamera\smotion\sin\sthe\sguide\s(Settings,\sControls),\sthen\sstart\sthe\sgame\sagain. = Este\sjuego\srequiere\sKinect.\sActiva\sCamera\smotion\sen\sla\sguía\s(Configuración,\sControles)\sy\svuelve\sa\siniciar\sel\sjuego.

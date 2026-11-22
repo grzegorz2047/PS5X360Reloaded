@@ -88,7 +88,7 @@ Close = Chiudi
 Close\sand\sopen = Chiudi\se\sapri
 Close\sand\sreopen\sthe\semulator. = Chiude\se\sriapre\sl'emulatore.
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = Chiudi\sil\sgioco\se\storna\sal\smenu
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = Chiudi\sprima\sil\sgioco:\sil\sDLC\ssi\spuò\srimuovere\ssolo\squando\snessun\sgioco\sè\sin\sesecuzione.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = Chiudi\sprima\sil\sgioco:\sil\sDLC\snon\ssi\spuò\smodificare\smentre\sun\sgioco\sè\sin\sesecuzione.
 Closing\sthe\semulator... = Chiusura\sdell'emulatore...
 Code:\s = Codice:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = Confronta\sper\scontenuto\si\sdati\sche\sun\sgioco\sriscrive\sdi\scontinuo,\sinvece\sdi\ssorvegliare\sla\smemoria.\sMeno\slavoro\sper\sil\sprocessore.\sSpegnilo\ssolo\sper\sconfrontare,\sse\sun\sgioco\smostra\soggetti\sche\ssfarfallano.
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = Tema
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = Poi\sapri\suna\snuova\sissue\ssu\sGitHub,\sdescrivi\scosa\shai\sfatto\se\scosa\sè\sandato\sstorto\se\sallega\si\sfile:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = Questa\sunità\scontiene\sPS5X360/saves\se\sPS5X360Reloaded/saves.\sViene\susata\sPS5X360Reloaded/saves;\sla\svecchia\scartella\sè\sstata\slasciata\scom'era:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = Questa\sunità\sha\squesto\sDLC\ssia\sAttivo\ssia\sSpento:\srimuovi\sprima\suna\sdelle\sdue\scopie.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = Questa\scartella\snon\sè\saccessibile\sall'applicazione.
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = Questo\sgioco\snon\sè\snell'archivio\sdelle\sinformazioni\s(x360db).
 This\sgame\sopens\swith = Questo\sgioco\ssi\sapre\scon

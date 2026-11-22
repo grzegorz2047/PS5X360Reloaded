@@ -88,7 +88,7 @@ Close = 닫기
 Close\sand\sopen = 닫고\s열기
 Close\sand\sreopen\sthe\semulator. = 에뮬레이터를\s닫고\s다시\s엽니다.
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = 게임을\s닫고\s메뉴로\s돌아가기
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = 먼저\s게임을\s닫으세요.\sDLC는\s실행\s중인\s게임이\s없을\s때만\s제거할\s수\s있습니다.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = 먼저\s게임을\s닫으세요.\s게임이\s실행\s중일\s때는\sDLC를\s변경할\s수\s없습니다.
 Closing\sthe\semulator... = 에뮬레이터를\s닫는\s중...
 Code:\s = 코드:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = 게임이\s계속\s다시\s쓰는\s데이터를\s메모리를\s감시하는\s대신\s내용으로\s비교합니다.\sCPU\s부담이\s줄어듭니다.\s게임에서\s물체가\s깜박이면\s비교용으로만\s끄세요.
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = 테마
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = 그런\s다음\sGitHub에서\s새\sissue를\s열고,\s무엇을\s했고\s무엇이\s잘못되었는지\s설명한\s뒤\s파일을\s첨부하세요:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = 이\s드라이브에\sPS5X360/saves와\sPS5X360Reloaded/saves가\s모두\s있습니다.\sPS5X360Reloaded/saves를\s사용하며\s이전\s폴더는\s그대로\s두었습니다:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = 이\s드라이브에\s이\sDLC가\s켜기와\s끄기\s양쪽에\s있습니다.\s먼저\s둘\s중\s하나를\s제거하세요.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = 앱이\s이\s폴더에\s접근할\s수\s없습니다.
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = 이\s게임은\s정보\s보관소(x360db)에\s없습니다.
 This\sgame\sopens\swith = 이\s게임의\s시작\s설정

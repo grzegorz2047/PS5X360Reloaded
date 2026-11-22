@@ -88,7 +88,7 @@ Close = 关闭
 Close\sand\sopen = 关闭并打开
 Close\sand\sreopen\sthe\semulator. = 关闭并重新打开模拟器。
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = 关闭游戏并返回菜单
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = 请先关闭游戏：只有在没有游戏运行时才能移除\sDLC。
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = 请先关闭游戏：游戏运行时无法更改\sDLC。
 Closing\sthe\semulator... = 正在关闭模拟器...
 Code:\s = 代码：\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = 按内容比较游戏不断重写的数据，而不是监视内存。减少处理器负担。仅在游戏出现闪烁物体时为对比而关闭。
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = 主题
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = 然后在\sGitHub\s上新建一个\sissue，描述你做了什么、出了什么问题，并附上这些文件：
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = 此驱动器上同时有\sPS5X360/saves\s和\sPS5X360Reloaded/saves。将使用\sPS5X360Reloaded/saves；旧文件夹保持不变：
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = 此驱动器上的这个\sDLC\s同时处于开启和关闭状态：请先移除其中一个。
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = 应用无法访问此文件夹。
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = 信息存档（x360db）中没有此游戏。
 This\sgame\sopens\swith = 此游戏的启动设置

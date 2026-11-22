@@ -88,7 +88,7 @@ Close = Fechar
 Close\sand\sopen = Fechar\se\sabrir
 Close\sand\sreopen\sthe\semulator. = Fecha\se\sabre\so\semulador\sde\snovo.
 Close\sthe\sgame\sand\sreturn\sto\sthe\smenu = Fechar\so\sjogo\se\svoltar\sao\smenu
-Close\sthe\sgame\sfirst:\sDLC\scan\sbe\sremoved\sonly\swhile\sno\sgame\sis\srunning. = Feche\sprimeiro\so\sjogo:\so\sDLC\ssó\spode\sser\sremovido\squando\snenhum\sjogo\sestiver\saberto.
+Close\sthe\sgame\sfirst:\sDLC\scan't\sbe\schanged\swhile\sa\sgame\sis\srunning. = Feche\sprimeiro\so\sjogo:\so\sDLC\snão\spode\sser\salterado\senquanto\sum\sjogo\sestiver\saberto.
 Closing\sthe\semulator... = A\sfechar\so\semulador...
 Code:\s = Código:\s
 Compares\sby\scontent\sthe\sdata\sa\sgame\srewrites\sall\sthe\stime,\sinstead\sof\swatching\sthe\smemory.\sLess\swork\sfor\sthe\sprocessor.\sSwitch\sit\soff\sonly\sto\scompare,\sif\sa\sgame\sshows\sflickering\sobjects. = Compara\spelo\sconteúdo\sos\sdados\sque\so\sjogo\sreescreve\so\stempo\stodo,\sem\svez\sde\svigiar\sa\smemória.\sReduz\strabalho\sdo\sprocessador.\sDesligue\ssó\spara\scomparar,\sse\sum\sjogo\smostrar\sobjetos\sa\spiscar.
@@ -486,6 +486,7 @@ The\svolume\sof\sgame\ssound.\sThe\sTV's\sown\svolume\sstill\sapplies\son\stop. 
 Theme = Tema
 Then\sopen\sa\snew\sissue\son\sGitHub,\sdescribe\swhat\syou\sdid\sand\swhat\swent\swrong,\sand\sattach\sthe\sfiles: = Depois\sabra\suma\snova\sissue\sno\sGitHub,\sdescreva\so\sque\sfez\se\so\sque\scorreu\smal,\se\sanexe\sos\sficheiros:
 This\sdrive\shas\sboth\sPS5X360/saves\sand\sPS5X360Reloaded/saves.\sPS5X360Reloaded/saves\sis\sused;\sthe\sold\sfolder\swas\sleft\sas\sit\sis: = Esta\sunidade\stem\sas\spastas\sPS5X360/saves\se\sPS5X360Reloaded/saves.\sÉ\susada\sa\sPS5X360Reloaded/saves;\sa\spasta\santiga\sficou\scomo\sestava:
+This\sdrive\shas\sthis\sDLC\sboth\sOn\sand\sOff:\sremove\sone\sof\sthe\stwo\sfirst. = Esta\sunidade\stem\seste\sDLC\sAtivada\se\sDesativada:\sremova\sprimeiro\suma\sdas\sduas\scópias.
 This\sfolder\sis\snot\saccessible\sto\sthe\sapplication. = Esta\spasta\snão\sestá\sacessível\sà\saplicação.
 This\sgame\sis\snot\sin\sthe\sinformation\sarchive\s(x360db). = Este\sjogo\snão\sestá\sno\sficheiro\sde\sinformações\s(x360db).
 This\sgame\sopens\swith = Este\sjogo\sabre\scom
