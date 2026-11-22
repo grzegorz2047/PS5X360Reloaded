@@ -19,6 +19,7 @@
 #undef NDEBUG
 #include "xenia/gpu/unwatched_lock_free.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
