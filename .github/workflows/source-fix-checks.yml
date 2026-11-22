@@ -148,6 +148,7 @@ on:
       - 'tools/check-vfs-host-ops.cpp'
       - 'tools/check-resolution-scale.cpp'
       - 'tools/check-submit-parts.cpp'
+      - 'tools/check-async-submit.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
