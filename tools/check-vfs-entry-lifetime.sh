@@ -25,21 +25,26 @@ else
   echo "== AddressSanitizer not available: the use of a freed entry may go unnoticed"
 fi
 
+flags="-std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY $sanitize -I$core/src -I$tree/include
+  -I$tree/reconstructed -I$tree/port -I$core -I$core/third_party/fmt/include -I$core/third_party/utfcpp/source
+  -I$core/third_party"
+# xenia/base once, in parallel (the same for both builds); xenia/vfs and the check for each.
+base=$(ls "$core"/src/xenia/base/*.cc |
+  grep -vE '_(win|android|mac|arm64|gnulinux_x11|test[a-z_]*)\.cc$|/main_|/testing' |
+  xargs grep -L -e stbi_ -e GetConsoleAppEntryInfo)
+mkdir -p "$out/base"
+export CXX flags
+# shellcheck disable=SC2016
+printf '%s\n' $base | xargs -P "$(nproc)" -n 1 sh -c 'exec $CXX $flags -c "$1" -o "$0/$(basename "$1" .cc).o"' "$out/base"
+
 build() {
   local src=$1 exe=$2
-  local base vfs
-  base=$(ls "$src"/src/xenia/base/*.cc |
-    grep -vE '_(win|android|mac|arm64|gnulinux_x11|test[a-z_]*)\.cc$|/main_|/testing' |
-    xargs grep -L -e stbi_ -e GetConsoleAppEntryInfo)
-  vfs="$src/src/xenia/vfs/device.cc $src/src/xenia/vfs/entry.cc $src/src/xenia/vfs/virtual_file_system.cc
+  local vfs="$src/src/xenia/vfs/device.cc $src/src/xenia/vfs/entry.cc $src/src/xenia/vfs/virtual_file_system.cc
        $src/src/xenia/vfs/devices/host_path_device.cc $src/src/xenia/vfs/devices/host_path_entry.cc
        $src/src/xenia/vfs/devices/host_path_file.cc $src/src/xenia/vfs/devices/null_device.cc
        $src/src/xenia/vfs/devices/null_entry.cc $src/src/xenia/vfs/devices/null_file.cc"
   # shellcheck disable=SC2086
-  "$CXX" -std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY $sanitize \
-    -I"$src/src" -I"$tree/include" -I"$tree/reconstructed" -I"$tree/port" -I"$core/src" -I"$core" \
-    -I"$core/third_party/fmt/include" -I"$core/third_party/utfcpp/source" -I"$core/third_party" \
-    "$repo/tools/check-vfs-entry-lifetime.cpp" $base $vfs -ldl -o "$exe"
+  "$CXX" -I"$src/src" $flags "$repo/tools/check-vfs-entry-lifetime.cpp" $vfs "$out"/base/*.o -ldl -o "$exe"
 }
 
 echo "== fixed tree"
