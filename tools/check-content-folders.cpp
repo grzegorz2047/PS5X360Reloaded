@@ -75,6 +75,12 @@ void CheckVfs() {
   Expect(Has(first, "auto global_lock = global_critical_region_.Acquire();") &&
              Has(first, "return devices_.insert(devices_.begin(), std::move(device))->get();"),
          "RegisterDeviceFirst puts the device ahead of the others, under the VFS lock");
+  const std::string open = Body(vfs, "X_STATUS VirtualFileSystem::OpenFile(");
+  Expect(Has(open, "    entry = parent_entry\n                ? parent_entry->CreateEntry(\n"
+                   "                      xe::utf8::find_name_from_guest_path(path), attributes)\n"
+                   "                : CreatePath(path, attributes);"),
+         "OpenFile creates in the parent it resolved, CreatePath only without one (a mount at Device paths; "
+         "tools/check-content-create.sh creates through one)");
   const std::string resolve = Body(vfs, "Entry* VirtualFileSystem::ResolvePath(");
   Expect(Has(resolve, "std::ranges::find_if(std::as_const(devices_)") && Has(resolve, "starts_with(normalized_path, d->mount_path())"),
          "the first device whose mount is a prefix of the path takes it");
