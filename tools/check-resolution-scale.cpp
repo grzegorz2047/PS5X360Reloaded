@@ -62,6 +62,10 @@
 //  (o) the tree: render targets stamped with the frame at each lookup and creation, the frame counted
 //      in BeginFrame, TrimUnusedRenderTargets keeping owners, the last bound ones and recent ones, the
 //      Vulkan side dropping framebuffers first, the command processor calling it instead of ClearCache.
+// Fix 117h (117h-resolution-scale-key-log.patch): each render target made at 2x is logged once, at most 64
+// lines a session, to choose Battlefield 3's threshold from data.
+//  (p) the header: the line's text, the 64-line cap;
+//  (q) the tree: the line after the render target is counted, only at 2x, through the cap.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -308,6 +312,20 @@ void CheckHeader() {
                "Resolution scale (fix 117f): render targets trimmed: 12 destroyed, 30 kept (owning EDRAM data or "
                "used in the last 300 frames); driver memory 4000 -> 2500 MiB; direct free 1900 MiB",
            "the trim's line");
+    // Fix 117h: the render target lines.
+    Expect(rs::RenderTargetKeyLine(2560, 2048, 1280, 0, 1, "k_8_8_8_8", false, true) ==
+               "Resolution scale (fix 117h): render target 2560x2048, pitch 1280 px, EDRAM base 0, 1xMSAA, "
+               "k_8_8_8_8 colour, scaled",
+           "a scaled colour target's line");
+    Expect(Has(rs::RenderTargetKeyLine(640, 512, 640, 1200, 4, "kD24FS8", true, false),
+               "pitch 640 px, EDRAM base 1200, 4xMSAA, kD24FS8 depth, 1x"),
+           "a 1x depth target's line");
+    Expect(Has(rs::RenderTargetKeyLine(8, 8, 8, 0, 0, nullptr, false, true), "1xMSAA, ? colour"),
+           "no sample count or format");
+    rs::key_lines = 0;
+    int taken = 0;
+    for (int i = 0; i < 100; ++i) taken += rs::TakeKeyLine() ? 1 : 0;
+    Expect(rs::kKeyLines == 64 && taken == 64, "at most 64 lines a session (" + std::to_string(taken) + ")");
     // Fix 117g: what a trim may destroy.
     Expect(rs::kTrimIdleFrames == 300, "300 idle frames");
     Expect(rs::MayTrim(false, false, 1000, 600), "unowned, not bound, 400 frames idle: may go");
@@ -565,6 +583,14 @@ void CheckCore() {
   const size_t vk_call = render_targets.find("return TrimUnusedRenderTargets(idle_frames);", vk_trim);
   Expect(vk_trim != std::string::npos && vk_fb != std::string::npos && vk_call != std::string::npos && vk_fb < vk_call,
          "fix 117g: the framebuffers go before the targets");
+  // Fix 117h.
+  const size_t note_rt = render_targets.find("xbox360ps5::resolution_scale::NoteRenderTarget(\n"
+                                             "        xbox360ps5::resolution_scale::counters, !key.scale_native, rt_bytes);");
+  const size_t take = render_targets.find("if (xbox360ps5::resolution_scale::TakeKeyLine()) {", note_rt);
+  const size_t key_line = render_targets.find("xbox360ps5::resolution_scale::RenderTargetKeyLine(", take);
+  Expect(note_rt != std::string::npos && take != std::string::npos && key_line != std::string::npos &&
+             take - note_rt < 400,
+         "fix 117h: each render target made at 2x is logged through the 64-line cap");
   Expect(Has(rt_header, "size_t RenderTargetCount() const { return render_targets_.size(); }"),
          "fix 117f: the render target count");
   const size_t stop = render_targets.find("if (key.scale_native && IsDrawResolutionScaled() &&\n"
