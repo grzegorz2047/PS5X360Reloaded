@@ -1,0 +1,1548 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+index a099cee..fd97bbb 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -396,6 +396,12 @@ void CommandProcessor::WorkerThreadMain() {
+ #if XE_PLATFORM_PS5
+   // Fix 47: the hang watch's "gpu" thread and its heartbeat.
+   xbox360ps5::hang_watch::NameThread("gpu");
++  // Fix 142 (xenia/gpu/vulkan/parallel_record.h): with gpu_parallel_record on, the loop runs
++  // there; off (the default) it returns false at once and the loop below runs as before.
++  if (RunParallelRecord()) {
++    ShutdownContext();
++    return;
++  }
+ #endif
+ 
+   while (worker_running_) {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+index ab9e068..2cc1ca4 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -236,6 +236,10 @@ class CommandProcessor {
+   }
+ 
+   void WorkerThreadMain();
++  // Xbox360PS5, fix 142: runs the GPU thread's whole loop another way (the frame's command
++  // processing split over two threads) and returns true once it ends; false (the default, and
++  // with gpu_parallel_record 0): the loop below, as before.
++  virtual bool RunParallelRecord() { return false; }
+   virtual bool SetupContext() = 0;
+   virtual void ShutdownContext() = 0;
+   // rarely needed, most register writes have no special logic here
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
+new file mode 100644
+index 0000000..87083f7
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
+@@ -0,0 +1,867 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 142: the GPU command processing of a frame split over two threads (prototype).
++//
++// The GPU command thread is the bottleneck of the heavy titles on the console (Grand Theft Auto IV,
++// Red Dead Redemption and Modern Warfare 2 keep it 90-99% busy with the PS5's GPU 25-33% busy).
++// Fix 134 moved the replay into Vulkan and the queue submit to a worker; parsing the PM4 stream,
++// the register writes and the draws' translation stayed on one thread. Fix 75 measured the part
++// of that thread outside the draws and submissions (the packets themselves, mostly register
++// writes): Battlefield 3 468 ms/s, Tekken Tag Tournament 2 316, Modern Warfare 2 150.
++//
++// Here (gpu_parallel_record 1) a decode thread walks the ring and the indirect buffers, applies
++// the packets' predication (bin mask and select), drops shader constant writes that leave a
++// constant as it is, and hands the rest to the GPU command thread in order through a FIFO of ops:
++// runs of register writes (applied with fix 103's block path) and the other packets as they are
++// (executed by the same handlers as before). The GPU command thread keeps every piece of state it
++// had (the register file, the caches, Vulkan), so what it does with an op is what it did with the
++// packet; it only no longer parses and no longer writes the unchanged constants.
++//
++// Guest-visible order: everything the guest can observe (memory writes by MEM_WRITE, EVENT_WRITE*,
++// REG_TO_MEM, COND_WRITE and the scratch registers, interrupts, swaps, the ring's read pointer
++// write-back) is done by the GPU command thread at its place in the stream, so the guest sees the
++// GPU's progress no earlier than before. The decode thread waits for the GPU command thread to
++// execute everything up to and including a WAIT_REG_MEM before it decodes past it (the condition
++// may depend on the stream's own writes), and before it enters an indirect buffer that overlaps a
++// memory write not yet executed. See research/parallel-gpu-commands/DESIGN.md.
++//
++// Modes (gpu_parallel_record, or "mode" in parallel-record.txt, read at start): 0 off, exactly as
++// before; 1 the decode thread; 2 the same ops decoded and executed by the GPU command thread alone
++// (the decoder's and the ops' correctness and cost without a second thread).
++#ifndef XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
++#define XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <mutex>
++#include <sstream>
++#include <string>
++#include <thread>
++#include <vector>
++
++namespace xe {
++namespace gpu {
++namespace parallel_record {
++
++enum Mode : uint32_t { kOff = 0, kThread = 1, kInline = 2, kModes };
++
++inline const char* ModeName(uint32_t mode) {
++  return mode == kThread ? "a decode thread" : mode == kInline ? "decoded on the GPU thread" : "off";
++}
++
++struct Settings {
++  uint32_t mode = kOff;
++  uint32_t fifo_kib = 4096;  // the FIFO of ops between the threads
++  uint32_t filter = 1;       // unchanged shader constant writes dropped by the decoder
++  uint32_t sibling = 0;      // the decode thread on the other half of the GPU thread's core
++  bool operator==(const Settings& other) const {
++    return mode == other.mode && fifo_kib == other.fifo_kib && filter == other.filter &&
++           sibling == other.sibling;
++  }
++};
++
++// parallel-record.txt: "mode 0|1|2", "fifo <KiB>" (256 to 65536), "filter 0|1", "sibling 0|1",
++// "#" comments. What a line does not set keeps the value it had (the cvars). Returns the lines not
++// understood.
++inline int Parse(const std::string& text, Settings& settings) {
++  int not_understood = 0;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string key, extra;
++    long long value = -1;
++    if (!(words >> key)) continue;
++    if (!(words >> value) || (words >> extra)) {
++      ++not_understood;
++    } else if (key == "mode" && value >= 0 && value < kModes) {
++      settings.mode = uint32_t(value);
++    } else if (key == "fifo" && value >= 256 && value <= 65536) {
++      settings.fifo_kib = uint32_t(value);
++    } else if (key == "filter" && (value == 0 || value == 1)) {
++      settings.filter = uint32_t(value);
++    } else if (key == "sibling" && (value == 0 || value == 1)) {
++      settings.sibling = uint32_t(value);
++    } else {
++      ++not_understood;
++    }
++  }
++  return not_understood;
++}
++
++// The PM4 type 3 opcodes the packet handlers know (xenos.h; vulkan_command_processor.cc checks
++// them against it at compile time).
++namespace pm4 {
++enum : uint32_t {
++  kNop = 0x10,
++  kRegRmw = 0x21,
++  kDrawIndx = 0x22,
++  kVizQuery = 0x23,
++  kWaitForIdle = 0x26,
++  kImLoad = 0x27,
++  kImLoadImmediate = 0x2b,
++  kSetConstant = 0x2d,
++  kLoadAluConstant = 0x2f,
++  kDrawIndx2 = 0x36,
++  kIndirectBufferPfd = 0x37,
++  kInvalidateState = 0x3b,
++  kWaitRegMem = 0x3c,
++  kMemWrite = 0x3d,
++  kRegToMem = 0x3e,
++  kIndirectBuffer = 0x3f,
++  kCondWrite = 0x45,
++  kEventWrite = 0x46,
++  kMeInit = 0x48,
++  kSetBinMask = 0x50,
++  kSetBinSelect = 0x51,
++  kInterrupt = 0x54,
++  kSetConstant2 = 0x55,
++  kSetShaderConstants = 0x56,
++  kEventWriteShd = 0x58,
++  kEventWriteExt = 0x5a,
++  kEventWriteZpd = 0x5b,
++  kWaitIbPfdComplete = 0x5d,
++  kContextUpdate = 0x5e,
++  kSetBinMaskLo = 0x60,
++  kSetBinMaskHi = 0x61,
++  kSetBinSelectLo = 0x62,
++  kSetBinSelectHi = 0x63,
++  kXeSwap = 0x64,
++};
++// Whether ExecutePacketType3's switch has a case for the opcode (any other ends the buffer).
++inline bool Known(uint32_t opcode) {
++  switch (opcode) {
++    case kNop: case kRegRmw: case kDrawIndx: case kVizQuery: case kWaitForIdle: case kImLoad:
++    case kImLoadImmediate: case kSetConstant: case kLoadAluConstant: case kDrawIndx2:
++    case kIndirectBufferPfd: case kInvalidateState: case kWaitRegMem: case kMemWrite:
++    case kRegToMem: case kIndirectBuffer: case kCondWrite: case kEventWrite: case kMeInit:
++    case kSetBinMask: case kSetBinSelect: case kInterrupt: case kSetConstant2:
++    case kSetShaderConstants: case kEventWriteShd: case kEventWriteExt: case kEventWriteZpd:
++    case kWaitIbPfdComplete: case kContextUpdate: case kSetBinMaskLo: case kSetBinMaskHi:
++    case kSetBinSelectLo: case kSetBinSelectHi: case kXeSwap:
++      return true;
++    default:
++      return false;
++  }
++}
++}  // namespace pm4
++
++// The shader constants (register_table.inc), the only registers the decoder drops writes to.
++constexpr uint32_t kFloatFirst = 0x4000, kFloatLast = 0x47FF;
++constexpr uint32_t kFetchFirst = 0x4800, kFetchLast = 0x48BF;
++constexpr uint32_t kBoolLoopFirst = 0x4900, kBoolLoopLast = 0x4927;
++constexpr uint32_t kShadowFirst = kFloatFirst, kShadowCount = kBoolLoopLast + 1 - kFloatFirst;
++inline bool Filterable(uint32_t index) {
++  return (index >= kFloatFirst && index <= kFloatLast) ||
++         (index >= kFetchFirst && index <= kFetchLast) ||
++         (index >= kBoolLoopFirst && index <= kBoolLoopLast);
++}
++
++inline uint32_t Swap(uint32_t value) {
++#if defined(__GNUC__) || defined(__clang__)
++  return __builtin_bswap32(value);
++#else
++  return (value >> 24) | ((value >> 8) & 0xFF00) | ((value << 8) & 0xFF0000) | (value << 24);
++#endif
++}
++
++inline void Relax() {
++#if defined(__x86_64__) || defined(_M_X64)
++  __builtin_ia32_pause();
++#else
++  std::this_thread::yield();
++#endif
++}
++
++// ---------------------------------------------------------------------------------------------
++// The FIFO of ops: one producer (the decoder), one consumer (the GPU command thread). An op is a
++// 16-byte header and its payload, 8-byte aligned and contiguous; an op that would cross the end
++// starts at the beginning after a wrap op. Positions are byte counts since the start, never
++// wrapped: `published` is what the consumer may read, `retired` what it has executed.
++enum OpKind : uint32_t {
++  kOpWrap = 0,        // nothing up to the end of the buffer
++  kOpPackets,         // whole PM4 packets, guest byte order, for ExecutePacket
++  kOpRegisters,       // a run of register values (guest byte order) from register `arg`
++  kOpPrimaryBegin,    // a part of the ring starts (ExecutePrimaryBuffer's prologue)
++  kOpPrimaryEnd,      // ... ends (OnPrimaryBufferEnd)
++  kOpReadPointer,     // the ring's read pointer `arg` is written back for the guest
++  kOpKinds
++};
++struct OpHeader {
++  uint32_t kind;
++  uint32_t bytes;  // payload
++  uint32_t arg;
++  uint32_t reserved;
++};
++static_assert(sizeof(OpHeader) == 16, "fix 142: the op header");
++inline uint32_t OpSpan(uint32_t payload_bytes) {
++  return uint32_t(sizeof(OpHeader)) + ((payload_bytes + 7) & ~uint32_t(7));
++}
++
++class OpRing {
++ public:
++  // The largest payload: a type 3 packet (0x4000 dwords and its header) or a run of 0x4000.
++  static constexpr uint32_t kMaxPayload = (0x4000 + 1) * 4;
++  explicit OpRing(size_t bytes) {
++    size_t capacity = 256 * 1024;
++    while (capacity < bytes) capacity <<= 1;
++    capacity_ = capacity;
++    data_.assign(capacity_, 0);
++  }
++  size_t capacity() const { return capacity_; }
++
++  // --- the producer ---
++  // Room for an op of `payload_bytes` at the write position (and a wrap op before it when it
++  // would cross the end): the bytes the consumer must retire first, 0 when there is room now.
++  uint64_t RoomNeeded(uint32_t payload_bytes) const {
++    const uint64_t at = write_ % capacity_;
++    uint64_t need = OpSpan(payload_bytes);
++    if (at + need > capacity_) need += capacity_ - at;  // the wrap
++    const uint64_t used = write_ - retired_.load(std::memory_order_acquire);
++    return used + need > capacity_ ? used + need - capacity_ : 0;
++  }
++  // The op's header, its payload written in place after it and grown up to `reserve` bytes; the
++  // caller has made room for `reserve` (RoomNeeded 0).
++  OpHeader* Begin(uint32_t kind, uint32_t reserve, uint32_t arg = 0) {
++    uint64_t at = write_ % capacity_;
++    if (at + OpSpan(reserve) > capacity_) {
++      OpHeader* wrap = reinterpret_cast<OpHeader*>(&data_[at]);
++      wrap->kind = kOpWrap;
++      wrap->bytes = uint32_t(capacity_ - at - sizeof(OpHeader));
++      wrap->arg = 0;
++      write_ += capacity_ - at;
++      at = 0;
++    }
++    OpHeader* header = reinterpret_cast<OpHeader*>(&data_[at]);
++    header->kind = kind;
++    header->bytes = 0;
++    header->arg = arg;
++    header->reserved = 0;
++    open_ = header;
++    return header;
++  }
++  uint8_t* Payload(OpHeader* header) { return reinterpret_cast<uint8_t*>(header + 1); }
++  // Grows the open op's payload (the caller made room for the final size before Begin).
++  void Grow(uint32_t more_bytes) { open_->bytes += more_bytes; }
++  void Commit() {
++    write_ += OpSpan(open_->bytes);
++    open_ = nullptr;
++  }
++  uint64_t write_position() const { return write_; }
++  // Makes the committed ops visible and wakes the consumer if it sleeps.
++  void Publish() {
++    if (published_.load(std::memory_order_relaxed) == write_) return;
++    published_.store(write_, std::memory_order_seq_cst);
++    if (consumer_sleeping_.load(std::memory_order_seq_cst)) {
++      std::lock_guard<std::mutex> lock(mutex_);
++      changed_.notify_all();
++    }
++  }
++  // Waits until the consumer has retired `position` (or `stop` turns true; timed waits keep a
++  // stop from being missed). Returns whether it had to wait.
++  template <class Stop>
++  bool WaitRetired(uint64_t position, const Stop& stop) {
++    if (retired_.load(std::memory_order_acquire) >= position) return false;
++    for (int n = 0; n < 2000; ++n) {
++      if (retired_.load(std::memory_order_acquire) >= position) return true;
++      Relax();
++    }
++    std::unique_lock<std::mutex> lock(mutex_);
++    producer_sleeping_.store(true, std::memory_order_seq_cst);
++    while (retired_.load(std::memory_order_seq_cst) < position && !stop()) {
++      changed_.wait_for(lock, std::chrono::milliseconds(1));
++    }
++    producer_sleeping_.store(false, std::memory_order_relaxed);
++    return true;
++  }
++
++  // --- the consumer ---
++  // The next op, or null when none is published. Wrap ops are taken here; `retired` moves past a
++  // wrap only with the op after it, so it is always the end of an executed op.
++  const OpHeader* Front() {
++    for (;;) {
++      if (read_ == published_.load(std::memory_order_acquire)) return nullptr;
++      const OpHeader* header = reinterpret_cast<const OpHeader*>(&data_[read_ % capacity_]);
++      if (header->kind != kOpWrap) return header;
++      read_ += capacity_ - read_ % capacity_;
++    }
++  }
++  const uint8_t* Payload(const OpHeader* header) const {
++    return reinterpret_cast<const uint8_t*>(header + 1);
++  }
++  // The op returned by Front has been executed.
++  void Pop() {
++    const OpHeader* header = reinterpret_cast<const OpHeader*>(&data_[read_ % capacity_]);
++    read_ += OpSpan(header->bytes);
++    retired_.store(read_, std::memory_order_seq_cst);
++    if (producer_sleeping_.load(std::memory_order_seq_cst)) {
++      std::lock_guard<std::mutex> lock(mutex_);
++      changed_.notify_all();
++    }
++  }
++  // Waits up to `timeout` for an op to be published; spins `spin` times first.
++  bool WaitForOps(std::chrono::microseconds timeout, int spin) {
++    for (int n = 0; n < spin; ++n) {
++      if (read_ != published_.load(std::memory_order_acquire)) return true;
++      Relax();
++    }
++    std::unique_lock<std::mutex> lock(mutex_);
++    consumer_sleeping_.store(true, std::memory_order_seq_cst);
++    if (read_ == published_.load(std::memory_order_seq_cst)) {
++      changed_.wait_for(lock, timeout);
++    }
++    consumer_sleeping_.store(false, std::memory_order_relaxed);
++    return read_ != published_.load(std::memory_order_acquire);
++  }
++  // Wakes a sleeping consumer without publishing (the decoder became idle, or stopping).
++  void Wake() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    changed_.notify_all();
++  }
++  uint64_t published() const { return published_.load(std::memory_order_acquire); }
++  uint64_t retired() const { return retired_.load(std::memory_order_acquire); }
++
++ private:
++  size_t capacity_ = 0;
++  std::vector<uint8_t> data_;
++  uint64_t write_ = 0;      // the producer's
++  OpHeader* open_ = nullptr;
++  uint64_t read_ = 0;       // the consumer's
++  alignas(64) std::atomic<uint64_t> published_{0};
++  alignas(64) std::atomic<uint64_t> retired_{0};
++  alignas(64) std::atomic<bool> consumer_sleeping_{false};
++  std::atomic<bool> producer_sleeping_{false};
++  std::mutex mutex_;
++  std::condition_variable changed_;
++};
++
++// ---------------------------------------------------------------------------------------------
++// Why the decoder waited for the GPU command thread.
++enum SerializeReason : uint32_t {
++  kSerializeWait = 0,  // WAIT_REG_MEM: executed before decoding past it
++  kSerializeRoom,      // the FIFO was full
++  kSerializeIbWrite,   // an indirect buffer overlaps a memory write not yet executed
++  kSerializeReasons
++};
++inline const char* SerializeReasonName(uint32_t reason) {
++  static const char* const names[] = {"wait", "room", "ib-write"};
++  return reason < kSerializeReasons ? names[reason] : "?";
++}
++
++// What the decoder counts (plain counters of the decoding thread; the owner adds them up).
++struct DecodeStats {
++  uint64_t packets = 0;            // packets read, indirect buffers' included
++  uint64_t forwarded_packets = 0;  // ... handed over as they are
++  uint64_t predicated_out = 0;     // ... skipped by their predicate
++  uint64_t register_runs = 0;      // runs handed over
++  uint64_t registers_written = 0;  // register writes read (type 0, SET_CONSTANT, ...)
++  uint64_t registers_dropped = 0;  // ... dropped, the constant unchanged
++  uint64_t shadow_resets = 0;      // shadow constants forgotten (packets that may write them)
++  uint64_t indirect_buffers = 0;
++  uint64_t draws = 0;
++  uint64_t swaps = 0;
++  uint64_t primaries = 0;
++  uint64_t failed = 0;             // packets that end their buffer, as before
++  uint64_t ops = 0;
++  uint64_t op_bytes = 0;
++  uint64_t serialize[kSerializeReasons] = {};
++};
++
++// The owner's side of the decoder: the guest's memory and the waits for the GPU command thread.
++class Host {
++ public:
++  virtual ~Host() = default;
++  // The host address of guest physical memory (an indirect buffer).
++  virtual const uint8_t* Translate(uint32_t guest_address) = 0;
++  // Returns once every published op is executed.
++  virtual void Drain(uint32_t reason) = 0;
++  // Returns once the FIFO has room for an op of `payload_bytes`; false: stopping, there is none.
++  virtual bool MakeRoom(uint32_t payload_bytes) = 0;
++};
++
++// A part of guest memory read as PM4 dwords: the ring (wrapping at its capacity) or an indirect
++// buffer (capacity = its size, from 0). `remaining` is RingBuffer::read_count's bytes.
++struct GuestReader {
++  const uint8_t* base = nullptr;
++  uint32_t capacity = 0;
++  uint32_t offset = 0;
++  uint32_t remaining = 0;
++  uint32_t Raw() {
++    uint32_t value;
++    std::memcpy(&value, base + offset, 4);
++    offset += 4;
++    if (offset >= capacity) offset = 0;
++    remaining = remaining >= 4 ? remaining - 4 : 0;
++    return value;
++  }
++  uint32_t Read() { return Swap(Raw()); }
++  // The raw dword `index` dwords ahead, not consumed.
++  uint32_t PeekRaw(uint32_t index) const {
++    uint32_t at = offset + index * 4;
++    if (at >= capacity) at -= capacity;
++    uint32_t value;
++    std::memcpy(&value, base + at, 4);
++    return value;
++  }
++  uint32_t Peek(uint32_t index) const { return Swap(PeekRaw(index)); }
++  void CopyRaw(uint8_t* destination, uint32_t dwords) {
++    uint32_t bytes = dwords * 4;
++    const uint32_t first = std::min(bytes, capacity - offset);
++    std::memcpy(destination, base + offset, first);
++    if (bytes > first) std::memcpy(destination + first, base, bytes - first);
++    offset += bytes;
++    if (offset >= capacity) offset -= capacity;
++    remaining = remaining >= bytes ? remaining - bytes : 0;
++  }
++  void Skip(uint32_t dwords) {
++    const uint32_t bytes = dwords * 4;
++    offset += bytes;
++    if (offset >= capacity) offset -= capacity;
++    remaining = remaining >= bytes ? remaining - bytes : 0;
++  }
++};
++
++// The decoder. The FIFO's producer: one thread at a time.
++class Decoder {
++ public:
++  // Packets are handed over in ops of at most this many bytes, and published at least this often.
++  static constexpr uint32_t kPacketsOpBytes = 16 * 1024;
++  // Memory writes not yet executed that an indirect buffer is checked against; more pending
++  // writes than this and every indirect buffer waits for them.
++  static constexpr size_t kPendingWrites = 128;
++  // Decoded bytes after which a draw publishes them.
++  static constexpr uint32_t kPublishBytes = 4 * 1024;
++
++  Decoder(OpRing& ring, Host& host, bool filter, uint64_t bin_mask, uint64_t bin_select)
++      : ring_(ring), host_(host), filter_(filter), bin_mask_(bin_mask), bin_select_(bin_select) {
++    ResetShadow();
++  }
++  DecodeStats& stats() { return stats_; }
++  bool filter() const { return filter_; }
++
++  // ExecutePrimaryBuffer: the ring's dwords from `read_index` to `write_index`, then the read
++  // pointer's write-back. Publishes at the end.
++  void DecodePrimary(const uint8_t* ring_base, uint32_t ring_bytes, uint32_t read_index,
++                     uint32_t write_index) {
++    ++stats_.primaries;
++    EmitSimple(kOpPrimaryBegin, 0);
++    GuestReader reader;
++    reader.base = ring_base;
++    reader.capacity = ring_bytes;
++    reader.offset = (read_index * 4) % ring_bytes;
++    const uint32_t write_offset = (write_index * 4) % ring_bytes;
++    reader.remaining = reader.offset <= write_offset ? write_offset - reader.offset
++                                                     : ring_bytes - reader.offset + write_offset;
++    do {
++      if (!Packet(reader, 0)) break;  // as before: the rest of this part is skipped
++    } while (reader.remaining);
++    EmitSimple(kOpPrimaryEnd, 0);
++    EmitSimple(kOpReadPointer, write_index);
++    Publish();
++  }
++
++  // Ends the open packets op and makes everything visible.
++  void Publish() {
++    ClosePackets();
++    const uint64_t before = ring_.published();
++    ring_.Publish();
++    if (ring_.published() != before) ++publishes_;
++  }
++  uint64_t publishes() const { return publishes_; }
++
++  // The packet at the reader (ExecutePacket). False: the buffer ends here, as it did.
++  bool Packet(GuestReader& reader, int depth) {
++    if (aborted_ || reader.remaining < 4) return false;
++    const uint32_t header_raw = reader.PeekRaw(0);
++    const uint32_t packet = Swap(header_raw);
++    ++stats_.packets;
++    if (!packet || packet == 0x0BADF00D) {
++      reader.Skip(1);  // a bad packet: nothing done
++      return true;
++    }
++    const uint32_t type = packet >> 30;
++    if (type == 2) {
++      reader.Skip(1);
++      return true;
++    }
++    if (type == 1) {
++      if (reader.remaining < 12) return false;
++      Forward(reader, 3);  // two registers below 0x800, never constants
++      return true;
++    }
++    const uint32_t count = ((packet >> 16) & 0x3FFF) + 1;
++    if (reader.remaining - 4 < count * 4) {
++      reader.Skip(1);  // ExecutePacketType*_CountOverflow: false after the header
++      ++stats_.failed;
++      return false;
++    }
++    if (type == 0) {
++      const uint32_t base = packet & 0x7FFF;
++      if ((packet >> 15) & 1) {
++        // Every value to one register: rare, handed over as it is.
++        if (base >= kShadowFirst && base < kShadowFirst + kShadowCount) Forget(base, 1);
++        Forward(reader, 1 + count);
++        return true;
++      }
++      reader.Skip(1);
++      Registers(reader, base, count);
++      return true;
++    }
++    // Type 3.
++    const uint32_t opcode = (packet >> 8) & 0x7F;
++    if (packet & 1) {
++      if (!(bin_select_ & bin_mask_) || opcode == pm4::kXeSwap) {
++        reader.Skip(1 + count);
++        ++stats_.predicated_out;
++        return true;
++      }
++    }
++    switch (opcode) {
++      case pm4::kIndirectBuffer:
++      case pm4::kIndirectBufferPfd: {
++        reader.Skip(1);
++        const uint32_t list_ptr = reader.Read() & 0x1FFFFFFF;  // CpuToGpu
++        const uint32_t list_length = reader.Read() & 0xFFFFF;
++        ++stats_.indirect_buffers;
++        if (list_length) {
++          if (OverlapsPendingWrite(list_ptr, list_length * 4)) {
++            Drain(kSerializeIbWrite);
++          }
++          GuestReader indirect;
++          indirect.base = host_.Translate(list_ptr);
++          indirect.capacity = list_length * 4;
++          indirect.offset = 0;
++          indirect.remaining = list_length * 4;
++          do {
++            if (!Packet(indirect, depth + 1)) break;  // up a level, as before
++          } while (indirect.remaining);
++        }
++        // The handler reads two dwords; any more are read as packets after the buffer, as before
++        // (by the GPU thread, from the op).
++        if (count > 2) Forward(reader, count - 2);
++        return true;
++      }
++      case pm4::kWaitRegMem:
++        // Executed before anything after it is decoded: its condition may depend on what the
++        // stream wrote, and the guest may be waiting for the GPU to get here.
++        Forward(reader, 1 + count);
++        Drain(kSerializeWait);
++        return true;
++      case pm4::kSetBinMaskLo:
++        bin_mask_ = (bin_mask_ & 0xFFFFFFFF00000000ull) | reader.Peek(1);
++        break;
++      case pm4::kSetBinMaskHi:
++        bin_mask_ = (bin_mask_ & 0xFFFFFFFFull) | (uint64_t(reader.Peek(1)) << 32);
++        break;
++      case pm4::kSetBinSelectLo:
++        bin_select_ = (bin_select_ & 0xFFFFFFFF00000000ull) | reader.Peek(1);
++        break;
++      case pm4::kSetBinSelectHi:
++        bin_select_ = (bin_select_ & 0xFFFFFFFFull) | (uint64_t(reader.Peek(1)) << 32);
++        break;
++      case pm4::kSetBinMask:
++        if (count >= 2) bin_mask_ = (uint64_t(reader.Peek(1)) << 32) | reader.Peek(2);
++        break;
++      case pm4::kSetBinSelect:
++        if (count >= 2) bin_select_ = (uint64_t(reader.Peek(1)) << 32) | reader.Peek(2);
++        break;
++      case pm4::kSetConstant: {
++        const uint32_t offset_type = reader.Peek(1);
++        const uint32_t index = offset_type & 0x7FF;
++        static const uint32_t kBases[5] = {0x4000, 0x4800, 0x4900, 0x4908, 0x2000};
++        const uint32_t constant_type = (offset_type >> 16) & 0xFF;
++        if (constant_type > 4) break;  // handed over: the handler skips it
++        reader.Skip(2);
++        Registers(reader, kBases[constant_type] + index, count - 1);
++        return true;
++      }
++      case pm4::kSetConstant2:
++      case pm4::kSetShaderConstants: {
++        const uint32_t index = reader.Peek(1) & 0xFFFF;
++        reader.Skip(2);
++        Registers(reader, index, count - 1);
++        return true;
++      }
++      case pm4::kLoadAluConstant: {
++        // Constants from memory, read by the handler: forgotten here, written there.
++        const uint32_t offset_type = count >= 2 ? reader.Peek(2) : 0;
++        const uint32_t size = count >= 3 ? reader.Peek(3) & 0xFFF : 0;
++        static const uint32_t kBases[5] = {0x4000, 0x4800, 0x4900, 0x4908, 0x2000};
++        const uint32_t constant_type = (offset_type >> 16) & 0xFF;
++        if (constant_type <= 4) Forget(kBases[constant_type] + (offset_type & 0x7FF), size);
++        break;
++      }
++      case pm4::kRegRmw:
++        // May write any register: the shadow constants are forgotten.
++        ResetShadow();
++        ++stats_.shadow_resets;
++        break;
++      case pm4::kCondWrite:
++      case pm4::kMemWrite:
++      case pm4::kRegToMem:
++      case pm4::kEventWriteShd:
++      case pm4::kEventWriteExt: {
++        // Memory writes: noted with the op they are in, for the indirect buffers after them.
++        uint32_t address = 0, bytes = 4;
++        bool known = true;
++        if (opcode == pm4::kCondWrite) {
++          ResetShadow();  // may write a register instead
++          ++stats_.shadow_resets;
++          known = count >= 5;
++          if (known) address = reader.Peek(5);
++        } else if (opcode == pm4::kMemWrite) {
++          address = reader.Peek(1);
++          bytes = (count - 1) * 4;
++        } else {
++          known = count >= 2;
++          if (known) address = reader.Peek(2);
++          if (opcode == pm4::kEventWriteExt) bytes = 12;
++        }
++        Forward(reader, 1 + count);
++        if (known) NotePendingWrite(address, bytes);
++        return true;
++      }
++      case pm4::kDrawIndx:
++      case pm4::kDrawIndx2: {
++        ++stats_.draws;
++        if (DrawFails(opcode, count, reader)) {
++          return Fail(reader, count);
++        }
++        Forward(reader, 1 + count);
++        // Let the GPU thread start on what is decoded, a few KiB at a time.
++        if (ring_.write_position() + (open_ ? OpSpan(open_->bytes) : 0) >=
++            ring_.published() + kPublishBytes) {
++          Publish();
++        }
++        return true;
++      }
++      case pm4::kImLoad:
++      case pm4::kImLoadImmediate: {
++        const uint32_t dword0 = reader.Peek(1);
++        const uint32_t shader_type = opcode == pm4::kImLoad ? (dword0 & 0x3) : dword0;
++        if (shader_type > 1) return Fail(reader, count);
++        Forward(reader, 1 + count);
++        return true;
++      }
++      case pm4::kXeSwap:
++        ++stats_.swaps;
++        Forward(reader, 1 + count);
++        Publish();
++        return true;
++      default:
++        if (!pm4::Known(opcode)) {
++          // HitUnimplementedOpcode: the handler logs it and the buffer ends.
++          return Fail(reader, count);
++        }
++        break;
++    }
++    Forward(reader, 1 + count);
++    return true;
++  }
++
++  // Whether the FIFO ran out of room while stopping: nothing more is decoded.
++  bool aborted() const { return aborted_; }
++  // Whether the shadow holds `index` (for the check).
++  bool ShadowValid(uint32_t index) const {
++    const uint32_t i = index - kShadowFirst;
++    return i < kShadowCount && ((valid_[i >> 6] >> (i & 63)) & 1);
++  }
++
++ private:
++  static bool DrawFails(uint32_t opcode, uint32_t count, const GuestReader& reader) {
++    // ExecutePacketType3Draw's "Packet too small" cases.
++    uint32_t remaining = count;
++    uint32_t at = 1;
++    if (opcode == pm4::kDrawIndx) {
++      --remaining;  // the VIZ query token
++      ++at;
++    }
++    if (!remaining) return true;
++    const uint32_t initiator = reader.Peek(at);
++    --remaining;
++    const uint32_t source_select = (initiator >> 6) & 0x3;
++    if (source_select == 0 /* kDMA */ && remaining < 2) return true;
++    return false;
++  }
++
++  // A packet whose handler returns false: handed over, last in its op (the GPU thread stops
++  // executing its op there, as ExecutePrimaryBuffer and ExecuteIndirectBuffer stopped), and the
++  // buffer ends here too.
++  bool Fail(GuestReader& reader, uint32_t count) {
++    Forward(reader, 1 + count);
++    ClosePackets();
++    ++stats_.failed;
++    return false;
++  }
++  void ResetShadow() { std::memset(valid_, 0, sizeof(valid_)); }
++  void Forget(uint32_t first, uint32_t count) {
++    for (uint32_t index = first; index < first + count; ++index) {
++      const uint32_t i = index - kShadowFirst;
++      if (i < kShadowCount) valid_[i >> 6] &= ~(uint64_t(1) << (i & 63));
++    }
++  }
++
++  void Drain(uint32_t reason) {
++    Publish();
++    ++stats_.serialize[reason];
++    host_.Drain(reason);
++  }
++  bool Reserve(uint32_t payload_bytes) {
++    if (aborted_) return false;
++    if (ring_.RoomNeeded(payload_bytes)) {
++      Publish();
++      ++stats_.serialize[kSerializeRoom];
++      if (!host_.MakeRoom(payload_bytes) || ring_.RoomNeeded(payload_bytes)) {
++        aborted_ = true;
++        return false;
++      }
++    }
++    return true;
++  }
++  void ClosePackets() {
++    if (!open_) return;
++    ring_.Commit();
++    open_ = nullptr;
++  }
++  void EmitSimple(uint32_t kind, uint32_t arg) {
++    ClosePackets();
++    if (!Reserve(0)) return;
++    ring_.Begin(kind, 0, arg);
++    ring_.Commit();
++    ++stats_.ops;
++    stats_.op_bytes += OpSpan(0);
++  }
++  // `dwords` raw dwords at the reader (whole packets) into the open packets op.
++  void Forward(GuestReader& reader, uint32_t dwords) {
++    const uint32_t bytes = dwords * 4;
++    ++stats_.forwarded_packets;
++    if (open_ && open_->bytes + bytes > kPacketsOpBytes) {
++      Publish();
++    }
++    if (!open_) {
++      // Room for the largest this op can grow to.
++      const uint32_t limit = std::max(bytes, kPacketsOpBytes);
++      if (!Reserve(limit)) {
++        reader.Skip(dwords);
++        return;
++      }
++      open_ = ring_.Begin(kOpPackets, limit);
++      ++stats_.ops;
++    }
++    reader.CopyRaw(ring_.Payload(open_) + open_->bytes, dwords);
++    ring_.Grow(bytes);
++    stats_.op_bytes += bytes;
++  }
++  // A run of `count` register values at the reader from register `base`: the unchanged shader
++  // constants are dropped, the rest handed over in runs.
++  void Registers(GuestReader& reader, uint32_t base, uint32_t count) {
++    ClosePackets();
++    stats_.registers_written += count;
++    uint32_t index = base;
++    uint32_t left = count;
++    while (left) {
++      // Skip the unchanged constants at the start.
++      if (filter_) {
++        while (left) {
++          const uint32_t raw = reader.PeekRaw(0);
++          if (!Unchanged(index, raw)) break;
++          reader.Skip(1);
++          ++index;
++          --left;
++          ++stats_.registers_dropped;
++        }
++        if (!left) break;
++      }
++      // A run up to the next unchanged constant.
++      if (!Reserve(left * 4)) {
++        reader.Skip(left);
++        return;
++      }
++      OpHeader* op = ring_.Begin(kOpRegisters, left * 4, index);
++      uint8_t* out = ring_.Payload(op);
++      uint32_t run = 0;
++      while (left) {
++        const uint32_t raw = reader.PeekRaw(0);
++        if (filter_ && run && Unchanged(index, raw)) break;
++        Learn(index, raw);
++        std::memcpy(out + run * 4, &raw, 4);
++        reader.Skip(1);
++        ++index;
++        --left;
++        ++run;
++      }
++      ring_.Grow(run * 4);
++      ring_.Commit();
++      ++stats_.ops;
++      ++stats_.register_runs;
++      stats_.op_bytes += OpSpan(run * 4);
++    }
++  }
++  bool Unchanged(uint32_t index, uint32_t raw) const {
++    if (!Filterable(index)) return false;
++    const uint32_t i = index - kShadowFirst;
++    return ((valid_[i >> 6] >> (i & 63)) & 1) && shadow_[i] == raw;
++  }
++  void Learn(uint32_t index, uint32_t raw) {
++    const uint32_t i = index - kShadowFirst;
++    if (i >= kShadowCount || !Filterable(index)) return;
++    shadow_[i] = raw;
++    valid_[i >> 6] |= uint64_t(1) << (i & 63);
++  }
++
++  // Memory writes by packets not yet executed: the position where the op that holds them starts
++  // (the open op's, or the next one's). `retired` is always the end of an executed op, so once it
++  // is past that position the op has been executed.
++  void NotePendingWrite(uint32_t address, uint32_t bytes) {
++    if (!open_) return;  // aborted
++    PendingWrite& write = pending_[pending_next_++ % kPendingWrites];
++    write.position = ring_.write_position();  // where the open op starts
++    write.first = address & 0x1FFFFFFF;
++    write.last = write.first + (bytes ? bytes - 1 : 0);
++  }
++  bool OverlapsPendingWrite(uint32_t address, uint32_t bytes) {
++    const uint64_t retired = ring_.retired();
++    const size_t known = std::min<size_t>(pending_next_, kPendingWrites);
++    if (pending_next_ > kPendingWrites) {
++      // Older writes were overwritten: the oldest kept must be executed, else assume overlap.
++      const PendingWrite& oldest = pending_[pending_next_ % kPendingWrites];
++      if (oldest.position >= retired) return true;
++    }
++    const uint32_t first = address & 0x1FFFFFFF, last = first + bytes - 1;
++    for (size_t n = 0; n < known; ++n) {
++      const PendingWrite& write = pending_[n];
++      if (write.position < retired) continue;  // executed
++      if (write.first <= last && first <= write.last) return true;
++    }
++    return false;
++  }
++  struct PendingWrite {
++    uint64_t position = 0;
++    uint32_t first = 0, last = 0;
++  };
++
++  OpRing& ring_;
++  Host& host_;
++  bool filter_;
++  uint64_t bin_mask_, bin_select_;
++  OpHeader* open_ = nullptr;
++  bool aborted_ = false;
++  uint64_t publishes_ = 0;
++  uint32_t shadow_[kShadowCount] = {};
++  uint64_t valid_[(kShadowCount + 63) / 64] = {};
++  PendingWrite pending_[kPendingWrites];
++  size_t pending_next_ = 0;
++  DecodeStats stats_;
++};
++
++}  // namespace parallel_record
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index a18d529..cbed166 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -59,6 +59,12 @@
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
+ DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/hang_watch.hpp"  // fix 142: the GPU thread's marks in its own loop
++namespace xbox360ps5 {
++void PlaceCallingThreadBesideGpu();  // fix 142 (platform/ps5/thread_place.cpp)
++}
++#endif
+ // Xbox360PS5, fix 134 (async_submit.h): chunks of a frame handed to a submit worker. Per game in
+ // assets/config/<title>.config.toml ([GPU]), or live in async-submit.txt in the title folder.
+ DEFINE_uint32(gpu_async_submit, 0,
+@@ -69,6 +75,25 @@ DEFINE_uint32(gpu_async_submit, 0,
+ DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
+               "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
+               "GPU");
++// Xbox360PS5, fix 142 (parallel_record.h): the frame's command processing split over two threads,
++// a prototype, off by default. Per game in assets/config/<title>.config.toml ([GPU]), or in
++// parallel-record.txt in the title folder (read when the GPU thread starts).
++DEFINE_uint32(gpu_parallel_record, 0,
++              "0: the GPU command thread parses and executes the command stream as before; 1: a "
++              "decode thread parses it and hands ops to the GPU command thread; 2: the same ops, "
++              "decoded and executed by the GPU command thread alone.",
++              "GPU");
++DEFINE_uint32(gpu_parallel_record_fifo_kib, 4096,
++              "The FIFO of ops between gpu_parallel_record's threads, in KiB (256 to 65536).",
++              "GPU");
++DEFINE_bool(gpu_parallel_record_filter, true,
++            "With gpu_parallel_record, the decode thread drops shader constant writes that leave "
++            "the constant unchanged (with vulkan_skip_redundant_constants).",
++            "GPU");
++DEFINE_bool(gpu_parallel_record_sibling, false,
++            "With gpu_parallel_record 1, the decode thread runs on the other half of the GPU "
++            "command thread's core (CPU 3) instead of the CPUs the other threads share.",
++            "GPU");
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -1705,6 +1730,426 @@ void VulkanCommandProcessor::StopAsyncSubmit() {
+   async_command_buffers_.clear();
+ }
+ 
++#if XE_PLATFORM_PS5
++// Fix 142 (parallel_record.h): the frame's command processing split over two threads.
++static_assert(parallel_record::pm4::kNop == xenos::PM4_NOP &&
++                  parallel_record::pm4::kRegRmw == xenos::PM4_REG_RMW &&
++                  parallel_record::pm4::kDrawIndx == xenos::PM4_DRAW_INDX &&
++                  parallel_record::pm4::kVizQuery == xenos::PM4_VIZ_QUERY &&
++                  parallel_record::pm4::kWaitForIdle == xenos::PM4_WAIT_FOR_IDLE &&
++                  parallel_record::pm4::kImLoad == xenos::PM4_IM_LOAD &&
++                  parallel_record::pm4::kImLoadImmediate == xenos::PM4_IM_LOAD_IMMEDIATE &&
++                  parallel_record::pm4::kSetConstant == xenos::PM4_SET_CONSTANT &&
++                  parallel_record::pm4::kLoadAluConstant == xenos::PM4_LOAD_ALU_CONSTANT &&
++                  parallel_record::pm4::kDrawIndx2 == xenos::PM4_DRAW_INDX_2 &&
++                  parallel_record::pm4::kIndirectBufferPfd == xenos::PM4_INDIRECT_BUFFER_PFD &&
++                  parallel_record::pm4::kInvalidateState == xenos::PM4_INVALIDATE_STATE &&
++                  parallel_record::pm4::kWaitRegMem == xenos::PM4_WAIT_REG_MEM &&
++                  parallel_record::pm4::kMemWrite == xenos::PM4_MEM_WRITE &&
++                  parallel_record::pm4::kRegToMem == xenos::PM4_REG_TO_MEM &&
++                  parallel_record::pm4::kIndirectBuffer == xenos::PM4_INDIRECT_BUFFER &&
++                  parallel_record::pm4::kCondWrite == xenos::PM4_COND_WRITE &&
++                  parallel_record::pm4::kEventWrite == xenos::PM4_EVENT_WRITE &&
++                  parallel_record::pm4::kMeInit == xenos::PM4_ME_INIT &&
++                  parallel_record::pm4::kSetBinMask == xenos::PM4_SET_BIN_MASK &&
++                  parallel_record::pm4::kSetBinSelect == xenos::PM4_SET_BIN_SELECT &&
++                  parallel_record::pm4::kInterrupt == xenos::PM4_INTERRUPT &&
++                  parallel_record::pm4::kSetConstant2 == xenos::PM4_SET_CONSTANT2 &&
++                  parallel_record::pm4::kSetShaderConstants == xenos::PM4_SET_SHADER_CONSTANTS &&
++                  parallel_record::pm4::kEventWriteShd == xenos::PM4_EVENT_WRITE_SHD &&
++                  parallel_record::pm4::kEventWriteExt == xenos::PM4_EVENT_WRITE_EXT &&
++                  parallel_record::pm4::kEventWriteZpd == xenos::PM4_EVENT_WRITE_ZPD &&
++                  parallel_record::pm4::kWaitIbPfdComplete == xenos::PM4_WAIT_IB_PFD_COMPLETE &&
++                  parallel_record::pm4::kContextUpdate == xenos::PM4_CONTEXT_UPDATE &&
++                  parallel_record::pm4::kSetBinMaskLo == xenos::PM4_SET_BIN_MASK_LO &&
++                  parallel_record::pm4::kSetBinMaskHi == xenos::PM4_SET_BIN_MASK_HI &&
++                  parallel_record::pm4::kSetBinSelectLo == xenos::PM4_SET_BIN_SELECT_LO &&
++                  parallel_record::pm4::kSetBinSelectHi == xenos::PM4_SET_BIN_SELECT_HI &&
++                  parallel_record::pm4::kXeSwap == xenos::PM4_XE_SWAP,
++              "fix 142: the PM4 opcodes of xenos.h");
++static_assert(parallel_record::kFloatFirst == XE_GPU_REG_SHADER_CONSTANT_000_X &&
++                  parallel_record::kFloatLast == XE_GPU_REG_SHADER_CONSTANT_511_W &&
++                  parallel_record::kFetchFirst == XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
++                  parallel_record::kFetchLast == XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 &&
++                  parallel_record::kBoolLoopFirst == XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
++                  parallel_record::kBoolLoopLast == XE_GPU_REG_SHADER_CONSTANT_LOOP_31,
++              "fix 142: the constant ranges of register_table.inc");
++static_assert(parallel_record::kSerializeReasons ==
++                  xbox360ps5::frame_cost::kParallelSerializeReasons,
++              "fix 142: the serialization reasons of the log line");
++
++class VulkanCommandProcessor::ParallelRecordHost : public parallel_record::Host {
++ public:
++  explicit ParallelRecordHost(VulkanCommandProcessor& processor) : processor_(processor) {}
++  const uint8_t* Translate(uint32_t guest_address) override {
++    return processor_.memory_->TranslatePhysical(guest_address);
++  }
++  void Drain(uint32_t reason) override { processor_.ParallelDrain(reason); }
++  bool MakeRoom(uint32_t payload_bytes) override {
++    return processor_.ParallelMakeRoom(payload_bytes);
++  }
++
++ private:
++  VulkanCommandProcessor& processor_;
++};
++
++// The settings come from the cvars and, when it exists, parallel-record.txt in the title folder,
++// read once here. Off (the default), nothing else is done: the GPU thread's loop runs as before.
++bool VulkanCommandProcessor::RunParallelRecord() {
++  namespace fc = xbox360ps5::frame_cost;
++  parallel_record::Settings settings;
++  settings.mode = std::min<uint32_t>(cvars::gpu_parallel_record, parallel_record::kModes - 1);
++  settings.fifo_kib =
++      std::min<uint32_t>(std::max<uint32_t>(cvars::gpu_parallel_record_fifo_kib, 256), 65536);
++  settings.filter = cvars::gpu_parallel_record_filter ? 1 : 0;
++  settings.sibling = cvars::gpu_parallel_record_sibling ? 1 : 0;
++  const char* const path = XBOX360PS5_DATA_ROOT "/parallel-record.txt";
++  int not_understood = 0;
++  bool from_file = false;
++  if (FILE* file = std::fopen(path, "rb")) {
++    std::string text;
++    char chunk[1024];
++    size_t got;
++    while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++    std::fclose(file);
++    not_understood = parallel_record::Parse(text, settings);
++    from_file = true;
++  }
++  if (settings.mode == parallel_record::kOff) {
++    return false;
++  }
++  parallel_settings_ = settings;
++  const bool filter = settings.filter && cvars::vulkan_skip_redundant_constants;
++  fc::parallel_mode_now.store(settings.mode, std::memory_order_relaxed);
++  fc::parallel_fifo_kib_now.store(settings.fifo_kib, std::memory_order_relaxed);
++  fc::parallel_filter_now.store(filter ? 1 : 0, std::memory_order_relaxed);
++  XELOGW(
++      "Parallel record (fix 142): mode {} ({}), FIFO {} KiB, unchanged constants {}, decode "
++      "thread {}, from {}{}",
++      settings.mode, parallel_record::ModeName(settings.mode), settings.fifo_kib,
++      filter ? "dropped by the decoder" : "written",
++      settings.mode != parallel_record::kThread ? "none"
++      : settings.sibling                        ? "beside the GPU thread (CPU 3)"
++                                                : "on the shared CPUs",
++      from_file ? path : "the settings",
++      not_understood ? fmt::format(", {} lines not understood", not_understood) : std::string());
++  parallel_ring_ =
++      std::make_unique<parallel_record::OpRing>(size_t(settings.fifo_kib) * 1024);
++  parallel_host_ = std::make_unique<ParallelRecordHost>(*this);
++  parallel_decoder_ = std::make_unique<parallel_record::Decoder>(
++      *parallel_ring_, *parallel_host_, filter, bin_mask_, bin_select_);
++  if (settings.mode == parallel_record::kThread) {
++    parallel_front_thread_ = kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
++        kernel_state_, 256 * 1024, 0,
++        [this]() {
++          ParallelFrontLoop();
++          return 0;
++        },
++        kernel_state_->GetIdleProcess()));
++    parallel_front_thread_->set_name("GPU Decode");
++    parallel_front_thread_->Create();
++    ParallelBackLoop();
++    parallel_front_thread_->Wait(0, 0, 0, nullptr);
++    parallel_front_thread_.reset();
++  } else {
++    ParallelInlineLoop();
++  }
++  XELOGW("Parallel record (fix 142): stopped");
++  parallel_decoder_.reset();
++  parallel_host_.reset();
++  parallel_ring_.reset();
++  return true;
++}
++
++// Mode 1, the decode thread: CommandProcessor::WorkerThreadMain's ring loop, decoding instead of
++// executing. It owns read_ptr_index_ from here on; the read pointer reaches the guest through
++// kOpReadPointer, once the GPU thread has executed what is before it.
++void VulkanCommandProcessor::ParallelFrontLoop() {
++  namespace fc = xbox360ps5::frame_cost;
++  if (parallel_settings_.sibling) {
++    xbox360ps5::PlaceCallingThreadBesideGpu();
++  }
++  XELOGW("Parallel record (fix 142): the decode thread started");
++  while (worker_running_) {
++    uint32_t write_ptr_index = write_ptr_index_.load();
++    if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
++      parallel_decoder_->Publish();
++      parallel_front_idle_.store(true, std::memory_order_seq_cst);
++      parallel_ring_->Wake();
++      const uint64_t idle_start = fc::NowNs();
++      uint32_t loop_count = 0;
++      do {
++        if (loop_count > 500) {
++          xe::threading::Wait(write_ptr_index_event_.get(), true, std::chrono::milliseconds(2));
++        } else {
++          xe::threading::MaybeYield();
++        }
++        ++loop_count;
++        write_ptr_index = write_ptr_index_.load();
++      } while (worker_running_ &&
++               (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index));
++      parallel_front_idle_.store(false, std::memory_order_seq_cst);
++      fc::parallel_ring_wait_ns.fetch_add(fc::NowNs() - idle_start, std::memory_order_relaxed);
++      continue;
++    }
++    xbox360ps5::cp_trace::Global().SetPointers(read_ptr_index_, write_ptr_index);
++    const uint64_t start = fc::NowNs();
++    const uint64_t waited_before = parallel_front_waited_ns_;
++    parallel_decoder_->DecodePrimary(memory_->TranslatePhysical(primary_buffer_ptr_),
++                                     primary_buffer_size_, read_ptr_index_, write_ptr_index);
++    const uint64_t spent = fc::NowNs() - start;
++    const uint64_t waited = parallel_front_waited_ns_ - waited_before;
++    fc::parallel_decode_ns.fetch_add(spent > waited ? spent - waited : 0,
++                                     std::memory_order_relaxed);
++    read_ptr_index_ = write_ptr_index;
++    FlushParallelStats();
++    if (parallel_decoder_->aborted()) break;
++  }
++  parallel_decoder_->Publish();
++  parallel_front_done_.store(true, std::memory_order_seq_cst);
++  parallel_ring_->Wake();
++}
++
++// Mode 1, the GPU thread: executes the ops in order. With nothing published it waits as the ring
++// loop did when the decode thread waits for the guest (PrepareForWait, fix 49's idle time, the
++// hang watch's idle mark), and only spins when the decode thread is still at work ("starved").
++void VulkanCommandProcessor::ParallelBackLoop() {
++  namespace fc = xbox360ps5::frame_cost;
++  bool prepared = false;
++  for (;;) {
++    while (!pending_fns_.empty()) {
++      auto fn = std::move(pending_fns_.front());
++      pending_fns_.pop();
++      fn();
++    }
++    const parallel_record::OpHeader* op = parallel_ring_->Front();
++    if (!op) {
++      if (parallel_front_done_.load(std::memory_order_seq_cst)) {
++        if (!parallel_ring_->Front()) break;
++        continue;
++      }
++      const uint64_t wait_start = fc::NowNs();
++      if (parallel_front_idle_.load(std::memory_order_seq_cst)) {
++        if (!prepared) {
++          PrepareForWait();
++          prepared = true;
++        } else if (zpd_mode_ == ZPDMode::kStrict && zpd_awaited_report_count_) {
++          PrepareForWait();
++        }
++        xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuIdle);
++        parallel_ring_->WaitForOps(std::chrono::microseconds(2000), 200);
++        const uint64_t waited = fc::NowNs() - wait_start;
++        fc::parallel_idle_ns.fetch_add(waited, std::memory_order_relaxed);
++        fc::totals.idle_ns.fetch_add(waited, std::memory_order_relaxed);
++      } else {
++        parallel_ring_->WaitForOps(std::chrono::microseconds(200), 4000);
++        const uint64_t waited = fc::NowNs() - wait_start;
++        fc::parallel_starved_ns.fetch_add(waited, std::memory_order_relaxed);
++        fc::totals.idle_ns.fetch_add(waited, std::memory_order_relaxed);
++      }
++      continue;
++    }
++    if (prepared) {
++      ReturnFromWait();
++      prepared = false;
++    }
++    xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuExecute);
++    const uint64_t start = fc::NowNs();
++    do {
++      ExecuteParallelOp(*op, parallel_ring_->Payload(op));
++      parallel_ring_->Pop();
++    } while (pending_fns_.empty() && (op = parallel_ring_->Front()));
++    const uint64_t spent = fc::NowNs() - start;
++    fc::parallel_execute_ns.fetch_add(spent, std::memory_order_relaxed);
++    fc::totals.execute_ns.fetch_add(spent, std::memory_order_relaxed);
++  }
++  if (prepared) {
++    ReturnFromWait();
++  }
++}
++
++// Mode 2: WorkerThreadMain's loop with each part of the ring decoded into ops and the ops then
++// executed, on the GPU thread alone (WAIT_REG_MEM and a full FIFO execute what is decoded).
++void VulkanCommandProcessor::ParallelInlineLoop() {
++  namespace fc = xbox360ps5::frame_cost;
++  while (worker_running_) {
++    while (!pending_fns_.empty()) {
++      auto fn = std::move(pending_fns_.front());
++      pending_fns_.pop();
++      fn();
++    }
++    uint32_t write_ptr_index = write_ptr_index_.load();
++    xbox360ps5::cp_trace::Global().SetPointers(read_ptr_index_, write_ptr_index);
++    if (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index) {
++      PrepareForWait();
++      const uint64_t idle_start = fc::NowNs();
++      uint32_t loop_count = 0;
++      do {
++        if (loop_count > 500) {
++          xe::threading::Wait(write_ptr_index_event_.get(), true, std::chrono::milliseconds(2));
++          if (zpd_mode_ == ZPDMode::kStrict && zpd_awaited_report_count_) {
++            PrepareForWait();
++          }
++        } else {
++          xe::threading::MaybeYield();
++        }
++        xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuIdle);
++        ++loop_count;
++        write_ptr_index = write_ptr_index_.load();
++      } while (worker_running_ && pending_fns_.empty() &&
++               (write_ptr_index == 0xBAADF00D || read_ptr_index_ == write_ptr_index));
++      const uint64_t idle = fc::NowNs() - idle_start;
++      fc::totals.idle_ns.fetch_add(idle, std::memory_order_relaxed);
++      fc::parallel_idle_ns.fetch_add(idle, std::memory_order_relaxed);
++      ReturnFromWait();
++      if (!worker_running_ || !pending_fns_.empty()) {
++        continue;
++      }
++    }
++    xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuExecute);
++    const uint64_t start = fc::NowNs();
++    const uint64_t waited_before = parallel_front_waited_ns_;
++    parallel_decoder_->DecodePrimary(memory_->TranslatePhysical(primary_buffer_ptr_),
++                                     primary_buffer_size_, read_ptr_index_, write_ptr_index);
++    const uint64_t decoded = fc::NowNs();
++    const uint64_t executed_inside = parallel_front_waited_ns_ - waited_before;
++    const uint64_t decode_ns = decoded - start;
++    fc::parallel_decode_ns.fetch_add(decode_ns > executed_inside ? decode_ns - executed_inside : 0,
++                                     std::memory_order_relaxed);
++    ExecuteParallelOps();
++    fc::totals.execute_ns.fetch_add(fc::NowNs() - start, std::memory_order_relaxed);
++    read_ptr_index_ = write_ptr_index;
++    FlushParallelStats();
++  }
++}
++
++void VulkanCommandProcessor::ExecuteParallelOps() {
++  namespace fc = xbox360ps5::frame_cost;
++  const uint64_t start = fc::NowNs();
++  while (const parallel_record::OpHeader* op = parallel_ring_->Front()) {
++    ExecuteParallelOp(*op, parallel_ring_->Payload(op));
++    parallel_ring_->Pop();
++  }
++  fc::parallel_execute_ns.fetch_add(fc::NowNs() - start, std::memory_order_relaxed);
++}
++
++// An op does what the packets it stands for did (ExecutePrimaryBuffer, ExecutePacket and fix
++// 103's runs).
++void VulkanCommandProcessor::ExecuteParallelOp(const parallel_record::OpHeader& op,
++                                               const uint8_t* payload) {
++  switch (op.kind) {
++    case parallel_record::kOpPackets: {
++      if (!op.bytes) break;
++      RingBuffer old_reader = reader_;
++      new (&reader_) RingBuffer(const_cast<uint8_t*>(payload), op.bytes);
++      reader_.set_write_offset(op.bytes);
++      do {
++        if (!ExecutePacket()) {
++          // The decoder ended its buffer after this packet too.
++          break;
++        }
++      } while (reader_.read_count());
++      reader_ = old_reader;
++    } break;
++    case parallel_record::kOpRegisters:
++      WriteRegistersSwapped(op.arg, reinterpret_cast<const uint32_t*>(payload), op.bytes / 4);
++      break;
++    case parallel_record::kOpPrimaryBegin:
++      ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87
++      CheckContentUnits();                            // fix 125
++      break;
++    case parallel_record::kOpPrimaryEnd:
++      OnPrimaryBufferEnd();
++      break;
++    case parallel_record::kOpReadPointer:
++      if (read_ptr_writeback_ptr_) {
++        xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(read_ptr_writeback_ptr_),
++                                     op.arg);
++      }
++      break;
++    default:
++      break;
++  }
++}
++
++// The decoder waits for every published op to be executed (WAIT_REG_MEM, an indirect buffer over
++// a pending memory write): mode 1 waits for the GPU thread, mode 2 executes them here.
++void VulkanCommandProcessor::ParallelDrain(uint32_t reason) {
++  namespace fc = xbox360ps5::frame_cost;
++  const uint64_t start = fc::NowNs();
++  if (parallel_settings_.mode == parallel_record::kInline) {
++    ExecuteParallelOps();
++  } else {
++    parallel_ring_->WaitRetired(parallel_ring_->published(),
++                                [this]() { return !worker_running_; });
++  }
++  const uint64_t waited = fc::NowNs() - start;
++  parallel_front_waited_ns_ += waited;
++  fc::parallel_drain_wait_ns.fetch_add(waited, std::memory_order_relaxed);
++}
++
++bool VulkanCommandProcessor::ParallelMakeRoom(uint32_t payload_bytes) {
++  namespace fc = xbox360ps5::frame_cost;
++  const uint64_t start = fc::NowNs();
++  bool room = true;
++  if (parallel_settings_.mode == parallel_record::kInline) {
++    ExecuteParallelOps();
++  } else {
++    while (const uint64_t needed = parallel_ring_->RoomNeeded(payload_bytes)) {
++      if (!worker_running_) {
++        room = false;
++        break;
++      }
++      parallel_ring_->WaitRetired(parallel_ring_->retired() + needed,
++                                  [this]() { return !worker_running_; });
++    }
++  }
++  const uint64_t waited = fc::NowNs() - start;
++  parallel_front_waited_ns_ += waited;
++  fc::parallel_room_wait_ns.fetch_add(waited, std::memory_order_relaxed);
++  return room;
++}
++
++void VulkanCommandProcessor::FlushParallelStats() {
++  namespace fc = xbox360ps5::frame_cost;
++  const parallel_record::DecodeStats& now = parallel_decoder_->stats();
++  parallel_record::DecodeStats& last = parallel_stats_flushed_;
++  const auto add = [](std::atomic<uint64_t>& counter, uint64_t now_value, uint64_t& last_value) {
++    if (now_value != last_value) {
++      counter.fetch_add(now_value - last_value, std::memory_order_relaxed);
++      last_value = now_value;
++    }
++  };
++  add(fc::parallel_packets, now.packets, last.packets);
++  add(fc::parallel_forwarded, now.forwarded_packets, last.forwarded_packets);
++  add(fc::parallel_predicated, now.predicated_out, last.predicated_out);
++  add(fc::parallel_runs, now.register_runs, last.register_runs);
++  add(fc::parallel_registers, now.registers_written, last.registers_written);
++  add(fc::parallel_dropped, now.registers_dropped, last.registers_dropped);
++  add(fc::parallel_resets, now.shadow_resets, last.shadow_resets);
++  add(fc::parallel_indirect, now.indirect_buffers, last.indirect_buffers);
++  add(fc::parallel_draws, now.draws, last.draws);
++  add(fc::parallel_primaries, now.primaries, last.primaries);
++  add(fc::parallel_failed, now.failed, last.failed);
++  add(fc::parallel_ops, now.ops, last.ops);
++  add(fc::parallel_op_bytes, now.op_bytes, last.op_bytes);
++  for (uint32_t n = 0; n < parallel_record::kSerializeReasons; ++n) {
++    add(fc::parallel_serialize[n], now.serialize[n], last.serialize[n]);
++  }
++  static uint64_t publishes_flushed = 0;
++  const uint64_t publishes = parallel_decoder_->publishes();
++  fc::parallel_publishes.fetch_add(publishes - publishes_flushed, std::memory_order_relaxed);
++  publishes_flushed = publishes;
++  // How far ahead the decoder is: decoded and not yet executed.
++  const uint64_t ahead = parallel_ring_->published() - parallel_ring_->retired();
++  fc::parallel_ahead_sum.fetch_add(ahead, std::memory_order_relaxed);
++  fc::parallel_ahead_samples.fetch_add(1, std::memory_order_relaxed);
++  if (ahead > fc::parallel_ahead_max.load(std::memory_order_relaxed)) {
++    fc::parallel_ahead_max.store(ahead, std::memory_order_relaxed);
++  }
++}
++#endif  // XE_PLATFORM_PS5
++
+ void VulkanCommandProcessor::ShutdownContext() {
+   StopAsyncSubmit();  // fix 134
+   AwaitAllQueueOperationsCompletion();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 28aeba4..e63b5f4 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -31,6 +31,7 @@
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
+ #include "xenia/gpu/vulkan/readback_slots.h"
+ #include "xenia/gpu/vulkan/async_submit.h"  // fix 134
++#include "xenia/gpu/vulkan/parallel_record.h"  // fix 142
+ #include "xenia/gpu/vulkan/readback_batching.h"  // fix 133
+ #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+@@ -762,6 +763,35 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   void StopAsyncSubmit();
+   bool AwaitSubmissionDrained(uint64_t submission);
+ 
++#if XE_PLATFORM_PS5
++  // Fix 142 (parallel_record.h): with gpu_parallel_record on, a decode thread walks the ring and
++  // hands ops to this thread through parallel_ring_ (mode 1), or this thread does both (mode 2).
++  // Off, RunParallelRecord returns false before making any of this.
++  class ParallelRecordHost;
++  bool RunParallelRecord() override;
++  void ParallelFrontLoop();
++  void ParallelBackLoop();
++  void ParallelInlineLoop();
++  // Executes the published ops (mode 2, and nothing else on the decode thread's side).
++  void ExecuteParallelOps();
++  void ExecuteParallelOp(const parallel_record::OpHeader& op, const uint8_t* payload);
++  void ParallelDrain(uint32_t reason);
++  bool ParallelMakeRoom(uint32_t payload_bytes);
++  // The decoder's counters since the last call, into fix 142's line (the decoding thread).
++  void FlushParallelStats();
++  parallel_record::Settings parallel_settings_;
++  std::unique_ptr<parallel_record::OpRing> parallel_ring_;
++  std::unique_ptr<ParallelRecordHost> parallel_host_;
++  std::unique_ptr<parallel_record::Decoder> parallel_decoder_;
++  kernel::object_ref<kernel::XHostThread> parallel_front_thread_;
++  // The decode thread waits for the guest (the ring is empty), and has ended.
++  std::atomic<bool> parallel_front_idle_{false};
++  std::atomic<bool> parallel_front_done_{false};
++  // Time the decoding thread waited in Drain and MakeRoom (its own), for its decoding time.
++  uint64_t parallel_front_waited_ns_ = 0;
++  parallel_record::DecodeStats parallel_stats_flushed_;
++#endif  // XE_PLATFORM_PS5
++
+   VkBuffer viz_predicate_buffer_ = VK_NULL_HANDLE;
+   VkDeviceMemory viz_predicate_buffer_memory_ = VK_NULL_HANDLE;
+   bool viz_predicate_buffer_failed_ = false;
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+index b964291..9340ecf 100644
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1175,6 +1175,72 @@ class AsyncSubmitReporter {
+   uint64_t last_kept_[4] = {};
+ };
+ 
++// Fix 142 (xenia/gpu/vulkan/parallel_record.h): the frame's command processing split over two
++// threads. The decode thread's time (decoding; waiting for the guest's ring, for room in the FIFO,
++// for the GPU thread to drain it), the GPU thread's (executing the ops; with none, starved while
++// the decoder works, idle while it waits for the guest), what was decoded, the serializations by
++// reason (wait: WAIT_REG_MEM, room: the FIFO full, ib-write: an indirect buffer over a memory write
++// not yet executed) and how far ahead the decoder ran. In mode 2 both parts are the GPU thread's.
++// "Frame time parallel record (fix 142, mode m (...), FIFO k KiB, filter f): decode d ms/s,
++// waiting for the ring r, room o, drains w; GPU thread executing e ms/s, starved s, idle i; per
++// frame: batches b, ring parts p, draws n, indirect buffers x, ops y (z KiB); registers u/s,
++// dropped unchanged v/s (q%); serialized per frame: wait a, room b, ib-write c; ahead avg A KiB,
++// max M KiB; packets handed over h/s, predicated out t/s, shadow resets j/s, buffers ended early
++// g". Off: "Frame time parallel record (fix 142): off".
++constexpr uint32_t kParallelSerializeReasons = 3;
++inline std::atomic<uint64_t> parallel_decode_ns{0}, parallel_ring_wait_ns{0}, parallel_room_wait_ns{0},
++    parallel_drain_wait_ns{0}, parallel_execute_ns{0}, parallel_starved_ns{0}, parallel_idle_ns{0};
++inline std::atomic<uint64_t> parallel_packets{0}, parallel_forwarded{0}, parallel_predicated{0}, parallel_runs{0},
++    parallel_registers{0}, parallel_dropped{0}, parallel_resets{0}, parallel_indirect{0}, parallel_draws{0},
++    parallel_primaries{0}, parallel_failed{0}, parallel_ops{0}, parallel_op_bytes{0}, parallel_publishes{0};
++inline std::array<std::atomic<uint64_t>, kParallelSerializeReasons> parallel_serialize{};
++inline std::atomic<uint64_t> parallel_ahead_sum{0}, parallel_ahead_samples{0}, parallel_ahead_max{0};
++inline std::atomic<uint32_t> parallel_mode_now{0}, parallel_fifo_kib_now{0}, parallel_filter_now{0};
++class ParallelRecordReporter {
++ public:
++  std::string Line(double seconds, uint64_t frames) {
++    const uint32_t mode = parallel_mode_now.load(std::memory_order_relaxed);
++    if (!mode) return "Frame time parallel record (fix 142): off";
++    const double s = seconds > 0 ? seconds : 1;
++    const double f = frames ? double(frames) : 1.0;
++    const std::atomic<uint64_t>* const counters[kCounters] = {
++        &parallel_decode_ns, &parallel_ring_wait_ns, &parallel_room_wait_ns, &parallel_drain_wait_ns,
++        &parallel_execute_ns, &parallel_starved_ns, &parallel_idle_ns, &parallel_publishes,
++        &parallel_primaries, &parallel_draws, &parallel_indirect, &parallel_ops,
++        &parallel_op_bytes, &parallel_registers, &parallel_dropped, &parallel_serialize[0],
++        &parallel_serialize[1], &parallel_serialize[2], &parallel_ahead_sum, &parallel_ahead_samples,
++        &parallel_forwarded, &parallel_predicated, &parallel_resets, &parallel_failed};
++    double d[kCounters];
++    for (int n = 0; n < kCounters; ++n) {
++      const uint64_t now = counters[n]->load(std::memory_order_relaxed);
++      d[n] = double(now - last_[n]);
++      last_[n] = now;
++    }
++    const double ahead_max = double(parallel_ahead_max.exchange(0, std::memory_order_relaxed));
++    const char* const mode_name = mode == 1 ? "a decode thread" : "decoded on the GPU thread";
++    char text[768];
++    std::snprintf(text, sizeof(text),
++                  "Frame time parallel record (fix 142, mode %u (%s), FIFO %u KiB, filter %u): decode %.1f ms/s, "
++                  "waiting for the ring %.1f, room %.1f, drains %.1f; GPU thread executing %.1f ms/s, starved %.1f, "
++                  "idle %.1f; per frame: batches %.1f, ring parts %.1f, draws %.0f, indirect buffers %.1f, ops %.0f "
++                  "(%.1f KiB); registers %.0f/s, dropped unchanged %.0f/s (%.1f%%); serialized per frame: wait %.2f, "
++                  "room %.2f, ib-write %.2f; ahead avg %.1f KiB, max %.1f KiB; packets handed over %.0f/s, "
++                  "predicated out %.0f/s, shadow resets %.0f/s, buffers ended early %.0f",
++                  mode, mode_name, parallel_fifo_kib_now.load(std::memory_order_relaxed),
++                  parallel_filter_now.load(std::memory_order_relaxed), d[0] / 1e6 / s, d[1] / 1e6 / s,
++                  d[2] / 1e6 / s, d[3] / 1e6 / s, d[4] / 1e6 / s, d[5] / 1e6 / s, d[6] / 1e6 / s, d[7] / f,
++                  d[8] / f, d[9] / f, d[10] / f, d[11] / f, d[12] / 1024.0 / f, d[13] / s, d[14] / s,
++                  d[13] > 0 ? 100.0 * d[14] / d[13] : 0.0, d[15] / f, d[16] / f, d[17] / f,
++                  d[19] > 0 ? d[18] / d[19] / 1024.0 : 0.0, ahead_max / 1024.0, d[20] / s, d[21] / s,
++                  d[22] / s, d[23]);
++    return text;
++  }
++
++ private:
++  static constexpr int kCounters = 24;
++  uint64_t last_[kCounters] = {};
++};
++
+ // "Frame time uploads (GPU thread): ..." since its previous line.
+ class UploadReporter {
+  public:
+diff --git a/include/xbox360ps5/thread_place.hpp b/include/xbox360ps5/thread_place.hpp
+index 3738552..9577caf 100644
+--- a/include/xbox360ps5/thread_place.hpp
++++ b/include/xbox360ps5/thread_place.hpp
+@@ -17,6 +17,8 @@ void DescribeThread(char* out, size_t size);
+ // thread calls this when it starts; the GPU command thread calls it again as
+ // itself.
+ void PlaceCallingThread(bool gpu);
++// Fix 142: the calling thread on the other half of the GPU command thread's core.
++void PlaceCallingThreadBesideGpu();
+ // The same for another thread (a pthread_t), after the arrangement changed.
+ void PlaceThread(void* thread);
+ // Whether the GPU command thread has a core to itself. Changing it moves the
+diff --git a/platform/ps5/thread_place.cpp b/platform/ps5/thread_place.cpp
+index ac54232..c7ebd07 100644
+--- a/platform/ps5/thread_place.cpp
++++ b/platform/ps5/thread_place.cpp
+@@ -61,6 +61,13 @@ void PlaceCallingThread(bool gpu) {
+   if (gpu) gpu_thread = pthread_self();
+   Place(pthread_self(), gpu);
+ }
++// Fix 142: the decode thread of gpu_parallel_record_sibling on the other half of the GPU command
++// thread's core (CPU 3), which no other thread of the title uses. Nothing is changed without the
++// dedicated core. A later PlaceThread for it puts it back with the others.
++void PlaceCallingThreadBesideGpu() {
++  if (!dedicated.load(std::memory_order_relaxed)) return;
++  if (scePthreadSetaffinity(pthread_self(), kGpuCore & ~kGpuCpu) == 0) ++placed; else ++refused;
++}
+ void PlaceThread(void* thread) {
+   if (!thread) return;
+   const pthread_t handle = static_cast<pthread_t>(thread);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 88d812f..fac4c22 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -4176,6 +4176,12 @@ int main(int argc, char** argv) {
+                 XELOGW("{}", frame_cost_async_submit.Line(double(summary_samples),
+                                                           frame_cost_swaps_now - frame_cost_async_swaps));
+                 frame_cost_async_swaps = frame_cost_swaps_now;
++                // Fix 142: the frame's command processing split over two threads.
++                static xbox360ps5::frame_cost::ParallelRecordReporter frame_cost_parallel_record;
++                static uint64_t frame_cost_parallel_swaps = 0;
++                XELOGW("{}", frame_cost_parallel_record.Line(double(summary_samples),
++                                                             frame_cost_swaps_now - frame_cost_parallel_swaps));
++                frame_cost_parallel_swaps = frame_cost_swaps_now;
+                 // Fix 78: the blocks of memory the watches are armed on most.
+                 static xbox360ps5::frame_cost::HotReporter frame_cost_hot;
+                 XELOGW("{}", frame_cost_hot.Line(double(summary_samples)));

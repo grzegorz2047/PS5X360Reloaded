@@ -145,6 +145,7 @@ checks=(
   check-game-language.cpp          # fix 132
   check-readback-batching.cpp      # fix 133
   check-async-submit.cpp           # fix 134
+  check-parallel-record.cpp        # fix 142
   check-resolution-scale.cpp       # fixes 117 to 117k
   check-library-groups.cpp         # fixes 112 to 112f
 )
@@ -173,6 +174,7 @@ declare -A arguments=(
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-avatar-skeleton.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-parallel-record.cpp]="$repo/tools/source-1.0.2/fixes"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -273,6 +275,7 @@ declare -A fix_of=(
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i 117j 117k"
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
   [check-async-submit.cpp]="134 134b 134c"
+  [check-parallel-record.cpp]=142
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -346,6 +349,21 @@ for variant in "${wait_variants[@]}"; do
     status=1
   fi
 done
+# Fix 142: the decoder and the GPU thread on two threads, under ThreadSanitizer (the FIFO, the
+# drains and the waits for room), the model part only; sanitized runs go without address
+# randomization (setarch -R), as fix 31's.
+echo "=== check-parallel-record.cpp (tsan)"
+if [[ " $skipped_fixes " == *" 142 "* ]]; then
+  echo "skip check-parallel-record.cpp (tsan) (fix 142 left out of this build)"
+elif (cd "$tree" && "$cxx" -std=c++20 -O1 -g -pthread -march=znver2 -Wall -Wno-unused-function \
+        -fsanitize=thread -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
+        tools/check-parallel-record.cpp -o "$tree/build/fix-checks/check-parallel-record-tsan" &&
+      setarch "$(uname -m)" -R "$tree/build/fix-checks/check-parallel-record-tsan" --model-only); then
+  echo "pass check-parallel-record.cpp (tsan)"
+else
+  echo "FAIL check-parallel-record.cpp (tsan)"
+  status=1
+fi
 echo "=== check-assemble-skip.py"
 if "$python" -I "$repo/tools/check-assemble-skip.py" --tree "$tree"; then
   echo "pass check-assemble-skip.py"
