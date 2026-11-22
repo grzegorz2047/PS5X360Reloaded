@@ -194,6 +194,17 @@ int main(int argc, char** argv) {
     CHECK(store.pictures() == 5 && m::kPictureRestartMs == 1000);
   }
 
+  // (d3) 1.0.5-work-fix119h: the console's own time per picture POST on the line.
+  {
+    m::PictureStats stats;
+    stats.Due(1000, true);
+    stats.Served(3000, 4000);
+    stats.Served(4000, 4400);
+    std::string line = stats.Due(11000, true);
+    CHECK(line.find("; per picture on the console: receive 3.5 ms, convert and store 4.2 ms") != std::string::npos);
+    CHECK(stats.Due(21000, true).find("per picture on the console") == std::string::npos);  // none served: none told
+  }
+
   // (d2) 1.0.5-work-fix119b: the 10 s line and the page's report.
   {
     CHECK(m::ReportNumber("{\"fps\":25,\"picture_on\":1,\"picture_sent\":512}", "picture_on") == 1);
@@ -275,6 +286,14 @@ int main(int argc, char** argv) {
         std::string::npos);
   CHECK(tls.find("motion::PictureJson(motion::picture_wanted.load()) + \"}\");") != std::string::npos);
   CHECK(tls.find("motion::picture_stats.Received(taken.width, taken.height);") != std::string::npos);
+  // Fix 119h: the POST's receive and answer timed; answers not held back (TCP_NODELAY where known).
+  CHECK(tls.find("const auto head_at = std::chrono::steady_clock::now();") < tls.find("const auto body_at = std::chrono::steady_clock::now();"));
+  CHECK(tls.find("motion::picture_stats.Served(us(body_at - head_at), us(std::chrono::steady_clock::now() - body_at));") !=
+        std::string::npos);
+  CHECK(tls.find("const auto body_at") < tls.find("const std::string reply = Route("));
+  CHECK(tls.find("#if __has_include(<netinet/tcp.h>)") != std::string::npos);
+  CHECK(tls.find("#ifdef TCP_NODELAY\n") != std::string::npos &&
+        tls.find("setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay));") != std::string::npos);
   CHECK(tls.find("motion::picture_stats.Refused(result == motion::PictureResult::off);") != std::string::npos);
   CHECK(tls.find("motion::picture_stats.Page(body);  // fix 119b") < tls.find("phone_latency::Recentred(body)"));
   // The picture route is after the key check.

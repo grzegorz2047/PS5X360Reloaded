@@ -16,10 +16,10 @@ index daf76ca..7a996d9 100644
      if (counter_ptr && IsGuestRange(counter_ptr,4)) {
 diff --git a/include/xbox360ps5/camera_picture.hpp b/include/xbox360ps5/camera_picture.hpp
 new file mode 100644
-index 0000000..a5d825e
+index 0000000..8f61439
 --- /dev/null
 +++ b/include/xbox360ps5/camera_picture.hpp
-@@ -0,0 +1,252 @@
+@@ -0,0 +1,269 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 119 (issue 15): the phone's camera picture as the virtual Kinect's colour stream. A Kinect
 +// game that shows its camera (Kinect Sports' Show Off & Share replays, photos) saw a flat grey
@@ -40,6 +40,7 @@ index 0000000..a5d825e
 +#include <algorithm>
 +#include <atomic>
 +#include <cstdint>
++#include <cstdio>
 +#include <cstring>
 +#include <mutex>
 +#include <string>
@@ -216,6 +217,13 @@ index 0000000..a5d825e
 +  }
 +  void Refused(bool off) { ++(off ? refused_off_ : refused_bad_); }
 +  void Frame(bool from_picture) { ++(from_picture ? picture_frames_ : grey_frames_); }
++  // Fix 119h: one picture POST on the console: its body's receive after the head, and the answer
++  // (parse, convert to the mosaic, store), in microseconds.
++  void Served(uint64_t receive_us, uint64_t answer_us) {
++    served_receive_us_ += receive_us;
++    served_answer_us_ += answer_us;
++    ++served_;
++  }
 +  // The page's report: its switch (picture_on), pictures sent and skipped since it opened.
 +  void Page(std::string_view report) {
 +    const int64_t on = ReportNumber(report, "picture_on");
@@ -241,6 +249,8 @@ index 0000000..a5d825e
 +    window_start_.store(now_ms ? now_ms : 1);
 +    const uint64_t received = received_.exchange(0), off = refused_off_.exchange(0), bad = refused_bad_.exchange(0);
 +    const uint64_t from_picture = picture_frames_.exchange(0), grey = grey_frames_.exchange(0);
++    const uint64_t served = served_.exchange(0), receive_us = served_receive_us_.exchange(0),
++                   answer_us = served_answer_us_.exchange(0);
 +    if (!wanted && !received && !off && !bad && !from_picture) return {};
 +    const uint32_t size = last_size_.load();
 +    const int page_on = page_on_.load();
@@ -254,6 +264,12 @@ index 0000000..a5d825e
 +                              (page_wanted_.load() == 0 ? ", sees no ask from the PS5" : page_wanted_.load() == 1 ? ", sees the PS5 ask" : "") +
 +                              ", " + std::to_string(page_sent_.load()) + " sent, " + std::to_string(page_skipped_.load()) +
 +                              " skipped for the network, " + std::to_string(page_failed_.load()) + " failed";
++    if (served) {
++      char times[96];
++      std::snprintf(times, sizeof(times), "; per picture on the console: receive %.1f ms, convert and store %.1f ms",
++                    double(receive_us) / served / 1000.0, double(answer_us) / served / 1000.0);
++      line += times;
++    }
 +    if (page_on >= 0 && page_capture_ms_.load() >= 0)
 +      line += "; per picture on the phone: capture " + std::to_string(page_capture_ms_.load()) + " ms, pack " +
 +              std::to_string(page_pack_ms_.load()) + " ms, upload " + std::to_string(page_upload_ms_.load()) + " ms";
@@ -267,6 +283,7 @@ index 0000000..a5d825e
 +  std::atomic<uint64_t> page_sent_{0}, page_skipped_{0}, page_failed_{0};
 +  std::atomic<int> page_wanted_{-1};
 +  std::atomic<int> page_capture_ms_{-1}, page_pack_ms_{-1}, page_upload_ms_{-1};
++  std::atomic<uint64_t> served_{0}, served_receive_us_{0}, served_answer_us_{0};
 +  std::atomic<int64_t> window_start_{0};
 +};
 +inline PictureStats picture_stats;
@@ -607,7 +624,7 @@ index 63f2a8b..c0ab383 100644
 +inline constexpr char kPageVersion[] = "4eeb5e0b9bb7d8c2";
  }  // namespace xbox360ps5::phone_camera
 diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
-index 34ddd5a..c237bba 100644
+index 34ddd5a..e97d9b2 100644
 --- a/port/phone_camera_tls.cpp
 +++ b/port/phone_camera_tls.cpp
 @@ -9,6 +9,7 @@
@@ -618,7 +635,17 @@ index 34ddd5a..c237bba 100644
  #include "xenia/base/logging.h"        // fix 66: its line in the game log
  #include "xbox360ps5/app_identity.hpp"  // fix 46: the certificates' names
  
-@@ -315,6 +316,7 @@ std::string Route(const std::string& method, std::string target, const std::stri
+@@ -22,6 +23,9 @@
+ 
+ #include <arpa/inet.h>
+ #include <netinet/in.h>
++#if __has_include(<netinet/tcp.h>)
++#include <netinet/tcp.h>  // fix 119h: TCP_NODELAY
++#endif
+ #include <pthread.h>
+ #include <sys/socket.h>
+ #include <sys/stat.h>
+@@ -315,6 +319,7 @@ std::string Route(const std::string& method, std::string target, const std::stri
    if (method == "POST" && target == "/api/motion/latency") {
      // Fix 66: the page's delay by stage, every 2 s while paired; one game log line at most every 1.5 s.
      // Fix 107: the page says which pad re-centre it ran (the first time only).
@@ -626,7 +653,7 @@ index 34ddd5a..c237bba 100644
      if (const uint32_t seq = phone_latency::Recentred(body); motion::AckRecentre(seq))
        XELOGW("Virtual Kinect: re-centre requested from the pad (seq {}); phone acknowledged (fix 107)", seq);
      if (phone_latency::Due(phone_latency::NowMs())) {
-@@ -326,11 +328,29 @@ std::string Route(const std::string& method, std::string target, const std::stri
+@@ -326,11 +331,29 @@ std::string Route(const std::string& method, std::string target, const std::stri
    if (method == "POST" && target == "/api/motion/frame") {
      const auto result = motion::Receive(body);
      // Fix 107: a pad re-centre waiting for the phone rides on the answer.
@@ -657,7 +684,20 @@ index 34ddd5a..c237bba 100644
    return Response("404 Not Found", "text/plain", "not found");
  }
  
-@@ -366,7 +386,10 @@ void* Serve(void* argument) {
+@@ -347,6 +370,12 @@ void* Serve(void* argument) {
+ #ifdef SO_NOSIGPIPE
+   const int yes = 1;
+   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof(yes));
++#endif
++#ifdef TCP_NODELAY
++  // Fix 119h: answers go at once (small answers after a pose frame or a picture are not held
++  // back waiting for the phone's acknowledgement of the previous one).
++  const int no_delay = 1;
++  setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof(no_delay));
+ #endif
+   mbedtls_ssl_context ssl;
+   mbedtls_ssl_init(&ssl);
+@@ -366,7 +395,11 @@ void* Serve(void* argument) {
        }
        if (status || head_end == std::string::npos) break;
        const std::string head = data.substr(0, head_end + 2);
@@ -666,9 +706,24 @@ index 34ddd5a..c237bba 100644
 +      const bool picture = head.compare(0, 25, "POST /api/motion/picture ") == 0;
 +      const size_t length = std::min<size_t>(size_t(std::atoi(Header(head, "Content-Length").c_str())),
 +                                             picture ? motion::kPictureMaxBytes : 8192);
++      const auto head_at = std::chrono::steady_clock::now();  // fix 119h: a picture's times
        while (data.size() < head_end + 4 + length) {
          const int got = mbedtls_ssl_read(&ssl, buffer, sizeof(buffer));
          if (got == MBEDTLS_ERR_SSL_WANT_READ || got == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+@@ -376,8 +409,13 @@ void* Serve(void* argument) {
+       if (status) break;
+       const size_t space = head.find(' '), space2 = head.find(' ', space + 1);
+       if (space == std::string::npos || space2 == std::string::npos) break;
++      const auto body_at = std::chrono::steady_clock::now();
+       const std::string reply = Route(head.substr(0, space), head.substr(space + 1, space2 - space - 1), head,
+                                       data.substr(head_end + 4, length));
++      if (picture) {
++        const auto us = [](auto d) { return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(d).count()); };
++        motion::picture_stats.Served(us(body_at - head_at), us(std::chrono::steady_clock::now() - body_at));
++      }
+       data.erase(0, head_end + 4 + length);
+       for (size_t sent = 0; sent < reply.size();) {
+         const int wrote = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(reply.data()) + sent, reply.size() - sent);
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 index d57b2a0..dbaf14f 100644
 --- a/src/canary_game_main.cpp
