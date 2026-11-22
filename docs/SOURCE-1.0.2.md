@@ -264,6 +264,7 @@ also listed here.
 | 129 (`129-vfs-host-ops-unlocked`) | a 1.0.5 stutter fix: creating and deleting a game's files on the console's disk no longer holds the emulator's global lock (Kinect Sports' replay recording held it up to a second at a time, freezing the GPU thread) | host-checked (`tools/check-vfs-host-ops.cpp`); console: `1.0.5-work-fix129` |
 | 125 (`125-content-checked-units`) | a 1.0.5 GPU-thread fix: with Optimized video memory, memory a game rewrites every frame that something still watches (texture pages in The Sims 3's live mode) is compared by content at each part of the ring instead of being protected after every upload, saving a write fault and two protection changes per page per frame; setting `gpu_content_checked_units` | host-checked (`tools/check-content-checked.cpp`); console: `1.0.5-work-fix125` |
 | 126 (`126-sampler-late-answers`) | a 1.0.5 diagnostics fix: MEASURE no longer loses 100 ms per round on a thread that answers its sample signal late (Grand Theft Auto IV: 94 rounds in 10 s instead of about 1,000); a late answer is dropped instead of waited for | host-checked (`tools/check-sample-ticket.cpp`); console: `1.0.5-work-fix126` |
+| 128 (`128-global-lock-holds`) | a 1.0.5 diagnostics fix: the log names the code and thread that hold the global lock for 1 ms or more (Kinect Sports' stutter while it records its replay: the GPU thread waited up to 660 ms/s for it) | host-checked (`tools/check-global-lock-callers.cpp`); console: `1.0.5-work-fix128` |
 
 ## Comparison with the official executable
 
