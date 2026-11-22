@@ -1,0 +1,17 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 830d901..2795ea5 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -559,6 +559,12 @@ GameOverrides GamePreset(const std::string& title_id) {
+       // (417 ms/s; 1.0.5-work-fix121, research/sims3-121), with it 730 (31 ms/s) and 7.7 to 9.5
+       // swaps a second in live mode (1.0.5-work-fix115b, research/sims3-boost).
+       {"454108E2", {{"readback", 1}, {"memory_boost", 1}}},
++      // Fix 131: Kinect Sports draws its info cards (the "Are you Ready to Play?" crowd board of
++      // flip tiles) into pictures it reads back; with readback off they are not copied and the
++      // board shows garbage for a moment after Show Off & Share. Console (1.0.5-work-fix119i with
++      // Fast for the game, research/kinect-119i-rb): the board clean. Fast adds GPU waits for the
++      // keys it copies (fix 91k: their own copies for the occasional ones).
++      {"4D5308C9", {{"readback", 1}}},
+   };
+   GameOverrides preset;
+   for (const auto& [id, values] : built_in) if (Lower(title_id) == Lower(id)) preset = values;
