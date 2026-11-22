@@ -15,6 +15,8 @@
 // mode 7.7 to 9.5 swaps a second, watch protections 11,800 to 730 a second.
 // Fix 131 adds Kinect Sports (4D5308C9) with readback Fast ({"readback", 1}): its crowd board of
 // flip tiles was garbage for a moment after Show Off & Share with readback off; seven rows.
+// Fix 135 adds Dragon Age II (4541090B) with readback Fast ({"readback", 1}): the picture of a new
+// save in its Load Game list was noise with readback off; eight rows.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -78,7 +80,9 @@ void CheckTree() {
              value("454108E2") + ")");
   Expect(value("4D5308C9") == R"({"readback", 1})",
          "Kinect Sports is recommended readback Fast alone, fix 131 (" + value("4D5308C9") + ")");
-  Expect(rows.size() == 7, "seven built-in rows (" + std::to_string(rows.size()) + ")");
+  Expect(value("4541090B") == R"({"readback", 1})",
+         "Dragon Age II is recommended readback Fast alone, fix 135 (" + value("4541090B") + ")");
+  Expect(rows.size() == 8, "eight built-in rows (" + std::to_string(rows.size()) + ")");
 
   const std::regex option(R"re(\{"memory_boost", &S::memory_boost, (\d+), W::(\w+), (\d+), (true|false),)re");
   std::smatch m;
