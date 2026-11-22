@@ -1,0 +1,275 @@
+diff --git a/include/xbox360ps5/global_lock_spin.hpp b/include/xbox360ps5/global_lock_spin.hpp
+--- a/include/xbox360ps5/global_lock_spin.hpp
++++ b/include/xbox360ps5/global_lock_spin.hpp
+@@ -23,6 +23,7 @@
+ #include <atomic>
+ #include <cstdint>
+ #include <cstdio>
++#include <functional>  // fix 128
+ #include <string>
+ #include <pthread.h>
+ #include <x86intrin.h>
+@@ -197,3 +198,145 @@ inline std::string Line(const Snapshot& before, const Snapshot& now, double seco
+ 
+ }  // namespace global_lock
+ }  // namespace xbox360ps5
++
++// Fix 128: who holds the global critical region for long. Fix 88's sample above says where the
++// GPU command thread takes the lock, not who keeps it waiting. Kinect Sports (4D5308C9) on
++// 1.0.5-work-fix119 while it records its replay: the GPU thread waited 643-662 ms/s for the lock,
++// 216 sleeps a second of about 3 ms, so another thread held it most of the time.
++//
++// Every thread's outermost hold of the region (xe_global_mutex, the plain and the "Fast locks"
++// mutex alike) is timed with the TSC: from just after the lock is won to just before it is let go.
++// A hold of kLongHoldMs or more is counted for its caller (the return address into the code that
++// asked for the lock, as fix 88's) and its thread: count, time, the longest. It is recorded while
++// the lock is still held, so the recorders never race one another; the summary reads the table
++// with relaxed loads. Every hold costs two TSC reads and a compare.
++namespace xbox360ps5 {
++namespace global_lock_holds {
++
++inline constexpr double kLongHoldMs = 1.0;
++// TSC ticks in kLongHoldMs: a guess until the first summary measures the rate.
++inline std::atomic<uint64_t> long_ticks{2000000};
++inline void SetTicksPerMs(double ticks_per_ms) {
++  if (ticks_per_ms > 0) long_ticks.store(uint64_t(ticks_per_ms * kLongHoldMs), std::memory_order_relaxed);
++}
++
++inline constexpr uint32_t kSlots = 128;
++struct Slot {
++  std::atomic<uintptr_t> caller{0};
++  std::atomic<uint64_t> thread{0};
++  std::atomic<uint64_t> holds{0}, ticks{0}, max_ticks{0};
++};
++inline std::array<Slot, kSlots> slots;
++inline std::atomic<uint64_t> dropped{0}, long_holds{0}, long_hold_ticks{0};
++inline void Bump(std::atomic<uint64_t>& counter, uint64_t value) {
++  counter.store(counter.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
++}
++
++// With the lock held, by its holder only.
++inline void Record(uintptr_t caller, uint64_t thread, uint64_t ticks) {
++  Bump(long_holds, 1);
++  Bump(long_hold_ticks, ticks);
++  uint32_t index = uint32_t(((caller >> 2) ^ (thread >> 4)) * 0x9E3779B1u) % kSlots;
++  for (uint32_t probe = 0; probe < kSlots; ++probe, index = (index + 1) % kSlots) {
++    Slot& slot = slots[index];
++    const uintptr_t held = slot.caller.load(std::memory_order_relaxed);
++    if (!held) {
++      slot.thread.store(thread, std::memory_order_relaxed);
++      slot.caller.store(caller, std::memory_order_release);
++    } else if (held != caller || slot.thread.load(std::memory_order_relaxed) != thread) {
++      continue;
++    }
++    Bump(slot.holds, 1);
++    Bump(slot.ticks, ticks);
++    if (ticks > slot.max_ticks.load(std::memory_order_relaxed)) slot.max_ticks.store(ticks, std::memory_order_relaxed);
++    return;
++  }
++  Bump(dropped, 1);
++}
++
++// The current hold, kept in the mutex; only its holder reads or writes it.
++struct Holder {
++  uint64_t thread = 0;
++  uint32_t depth = 0;
++  uint64_t start = 0;
++  uintptr_t caller = 0;
++};
++// Just after `self` has won the lock.
++inline void Acquired(Holder& holder, uint64_t self, uintptr_t caller, uint64_t now) {
++  if (holder.depth && holder.thread == self) {
++    ++holder.depth;
++    return;
++  }
++  holder.thread = self;
++  holder.depth = 1;
++  holder.start = now;
++  holder.caller = caller;
++}
++// Just before the lock is let go: the outermost release times the hold.
++inline void Releasing(Holder& holder, uint64_t now) {
++  if (!holder.depth || --holder.depth) return;
++  const uint64_t ticks = now - holder.start;
++  if (ticks >= long_ticks.load(std::memory_order_relaxed)) Record(holder.caller, holder.thread, ticks);
++}
++
++// "Performance: global lock holds of 1 ms or more (every thread): n/s, x ms/s held; by caller and
++// thread: 0x... 'name' n/s, t ms/s, longest m ms; ...; k without a slot; anchor 0x..." since the
++// previous line, the kShown that held it longest (the same anchor as fix 88's line).
++inline constexpr uint32_t kShown = 6;
++class Reporter {
++ public:
++  std::string Line(double seconds, double ticks_per_ms, uintptr_t anchor,
++                   const std::function<std::string(uint64_t)>& name_of) {
++    if (seconds <= 0) seconds = 1;
++    SetTicksPerMs(ticks_per_ms);
++    const double ms_per_tick = ticks_per_ms > 0 ? 1.0 / ticks_per_ms : 0.0;
++    struct Row {
++      uintptr_t caller;
++      uint64_t thread, holds, ticks, max_ticks;
++    };
++    std::array<Row, kSlots> rows{};
++    for (uint32_t i = 0; i < kSlots; ++i) {
++      const uint64_t holds = slots[i].holds.load(std::memory_order_relaxed);
++      const uint64_t ticks = slots[i].ticks.load(std::memory_order_relaxed);
++      const uint64_t max = slots[i].max_ticks.exchange(0, std::memory_order_relaxed);
++      rows[i] = {slots[i].caller.load(std::memory_order_acquire), slots[i].thread.load(std::memory_order_relaxed),
++                 holds - last_[i][0], ticks - last_[i][1], max};
++      last_[i][0] = holds;
++      last_[i][1] = ticks;
++    }
++    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return a.ticks > b.ticks; });
++    const uint64_t all = long_holds.load(std::memory_order_relaxed);
++    const uint64_t all_ticks = long_hold_ticks.load(std::memory_order_relaxed);
++    char head[192];
++    std::snprintf(head, sizeof(head),
++                  "Performance: global lock holds of %.0f ms or more (every thread): %.1f/s, %.1f ms/s held; by caller "
++                  "and thread: ",
++                  kLongHoldMs, double(all - last_all_) / seconds,
++                  double(all_ticks - last_all_ticks_) * ms_per_tick / seconds);
++    last_all_ = all;
++    last_all_ticks_ = all_ticks;
++    std::string text = head;
++    uint32_t shown = 0;
++    for (const Row& row : rows) {
++      if (shown == kShown || !row.holds) break;
++      const std::string name = name_of ? name_of(row.thread) : std::string();
++      char item[256];
++      std::snprintf(item, sizeof(item), "%s0x%llx '%s' %.1f/s, %.1f ms/s, longest %.1f ms", shown ? "; " : "",
++                    (unsigned long long)row.caller, name.c_str(), double(row.holds) / seconds,
++                    double(row.ticks) * ms_per_tick / seconds, double(row.max_ticks) * ms_per_tick);
++      text += item;
++      ++shown;
++    }
++    char tail[96];
++    std::snprintf(tail, sizeof(tail), "%s%llu without a slot; anchor 0x%llx", shown ? "; " : "",
++                  (unsigned long long)dropped.load(std::memory_order_relaxed), (unsigned long long)anchor);
++    return text + tail;
++  }
++
++ private:
++  std::array<std::array<uint64_t, 2>, kSlots> last_{};
++  uint64_t last_all_ = 0, last_all_ticks_ = 0;
++};
++
++}  // namespace global_lock_holds
++}  // namespace xbox360ps5
+diff --git a/.deps/xenia-canary/src/xenia/base/mutex.h b/.deps/xenia-canary/src/xenia/base/mutex.h
+--- a/.deps/xenia-canary/src/xenia/base/mutex.h
++++ b/.deps/xenia-canary/src/xenia/base/mutex.h
+@@ -170,12 +170,17 @@ using xe_mutex = xe_fast_mutex;
+ // ps5_spin_mutexes chooses between them and the plain mutexes. It is set once,
+ // at the start of the title, while it has one thread and holds no lock.
+ extern std::atomic<bool> ps5_spin_mutexes;
++}  // namespace xe
++#include "xbox360ps5/global_lock_spin.hpp"  // fix 128: the holds
++namespace xe {
+ 
+ class alignas(64) xe_global_mutex {
+   std::recursive_mutex blocking_;
+   std::atomic<uint32_t> state_{0};  // 0 = unlocked, 1 = locked
+   std::atomic<uint64_t> owner_{0};  // pthread_self() of the owner, 0 = free
+   uint32_t recursion_count_{0};
++  // Fix 128: the current hold, timed (xbox360ps5/global_lock_spin.hpp).
++  xbox360ps5::global_lock_holds::Holder holds_;
+ 
+   void lock_slow();
+ 
+diff --git a/.deps/xenia-canary/src/xenia/base/mutex.cc b/.deps/xenia-canary/src/xenia/base/mutex.cc
+--- a/.deps/xenia-canary/src/xenia/base/mutex.cc
++++ b/.deps/xenia-canary/src/xenia/base/mutex.cc
+@@ -297,11 +297,18 @@ void xe_global_mutex::lock() {
+     // Fix 55: the GPU command thread tries on its own core for ~37 us before it sleeps; every
+     // other thread locks as before.
+     xbox360ps5::global_lock::Lock(blocking_, __builtin_return_address(0));  // fix 88: by caller
++    // Fix 128: the hold starts (the outermost one is timed).
++    xbox360ps5::global_lock_holds::Acquired(
++        holds_, ps5_thread_id(),
++        reinterpret_cast<uintptr_t>(__builtin_return_address(0)), __rdtsc());
+     return;
+   }
++  const uintptr_t caller =
++      reinterpret_cast<uintptr_t>(__builtin_return_address(0));  // fix 128
+   const uint64_t self = ps5_thread_id();
+   if (owner_.load(std::memory_order_relaxed) == self) {
+     ++recursion_count_;
++    xbox360ps5::global_lock_holds::Acquired(holds_, self, caller, __rdtsc());
+     return;
+   }
+   uint32_t expected = 0;
+@@ -309,9 +316,11 @@ void xe_global_mutex::lock() {
+           expected, 1, std::memory_order_acquire, std::memory_order_relaxed))) {
+     owner_.store(self, std::memory_order_relaxed);
+     recursion_count_ = 1;
++    xbox360ps5::global_lock_holds::Acquired(holds_, self, caller, __rdtsc());
+     return;
+   }
+   lock_slow();
++  xbox360ps5::global_lock_holds::Acquired(holds_, self, caller, __rdtsc());
+ }
+ 
+ void xe_global_mutex::lock_slow() {
+@@ -321,6 +330,8 @@ void xe_global_mutex::lock_slow() {
+ }
+ 
+ void xe_global_mutex::unlock() {
++  // Fix 128: still held; the outermost release ends the timed hold.
++  xbox360ps5::global_lock_holds::Releasing(holds_, __rdtsc());
+   if (!ps5_spin_mutexes.load(std::memory_order_relaxed)) {
+     blocking_.unlock();
+     return;
+@@ -332,12 +343,19 @@ void xe_global_mutex::unlock() {
+ }
+ 
+ bool xe_global_mutex::try_lock() {
++  // Fix 128: a hold won here is timed as one from lock().
++  const uintptr_t caller =
++      reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+   if (!ps5_spin_mutexes.load(std::memory_order_relaxed)) {
+-    return blocking_.try_lock();
++    if (!blocking_.try_lock()) return false;
++    xbox360ps5::global_lock_holds::Acquired(holds_, ps5_thread_id(), caller,
++                                            __rdtsc());
++    return true;
+   }
+   const uint64_t self = ps5_thread_id();
+   if (owner_.load(std::memory_order_relaxed) == self) {
+     ++recursion_count_;
++    xbox360ps5::global_lock_holds::Acquired(holds_, self, caller, __rdtsc());
+     return true;
+   }
+   uint32_t expected = 0;
+@@ -345,6 +363,7 @@ bool xe_global_mutex::try_lock() {
+                                      std::memory_order_relaxed)) {
+     owner_.store(self, std::memory_order_relaxed);
+     recursion_count_ = 1;
++    xbox360ps5::global_lock_holds::Acquired(holds_, self, caller, __rdtsc());
+     return true;
+   }
+   return false;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3946,6 +3946,21 @@ int main(int argc, char** argv) {
+                   XELOGW("{}", lock_callers.Line(lock_seconds, lock_seconds > 0 ? double(lock_now.tsc - lock_before.tsc) /
+                                                                                      (lock_seconds * 1000.0)
+                                                                                : 0.0));
++                  // Fix 128: who held it for 1 ms or more, by caller and thread.
++                  static xbox360ps5::global_lock_holds::Reporter lock_holds;
++                  std::map<uint64_t, std::string> lock_holder_names;
++                  for (auto& thread : emulator.kernel_state()->object_table()->GetObjectsByType<xe::kernel::XThread>())
++                    if (thread->thread())
++                      lock_holder_names[reinterpret_cast<uint64_t>(thread->thread()->native_handle())] =
++                          thread->thread_name();
++                  XELOGW("{}", lock_holds.Line(
++                                   lock_seconds,
++                                   lock_seconds > 0 ? double(lock_now.tsc - lock_before.tsc) / (lock_seconds * 1000.0) : 0.0,
++                                   reinterpret_cast<uintptr_t>(&xbox360ps5::global_lock::Anchor),
++                                   [&lock_holder_names](uint64_t id) {
++                                     const auto it = lock_holder_names.find(id);
++                                     return it == lock_holder_names.end() ? std::string("host") : it->second;
++                                   }));
+                 }
+                 lock_started = true;
+                 lock_before = lock_now;
