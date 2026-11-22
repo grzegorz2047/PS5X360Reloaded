@@ -32,14 +32,18 @@
 //      lists (Patches, Settings' subjects and options, Achievements, DLCs, Updates) start on the tab
 //      bar with no row highlighted, Down enters a list at its first row and Up on the first row
 //      leaves it;
-//  (g) fix 109d, the player's pick for the game sheet and the in-game guide (fix 115c): the tab bar
-//      "< L1  tabs  R1 >" with high-contrast pills from the shared xbox360ps5/tab_pills.hpp (38 px,
-//      round ends, white and near-black, drawn chevrons, not a U+2039 glyph); L1/R1 always switch
-//      tabs, left/right too while the bar has the pad (Play: right Patches, left About); in a list
-//      left/right only change the focused row's value, and value rows show "< value >".
+//  (g) fix 109d, the player's pick for the game sheet and the in-game guide (fix 115c): one tab bar
+//      from xbox360ps5/tab_bar.hpp, which both fixes share (in the repository's reconstructed/
+//      folder, so neither depends on the other's number): "< L1  tabs  R1 >" with high-contrast
+//      pills; its pad (tab_bar::Press): L1/R1 always switch tabs (the bar focused), on the bar
+//      left/right switch tabs and Down or X enter the list at its first row, in a list Up on the
+//      first row goes back, Down stops at the last row, left/right only change a row with a value
+//      ("< value >", tab_bar::DrawValue); seven tab names shrink to fit the 860 px sheet, the pills
+//      keep their size. Checked as code here (Arrange, Press) and as its use in launcher.cpp.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/dlc_manager.hpp"
+#include "xbox360ps5/tab_bar.hpp"  // the tree's reconstructed/ (-Ireconstructed)
 
 #if __has_include(<sys/statvfs.h>)
 #include "xenia/kernel/xam/storage_devices.h"
@@ -408,47 +412,34 @@ void CheckLauncher() {
              Has(x_body, "(enable ? \"switched on\" : \"switched off\") : \"not switched\",\n                   dlc2::Describe(step));") &&
              Has(x_body, ": switched == dlc2::Switched::twin ? \"twin\" : \"move-failed\";"),
          "every DLC change and refusal is logged");
-  // (f, g) The tab bar's L1 / R1 pills, the left/right rule, and the lists' focus.
+  // (f, g) The shared tab bar, its pad, and the lists' focus.
   const std::string sheet = Body(launcher, "void Launcher::DrawGameSheet(Canvas& c) {");
-  Expect(Has(sheet, "c.Shoulder(\"L1\", tab_x, 266, true, bar);") &&
-             Has(sheet, "c.Shoulder(\"R1\", x + 820 - c.ShoulderWidth(\"R1\"), 266, false, bar);") &&
-             !Has(sheet, "c.Text(\"L1 / R1\"") && Has(sheet, "const bool bar = g_list_focus_tab != game_tab_;") &&
-             Has(sheet, "(780 - 2 * shoulder) / (names + 26 * float(std::size(tabs) - 1))"),
-         "\"< L1\" and \"R1 >\" at the bar's outer edges (x + 40, x + 820), lit while the bar has the pad");
-  Expect(Has(launcher, "#include \"xbox360ps5/tab_pills.hpp\"") &&
-             Has(launcher, "float ShoulderWidth(const char* name) const { return tab_pills::Width(Font(tab_pills::kText), name); }") &&
-             Has(launcher, "tab_pills::Draw(list, Font(tab_pills::kText), scale, At(x, y), name, left, Color(kText, lit ? 1.0f : 0.45f),") &&
-             Has(launcher, "tab_pills::DrawChevron(list, scale, At(x, y), left, Color(rgb));"),
-         "the launcher draws the pills and chevrons with the header it shares with the guide");
-  const std::string pills = Read("include/xbox360ps5/tab_pills.hpp");
-  Expect(Has(pills, "inline constexpr float kHeight = 38.0f;") && Has(pills, "inline constexpr float kPad = 14.0f;") &&
-             Has(pills, "inline constexpr float kText = 22.0f;") && Has(pills, "inline constexpr float kChevronGap = 8.0f;") &&
-             Has(pills, "inline constexpr ImU32 kFill = IM_COL32(255, 255, 255, 255);") &&
-             Has(pills, "inline constexpr ImU32 kInk = IM_COL32(16, 18, 22, 255);") &&
-             Has(pills, "list->AddRectFilled(at, ImVec2(at.x + w, at.y + h), fill, h / 2);") &&
-             Has(pills, "list->AddPolyline(points, 3, ink, 0, kLine * scale);") && !Has(pills, "\xE2\x80\xB9"),
-         "tab_pills.hpp: the agreed pill (38 px, round ends, 14 px padding, 22 px name, white on near-black) and a drawn chevron");
+  Expect(Has(sheet, "c.Fill(x + 24, 256, 812, tab_bar::kBarHeight, 0x1a1f28, 0.96f, 14);") &&
+             Has(sheet, "tab_bar::Draw(c, x + 24, x + 836, 256, tabs, game_tab_, g_list_focus_tab != game_tab_);") &&
+             !Has(sheet, "L1 / R1") && !Has(launcher, "tab_pills"),
+         "the game sheet draws the shared bar on a dark band, the open tab on green while the bar has the pad");
+  Expect(Has(launcher, "#include \"xbox360ps5/tab_bar.hpp\"") &&
+             Has(launcher, "void Triangle(float ax, float ay, float bx, float by, float cx, float cy, uint32_t rgb, float a = 1.0f) const {"),
+         "the canvas is tab_bar's painter (Fill, Text, Width, Triangle)");
   Expect(Has(launcher, "  game_tab_ = tab;\n  g_list_focus_tab = -1;  // fix 109: the tab bar first\n"),
          "a sheet opens on its tab bar");
-  Expect(Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = (game_tab_ + step + 7) % 7;") &&
-             Has(press, "if (key == Key::l1 || key == Key::r1) { switch_tab(key == Key::r1 ? 1 : -1); break; }") &&
-             Has(press, "if (game_tab_ != 0 && g_list_focus_tab != game_tab_ && (key == Key::left || key == Key::right)) {\n"
-                        "        switch_tab(key == Key::right ? 1 : -1);"),
-         "L1/R1 always switch tabs (each new tab on its bar); left/right too while the bar has the pad");
-  Expect(Has(press, "if (key == Key::right || key == Key::left) g_list_focus_tab = -1;  // fix 109: a new tab starts on the tab bar\n") &&
-             Has(press, "if (key == Key::left) { game_info_scroll = 0; game_tab_ = 6; }"),
-         "Play: right goes to Patches, left to About");
-  Expect(Has(press, "if (game_tab_ >= 1 && game_tab_ <= 5) {") &&
-             Has(press, "game_tab_ == 2 ? (game_category_open_ ? game_option_row_ : game_category_)") &&
-             Has(press, "if (key == Key::down) { g_list_focus_tab = game_tab_; first_row = 0; break; }") &&
-             Has(press, "if (key == Key::up || key == Key::cross || (game_tab_ == 4 && key == Key::triangle)) break;") &&
-             Has(press, "} else if (key == Key::up && first_row == 0) {\n          g_list_focus_tab = -1;"),
-         "Down enters a list (a subject's options too) at its first row, Up on it leaves; X waits for the list");
-  const size_t tabs_rule = press.find("if (game_tab_ != 0 && g_list_focus_tab != game_tab_ && (key == Key::left || key == Key::right)) {");
-  const size_t focus_rule = press.find("if (game_tab_ >= 1 && game_tab_ <= 5) {");
-  Expect(tabs_rule != std::string::npos && focus_rule != std::string::npos && tabs_rule < focus_rule &&
-             focus_rule < press.find("if (game_tab_ == 6) {"),
-         "the tab and focus rules come before every tab's own keys (so a row's left/right needs the list)");
+  Expect(Has(press, "const tab_bar::Effect effect = tab_bar::Press(nav, pad, 7, list_tab ? nav_rows : 0, has_value);") &&
+             Has(press, "if (key == Key::l1 || key == Key::r1 || key == Key::left || key == Key::right ||\n"
+                        "          (list_tab && (key == Key::up || key == Key::down || (key == Key::cross && on_bar)))) {") &&
+             Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = nav.tab;") &&
+             Has(press, "g_list_focus_tab = nav.on_bar ? -1 : game_tab_;\n          nav_row = nav.row;"),
+         "the game sheet's pad goes through tab_bar::Press (L1/R1 and left/right everywhere, up/down and X on the bar in lists)");
+  Expect(Has(press, "return game_tab_ == 2 && (game_category_open_ || (nav_identified && n == int(game_categories_.size())));") &&
+             Has(press, "ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], effect.value_step);"),
+         "left/right change only a subject's options and the bug report row");
+  const size_t nav_at = press.find("      // Fix 109d: the pad of the tab bar the in-game guide shares");
+  Expect(nav_at != std::string::npos && nav_at < press.find("if (game_tab_ == 6) {") && nav_at < press.find("if (game_tab_ == 0) {"),
+         "the pad rule comes before every tab's own keys");
+  for (const char* gone : {"dlc_row_ = (dlc_row_ + 1) % rows;", "patch_row_ = (patch_row_ + 1) % rows;",
+                           "achievement_row_ = (achievement_row_ + 1) % rows;", "sheet.row = (sheet.row + 1) % rows;",
+                           "game_option_row_ = (game_option_row_ + 1) % own_rows;", "game_category_ = (game_category_ + 1) % categories;",
+                           "if (key == Key::right) game_tab_ = 1;"})
+    Expect(!Has(press, gone), std::string("no tab moves its rows or tabs by itself any more: ") + gone);
   for (const char* highlight : {"const bool focused = n == patch_row_ && g_list_focus_tab == 1;",
                                 "const bool focused = n == game_category_ && g_list_focus_tab == 2;",
                                 "const bool row_focused = game_category_ == row && g_list_focus_tab == 2;",
@@ -457,12 +448,64 @@ void CheckLauncher() {
                                 "const bool selected = n == dlc_row_ && g_list_focus_tab == 4;",
                                 "const bool selected = n == sheet.row && g_list_focus_tab == 5;"})
     Expect(Has(launcher, highlight), std::string("a row is highlighted only once its list has the pad: ") + highlight);
-  // (g) Value rows: "< value >".
-  Expect(Has(launcher, "c.Chevron(x + 776 - value_w - 16, y + 22, true, ink);\n    c.Text(text, x + 776, y + 10, 22, ink, 1.0f, 2, 330);\n"
-                       "    c.Chevron(x + 786, y + 22, false, ink);") &&
-             Has(launcher, "c.Chevron(x + 776 - value_w - 16, y + 20, true, ink);\n  c.Text(value, x + 776, y + 8, 24, ink, 1.0f, 2, 200);\n"
-                           "  c.Chevron(x + 786, y + 20, false, ink);"),
+  Expect(Has(launcher, "tab_bar::DrawValue(c, text.c_str(), x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);") &&
+             Has(launcher, "tab_bar::DrawValue(c, value.c_str(), x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, true);"),
          "a subject's options and the bug report row show < value >");
+}
+
+// (g) xbox360ps5/tab_bar.hpp itself.
+namespace tb = xbox360ps5::tab_bar;
+struct FakeWidth {
+  float operator()(const char* text, float size) const { return float(std::string(text).size()) * size * 0.5f; }
+};
+void CheckTabBar() {
+  const std::vector<std::string> few = {"Game", "Settings"};
+  const tb::Layout roomy = tb::Arrange(0, 1096, 100, few, FakeWidth());
+  Expect(roomy.tab_text == tb::kTabText && roomy.tab_gap == tb::kTabGap, "tabs that fit keep 28 px and 44 px gaps");
+  Expect(roomy.l1.x == tb::kEdge && roomy.r1.x + roomy.r1.w == 1096 - tb::kEdge && roomy.l1.h == tb::kPillHeight &&
+             roomy.l1.y == 100 + (tb::kBarHeight - tb::kPillHeight) / 2,
+         "L1 and R1 sit kEdge in from the bar's ends, centred in its band");
+  const std::vector<std::string> sheet = {"Graj", "Łatki", "Ustawienia", "Osiągnięcia", "DLC", "Aktualizacje", "O programie"};
+  const tb::Layout tight = tb::Arrange(0, 812, 0, sheet, FakeWidth());
+  const tb::Box& last = tight.tabs.back();
+  Expect(tight.tab_text < tb::kTabText && tight.tab_gap < tb::kTabGap && last.x + last.w + tight.tab_gap <= tight.r1.x + 0.01f &&
+             tight.tabs.front().x >= tight.l1.x + tight.l1.w,
+         "seven Polish tab names in 812 px shrink to fit between the pills");
+  Expect(tight.l1.w == roomy.l1.w && tight.l1.h == tb::kPillHeight, "the pills keep their size when the tabs shrink");
+  // The pad.
+  const auto none = [](int) { return false; };
+  const auto all = [](int) { return true; };
+  tb::Nav nav;
+  Expect(nav.on_bar && nav.tab == 0, "a tab opens with the bar focused");
+  tb::Effect e = tb::Press(nav, tb::Key::right, 7, 5, none);
+  Expect(e.tab_changed && nav.tab == 1 && nav.on_bar, "on the bar, right switches to the next tab");
+  e = tb::Press(nav, tb::Key::left, 7, 5, none);
+  e = tb::Press(nav, tb::Key::left, 7, 5, none);
+  Expect(nav.tab == 6 && nav.on_bar, "left wraps from the first tab to the last");
+  e = tb::Press(nav, tb::Key::down, 7, 3, none);
+  Expect(!nav.on_bar && nav.row == 0 && !e.tab_changed, "Down enters the list at its first row");
+  e = tb::Press(nav, tb::Key::right, 7, 3, none);
+  Expect(!e.tab_changed && e.value_step == 0 && nav.tab == 6, "in a list, right on a row without a value does nothing");
+  e = tb::Press(nav, tb::Key::right, 7, 3, all);
+  Expect(!e.tab_changed && e.value_step == 1 && nav.tab == 6, "in a list, right changes a row's value");
+  tb::Press(nav, tb::Key::down, 7, 3, none);
+  tb::Press(nav, tb::Key::down, 7, 3, none);
+  tb::Press(nav, tb::Key::down, 7, 3, none);
+  Expect(nav.row == 2, "Down stops at the last row");
+  e = tb::Press(nav, tb::Key::cross, 7, 3, none);
+  Expect(e.activate, "X on a row activates it");
+  tb::Press(nav, tb::Key::up, 7, 3, none);
+  tb::Press(nav, tb::Key::up, 7, 3, none);
+  tb::Press(nav, tb::Key::up, 7, 3, none);
+  Expect(nav.on_bar, "Up on the first row goes back to the bar");
+  e = tb::Press(nav, tb::Key::cross, 7, 3, none);
+  Expect(!nav.on_bar && nav.row == 0 && !e.activate, "X on the bar enters the list (it does not activate a row)");
+  e = tb::Press(nav, tb::Key::r1, 7, 3, all);
+  Expect(e.tab_changed && nav.tab == 0 && nav.on_bar && e.value_step == 0, "R1 in a list switches tabs and lands on the bar");
+  e = tb::Press(nav, tb::Key::down, 7, 0, none);
+  Expect(nav.on_bar, "an empty list is not entered");
+  e = tb::Press(nav, tb::Key::circle, 7, 3, none);
+  Expect(e.back, "Circle says back");
 }
 
 std::string Escaped(const std::string& text) {
@@ -507,6 +550,7 @@ int main(int argc, char** argv) {
 #else
   std::printf("skip: the storage scan part (no POSIX headers on this host)\n");
 #endif
+  CheckTabBar();
   if (stdfs::exists("src/launcher.cpp")) CheckLauncher();
   else std::printf("skip: launcher.cpp (not run from an assembled tree)\n");
   if (argc > 1) CheckLanguages(argv[1]);
