@@ -277,9 +277,15 @@ int main() {
     CHECK(take != std::string::npos && take < gap && gap != std::string::npos);
     // 1.0.5-work-fix91j: "occasional own" takes every key that is not steady, read or not; without
     // it, a key the CPU is seen reading that is occasional. Counted and logged.
+    // Fix 133 keeps the switch and the 91i side, and takes a key whose family (by its end
+    // address) is steady off the 91k side unless the CPU reads it.
     CHECK(cp.find("const bool own_copy = g_readback_rules.occasional_own\n"
                   "                              ? !readback_slots::SteadyPresence(rb.presence)\n"
-                  "                              : rb.cpu_reads && occasional;") != std::string::npos);
+                  "                              : rb.cpu_reads && occasional;") != std::string::npos ||
+          cp.find("        g_readback_rules.occasional_own\n"
+                  "            ? readback_batching::OwnCopy(key_steady, family_steady, rb.cpu_reads,\n"
+                  "                                         cvars::readback_steady_by_end)\n"
+                  "            : rb.cpu_reads && occasional;") != std::string::npos);
     const size_t presence = cp.find("rb.presence = readback_slots::Presence(previous_use_frame, frame_current_, rb.presence);");
     CHECK(presence != std::string::npos && presence < cp.find("const bool own_copy ="));
     CHECK(cp.find("if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && own_copy &&\n"

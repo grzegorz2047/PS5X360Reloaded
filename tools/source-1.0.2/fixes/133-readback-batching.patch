@@ -1,0 +1,220 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_batching.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_batching.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_batching.h
+@@ -0,0 +1,82 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 133: fewer GPU waits for readbacks.
++//
++// (a) A resolve target whose start moves while its end stays put. Modern Warfare 2 on
++// 1.0.5-work-fix130 resolves one ~4 MiB target every frame at starts from 1E91E000 to 1E93E000,
++// all ending at 1ED1E000. Each start was its own key, none steady, so fix 91k gave almost every
++// resolve its own copy and waited for the GPU: 910-1068 own copies per 30 s, 42-138 ms/s of
++// waiting, while the CPU read none of them (fix 91g's read watch: "keys the CPU reads 0").
++// Such keys form a family by their end address; a family resolved in kSteadyPresence of recent
++// frames is steady, and its keys get the fast mode's late copy like any steady key, unless the
++// CPU has been seen reading that key. The cvar readback_steady_by_end (on; off per game in its
++// assets/config/<title>.config.toml) restores fix 91k's rule.
++//
++// (b) Memory exports read back at every exporting draw (Modern Warfare 2's memexport=1:
++// 191-232 a second; Kinect Sports' boxing about 870). Each one submits and waits for the GPU.
++// Waiting once for all the exports between two points where the CPU can learn that the GPU went
++// on would be enough: the command processor's writes to guest memory (MEM_WRITE,
++// EVENT_WRITE_SHD, COND_WRITE, REG_TO_MEM, the scratch write-back), the end of a part of the
++// ring, a swap. Counted here only (WouldBatch): how many such periods the waits fall in.
++#ifndef XENIA_GPU_VULKAN_READBACK_BATCHING_H_
++#define XENIA_GPU_VULKAN_READBACK_BATCHING_H_
++
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace readback_batching {
++
++// A resolve key's family: its end address.
++inline uint64_t FamilyKey(uint32_t address, uint32_t length) { return uint64_t(address) + length; }
++
++struct Family {
++  uint64_t last_used_frame = 0;
++  float presence = 0;
++};
++
++// Fix 91k gives a key that is not steady its own copy. With (a): not when its family is steady
++// and the CPU has not been seen reading the key.
++inline bool OwnCopy(bool key_steady, bool family_steady, bool cpu_reads, bool steady_by_end) {
++  if (key_steady) return false;
++  if (steady_by_end && family_steady && !cpu_reads) return false;
++  return true;
++}
++
++// Where the command processor stands as far as the CPU can tell.
++struct SyncPoint {
++  uint64_t cp_writes = 0;  // the command processor's writes to guest memory so far
++  uint32_t ring_part = 0;  // fix 87's epoch
++  uint64_t swaps = 0;
++  bool operator==(const SyncPoint& other) const {
++    return cp_writes == other.cp_writes && ring_part == other.ring_part && swaps == other.swaps;
++  }
++};
++
++// Waits, and the periods between sync points they fall in: one wait per period would do.
++class WouldBatch {
++ public:
++  void Note(const SyncPoint& at) {
++    ++waits_;
++    if (!started_ || !(at == last_)) {
++      ++periods_;
++      last_ = at;
++      started_ = true;
++    }
++  }
++  uint64_t waits() const { return waits_; }
++  uint64_t periods() const { return periods_; }
++  void Reset() {
++    waits_ = periods_ = 0;
++  }
++
++ private:
++  SyncPoint last_;
++  bool started_ = false;
++  uint64_t waits_ = 0, periods_ = 0;
++};
++
++}  // namespace readback_batching
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_READBACK_BATCHING_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -30,6 +30,7 @@
+ #include "xenia/gpu/spirv_shader_translator.h"
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
+ #include "xenia/gpu/vulkan/readback_slots.h"
++#include "xenia/gpu/vulkan/readback_batching.h"  // fix 133
+ #include "xenia/gpu/vulkan/vulkan_graphics_system.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+ #include "xenia/gpu/vulkan/vulkan_primitive_processor.h"
+@@ -994,6 +995,12 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // Fix 91: the CPU's reads of armed resolve ranges (readback_slots::ReadRing), from the fault
+   // handler through the memory's read callback.
+   readback_slots::ReadRing readback_reads_;
++  // Fix 133 (readback_batching.h): resolve keys' families by their end address, the resolves a
++  // steady family took off own copies, and the waits batching could merge.
++  std::unordered_map<uint64_t, readback_batching::Family> readback_families_;
++  uint64_t readback_family_late_ = 0;
++  readback_batching::WouldBatch readback_memexport_batches_, readback_own_batches_;
++  readback_batching::SyncPoint ReadbackSyncPoint() const;
+   void* readback_read_callback_ = nullptr;
+   // 1.0.5-work-fix91g: the read watch made observable: callbacks fired (in the fault handler),
+   // reads dropped (ring full), watches armed and keys flagged (GPU command thread).
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -59,6 +59,13 @@
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
+ DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
++// Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
++// address) is steady takes the late copy, unless the CPU reads it. Off per game in
++// assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
++DEFINE_bool(readback_steady_by_end, true,
++            "Treat a resolve target whose start moves but whose end stays as steady (its fast "
++            "readback copy is then a frame late instead of waited for), unless the CPU reads it.",
++            "GPU");
+ 
+ DEFINE_bool(vulkan_depth_bias_force_unorm, true,
+             "Apply the depth bias in constant units on float depth buffers "
+@@ -1457,6 +1464,19 @@ void VulkanCommandProcessor::FrameCostReadCompleted() {
+ }
+ #endif
+ 
++// Fix 133: where the command processor stands as far as the CPU can tell (readback_batching.h).
++readback_batching::SyncPoint VulkanCommandProcessor::ReadbackSyncPoint() const {
++  namespace ct = xbox360ps5::cp_trace;
++  readback_batching::SyncPoint point;
++  for (const ct::Kind kind : {ct::Kind::kMemWrite, ct::Kind::kEventShd, ct::Kind::kCondWrite,
++                              ct::Kind::kRegToMem, ct::Kind::kScratch}) {
++    point.cp_writes += ct::Global().Total(kind);
++  }
++  point.ring_part = xbox360ps5::frame_cost::command_chunk_epoch;
++  point.swaps = swap_count();
++  return point;
++}
++
+ void VulkanCommandProcessor::ShutdownContext() {
+   AwaitAllQueueOperationsCompletion();
+   if (readback_read_callback_) {  // fix 91
+@@ -3967,6 +3987,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+         xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+             xbox360ps5::frame_cost::kMemexport);
+ #endif
++        readback_memexport_batches_.Note(ReadbackSyncPoint());  // fix 133
+         if (AwaitAllQueueOperationsCompletion()) {
+           // Map staging buffer and copy to guest memory.
+           void* mapped_data;
+@@ -4518,6 +4539,18 @@ bool VulkanCommandProcessor::IssueCopy() {
+         XELOGW("Readback own copies, last 30 s: {} ({}) (fix 91j/k)", readback_own_copies_,
+                own_keys.empty() ? "none" : own_keys.c_str());
+         readback_own_copies_ = 0;
++        // Fix 133: what the steady families saved, and what batching the waits would merge.
++        XELOGW("Readback batching, last 30 s (fix 133, steady by end {}): {} resolves of a steady "
++               "family (same end address) took the late copy instead of their own; own copies "
++               "waited for {} times in {} periods between sync points; memexport readbacks waited "
++               "for {} times in {} periods; {} families",
++               cvars::readback_steady_by_end ? "on" : "off", readback_family_late_,
++               readback_own_batches_.waits(), readback_own_batches_.periods(),
++               readback_memexport_batches_.waits(), readback_memexport_batches_.periods(),
++               readback_families_.size());
++        readback_family_late_ = 0;
++        readback_own_batches_.Reset();
++        readback_memexport_batches_.Reset();
+       }
+     }
+     ReadbackBuffer& rb = readback_buffers_[resolve_key];
+@@ -4527,6 +4560,16 @@ bool VulkanCommandProcessor::IssueCopy() {
+         readback_slots::Occasional(previous_use_frame, frame_current_, rb.gap_average);
+     rb.streak = readback_slots::Streak(previous_use_frame, frame_current_, rb.streak);  // fix 91j
+     rb.presence = readback_slots::Presence(previous_use_frame, frame_current_, rb.presence);  // 91k
++    // Fix 133: the key's family (its end address), steady or not.
++    readback_batching::Family& family =
++        readback_families_[readback_batching::FamilyKey(written_address, written_length)];
++    {
++      const uint64_t family_previous_frame = family.last_used_frame;
++      family.last_used_frame = frame_current_;
++      family.presence =
++          readback_slots::Presence(family_previous_frame, frame_current_, family.presence);
++    }
++    const bool family_steady = readback_slots::SteadyPresence(family.presence);
+ 
+     // Xbox360PS5 (fix 35): an unused or the oldest slot, never the newest one
+     // the guest can be given (readback_slots.h); 1.0.2 flipped two slots once
+@@ -4673,14 +4716,24 @@ bool VulkanCommandProcessor::IssueCopy() {
+     // is not steady (resolved in kSteadyPresence of recent frames, readback_slots::Presence) gets
+     // its own copy. The default; "occasional off" in readback-keys.txt goes back to fix 91i's
+     // rule (a key the CPU is seen reading that is occasional), for comparisons.
+-    const bool own_copy = g_readback_rules.occasional_own
+-                              ? !readback_slots::SteadyPresence(rb.presence)
+-                              : rb.cpu_reads && occasional;
++    // Fix 133: not when the key's family is steady and the CPU has not been seen reading the
++    // key (readback_batching::OwnCopy).
++    const bool key_steady = readback_slots::SteadyPresence(rb.presence);
++    const bool own_copy =
++        g_readback_rules.occasional_own
++            ? readback_batching::OwnCopy(key_steady, family_steady, rb.cpu_reads,
++                                         cvars::readback_steady_by_end)
++            : rb.cpu_reads && occasional;
++    if (g_readback_rules.occasional_own && !key_steady && !own_copy &&
++        readback_mode == ReadbackResolveMode::kFast && !auto_readback && newest_copy >= 0) {
++      ++readback_family_late_;
++    }
+     if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && own_copy &&
+         newest_copy >= 0) {
+       read_cache_miss = true;
+       ++rb.own_window;
+       ++readback_own_copies_;
++      readback_own_batches_.Note(ReadbackSyncPoint());  // fix 133
+       static uint32_t own_shown = 0;
+       if (own_shown < 16) {
+         ++own_shown;

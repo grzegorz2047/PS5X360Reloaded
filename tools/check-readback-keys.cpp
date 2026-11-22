@@ -123,8 +123,10 @@ int main() {
     CHECK(cp.find("xbox360ps5::readback_keys::Rules g_readback_rules;") != std::string::npos);
     CHECK(cp.find("xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g") !=
           std::string::npos);
-    CHECK(cp.find("? !readback_slots::SteadyPresence(rb.presence)") !=
-          std::string::npos);  // fix 91j/k
+    // Fix 91j/k's rule, or fix 133's in its place (a key's family by its end address).
+    CHECK(cp.find("? !readback_slots::SteadyPresence(rb.presence)") != std::string::npos ||
+          (cp.find("const bool key_steady = readback_slots::SteadyPresence(rb.presence);") != std::string::npos &&
+           cp.find("? readback_batching::OwnCopy(key_steady, family_steady, rb.cpu_reads,") != std::string::npos));
     // Fix 91h: the copy left out only in the fast mode (never the automatic copy), counted, and
     // the read watch still armed after it.
     const size_t leave = cp.find("xbox360ps5::readback_keys::NoCopy(g_readback_rules, written_address, rb.cpu_reads);");
