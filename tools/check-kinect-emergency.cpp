@@ -178,16 +178,22 @@ int main(int argc, char** argv) {
   }
   CHECK(m::kEmergencyButtons == (0x02 | 0x04));
 
-  // (f) The motion panel's text lines: one each, so the distance cannot run into the status line in
-  // any language ("Motion: tracking (research)Odległość 2.7 m"); the hint under the distance while
-  // it shows, all of it above the skeleton's clip (185).
-  for (const bool tracked : {true, false}) {
-    const auto lines = m::PanelStatusLines(tracked);
+  // (f) The motion panel's text: the status and the game's skeleton one line each at the top, above
+  // the skeleton's clip (185), so nothing runs into the status line in any language ("Motion:
+  // tracking (research)Odległość 2.7 m"). The distance and the position hint as one short line at
+  // the skeleton's foot ("2.6 m · Step back"): under the drawn feet (about y 526), above the
+  // hand-reach bars (from 568) when they show, inside the box (100-640), and raised when it wraps.
+  {
+    const auto lines = m::PanelStatusLines();
     CHECK(lines.skeleton - lines.status >= m::kStatusLineHeight - 2);
-    CHECK(lines.distance - lines.skeleton >= m::kStatusLineHeight);
-    if (tracked) CHECK(lines.hint - lines.distance >= m::kStatusLineHeight);
-    else CHECK(lines.hint == lines.distance);
-    CHECK(lines.hint + m::kStatusLineHeight <= 186 + m::kStatusLineHeight && lines.status >= 100);
+    CHECK(lines.status >= 100 && lines.skeleton + m::kStatusLineHeight <= m::kSkeletonTop);
+    for (const bool bars : {true, false}) {
+      const float bottom = bars ? m::kSkeletonBottomWithBars : m::kSkeletonBottom;
+      const float one = m::PanelFootTop(bars, 20), two = m::PanelFootTop(bars, 40);
+      CHECK(one + 20 + m::kFootGap == bottom && two == one - 20);
+      CHECK(one >= 526 && two > m::kSkeletonTop);
+      CHECK(bars ? one + 20 < 568 : one + 20 <= 640);
+    }
   }
 
   // (e) A brief press asks for a re-centre; a hold, or a press that started the emergency body, does not.
@@ -245,11 +251,16 @@ int main(int argc, char** argv) {
     CHECK(pad_call != std::string::npos && pad_call < pad.find("std::lock_guard<std::mutex> lock(mutex_);", pad.find("void DualSenseInput::Submit")));
     CHECK(game.find("DrawEmergencyHint(scale, now);  // fix 107") != std::string::npos);
     CHECK(game.find("const bool recentring = xbox360ps5::motion::RecentrePending(now_ms);  // fix 107") != std::string::npos);
-    // (f) The panel draws its lines where PanelStatusLines says, the distance no longer at the
-    // status line's right end.
-    CHECK(game.find("const auto lines = xbox360ps5::motion::PanelStatusLines(phone.tracked);") != std::string::npos);
-    CHECK(game.find("ImVec2((1570 + shift_) * scale, lines.distance * scale),") != std::string::npos);
-    CHECK(game.find("DrawPositionHint(draw, scale, pose, lines.hint);") != std::string::npos);
+    // (f) The panel draws its top lines where PanelStatusLines says and the distance with the hint
+    // at the skeleton's foot (PanelFootTop), no longer at the status line's right end or on a line
+    // of its own at the top.
+    CHECK(game.find("const auto lines = xbox360ps5::motion::PanelStatusLines();") != std::string::npos);
+    const size_t foot = game.find("DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107");
+    CHECK(foot != std::string::npos && foot < game.find("if (hands.valid) DrawReachBars(draw, scale, hands);"));
+    CHECK(game.find("std::snprintf(distance, sizeof(distance), \"%.1f m\", double(metres));") != std::string::npos);
+    CHECK(game.find("const float top = xbox360ps5::motion::PanelFootTop(bars, size.y / scale);") != std::string::npos);
+    CHECK(game.find("Tr(\"Distance %.1f m\")") == std::string::npos);
+    CHECK(game.find("lines.distance") == std::string::npos && game.find("DrawPositionHint(") == std::string::npos);
     CHECK(game.find("(1885 + shift_) * scale - size.x, 117 * scale)") == std::string::npos);
     // The pad's press, the server's answers and the acknowledgement, with their log lines.
     CHECK(pad.find("\"Virtual Kinect: re-centre requested from the pad (seq {}) (fix 107)\"") != std::string::npos);

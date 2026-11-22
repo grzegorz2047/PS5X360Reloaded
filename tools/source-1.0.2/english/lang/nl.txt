@@ -144,7 +144,6 @@ Disc = Schijf
 Disc\s%u = Schijf\s%u
 Disc\s%u\sof\s%u = Schijf\s%u\svan\s%u
 Disconnected\sor\sunavailable = Losgekoppeld\sof\sniet\sbeschikbaar
-Distance\s%.1f\sm = Afstand\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Voegt\sdithering\stoe\saan\sde\suitvoer\szodat\sluchten\sen\sschaduwen\sgeen\sbanden\stonen.
 Does\snot\swork = Werkt\sniet
 Done = Klaar

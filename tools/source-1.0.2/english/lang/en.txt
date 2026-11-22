@@ -146,7 +146,6 @@ Disc = Disc
 Disc\s%u = Disc\s%u
 Disc\s%u\sof\s%u = Disc\s%u\sof\s%u
 Disconnected\sor\sunavailable = Disconnected\sor\sunavailable
-Distance\s%.1f\sm = Distance\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands.
 Does\snot\swork = Does\snot\swork
 Done = Done
