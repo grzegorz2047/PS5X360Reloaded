@@ -146,6 +146,7 @@ on:
       - 'tools/check-content-checked.cpp'
       - 'tools/check-sample-ticket.cpp'
       - 'tools/check-vfs-host-ops.cpp'
+      - 'tools/check-vfs-entry-lifetime.*'
       - 'tools/check-resolution-scale.cpp'
       - 'tools/check-submit-parts.cpp'
       - 'tools/check-game-language.cpp'
