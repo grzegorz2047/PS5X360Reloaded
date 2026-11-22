@@ -87,7 +87,7 @@ check('(c) when a picture goes', () => {
   assert.equal(L.PICTURE_MS, 20);
   assert.equal(L.PICTURE_SLOW_NETWORK_MS, 60);
   assert.equal(L.PICTURE_SLOW_MS, 125);
-  assert.equal(L.PICTURE_IN_FLIGHT, 2);
+  assert.equal(L.PICTURE_IN_FLIGHT, 3);  // fix 119k
   assert.equal(g.inFlight, 0);
   assert.equal(g.due(1000, true, 10), false);            // the console has not asked
   g.note({ok: true});                                    // an older console: no "picture"
@@ -99,7 +99,9 @@ check('(c) when a picture goes', () => {
   g.inFlight = 1;
   assert.equal(g.due(1100, true, 10), true);             // one on its way: a second may go
   g.inFlight = 2;
-  assert.equal(g.due(1200, true, 10), false);            // two on their way
+  assert.equal(g.due(1150, true, 10), true);             // fix 119k: two on their way, a third may go
+  g.inFlight = 3;
+  assert.equal(g.due(1200, true, 10), false);            // three on their way
   g.inFlight = 0;
   assert.equal(g.due(1300, true, 21), true);             // the console's 21 ms
   assert.equal(g.due(1400, true, 61), false);            // slower network: 125 ms apart
