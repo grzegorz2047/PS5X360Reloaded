@@ -66,6 +66,9 @@
 // lines a session, to choose Battlefield 3's threshold from data.
 //  (p) the header: the line's text, the 64-line cap;
 //  (q) the tree: the line after the render target is counted, only at 2x, through the cap.
+// Fix 117i (117i-resolution-scale-bf3.patch): Battlefield 3's threshold, 640, compiled in (its scene is
+// 1280 pixels of pitch; its half-resolution particle and smoke passes 640 and below).
+//  (r) the header: Battlefield 3 compiled in at 640, Tekken Tag Tournament 2 kept at 1040.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -279,6 +282,9 @@ void CheckHeader() {
   // Fix 117f: compiled-in thresholds.
   Expect(rs::CompiledThreshold("4E4D0859") == 1040 && rs::CompiledThreshold("4e4d0859") == 1040,
          "Tekken Tag Tournament 2 compiled in, any case");
+  Expect(rs::CompiledThreshold("45410950") == 640 && rs::CompiledThreshold("45410950") < 1280 &&
+             rs::ThresholdFor(2, rs::CompiledThreshold("45410950")) == 640,
+         "fix 117i: Battlefield 3 compiled in at 640, below its 1280-pixel scene");
   Expect(rs::CompiledThreshold("545407F2") == 0 && rs::CompiledThreshold("") == 0 &&
              rs::CompiledThreshold("4E4D08590") == 0,
          "no other title, nor a malformed id");
