@@ -68,6 +68,32 @@ new file mode 100644
 +}  // namespace xe
 +
 +#endif  // XENIA_GPU_CONTENT_CHECK_POLICY_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -307,6 +307,10 @@ class CommandProcessor {
+ 
+   virtual void PollCompletedSubmission() {}
+ 
++  // Fix 125: at the start of each part of the ring, the shared memory's units
++  // checked by content (the Vulkan command processor's shared memory).
++  virtual void CheckContentUnits() {}
++
+   // Used by strict ZPD to distinguish normal in flight latency from a
+   // genuinely stuck report.
+   virtual uint64_t GetCompletedSubmission() const { return 0; }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -166,6 +166,8 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   void RestoreEdramSnapshot(const void* snapshot) override;
+ 
+   void PollCompletedSubmission() override;
++  // Fix 125: the units checked by content, at each part of the ring.
++  void CheckContentUnits() override { shared_memory_->CheckContentUnits(); }
+ 
+   ui::vulkan::VulkanDevice* GetVulkanDevice() const {
+     return static_cast<const ui::vulkan::VulkanProvider*>(
 diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
 --- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
@@ -377,12 +403,14 @@ diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-can
 diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
 --- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
 +++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
-@@ -1542,6 +1542,8 @@ uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,
-   trace_writer_.WritePrimaryBufferStart(start_ptr, write_index - read_index);
+@@ -1543,6 +1543,10 @@ uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(uint32_t read_index,
  #if XE_PLATFORM_PS5
    ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87: a new part of the ring
-+  // Fix 125: memory checked by content, before this part's draws read it.
-+  shared_memory_->CheckContentUnits();
  #endif
++#if XE_PLATFORM_PS5
++  // Fix 125: memory checked by content, before this part's draws read it.
++  CheckContentUnits();
++#endif
  
    // Execute commands!
+ 

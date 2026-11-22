@@ -167,9 +167,18 @@ void CheckTree() {
   Expect(smh.find("void CheckContentUnits();") != std::string::npos, "the check is declared");
   const std::string pm4 = Read(gpu + "pm4_command_processor_implement.h");
   const size_t epoch = pm4.find("++xbox360ps5::frame_cost::command_chunk_epoch;");
-  const size_t hook = pm4.find("shared_memory_->CheckContentUnits();");
-  Expect(epoch != std::string::npos && hook != std::string::npos && hook > epoch && hook - epoch < 300,
+  const size_t hook = pm4.find("  CheckContentUnits();", epoch);
+  Expect(epoch != std::string::npos && hook != std::string::npos && hook - epoch < 300,
          "the check runs at the start of each part of the ring");
+  Expect(pm4.find("#if XE_PLATFORM_PS5\n  ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87: a new "
+                  "part of the ring\n#endif") != std::string::npos,
+         "fix 87's block is as it was");
+  // The base command processor instantiates the same code: the hook is a virtual, the Vulkan one's
+  // calls its shared memory.
+  const std::string cp_h = Read(gpu + "command_processor.h"), vk_h = Read(gpu + "vulkan/vulkan_command_processor.h");
+  Expect(cp_h.find("virtual void CheckContentUnits() {}") != std::string::npos &&
+             vk_h.find("void CheckContentUnits() override { shared_memory_->CheckContentUnits(); }") != std::string::npos,
+         "the hook reaches the Vulkan shared memory");
 }
 
 }  // namespace
