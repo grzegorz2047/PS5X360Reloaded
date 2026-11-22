@@ -75,6 +75,13 @@ checks=(
   check-fault-path.cpp             # fix 65
   check-phone-latency.cpp          # fix 66
   check-xma-unwatch.cpp            # fix 67
+  check-motion-replay.cpp          # fix 57 (1.0.5)
+  check-xctd-query.cpp             # fix 90 (1.0.5)
+  check-avatar-assets.cpp          # fix 99 (1.0.5)
+  check-kinect-identity.cpp        # fix 99b (1.0.5)
+  check-kinect-tracker.cpp         # fix 106
+  check-kinect-emergency.cpp       # fix 107
+  check-kinect-diag.cpp            # fix 108
   check-suspend-trace.cpp          # fix 69
   check-pending-resume.cpp         # fix 71
   check-page-version.cpp           # fix 72
@@ -126,6 +133,7 @@ declare -A arguments=(
   [check-phone-qr-panel.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-measure-10s.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-library-disc.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-kinect-emergency.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-multidisc-library.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-bug-report.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-leaving-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -160,6 +168,13 @@ declare -A fix_of=(
   [check-fault-path.cpp]=65
   [check-phone-latency.cpp]=66
   [check-xma-unwatch.cpp]=67
+  [check-motion-replay.cpp]=57
+  [check-xctd-query.cpp]=90
+  [check-avatar-assets.cpp]=99
+  [check-kinect-identity.cpp]=99b
+  [check-kinect-tracker.cpp]=106
+  [check-kinect-emergency.cpp]=107
+  [check-kinect-diag.cpp]=108
   [check-suspend-trace.cpp]=69
   [check-pending-resume.cpp]=71
   [check-page-version.cpp]=72
@@ -331,6 +346,26 @@ elif node "$repo/tools/check-page-version.mjs" "$tree"; then
   echo "pass check-page-version.mjs"
 else
   echo "FAIL check-page-version.mjs"
+  status=1
+fi
+# Fix 106: the phone's Kinect tracker (port/phone_camera_tracker.hpp) and the page's reasons, with node.
+echo "=== check-kinect-tracker.mjs"
+if [[ " $skipped_fixes " == *" 106 "* ]]; then
+  echo "skip check-kinect-tracker.mjs (fix 106 left out of this build)"
+elif node "$repo/tools/check-kinect-tracker.mjs" "$tree"; then
+  echo "pass check-kinect-tracker.mjs"
+else
+  echo "FAIL check-kinect-tracker.mjs"
+  status=1
+fi
+# Fix 107: re-centring the phone camera from the pad (the page's side), with node.
+echo "=== check-kinect-recentre.mjs"
+if [[ " $skipped_fixes " == *" 107 "* ]]; then
+  echo "skip check-kinect-recentre.mjs (fix 107 left out of this build)"
+elif node "$repo/tools/check-kinect-recentre.mjs" "$tree"; then
+  echo "pass check-kinect-recentre.mjs"
+else
+  echo "FAIL check-kinect-recentre.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

@@ -53,7 +53,9 @@ def main():
         assert [p.name for p in left_out] == [n for n in names if n.startswith('08-')]
     # A typo, or a name matching several, stops the assembly.
     assert stops(patches, ['1'])
-    assert stops(patches, ['99'])
+    # A number no patch has (99 was the example until fix 99 existed).
+    unused = next(str(n) for n in range(900, 1000) if not any(name.startswith(f'{n}-') for name in names))
+    assert stops(patches, [unused])
     assert stops(patches, ['jit'])
     made_up = [Path('fixes/30-a.patch'), Path('fixes/30-b.patch')]
     assert stops(made_up, ['30'])
