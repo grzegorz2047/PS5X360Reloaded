@@ -255,7 +255,9 @@ void CheckTree() {
          "the selection is kept by any disc's path");
   Expect(Has(launcher, "if (HasDiscPath(game, recents_[at])) best = at;"), "a set's place: its most recent disc");
   Expect(Has(launcher, "if (SyncRunningDisc(games_)) SelectionChanged();  // fix 89"), "a running disc is chosen");
-  const size_t play = Find(launcher, "if (key == Key::right) game_tab_ = 1;");
+  // Fix 109d: the Play tab's right (to Patches) goes through the shared tab bar's pad now; its
+  // up / down still choose the disc.
+  const size_t play = Find(launcher, "if ((key == Key::up || key == Key::down) && Selected() && Selected()->discs.size() > 1)");
   const size_t step = Find(launcher, "StepDisc(key == Key::down ? 1 : -1);", play);
   Expect(play != std::string::npos && step != std::string::npos && step - play < 200,
          "the Play tab changes the disc with up / down");
