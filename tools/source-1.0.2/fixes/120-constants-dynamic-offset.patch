@@ -1,0 +1,541 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/constants_dynamic.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/constants_dynamic.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/constants_dynamic.h
+@@ -0,0 +1,85 @@
++/**
++ ******************************************************************************
++ * Xbox360PS5: fix 120, the draw constants as dynamic uniform buffers.        *
++ ******************************************************************************
++ * The float constants change for nearly every draw, so UpdateBindings
++ * allocated a new descriptor set of the seven constant buffers and wrote all
++ * seven descriptors (vkUpdateDescriptorSets) for nearly every draw, only
++ * because a buffer's offset had moved within the uniform buffer pool's page.
++ * Bindings were the largest part of a draw's own time after fix 104: Red Dead
++ * Redemption 150 to 163 ms/s at 190,000 to 206,000 draws a second, Grand
++ * Theft Auto IV 191 to 203 ms/s (1.0.5-work-fix102-111, fix102-105).
++ *
++ * With dynamic uniform buffer descriptors the set holds each buffer with
++ * offset 0 and a fixed range (the most a binding's block can read), and the
++ * draw's offsets are given when the set is bound. A set is written only when
++ * one of the seven buffers (a page of the pool) changed, or in a new frame
++ * (sets are recycled once their frame has completed); a draw whose constants
++ * moved only within the same buffers binds the same set again with its
++ * offsets. The pool's pages carry a tail of the largest range, so that an
++ * offset near a page's end plus the fixed range stays inside the buffer.
++ ******************************************************************************
++ */
++
++#ifndef XENIA_GPU_VULKAN_CONSTANTS_DYNAMIC_H_
++#define XENIA_GPU_VULKAN_CONSTANTS_DYNAMIC_H_
++
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace vulkan {
++namespace constants_dynamic {
++
++// Buffer is VkBuffer (any comparable handle), Set is VkDescriptorSet.
++template <typename Buffer, typename Set, uint32_t kCount>
++struct State {
++  bool valid = false;
++  uint64_t frame = 0;
++  Buffer buffers[kCount] = {};
++  Set set{};
++  uint32_t offsets[kCount] = {};  // the offsets of the previous draw
++
++  struct Decision {
++    bool write;   // a new set with these buffers
++    bool rebind;  // bind the set again (new offsets, or a new set); the
++                  // command processor's bound bit also rebinds it after a new
++                  // submission or another pipeline layout
++  };
++
++  // The draw's buffers and offsets in frame `frame_now`.
++  Decision Update(uint64_t frame_now, const Buffer* buffers_now,
++                  const uint32_t* offsets_now) {
++    bool write = !valid || frame != frame_now;
++    for (uint32_t i = 0; i < kCount && !write; ++i) {
++      write = buffers[i] != buffers_now[i];
++    }
++    bool rebind = write;
++    for (uint32_t i = 0; i < kCount; ++i) {
++      rebind |= offsets[i] != offsets_now[i];
++      offsets[i] = offsets_now[i];
++    }
++    if (write) {
++      valid = false;  // until Remember
++      for (uint32_t i = 0; i < kCount; ++i) {
++        buffers[i] = buffers_now[i];
++      }
++      frame = frame_now;
++    }
++    return {write, rebind};
++  }
++  // The set written for the buffers Update was given.
++  void Remember(Set set_now) {
++    set = set_now;
++    valid = true;
++  }
++  // The sets went back to their pool (ClearTransientDescriptorPools).
++  void Forget() { valid = false; }
++};
++
++}  // namespace constants_dynamic
++}  // namespace vulkan
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_CONSTANTS_DYNAMIC_H_
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.h b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.h
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.h
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.h
+@@ -19,9 +19,13 @@ namespace vulkan {
+ 
+ class VulkanUploadBufferPool : public GraphicsUploadBufferPool {
+  public:
++  // Xbox360PS5 (fix 120): `buffer_tail` bytes after each page's last
++  // allocation still belong to its buffer, so a dynamic uniform buffer
++  // descriptor with that fixed range is valid at any offset of the page.
+   VulkanUploadBufferPool(const VulkanDevice* vulkan_device,
+                          VkBufferUsageFlags usage,
+-                         size_t page_size = kDefaultPageSize);
++                         size_t page_size = kDefaultPageSize,
++                         size_t buffer_tail = 0);
+ 
+   uint8_t* Request(uint64_t submission_index, size_t size, size_t alignment,
+                    VkBuffer& buffer_out, VkDeviceSize& offset_out);
+@@ -58,6 +62,7 @@ class VulkanUploadBufferPool : public GraphicsUploadBufferPool {
+   uint32_t memory_type_ = UINT32_MAX;
+ 
+   VkBufferUsageFlags usage_;
++  size_t buffer_tail_;  // fix 120
+ };
+ 
+ }  // namespace vulkan
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.cc
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_upload_buffer_pool.cc
+@@ -24,12 +24,13 @@ namespace vulkan {
+ // try not to waste that padding.
+ VulkanUploadBufferPool::VulkanUploadBufferPool(
+     const VulkanDevice* const vulkan_device, const VkBufferUsageFlags usage,
+-    const size_t page_size)
++    const size_t page_size, const size_t buffer_tail)
+     : GraphicsUploadBufferPool(size_t(
+           xe::round_up(VkDeviceSize(page_size),
+                        vulkan_device->properties().nonCoherentAtomSize))),
+       vulkan_device_(vulkan_device),
+-      usage_(usage) {}
++      usage_(usage),
++      buffer_tail_(buffer_tail) {}
+ 
+ uint8_t* VulkanUploadBufferPool::Request(uint64_t submission_index, size_t size,
+                                          size_t alignment, VkBuffer& buffer_out,
+@@ -78,7 +79,8 @@ VulkanUploadBufferPool::CreatePageImplementation() {
+   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+   buffer_create_info.pNext = nullptr;
+   buffer_create_info.flags = 0;
+-  buffer_create_info.size = VkDeviceSize(page_size_);
++  // Fix 120: the tail after the page's allocations (0 unless asked for).
++  buffer_create_info.size = VkDeviceSize(page_size_ + buffer_tail_);
+   buffer_create_info.usage = usage_;
+   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+   buffer_create_info.queueFamilyIndexCount = 0;
+@@ -106,7 +108,7 @@ VulkanUploadBufferPool::CreatePageImplementation() {
+       return nullptr;
+     }
+     allocation_size_ = memory_requirements.size;
+-    if (allocation_size_ > page_size_) {
++    if (allocation_size_ > page_size_ + buffer_tail_) {
+       // Try to occupy the allocation padding. If that's going to require even
+       // more memory for some reason, don't.
+       buffer_create_info.size = allocation_size_;
+@@ -121,7 +123,8 @@ VulkanUploadBufferPool::CreatePageImplementation() {
+             false);
+         if (memory_requirements_expanded.size <= allocation_size_ &&
+             memory_type_expanded != UINT32_MAX) {
+-          page_size_ = size_t(allocation_size_);
++          // Fix 120: the tail stays after the page.
++          page_size_ = size_t(allocation_size_) - buffer_tail_;
+           allocation_size_ = memory_requirements_expanded.size;
+           memory_type_ = memory_type_expanded;
+           dfn.vkDestroyBuffer(device, buffer, nullptr);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -40,6 +40,7 @@
+ #include "xenia/gpu/vulkan/vulkan_texture_cache.h"
+ #if XE_PLATFORM_PS5
+ #include "xenia/gpu/vulkan/texture_set_reuse.h"  // fix 104
++#include "xenia/gpu/vulkan/constants_dynamic.h"  // fix 120
+ #endif
+ #include "xenia/gpu/xenos.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -687,10 +688,18 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // Direct3D 12 PIX warnings.
+   static constexpr uint32_t kLinkedTypeDescriptorPoolSetCount = 32768;
+   static const VkDescriptorPoolSize kDescriptorPoolSizeUniformBuffer;
++#if XE_PLATFORM_PS5
++  static const VkDescriptorPoolSize kDescriptorPoolSizeUniformBufferDynamic;
++#endif
+   static const VkDescriptorPoolSize kDescriptorPoolSizeStorageBuffer;
+   static const VkDescriptorPoolSize kDescriptorPoolSizeTextures[2];
+   ui::vulkan::LinkedTypeDescriptorSetAllocator
+       transient_descriptor_allocator_uniform_buffer_;
++#if XE_PLATFORM_PS5
++  // Fix 120: the constants' sets when they are dynamic uniform buffers.
++  ui::vulkan::LinkedTypeDescriptorSetAllocator
++      transient_descriptor_allocator_uniform_buffer_dynamic_;
++#endif
+   ui::vulkan::LinkedTypeDescriptorSetAllocator
+       transient_descriptor_allocator_storage_buffer_;
+   std::deque<UsedSingleTransientDescriptor> single_transient_descriptors_used_;
+@@ -866,6 +875,41 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   const PipelineLayout* current_guest_graphics_pipeline_layout_;
+   VkDescriptorBufferInfo current_constant_buffer_infos_
+       [SpirvShaderTranslator::kConstantBufferCount];
++#if XE_PLATFORM_PS5
++  // Fix 120: the constant buffers as dynamic uniform buffer descriptors (set
++  // at SetupContext from vulkan_dynamic_constants): the set's buffers with
++  // offset 0 and fixed ranges, the draw's offsets, and which set holds them.
++  bool constants_dynamic_ = false;
++  // The most each constant buffer's block can read: the descriptor's fixed
++  // range (the float constants: 256 vectors; UpdateBindings writes only those
++  // the shader uses, which it reads packed from the start).
++  static VkDeviceSize ConstantBufferDynamicRange(uint32_t index) {
++    switch (index) {
++      case SpirvShaderTranslator::kConstantBufferSystem:
++        return sizeof(SpirvShaderTranslator::SystemConstants);
++      case SpirvShaderTranslator::kConstantBufferFloatVertex:
++      case SpirvShaderTranslator::kConstantBufferFloatPixel:
++        return sizeof(float) * 4 * 256;
++      case SpirvShaderTranslator::kConstantBufferBoolLoop:
++        return sizeof(uint32_t) * (8 + 32);
++      case SpirvShaderTranslator::kConstantBufferFetch:
++        return sizeof(uint32_t) * 6 * 32;
++      case SpirvShaderTranslator::kConstantBufferClipPlanes:
++        return sizeof(SpirvShaderTranslator::ClipPlaneConstants);
++      case SpirvShaderTranslator::kConstantBufferTessellation:
++        return sizeof(SpirvShaderTranslator::TessellationConstants);
++      default:
++        return 0;
++    }
++  }
++  VkDescriptorBufferInfo constants_dynamic_infos_
++      [SpirvShaderTranslator::kConstantBufferCount];
++  uint32_t constants_dynamic_offsets_[SpirvShaderTranslator::kConstantBufferCount] =
++      {};
++  constants_dynamic::State<VkBuffer, VkDescriptorSet,
++                           SpirvShaderTranslator::kConstantBufferCount>
++      constants_dynamic_state_;
++#endif
+   // Whether up-to-date data has been written to constant (uniform) buffers, and
+   // the buffer infos in current_constant_buffer_infos_ point to them.
+   uint32_t current_constant_buffers_up_to_date_;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -69,6 +69,13 @@ DEFINE_bool(vulkan_depth_bias_force_unorm, true,
+ 
+ // Xbox360PS5: retain uploaded constants when the guest writes identical bits.
+ // Keep a config switch for comparisons and immediate rollback.
++#if XE_PLATFORM_PS5
++DEFINE_bool(vulkan_dynamic_constants, true,
++            "Xbox360PS5 (fix 120): bind the draw constant buffers as dynamic "
++            "uniform buffers, one descriptor set per pool page instead of a "
++            "new set for every draw. Off: as before.",
++            "GPU");
++#endif
+ DEFINE_bool(vulkan_skip_redundant_constants, true,
+             "Avoid invalidating shader buffers for identical constant writes",
+             "GPU");
+@@ -133,6 +140,14 @@ constexpr VkDescriptorPoolSize
+         SpirvShaderTranslator::kConstantBufferCount*
+             kLinkedTypeDescriptorPoolSetCount};
+ 
++#if XE_PLATFORM_PS5
++constexpr VkDescriptorPoolSize
++    VulkanCommandProcessor::kDescriptorPoolSizeUniformBufferDynamic = {
++        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
++        SpirvShaderTranslator::kConstantBufferCount*
++            kLinkedTypeDescriptorPoolSetCount};
++#endif
++
+ constexpr VkDescriptorPoolSize
+     VulkanCommandProcessor::kDescriptorPoolSizeStorageBuffer = {
+         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kLinkedTypeDescriptorPoolSetCount};
+@@ -158,6 +173,14 @@ VulkanCommandProcessor::VulkanCommandProcessor(
+               ->vulkan_device(),
+           &kDescriptorPoolSizeUniformBuffer, 1,
+           kLinkedTypeDescriptorPoolSetCount),
++#if XE_PLATFORM_PS5
++      transient_descriptor_allocator_uniform_buffer_dynamic_(
++          static_cast<const ui::vulkan::VulkanProvider*>(
++              graphics_system->provider())
++              ->vulkan_device(),
++          &kDescriptorPoolSizeUniformBufferDynamic, 1,
++          kLinkedTypeDescriptorPoolSetCount),
++#endif
+       transient_descriptor_allocator_storage_buffer_(
+           static_cast<const ui::vulkan::VulkanProvider*>(
+               graphics_system->provider())
+@@ -291,11 +314,37 @@ bool VulkanCommandProcessor::SetupContext() {
+ 
+   // 16384 is bigger than any single uniform buffer that Xenia needs, but is the
+   // minimum maxUniformBufferRange, thus the safe minimum amount.
++#if XE_PLATFORM_PS5
++  // Fix 120: dynamic constant buffers (seven of them; Vulkan guarantees at
++  // least eight dynamic uniform buffers per set) keep a fixed range in their
++  // descriptors, so every page carries a tail of the largest range.
++  constants_dynamic_ = cvars::vulkan_dynamic_constants;
++  size_t uniform_buffer_tail = 0;
++  if (constants_dynamic_) {
++    for (uint32_t i = 0; i < SpirvShaderTranslator::kConstantBufferCount;
++         ++i) {
++      uniform_buffer_tail =
++          std::max(uniform_buffer_tail, size_t(ConstantBufferDynamicRange(i)));
++    }
++    uniform_buffer_tail = xe::align(
++        uniform_buffer_tail,
++        size_t(std::max(device_properties.minUniformBufferOffsetAlignment,
++                        device_properties.nonCoherentAtomSize)));
++  }
++  XELOGI("Constant buffers (fix 120): {}",
++         constants_dynamic_ ? "dynamic uniform buffers, one set per page"
++                            : "a descriptor set per change, as before");
++#endif
+   uniform_buffer_pool_ = std::make_unique<ui::vulkan::VulkanUploadBufferPool>(
+       vulkan_device, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+       xe::align(std::max(ui::GraphicsUploadBufferPool::kDefaultPageSize,
+                          size_t(16384)),
+-                size_t(device_properties.minUniformBufferOffsetAlignment)));
++                size_t(device_properties.minUniformBufferOffsetAlignment))
++#if XE_PLATFORM_PS5
++          ,
++      uniform_buffer_tail
++#endif
++  );
+ 
+   // Descriptor set layouts that don't depend on the setup of other subsystems.
+   VkShaderStageFlags guest_shader_stages =
+@@ -322,6 +371,12 @@ bool VulkanCommandProcessor::SetupContext() {
+         descriptor_set_layout_bindings_constants[i];
+     constants_binding.binding = i;
+     constants_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++#if XE_PLATFORM_PS5
++    if (constants_dynamic_) {  // fix 120
++      constants_binding.descriptorType =
++          VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
++    }
++#endif
+     constants_binding.descriptorCount = 1;
+     constants_binding.pImmutableSamplers = nullptr;
+   }
+@@ -6223,6 +6278,10 @@ void VulkanCommandProcessor::ClearTransientDescriptorPools() {
+ 
+   constants_transient_descriptors_free_.clear();
+   constants_transient_descriptors_used_.clear();
++#if XE_PLATFORM_PS5
++  constants_dynamic_state_.Forget();  // fix 120
++  transient_descriptor_allocator_uniform_buffer_dynamic_.Reset();
++#endif
+   for (std::vector<VkDescriptorSet>& transient_descriptors_free :
+        single_transient_descriptors_free_) {
+     transient_descriptors_free.clear();
+@@ -7356,6 +7415,41 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     }
+   }
+ 
++#if XE_PLATFORM_PS5
++  // Fix 120: with dynamic constant buffers the set depends only on the seven
++  // buffers (pages of the pool) and the frame; the offsets go to the bind.
++  if (constants_dynamic_) {
++    VkBuffer constant_buffers[SpirvShaderTranslator::kConstantBufferCount];
++    for (uint32_t i = 0; i < SpirvShaderTranslator::kConstantBufferCount;
++         ++i) {
++      constant_buffers[i] = current_constant_buffer_infos_[i].buffer;
++      constants_dynamic_offsets_[i] =
++          uint32_t(current_constant_buffer_infos_[i].offset);
++    }
++    const auto decision = constants_dynamic_state_.Update(
++        frame_current_, constant_buffers, constants_dynamic_offsets_);
++    const uint32_t constants_bit = UINT32_C(1)
++                                   << SpirvShaderTranslator::kDescriptorSetConstants;
++    if (decision.write) {
++      current_graphics_descriptor_set_values_up_to_date_ &= ~constants_bit;
++    } else {
++      current_graphics_descriptor_set_values_up_to_date_ |= constants_bit;
++      if (current_graphics_descriptor_sets_
++              [SpirvShaderTranslator::kDescriptorSetConstants] !=
++          constants_dynamic_state_.set) {
++        current_graphics_descriptor_sets_
++            [SpirvShaderTranslator::kDescriptorSetConstants] =
++                constants_dynamic_state_.set;
++        current_graphics_descriptor_sets_bound_up_to_date_ &= ~constants_bit;
++      }
++    }
++    if (decision.rebind) {
++      current_graphics_descriptor_sets_bound_up_to_date_ &= ~constants_bit;
++    }
++    xbox360ps5::frame_cost::CountConstantSets(decision.write, decision.rebind);
++  }
++#endif
++
+   // Textures and samplers.
+   const std::vector<VulkanShader::SamplerBinding>& samplers_vertex =
+       vertex_shader->GetSamplerBindingsAfterTranslation();
+@@ -7546,21 +7640,53 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   if (!(current_graphics_descriptor_set_values_up_to_date_ &
+         (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetConstants))) {
+     VkDescriptorSet constants_descriptor_set;
++#if XE_PLATFORM_PS5
++    // Fix 120: dynamic uniform buffer descriptors, offset 0, fixed ranges.
++    const VkDescriptorType constants_descriptor_type =
++        constants_dynamic_ ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
++                           : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++    ui::vulkan::LinkedTypeDescriptorSetAllocator& constants_allocator =
++        constants_dynamic_ ? transient_descriptor_allocator_uniform_buffer_dynamic_
++                           : transient_descriptor_allocator_uniform_buffer_;
++    const VkDescriptorBufferInfo* constants_infos =
++        current_constant_buffer_infos_;
++    if (constants_dynamic_) {
++      for (uint32_t i = 0; i < SpirvShaderTranslator::kConstantBufferCount;
++           ++i) {
++        constants_dynamic_infos_[i].buffer =
++            current_constant_buffer_infos_[i].buffer;
++        constants_dynamic_infos_[i].offset = 0;
++        constants_dynamic_infos_[i].range = ConstantBufferDynamicRange(i);
++      }
++      constants_infos = constants_dynamic_infos_;
++    }
++#else
++    const VkDescriptorType constants_descriptor_type =
++        VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++    ui::vulkan::LinkedTypeDescriptorSetAllocator& constants_allocator =
++        transient_descriptor_allocator_uniform_buffer_;
++    const VkDescriptorBufferInfo* constants_infos =
++        current_constant_buffer_infos_;
++#endif
+     if (!constants_transient_descriptors_free_.empty()) {
+       constants_descriptor_set = constants_transient_descriptors_free_.back();
+       constants_transient_descriptors_free_.pop_back();
+     } else {
+       VkDescriptorPoolSize constants_descriptor_count;
+-      constants_descriptor_count.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++      constants_descriptor_count.type = constants_descriptor_type;
+       constants_descriptor_count.descriptorCount =
+           SpirvShaderTranslator::kConstantBufferCount;
+-      constants_descriptor_set =
+-          transient_descriptor_allocator_uniform_buffer_.Allocate(
+-              descriptor_set_layout_constants_, &constants_descriptor_count, 1);
++      constants_descriptor_set = constants_allocator.Allocate(
++          descriptor_set_layout_constants_, &constants_descriptor_count, 1);
+       if (constants_descriptor_set == VK_NULL_HANDLE) {
+         return false;
+       }
+     }
++#if XE_PLATFORM_PS5
++    if (constants_dynamic_) {
++      constants_dynamic_state_.Remember(constants_descriptor_set);  // fix 120
++    }
++#endif
+     constants_transient_descriptors_used_.emplace_back(
+         frame_current_, constants_descriptor_set);
+     // Consecutive bindings updated via a single VkWriteDescriptorSet must have
+@@ -7574,9 +7700,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       write_constants.dstBinding = i;
+       write_constants.dstArrayElement = 0;
+       write_constants.descriptorCount = 1;
+-      write_constants.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
++      write_constants.descriptorType = constants_descriptor_type;
+       write_constants.pImageInfo = nullptr;
+-      write_constants.pBufferInfo = &current_constant_buffer_infos_[i];
++      write_constants.pBufferInfo = &constants_infos[i];
+       write_constants.pTexelBufferView = nullptr;
+     }
+     write_descriptor_set_bits |=
+@@ -7682,11 +7808,24 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+                     ((UINT32_C(1) << descriptor_set_index) - 1)));
+     // TODO(Triang3l): Bind to compute for memexport emulation without vertex
+     // shader memory stores.
++    uint32_t dynamic_offset_count = 0;
++    const uint32_t* dynamic_offsets = nullptr;
++#if XE_PLATFORM_PS5
++    // Fix 120: binding the constants' set gives the draw's offsets.
++    if (constants_dynamic_ &&
++        descriptor_set_index <= SpirvShaderTranslator::kDescriptorSetConstants &&
++        descriptor_set_mask_tzcnt >
++            SpirvShaderTranslator::kDescriptorSetConstants) {
++      dynamic_offset_count = SpirvShaderTranslator::kConstantBufferCount;
++      dynamic_offsets = constants_dynamic_offsets_;
++    }
++#endif
+     deferred_command_buffer_.CmdVkBindDescriptorSets(
+         VK_PIPELINE_BIND_POINT_GRAPHICS,
+         current_guest_graphics_pipeline_layout_->GetPipelineLayout(),
+         descriptor_set_index, descriptor_set_mask_tzcnt - descriptor_set_index,
+-        current_graphics_descriptor_sets_ + descriptor_set_index, 0, nullptr);
++        current_graphics_descriptor_sets_ + descriptor_set_index,
++        dynamic_offset_count, dynamic_offsets);
+     if (descriptor_set_mask_tzcnt >= 32) {
+       break;
+     }
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1215,6 +1215,40 @@ class Reporter {
+   Snapshot last_{};  // the first line covers the time since the game started
+ };
+ 
++// Fix 120: the draws' constant buffer sets with dynamic offsets: the draws that wrote a new set
++// (a buffer page changed, or a new frame) and those that only bound it again with new offsets;
++// "Performance constant sets (GPU thread, fix 120): n/s written, m/s bound again with new
++// offsets, k/s draws (x% written)" since its previous line.
++inline std::atomic<uint64_t> constant_set_draws{0}, constant_sets_written{0}, constant_sets_rebound{0};
++inline void CountConstantSets(bool written, bool rebound) {
++  if (!OnGpuThread()) return;
++  AddOwn(constant_set_draws, 1);
++  if (written) AddOwn(constant_sets_written, 1);
++  else if (rebound) AddOwn(constant_sets_rebound, 1);
++}
++class ConstantSetReporter {
++ public:
++  std::string Line(double seconds) {
++    const double s = seconds > 0 ? seconds : 1;
++    const uint64_t d = constant_set_draws.load(std::memory_order_relaxed);
++    const uint64_t w = constant_sets_written.load(std::memory_order_relaxed);
++    const uint64_t r = constant_sets_rebound.load(std::memory_order_relaxed);
++    const uint64_t dd = d - last_draws_, dw = w - last_written_, dr = r - last_rebound_;
++    last_draws_ = d;
++    last_written_ = w;
++    last_rebound_ = r;
++    char line[192];
++    std::snprintf(line, sizeof(line),
++                  "Performance constant sets (GPU thread, fix 120): %.0f/s written, %.0f/s bound again with new "
++                  "offsets, %.0f/s draws (%.1f%% written)",
++                  double(dw) / s, double(dr) / s, double(dd) / s, dd ? 100.0 * double(dw) / double(dd) : 0.0);
++    return line;
++  }
++
++ private:
++  uint64_t last_draws_ = 0, last_written_ = 0, last_rebound_ = 0;
++};
++
+ // Fix 104: the draws' texture descriptor sets, reused (the same descriptors as the stage's set
+ // written last in the frame) or written, counted on the GPU thread; "Performance texture sets
+ // (GPU thread, fix 104): n/s reused, m/s written (x% reused)" since its previous line.
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3965,6 +3965,9 @@ int main(int argc, char** argv) {
+                 // Fix 104: the draws' texture descriptor sets, reused or written.
+                 static xbox360ps5::frame_cost::TextureSetReporter frame_cost_texture_sets;
+                 XELOGW("{}", frame_cost_texture_sets.Line(double(summary_samples)));
++                // Fix 120: the constant buffer sets written and bound again.
++                static xbox360ps5::frame_cost::ConstantSetReporter frame_cost_constant_sets;
++                XELOGW("{}", frame_cost_constant_sets.Line(double(summary_samples)));
+               }
+               // Draws made while their shader was still being compiled show
+               // a stand-in: brief gaps in a frame, lasting ones in what a game
