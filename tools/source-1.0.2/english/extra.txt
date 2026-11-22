@@ -271,6 +271,8 @@ Saving the logs for the bug report... = Salvando os registros do relatório de e
 Starting the menu... = Iniciando o menu...
 Starting the game... = Iniciando o jogo...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Dica: saia com Fechar o emulador em vez do botão PS, para manter os shaders para a próxima vez.
+Restart game = Reiniciar jogo
+Mute game sound = Silenciar o som do jogo
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -354,6 +356,8 @@ Saving the logs for the bug report... = A guardar os registos do relatório de e
 Starting the menu... = A iniciar o menu...
 Starting the game... = A iniciar o jogo...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Dica: saia com Fechar o emulador em vez do botão PS, para manter os shaders para a próxima vez.
+Restart game = Reiniciar jogo
+Mute game sound = Silenciar o som do jogo
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -437,6 +441,8 @@ Saving the logs for the bug report... = Guardando los registros del informe de e
 Starting the menu... = Iniciando el menú...
 Starting the game... = Iniciando el juego...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Consejo: sal con Cerrar el emulador en lugar del botón PS para conservar los shaders para la próxima vez.
+Restart game = Reiniciar juego
+Mute game sound = Silenciar el sonido del juego
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -520,6 +526,8 @@ Saving the logs for the bug report... = Guardando los registros del informe de e
 Starting the menu... = Iniciando el menú...
 Starting the game... = Iniciando el juego...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Consejo: sal con Cerrar el emulador en lugar del botón PS para conservar los shaders para la próxima vez.
+Restart game = Reiniciar juego
+Mute game sound = Silenciar el sonido del juego
 
 [added de]
 Console storage = Konsolenspeicher
@@ -603,6 +611,8 @@ Saving the logs for the bug report... = Protokolle für den Fehlerbericht werden
 Starting the menu... = Menü wird gestartet...
 Starting the game... = Spiel wird gestartet...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Tipp: Beende mit Emulator beenden statt mit der PS-Taste, damit die Shader für das nächste Mal erhalten bleiben.
+Restart game = Spiel neu starten
+Mute game sound = Spielton stummschalten
 
 [added fr]
 Console storage = Stockage de la console
@@ -686,6 +696,8 @@ Saving the logs for the bug report... = Enregistrement des journaux du rapport d
 Starting the menu... = Démarrage du menu...
 Starting the game... = Démarrage du jeu...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Astuce : quittez avec Quitter l'émulateur plutôt qu'avec la touche PS, pour garder les shaders la prochaine fois.
+Restart game = Relancer le jeu
+Mute game sound = Couper le son du jeu
 
 [added it]
 Console storage = Memoria della console
@@ -769,6 +781,8 @@ Saving the logs for the bug report... = Salvataggio dei log per la segnalazione 
 Starting the menu... = Avvio del menu...
 Starting the game... = Avvio del gioco...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Suggerimento: esci con Esci dall'emulatore invece del tasto PS, così gli shader restano per la prossima volta.
+Restart game = Riavvia il gioco
+Mute game sound = Disattiva l'audio del gioco
 
 [added ja]
 Console storage = 本体ストレージ
@@ -852,6 +866,8 @@ Saving the logs for the bug report... = 不具合報告用のログを保存し�
 Starting the menu... = メニューを起動しています...
 Starting the game... = ゲームを起動しています...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = ヒント：シェーダーを次回に残すには、PSボタンではなく「エミュレーターを終了」で終了してください。
+Restart game = ゲームを再起動
+Mute game sound = ゲームの音を消す
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -935,6 +951,8 @@ Saving the logs for the bug report... = 버그 신고용 로그를 저장하는 
 Starting the menu... = 메뉴를 시작하는 중...
 Starting the game... = 게임을 시작하는 중...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = 팁: 셰이더를 다음에도 쓰려면 PS 버튼 대신 에뮬레이터 종료로 나가세요.
+Restart game = 게임 다시 시작
+Mute game sound = 게임 소리 끄기
 
 [added nl]
 Console storage = Consoleopslag
@@ -1018,6 +1036,8 @@ Saving the logs for the bug report... = Logs voor de foutmelding opslaan...
 Starting the menu... = Menu starten...
 Starting the game... = Spel starten...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Tip: sluit af met Emulator afsluiten in plaats van de PS-knop, dan blijven de shaders bewaard voor de volgende keer.
+Restart game = Spel opnieuw starten
+Mute game sound = Spelgeluid dempen
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1101,6 +1121,8 @@ Saving the logs for the bug report... = Zapisywanie dzienników do zgłoszenia b
 Starting the menu... = Uruchamianie menu...
 Starting the game... = Uruchamianie gry...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Wskazówka: wychodź przez Zamknij emulator, a nie przyciskiem PS, żeby shadery zostały na następny raz.
+Restart game = Uruchom grę ponownie
+Mute game sound = Wycisz dźwięk gry
 
 [added ru]
 Console storage = Память консоли
@@ -1184,6 +1206,8 @@ Saving the logs for the bug report... = Сохранение журналов д
 Starting the menu... = Запуск меню...
 Starting the game... = Запуск игры...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = Совет: выходите через «Выйти из эмулятора», а не кнопкой PS, чтобы шейдеры сохранились на следующий раз.
+Restart game = Перезапустить игру
+Mute game sound = Выключить звук игры
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -1267,6 +1291,8 @@ Saving the logs for the bug report... = Hata bildirimi günlükleri kaydediliyor
 Starting the menu... = Menü başlatılıyor...
 Starting the game... = Oyun başlatılıyor...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = İpucu: Gölgelendiricilerin bir dahaki sefere korunması için PS düğmesi yerine Emülatörden çık ile çıkın.
+Restart game = Oyunu yeniden başlat
+Mute game sound = Oyun sesini kapat
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -1350,6 +1376,8 @@ Saving the logs for the bug report... = 正在保存错误报告日志...
 Starting the menu... = 正在启动菜单...
 Starting the game... = 正在启动游戏...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = 提示：请使用“退出模拟器”而不是 PS 按钮退出，以便保留着色器供下次使用。
+Restart game = 重新启动游戏
+Mute game sound = 游戏静音
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -1433,3 +1461,5 @@ Saving the logs for the bug report... = 正在儲存錯誤回報記錄...
 Starting the menu... = 正在啟動選單...
 Starting the game... = 正在啟動遊戲...
 Tip: leave with Exit emulator rather than the PS button, so the shaders are kept for next time. = 提示：請使用「結束模擬器」而不是 PS 按鈕離開，以便保留著色器供下次使用。
+Restart game = 重新啟動遊戲
+Mute game sound = 遊戲靜音

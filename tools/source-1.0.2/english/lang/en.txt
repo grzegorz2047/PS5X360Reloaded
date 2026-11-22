@@ -272,6 +272,7 @@ Memory\supdate\swindow = Memory\supdate\swindow
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio.
 Motion:\sno\sphone\sconnected = Motion:\sno\sphone\sconnected
 Mute\sgame\saudio. = Mute\sgame\saudio.
+Mute\sgame\ssound = Mute\sgame\ssound
 Muted = Muted
 Name = Name
 Navigate = Navigate
@@ -391,6 +392,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Rendering
 Restart\semulator = Restart\semulator
+Restart\sgame = Restart\sgame
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport
 Restarting\sthe\sgame... = Restarting\sthe\sgame...
 Restore\srecommended = Restore\srecommended

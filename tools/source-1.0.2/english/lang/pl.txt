@@ -270,6 +270,7 @@ Memory\supdate\swindow = Okno\saktualizacji\spamięci
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Głośność\sdźwięków\snawigacji\sw\smenu,\sniezależna\sod\sdźwięku\sgry.
 Motion:\sno\sphone\sconnected = Ruch:\sbrak\społączonego\stelefonu
 Mute\sgame\saudio. = Wycisz\sdźwięk\sgry.
+Mute\sgame\ssound = Wycisz\sdźwięk\sgry
 Muted = Wyciszone
 Name = Nazwa
 Navigate = Nawiguj
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Renderowanie
 Restart\semulator = Uruchom\semulator\sponownie
+Restart\sgame = Uruchom\sgrę\sponownie
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Uruchom\stę\sgrę\sponownie\sz\sdziennikami\sdo\szgłoszenia\sbłędu
 Restarting\sthe\sgame... = Ponowne\suruchamianie\sgry...
 Restore\srecommended = Przywróć\szalecane

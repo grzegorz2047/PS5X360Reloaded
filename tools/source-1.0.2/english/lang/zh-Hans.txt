@@ -270,6 +270,7 @@ Memory\supdate\swindow = 内存更新窗口
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = 菜单导航音效的音量，与游戏音频无关。
 Motion:\sno\sphone\sconnected = 动作：未连接手机
 Mute\sgame\saudio. = 将游戏声音静音。
+Mute\sgame\ssound = 游戏静音
 Muted = 静音
 Name = 名称
 Navigate = 导航
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = 渲染器
 Rendering = 渲染
 Restart\semulator = 重启模拟器
+Restart\sgame = 重新启动游戏
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 带错误报告日志重新启动此游戏
 Restarting\sthe\sgame... = 正在重新启动游戏...
 Restore\srecommended = 恢复推荐值

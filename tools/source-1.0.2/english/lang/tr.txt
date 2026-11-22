@@ -270,6 +270,7 @@ Memory\supdate\swindow = Bellek\sgüncelleme\spenceresi
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Menü\sgezinme\sseslerinin\sses\sdüzeyi,\soyun\ssesinden\sbağımsız.
 Motion:\sno\sphone\sconnected = Hareket:\sbağlı\stelefon\syok
 Mute\sgame\saudio. = Oyun\ssesini\skapat.
+Mute\sgame\ssound = Oyun\ssesini\skapat
 Muted = Sessiz
 Name = Ad
 Navigate = Gezin
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Görüntü\sişleyici
 Rendering = Görüntü\sişleme
 Restart\semulator = Emülatörü\syeniden\sbaşlat
+Restart\sgame = Oyunu\syeniden\sbaşlat
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Bu\soyunu\shata\sbildirimi\sgünlükleriyle\syeniden\sbaşlat
 Restarting\sthe\sgame... = Oyun\syeniden\sbaşlatılıyor...
 Restore\srecommended = Önerilenleri\sgeri\syükle

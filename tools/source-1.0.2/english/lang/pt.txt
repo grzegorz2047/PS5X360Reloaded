@@ -270,6 +270,7 @@ Memory\supdate\swindow = Atualização\sde\smemória
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Volume\sdos\sefeitos\sde\snavegação\sdos\smenus,\sindependente\sdo\ssom\sdos\sjogos.
 Motion:\sno\sphone\sconnected = Movimento:\snenhum\stelemóvel\sligado
 Mute\sgame\saudio. = Silencia\sa\ssaída\sde\sáudio\sdos\sjogos.
+Mute\sgame\ssound = Silenciar\so\ssom\sdo\sjogo
 Muted = Mudo
 Name = Nome
 Navigate = Mover
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderizador
 Rendering = Renderização
 Restart\semulator = Reiniciar\so\semulador
+Restart\sgame = Reiniciar\sjogo
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Reiniciar\seste\sjogo\scom\sregistos\spara\srelatório\sde\serro
 Restarting\sthe\sgame... = A\sreiniciar\so\sjogo...
 Restore\srecommended = Restaurar\so\srecomendado

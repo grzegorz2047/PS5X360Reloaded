@@ -270,6 +270,7 @@ Memory\supdate\swindow = Finestra\sdi\saggiornamento\sdella\smemoria
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Volume\sdei\ssuoni\sdi\snavigazione\sdei\smenu,\sindipendente\sdall'audio\sdel\sgioco.
 Motion:\sno\sphone\sconnected = Movimento:\snessun\stelefono\sconnesso
 Mute\sgame\saudio. = Disattiva\sl'audio\sdel\sgioco.
+Mute\sgame\ssound = Disattiva\sl'audio\sdel\sgioco
 Muted = Muto
 Name = Nome
 Navigate = Naviga
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Rendering
 Restart\semulator = Riavvia\sl'emulatore
+Restart\sgame = Riavvia\sil\sgioco
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Riavvia\squesto\sgioco\scon\si\slog\sper\suna\ssegnalazione\sdi\sbug
 Restarting\sthe\sgame... = Riavvio\sdel\sgioco...
 Restore\srecommended = Ripristina\sconsigliati

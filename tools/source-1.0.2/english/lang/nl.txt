@@ -270,6 +270,7 @@ Memory\supdate\swindow = Venster\svoor\sgeheugenupdates
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Volume\svan\sde\snavigatiegeluiden\sin\shet\smenu,\slos\svan\shet\sgamegeluid.
 Motion:\sno\sphone\sconnected = Beweging:\sgeen\stelefoon\sverbonden
 Mute\sgame\saudio. = Gamegeluid\sdempen.
+Mute\sgame\ssound = Spelgeluid\sdempen
 Muted = Gedempt
 Name = Naam
 Navigate = Navigeren
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Weergave
 Restart\semulator = Emulator\sherstarten
+Restart\sgame = Spel\sopnieuw\sstarten
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Dit\sspel\sopnieuw\sstarten\smet\slogs\svoor\seen\sfoutmelding
 Restarting\sthe\sgame... = Het\sspel\swordt\sopnieuw\sgestart...
 Restore\srecommended = Aanbevolen\sherstellen

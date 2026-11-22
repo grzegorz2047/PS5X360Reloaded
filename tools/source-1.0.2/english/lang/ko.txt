@@ -270,6 +270,7 @@ Memory\supdate\swindow = 메모리\s업데이트\s창
 Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = 메뉴\s이동\s소리의\s음량,\s게임\s소리와는\s별개입니다.
 Motion:\sno\sphone\sconnected = 모션:\s연결된\s휴대폰\s없음
 Mute\sgame\saudio. = 게임\s소리를\s음소거합니다.
+Mute\sgame\ssound = 게임\s소리\s끄기
 Muted = 음소거
 Name = 이름
 Navigate = 이동
@@ -389,6 +390,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = 렌더러
 Rendering = 렌더링
 Restart\semulator = 에뮬레이터\s다시\s시작
+Restart\sgame = 게임\s다시\s시작
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 버그\s신고용\s로그와\s함께\s이\s게임\s다시\s시작
 Restarting\sthe\sgame... = 게임을\s다시\s시작하는\s중...
 Restore\srecommended = 권장값으로\s복원

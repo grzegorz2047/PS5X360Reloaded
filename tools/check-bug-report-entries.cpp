@@ -120,8 +120,19 @@ void CheckGame() {
          "(d) dark text centred (never greyed out); the dark outline only when focused");
   Expect(!Has(draw, "\"!\"") && !Has(draw, "AddCircle(") && !Has(draw, "fade(118, 188, 62") && !Has(draw, "fade(200, 120, 40"),
          "(d) no mark, none of the green or orange");
-  const std::string action = Between(main, "case GuideAction::bug_report_restart:", "case GuideAction::network: {");
+  std::string action = Between(main, "case GuideAction::bug_report_restart:", "case GuideAction::network: {");
   Expect(Has(action, "if (!(pressed & 0x4000)) break;"), "(d) Cross only");
+  // Fix 115 (check-guide-quick.cpp): the restart is a helper shared with "Restart game"; with logs
+  // it sets the same values (guide_quick::RestartFlags), and restart_into_game writes launch-once.txt
+  // (or, after a title switch, the switch's launch data again).
+  const bool shared = Has(action, "restart_this_game(true);");
+  if (shared) {
+    const std::string helper = Between(main, "const auto restart_this_game = [&](bool with_logs) {", "};");
+    const std::string into = Between(main, "const auto restart_into_game = [&] {", "};");
+    action = helper + into;
+    Expect(Has(helper, "RestartFlags(with_logs, !settings_title.empty())") && Has(helper, "restart_into_game();"),
+           "(d) the shared restart: the flags of a restart with logs, then restart_into_game");
+  }
   Expect(Has(action, "overrides[\"bug_report\"] = 1;") && Has(action, "xbox360ps5::SaveGameOverrides(settings_title, overrides);") &&
              Has(action, "global.bug_report = 1;"),
          "(d) this game's own value (the general one without a title ID)");
