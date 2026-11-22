@@ -141,6 +141,7 @@ on:
       - 'tools/check-dynamic-constants.cpp'
       - 'tools/check-content-checked.cpp'
       - 'tools/check-sample-ticket.cpp'
+      - 'tools/check-vfs-host-ops.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
