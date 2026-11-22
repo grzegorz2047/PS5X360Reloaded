@@ -1,0 +1,232 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
+@@ -20,6 +20,10 @@
+ #include "xenia/gpu/register_file.h"
+ #include "xenia/gpu/registers.h"
+ #include "xenia/gpu/xenos.h"
++#if XE_PLATFORM_PS5
++#include <unordered_set>
++#include "xbox360ps5/resolution_scale.hpp"  // fix 117g
++#endif
+ 
+ DEFINE_bool(
+     debug_msaa_2x_as_4x, false,
+@@ -613,7 +617,55 @@ void RenderTargetCache::ClearCache() {
+   }
+ }
+ 
+-void RenderTargetCache::BeginFrame() { ResetAccumulatedRenderTargets(); }
++void RenderTargetCache::BeginFrame() {
++#if XE_PLATFORM_PS5
++  ++trim_frame_;  // fix 117g
++#endif
++  ResetAccumulatedRenderTargets();
++}
++
++#if XE_PLATFORM_PS5
++size_t RenderTargetCache::TrimUnusedRenderTargets(uint64_t idle_frames) {
++  // Fix 117g: as ClearCache keeps the targets owning EDRAM data, and also the
++  // last bound ones and those used in the last idle_frames frames.
++  std::unordered_set<RenderTargetKey, RenderTargetKey::Hasher> kept;
++  for (const auto& ownership_range_pair : ownership_ranges_) {
++    const OwnershipRange& ownership_range = ownership_range_pair.second;
++    for (const RenderTargetKey& key :
++         {ownership_range.render_target, ownership_range.depth_bits_target,
++          ownership_range.host_depth_render_target_unorm24,
++          ownership_range.host_depth_render_target_float24}) {
++      if (!key.IsEmpty()) {
++        kept.emplace(key);
++      }
++    }
++  }
++  std::unordered_set<const RenderTarget*> bound;
++  for (size_t i = 0; i < xe::countof(last_update_used_render_targets_); ++i) {
++    bound.emplace(last_update_used_render_targets_[i]);
++    bound.emplace(last_update_accumulated_render_targets_[i]);
++  }
++  size_t destroyed = 0;
++  for (auto it = render_targets_.begin(); it != render_targets_.end();) {
++    RenderTarget* render_target = it->second;
++    if (!render_target) {
++      it = render_targets_.erase(it);
++      continue;
++    }
++    if (!xbox360ps5::resolution_scale::MayTrim(
++            kept.find(render_target->key()) != kept.end(),
++            bound.find(render_target) != bound.end(), trim_frame_,
++            render_target->last_used_frame, idle_frames)) {
++      ++it;
++      continue;
++    }
++    delete render_target;
++    it = render_targets_.erase(it);
++    ++destroyed;
++  }
++  return destroyed;
++}
++#endif
+ 
+ int32_t RenderTargetCache::GetWindowOffsetTiles(
+     const RegisterFile& regs, reg::RB_DEPTHCONTROL normalized_depth_control,
+@@ -1751,8 +1803,18 @@ RenderTargetCache::RenderTarget* RenderTargetCache::GetOrCreateRenderTarget(
+   RenderTarget* render_target;
+   if (it_rt != render_targets_.end()) {
+     render_target = it_rt->second;
++#if XE_PLATFORM_PS5
++    if (render_target) {
++      render_target->last_used_frame = trim_frame_;  // fix 117g
++    }
++#endif
+   } else {
+     render_target = CreateRenderTarget(key);
++#if XE_PLATFORM_PS5
++    if (render_target) {
++      render_target->last_used_frame = trim_frame_;  // fix 117g
++    }
++#endif
+     uint32_t width = key.GetWidth();
+     uint32_t height =
+         GetRenderTargetHeight(key.pitch_tiles_at_32bpp, key.msaa_samples);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
+--- a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
+@@ -389,6 +389,10 @@ class RenderTargetCache {
+     RenderTarget(RenderTarget&& render_target) = delete;
+     RenderTarget& operator=(RenderTarget&& render_target) = delete;
+     RenderTargetKey key() const { return key_; }
++#if XE_PLATFORM_PS5
++    // Fix 117g: the frame the render target was last looked up in.
++    uint64_t last_used_frame = 0;
++#endif
+ 
+    protected:
+     RenderTarget(RenderTargetKey key) : key_(key) {}
+@@ -665,6 +669,14 @@ class RenderTargetCache {
+   size_t RenderTargetCount() const { return render_targets_.size(); }
+ 
+  protected:
++  // Fix 117g: destroys the render targets that own no EDRAM data, are not
++  // among the last bound ones and went unused for idle_frames frames; the
++  // keys that failed to be created are forgotten, to be tried again. Returns
++  // how many were destroyed. The implementation must first drop whatever
++  // refers to them (framebuffers).
++  size_t TrimUnusedRenderTargets(uint64_t idle_frames);
++  uint64_t trim_frame_ = 0;  // counted in BeginFrame
++
+   // Fix 117b: surfaces of this pitch and MSAA render at 1x from now on (the
+   // threshold's native class), because a render target of the scaled class
+   // was not made under the free memory floor. Host render targets only.
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -6197,9 +6197,11 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+         GetCurrentSubmission() - 1;
+ 
+ #if XE_PLATFORM_PS5
+-    // Fix 117f: at 2x under memory pressure, the render target cache keeps
+-    // only the targets that own EDRAM data (the core's own ClearCache), at
+-    // most every 10 s, once the GPU is idle at the end of a frame.
++    // Fix 117f: at 2x under memory pressure, the render target cache is
++    // trimmed at most every 10 s, once the GPU is idle at the end of a frame.
++    // Fix 117g: only the targets that own no EDRAM data, are not bound and
++    // went unused for 300 frames (the core's ClearCache also destroyed the
++    // per-frame aliases: noise on the screen until they were redrawn).
+     if (!cache_clear_requested_ && render_target_cache_ &&
+         render_target_cache_->IsDrawResolutionScaled() &&
+         xbox360ps5::resolution_scale::ShouldTrim(
+@@ -6210,7 +6212,8 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+       const size_t trim_before = render_target_cache_->RenderTargetCount();
+       const uint64_t trim_driver_before =
+           xbox360ps5::resolution_scale::driver_memory.Get().bytes;
+-      render_target_cache_->ClearCache();
++      render_target_cache_->TrimUnusedRenderTargetsVulkan(
++          xbox360ps5::resolution_scale::kTrimIdleFrames);
+       const size_t trim_after = render_target_cache_->RenderTargetCount();
+       const uint64_t trim_destroyed =
+           trim_before > trim_after ? trim_before - trim_after : 0;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -1138,6 +1138,25 @@ void VulkanRenderTargetCache::ClearCache() {
+   RenderTargetCache::ClearCache();
+ }
+ 
++#if XE_PLATFORM_PS5
++size_t VulkanRenderTargetCache::TrimUnusedRenderTargetsVulkan(
++    uint64_t idle_frames) {
++  const ui::vulkan::VulkanDevice* const vulkan_device =
++      command_processor_.GetVulkanDevice();
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  // Fix 117g: framebuffers refer to the attachment views of the targets that
++  // may go; render passes do not, so they stay.
++  last_update_framebuffer_ = VK_NULL_HANDLE;
++  for (const auto& framebuffer_pair : framebuffers_) {
++    dfn.vkDestroyFramebuffer(device, framebuffer_pair.second.framebuffer,
++                             nullptr);
++  }
++  framebuffers_.clear();
++  return TrimUnusedRenderTargets(idle_frames);
++}
++#endif
++
+ void VulkanRenderTargetCache::CompletedSubmissionUpdated() {
+   if (transfer_vertex_buffer_pool_) {
+     transfer_vertex_buffer_pool_->Reclaim(
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h
+@@ -110,6 +110,12 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   bool Initialize(uint32_t shared_memory_binding_count);
+   void Shutdown(bool from_destructor = false);
+   void ClearCache() override;
++#if XE_PLATFORM_PS5
++  // Fix 117g: drops the framebuffers (they refer to the targets' views), then
++  // destroys the render targets idle for idle_frames frames that own no EDRAM
++  // data and are not bound; returns how many.
++  size_t TrimUnusedRenderTargetsVulkan(uint64_t idle_frames);
++#endif
+ 
+   void CompletedSubmissionUpdated();
+   void EndSubmission();
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -46,6 +46,10 @@
+ // core's RenderTargetCache::ClearCache: only targets that own EDRAM data stay); under 512 MiB free no render target
+ // is made at all (that draw is dropped, not the game closed); Tekken's threshold is compiled in (presets.txt still
+ // wins), and the start line says where it came from.
++// Fix 117g: Battlefield 3 at 2x (1.0.5-work-fix117f) showed full-screen noise for a while after each trim: the core's
++// ClearCache also destroyed render targets the game uses every frame but that owned no EDRAM range at the frame's end
++// (aliases of the same EDRAM, re-made empty the next frame). The trim now destroys only render targets that own no
++// EDRAM data, are not among the last bound ones, and were not looked up for kTrimIdleFrames frames.
+ #pragma once
+ 
+ #include <atomic>
+@@ -220,6 +224,14 @@ inline bool AdmitAnyRenderTarget(Counters& c, int64_t direct_free, uint64_t byte
+ // Fix 117f: trim the render target cache when above 1x, under the render target floor, at most every 10 s,
+ // and only after render targets were made since the last trim.
+ inline constexpr int64_t kTrimIntervalMs = 10000;
++// Fix 117g: frames a render target must have gone unused before a trim may destroy it (5 s at 60, 10 s at 30).
++inline constexpr uint64_t kTrimIdleFrames = 300;
++// Whether a render target may go: it owns no EDRAM data, was not bound last, and went unused for long enough.
++inline bool MayTrim(bool owns_edram_data, bool bound_last, uint64_t frame_now, uint64_t last_used_frame,
++                    uint64_t idle_frames = kTrimIdleFrames) {
++  if (owns_edram_data || bound_last) return false;
++  return frame_now >= last_used_frame && frame_now - last_used_frame >= idle_frames;
++}
+ inline bool ShouldTrim(const Counters& c, int64_t direct_free, int64_t now_ms) {
+   if (c.scale.load(std::memory_order_relaxed) <= 1) return false;
+   if (direct_free < 0 || uint64_t(direct_free) >= kRenderTargetFloor) return false;
+@@ -239,8 +251,8 @@ inline std::string TrimLine(uint64_t destroyed, uint64_t kept, uint64_t driver_b
+   char line[260];
+   const auto mib = [](int64_t bytes) { return bytes < 0 ? -1ll : (long long)(bytes >> 20); };
+   std::snprintf(line, sizeof(line),
+-                "Resolution scale (fix 117f): render targets trimmed: %llu destroyed, %llu kept (owning EDRAM data); "
+-                "driver memory %lld -> %lld MiB; direct free %lld MiB",
++                "Resolution scale (fix 117f): render targets trimmed: %llu destroyed, %llu kept (owning EDRAM data or "
++                "used in the last 300 frames); driver memory %lld -> %lld MiB; direct free %lld MiB",
+                 (unsigned long long)destroyed, (unsigned long long)kept, mib(int64_t(driver_before)),
+                 mib(int64_t(driver_after)), mib(direct_free));
+   return line;

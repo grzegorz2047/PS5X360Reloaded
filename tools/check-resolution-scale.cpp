@@ -55,6 +55,13 @@
 //  (m) the tree: the trim at the end of a frame before the core's cache clear, after an idle wait, with the
 //      core's RenderTargetCache::ClearCache; the 1x-class stop before the allocation; the launcher's
 //      threshold from presets.txt first, then compiled in, with its source on the start line.
+// Fix 117g (117g-resolution-scale-idle-trim.patch): Battlefield 3 showed noise after each 117f trim (the
+// core's ClearCache destroyed per-frame aliases). Only targets owning no EDRAM data, not bound last and
+// unused for 300 frames go now.
+//  (n) the header: MayTrim's rules and the trim line;
+//  (o) the tree: render targets stamped with the frame at each lookup and creation, the frame counted
+//      in BeginFrame, TrimUnusedRenderTargets keeping owners, the last bound ones and recent ones, the
+//      Vulkan side dropping framebuffers first, the command processor calling it instead of ClearCache.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -298,9 +305,17 @@ void CheckHeader() {
     rs::NoteTrim(t2, 110000, 0);
     Expect(!rs::ShouldTrim(t2, 1400ll << 20, 130000), "nothing made since the last trim: no trim");
     Expect(rs::TrimLine(12, 30, uint64_t(4000) << 20, uint64_t(2500) << 20, 1900ll << 20) ==
-               "Resolution scale (fix 117f): render targets trimmed: 12 destroyed, 30 kept (owning EDRAM data); "
-               "driver memory 4000 -> 2500 MiB; direct free 1900 MiB",
+               "Resolution scale (fix 117f): render targets trimmed: 12 destroyed, 30 kept (owning EDRAM data or "
+               "used in the last 300 frames); driver memory 4000 -> 2500 MiB; direct free 1900 MiB",
            "the trim's line");
+    // Fix 117g: what a trim may destroy.
+    Expect(rs::kTrimIdleFrames == 300, "300 idle frames");
+    Expect(rs::MayTrim(false, false, 1000, 600), "unowned, not bound, 400 frames idle: may go");
+    Expect(rs::MayTrim(false, false, 1000, 700), "exactly 300 frames idle: may go");
+    Expect(!rs::MayTrim(false, false, 1000, 701), "299 frames idle: stays (a per-frame alias)");
+    Expect(!rs::MayTrim(true, false, 5000, 0), "owning EDRAM data: stays");
+    Expect(!rs::MayTrim(false, true, 5000, 0), "bound last: stays");
+    Expect(!rs::MayTrim(false, false, 10, 20), "used after the frame asked about: stays");
   }
   // Fix 117d: the warning, once a session, at 2x under 1 GiB.
   rs::Counters w;
@@ -520,13 +535,36 @@ void CheckCore() {
   // Fix 117f: the trim and the stop.
   const size_t trim = processor.find("xbox360ps5::resolution_scale::ShouldTrim(");
   const size_t trim_idle = processor.find("AwaitAllQueueOperationsCompletion()) {", trim);
-  const size_t trim_clear = processor.find("render_target_cache_->ClearCache();", trim);
+  const size_t trim_clear = processor.find("render_target_cache_->TrimUnusedRenderTargetsVulkan(\n"
+                                           "          xbox360ps5::resolution_scale::kTrimIdleFrames);", trim);
   const size_t core_clear = processor.find("if (cache_clear_requested_ && AwaitAllQueueOperationsCompletion()) {");
   Expect(trim != std::string::npos && trim_idle != std::string::npos && trim_clear != std::string::npos &&
              core_clear != std::string::npos && trim < trim_idle && trim_idle < trim_clear && trim_clear < core_clear &&
              Has(processor, "if (!cache_clear_requested_ && render_target_cache_ &&") &&
              Has(processor, "xbox360ps5::resolution_scale::NoteTrim("),
-         "fix 117f: the trim waits for the GPU and uses the core's ClearCache, before the core's own clear");
+         "fixes 117f, 117g: the trim waits for the GPU and destroys only idle targets, before the core's own clear");
+  // Fix 117g.
+  const size_t get_fn = rt_common.find("RenderTargetCache::RenderTarget* RenderTargetCache::GetOrCreateRenderTarget(");
+  const size_t stamp_found = rt_common.find("render_target->last_used_frame = trim_frame_;", get_fn);
+  const size_t stamp_made =
+      stamp_found == std::string::npos ? std::string::npos
+                                       : rt_common.find("render_target->last_used_frame = trim_frame_;", stamp_found + 1);
+  Expect(get_fn != std::string::npos && stamp_found != std::string::npos && stamp_made != std::string::npos,
+         "fix 117g: a render target is stamped with the frame when looked up and when made");
+  Expect(Has(rt_common, "  ++trim_frame_;  // fix 117g") && Has(rt_header, "uint64_t last_used_frame = 0;"),
+         "fix 117g: the frame counted in BeginFrame, the stamp in RenderTarget");
+  const size_t trim_fn = rt_common.find("size_t RenderTargetCache::TrimUnusedRenderTargets(uint64_t idle_frames) {");
+  Expect(trim_fn != std::string::npos &&
+             rt_common.find("ownership_range.host_depth_render_target_float24}) {", trim_fn) != std::string::npos &&
+             rt_common.find("bound.emplace(last_update_used_render_targets_[i]);", trim_fn) != std::string::npos &&
+             rt_common.find("bound.emplace(last_update_accumulated_render_targets_[i]);", trim_fn) != std::string::npos &&
+             rt_common.find("xbox360ps5::resolution_scale::MayTrim(", trim_fn) != std::string::npos,
+         "fix 117g: the trim keeps EDRAM owners, the last bound and the recently used targets");
+  const size_t vk_trim = render_targets.find("size_t VulkanRenderTargetCache::TrimUnusedRenderTargetsVulkan(");
+  const size_t vk_fb = render_targets.find("framebuffers_.clear();", vk_trim);
+  const size_t vk_call = render_targets.find("return TrimUnusedRenderTargets(idle_frames);", vk_trim);
+  Expect(vk_trim != std::string::npos && vk_fb != std::string::npos && vk_call != std::string::npos && vk_fb < vk_call,
+         "fix 117g: the framebuffers go before the targets");
   Expect(Has(rt_header, "size_t RenderTargetCount() const { return render_targets_.size(); }"),
          "fix 117f: the render target count");
   const size_t stop = render_targets.find("if (key.scale_native && IsDrawResolutionScaled() &&\n"
