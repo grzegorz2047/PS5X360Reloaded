@@ -29,6 +29,7 @@
 1x\s(720p,\snative) = 1x(720p,\s기본\s해상도)
 2x\s(1440p,\sdemanding) = 2x(1440p,\s무거움)
 3x\s(2160p,\svery\sdemanding) = 3x(2160p,\s매우\s무거움)
+900p\s(1600x900) = 900p\s(1600x900)
 A\sfew\sgames\sread\son\sthe\sprocessor\sdata\sthat\svideo\swrites.\sIt\sslows\sthe\sgame\sdown;\sswitch\sit\son\sonly\sif\scharacters\sor\sparticles\sare\smissing. = 일부\s게임은\sGPU가\s쓴\s데이터를\sCPU에서\s읽습니다.\s게임이\s느려지므로\s캐릭터나\s파티클이\s빠질\s때만\s켜세요.
 A\sphone\spaired\son\sthe\ssettings\spage\sthen\sworks\sas\sits\scamera.\sYou\scan\schange\sit\slater\sin\sthe\sgame's\ssettings. = 설정\s페이지에서\s페어링한\s휴대폰이\s카메라로\s작동합니다.\s나중에\s게임\s설정에서\s변경할\s수\s있습니다.
 A\sthinner\sor\sheavier\sbuild. = 더\s마르거나\s더\s건장한\s체격입니다.
@@ -511,6 +512,7 @@ The\snext\sgame\syou\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slis
 The\spackage\sfile\sis\sdeleted\sfrom\sthis\sdrive.\sThis\scan't\sbe\sundone. = 이\s드라이브에서\s패키지\s파일이\s삭제됩니다.\s되돌릴\s수\s없습니다.
 The\srate\sasked\sof\sthe\sPS5\svideo\soutput.\sUp\sto\s120\sHz\slets\s3x\sand\s4x\sshow\sone\sframe\sper\srefresh\son\sa\s120\sHz\sdisplay,\sand\sa\s60\sFPS\sgame\sbe\sshown\sat\s120.\sIt\sonly\sworks\sif\sthis\sinstallation\sdeclares\s120\sHz\s(param.json)\sand\sthe\sdisplay\saccepts\sit;\sotherwise\sthe\soutput\sstays\sat\s60\sHz\sby\sitself. = PS5\s비디오\s출력에\s요청하는\s주사율.\s최대\s120Hz는\s120Hz\s화면에서\s3x와\s4x가\s화면\s갱신마다\s프레임\s하나를\s보여\s주게\s하고,\s60\sFPS\s게임을\s120으로\s보여\s줍니다.\s이\s설치가\s120Hz를\s선언하고(param.json)\s화면이\s받아들일\s때만\s작동하며,\s그렇지\s않으면\s출력은\s저절로\s60Hz로\s유지됩니다.
 The\sresolution\sthe\semulated\sXbox\s360\sreports\sto\sthe\sgame.\sAt\s480p\sor\s540p\ssome\sgames\sdraw\sfewer\spixels\sand\srun\slighter;\sat\s1080p\ssome\sdraw\smore\s(heavier).\sMany\sgames\signore\sit\sand\sstay\sat\s720p. = 에뮬레이트된\sXbox\s360이\s게임에\s알려\s주는\s해상도.\s480p나\s540p에서는\s일부\s게임이\s픽셀을\s덜\s그려\s가벼워지고,\s1080p에서는\s더\s그립니다(무거움).\s많은\s게임은\s무시하고\s720p를\s유지합니다.
+The\sresolution\sthe\semulated\sXbox\s360\sreports\sto\sthe\sgame.\sAt\s480p\sor\s540p\ssome\sgames\sdraw\sfewer\spixels\sand\srun\slighter;\sat\s900p\sor\s1080p\ssome\sdraw\smore\s(sharper,\sheavier).\sMany\sgames\signore\sit\sand\sstay\sat\s720p. = 에뮬레이트된\sXbox\s360이\s게임에\s알려\s주는\s해상도.\s480p나\s540p에서는\s일부\s게임이\s픽셀을\s덜\s그려\s가벼워지고,\s900p나\s1080p에서는\s더\s그립니다(더\s선명하지만\s무거움).\s많은\s게임은\s무시하고\s720p를\s유지합니다.
 The\ssaved\sdrive\s(%s)\scannot\sbe\swritten;\schoose\sanother. = 설정에서\s선택한\s드라이브(%s)에\s쓸\s수\s없습니다.\s다른\s드라이브를\s선택하세요.
 The\ssaved\sdrive\s(%s)\sdoes\snot\shave\senough\sfree\sspace;\schoose\sanother. = 설정에서\s선택한\s드라이브(%s)의\s여유\s공간이\s부족합니다.\s다른\s드라이브를\s선택하세요.
 The\ssaved\sdrive\s(%s)\sis\snot\smounted;\schoose\sanother. = 설정에서\s선택한\s드라이브(%s)가\s마운트되어\s있지\s않습니다.\s다른\s드라이브를\s선택하세요.

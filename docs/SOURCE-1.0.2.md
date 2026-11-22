@@ -291,6 +291,7 @@ also listed here.
 | 134b (`134b-async-submit-wait-drain`) | fix 134's worker is no longer drained at every chunk (a check of the completed submissions at every new submission waited for it), so its replay runs alongside the GPU thread; the log names the lines that still drain it | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134b` |
 | 134c (`134c-async-submit-resolves`) | in fix 134's mode 1, a chunk with occlusion query results to copy goes to the submit worker too (in Red Dead Redemption most chunks stayed on the GPU thread); the log says why a submission stays there | host-checked (`tools/check-async-submit.cpp`); console: `1.0.5-work-fix134c` |
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
+| 140 (`140-video-mode-900p`) | "Emulated console resolution" now really sets the video mode the game is told (it was always 720p before), and 900p (1600x900) is added; 720p (the default) is unchanged; if a game misbehaves at another mode, set it back to 720p | host-checked (`tools/check-video-mode.cpp`); console: the `Video mode (fix 140)` line, a game that follows the mode and one that does not, at 720p, 900p and 1080p |
 
 ## Comparison with the official executable
 

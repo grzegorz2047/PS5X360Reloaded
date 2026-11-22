@@ -29,6 +29,7 @@
 1x\s(720p,\snative) = 1x（720p、ネイティブ）
 2x\s(1440p,\sdemanding) = 2x（1440p、重い）
 3x\s(2160p,\svery\sdemanding) = 3x（2160p、非常に重い）
+900p\s(1600x900) = 900p\s(1600x900)
 A\sfew\sgames\sread\son\sthe\sprocessor\sdata\sthat\svideo\swrites.\sIt\sslows\sthe\sgame\sdown;\sswitch\sit\son\sonly\sif\scharacters\sor\sparticles\sare\smissing. = GPU\sが書いたデータを\sCPU\sで読むゲームがあります。ゲームが遅くなるので、キャラクターやパーティクルが欠ける場合だけオンにしてください。
 A\sphone\spaired\son\sthe\ssettings\spage\sthen\sworks\sas\sits\scamera.\sYou\scan\schange\sit\slater\sin\sthe\sgame's\ssettings. = 設定ページでペアリングしたスマートフォンがカメラとして機能します。後でゲームの設定で変更できます。
 A\sthinner\sor\sheavier\sbuild. = 細め、またはがっしりした体格にします。
@@ -511,6 +512,7 @@ The\snext\sgame\syou\sstart\srecords\smore\sdetails.\sAfterwards\sa\sscreen\slis
 The\spackage\sfile\sis\sdeleted\sfrom\sthis\sdrive.\sThis\scan't\sbe\sundone. = このドライブからパッケージファイルが削除されます。元に戻すことはできません。
 The\srate\sasked\sof\sthe\sPS5\svideo\soutput.\sUp\sto\s120\sHz\slets\s3x\sand\s4x\sshow\sone\sframe\sper\srefresh\son\sa\s120\sHz\sdisplay,\sand\sa\s60\sFPS\sgame\sbe\sshown\sat\s120.\sIt\sonly\sworks\sif\sthis\sinstallation\sdeclares\s120\sHz\s(param.json)\sand\sthe\sdisplay\saccepts\sit;\sotherwise\sthe\soutput\sstays\sat\s60\sHz\sby\sitself. = PS5\sの映像出力に求めるレート。最大\s120\sHz\sにすると、120\sHz\sの画面で\s3x\sと\s4x\sが\s1\s回のリフレッシュごとに\s1\sフレームを表示でき、60\sFPS\sのゲームを\s120\sで表示できます。このインストールが\s120\sHz\sを宣言し（param.json）、画面が対応している場合のみ動作し、そうでなければ出力は自動的に\s60\sHz\sのままです。
 The\sresolution\sthe\semulated\sXbox\s360\sreports\sto\sthe\sgame.\sAt\s480p\sor\s540p\ssome\sgames\sdraw\sfewer\spixels\sand\srun\slighter;\sat\s1080p\ssome\sdraw\smore\s(heavier).\sMany\sgames\signore\sit\sand\sstay\sat\s720p. = エミュレートされた\sXbox\s360\sがゲームに伝える解像度。480p\sや\s540p\sでは一部のゲームが描画するピクセルが減って軽くなり、1080p\sでは増えます（重くなる）。多くのゲームは無視して\s720p\sのままです。
+The\sresolution\sthe\semulated\sXbox\s360\sreports\sto\sthe\sgame.\sAt\s480p\sor\s540p\ssome\sgames\sdraw\sfewer\spixels\sand\srun\slighter;\sat\s900p\sor\s1080p\ssome\sdraw\smore\s(sharper,\sheavier).\sMany\sgames\signore\sit\sand\sstay\sat\s720p. = エミュレートされた\sXbox\s360\sがゲームに伝える解像度。480p\sや\s540p\sでは一部のゲームが描画するピクセルが減って軽くなり、900p\sや\s1080p\sでは増えます（鮮明になるが重くなる）。多くのゲームは無視して\s720p\sのままです。
 The\ssaved\sdrive\s(%s)\scannot\sbe\swritten;\schoose\sanother. = 設定で選んだドライブ\s(%s)\sに書き込めません。別のドライブを選んでください。
 The\ssaved\sdrive\s(%s)\sdoes\snot\shave\senough\sfree\sspace;\schoose\sanother. = 設定で選んだドライブ\s(%s)\sの空き容量が足りません。別のドライブを選んでください。
 The\ssaved\sdrive\s(%s)\sis\snot\smounted;\schoose\sanother. = 設定で選んだドライブ\s(%s)\sはマウントされていません。別のドライブを選んでください。

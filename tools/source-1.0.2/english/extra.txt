@@ -328,6 +328,8 @@ Height = Altura
 Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
 Weight = Peso
 A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = A resolução que o Xbox 360 emulado informa ao jogo. Em 480p ou 540p alguns jogos desenham menos pontos e ficam mais leves; em 900p ou 1080p alguns desenham mais (mais nítido, mais pesado). Muitos jogos ignoram e continuam em 720p.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -468,6 +470,8 @@ Height = Altura
 Shorter or taller limbs and body. = Membros e corpo mais curtos ou mais longos.
 Weight = Peso
 A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = A resolução que o Xbox 360 emulado informa ao jogo. Em 480p ou 540p alguns jogos desenham menos pontos e ficam mais leves; em 900p ou 1080p alguns desenham mais (mais nítido, mais pesado). Muitos jogos ignoram e continuam em 720p.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -608,6 +612,8 @@ Height = Altura
 Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
 Weight = Peso
 A thinner or heavier build. = Una complexión más delgada o más robusta.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La resolución que la Xbox 360 emulada informa al juego. En 480p o 540p algunos juegos dibujan menos puntos y van más ligeros; en 900p o 1080p algunos dibujan más (más nítido, más pesado). Muchos juegos la ignoran y siguen en 720p.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -748,6 +754,8 @@ Height = Altura
 Shorter or taller limbs and body. = Extremidades y cuerpo más cortos o más largos.
 Weight = Peso
 A thinner or heavier build. = Una complexión más delgada o más robusta.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La resolución que la Xbox 360 emulada informa al juego. En 480p o 540p algunos juegos dibujan menos puntos y van más ligeros; en 900p o 1080p algunos dibujan más (más nítido, más pesado). Muchos juegos la ignoran y siguen en 720p.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -888,6 +896,8 @@ Height = Größe
 Shorter or taller limbs and body. = Kürzere oder längere Gliedmaßen und Rumpf.
 Weight = Gewicht
 A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Die Auflösung, die die emulierte Xbox 360 dem Spiel meldet. Bei 480p oder 540p zeichnen manche Spiele weniger Pixel und laufen leichter; bei 900p oder 1080p zeichnen manche mehr (schärfer, schwerer). Viele Spiele ignorieren sie und bleiben bei 720p.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1028,6 +1038,8 @@ Height = Taille
 Shorter or taller limbs and body. = Membres et corps plus courts ou plus longs.
 Weight = Corpulence
 A thinner or heavier build. = Une silhouette plus mince ou plus forte.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La résolution que la Xbox 360 émulée annonce au jeu. En 480p ou 540p, certains jeux dessinent moins de pixels et sont plus légers ; en 900p ou 1080p, certains en dessinent plus (plus net, plus lourd). Beaucoup de jeux l'ignorent et restent en 720p.
 
 [added it]
 Console storage = Memoria della console
@@ -1168,6 +1180,8 @@ Height = Altezza
 Shorter or taller limbs and body. = Arti e corpo più corti o più lunghi.
 Weight = Peso
 A thinner or heavier build. = Una corporatura più magra o più robusta.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La risoluzione che la Xbox 360 emulata comunica al gioco. A 480p o 540p alcuni giochi disegnano meno pixel e sono più leggeri; a 900p o 1080p alcuni ne disegnano di più (più nitido, più pesante). Molti giochi la ignorano e restano a 720p.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1308,6 +1322,8 @@ Height = 身長
 Shorter or taller limbs and body. = 手足と胴体を短く、または長くします。
 Weight = 体重
 A thinner or heavier build. = 細め、またはがっしりした体格にします。
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = エミュレートされた Xbox 360 がゲームに伝える解像度。480p や 540p では一部のゲームが描画するピクセルが減って軽くなり、900p や 1080p では増えます（鮮明になるが重くなる）。多くのゲームは無視して 720p のままです。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1448,6 +1464,8 @@ Height = 키
 Shorter or taller limbs and body. = 팔다리와 몸통을 더 짧게 또는 길게 합니다.
 Weight = 체중
 A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 에뮬레이트된 Xbox 360이 게임에 알려 주는 해상도. 480p나 540p에서는 일부 게임이 픽셀을 덜 그려 가벼워지고, 900p나 1080p에서는 더 그립니다(더 선명하지만 무거움). 많은 게임은 무시하고 720p를 유지합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1588,6 +1606,8 @@ Height = Lengte
 Shorter or taller limbs and body. = Kortere of langere ledematen en romp.
 Weight = Gewicht
 A thinner or heavier build. = Een slankere of zwaardere bouw.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = De resolutie die de geëmuleerde Xbox 360 aan de game doorgeeft. Bij 480p of 540p tekenen sommige games minder pixels en draaien lichter; bij 900p of 1080p tekenen sommige er meer (scherper, zwaarder). Veel games negeren het en blijven op 720p.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1728,6 +1748,8 @@ Height = Wzrost
 Shorter or taller limbs and body. = Krótsze lub dłuższe kończyny i tułów.
 Weight = Waga
 A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Rozdzielczość, którą emulowany Xbox 360 zgłasza grze. W 480p lub 540p niektóre gry rysują mniej pikseli i działają lżej; w 900p lub 1080p niektóre rysują więcej (ostrzej, ciężej). Wiele gier to ignoruje i zostaje przy 720p.
 
 [added ru]
 Console storage = Память консоли
@@ -1868,6 +1890,8 @@ Height = Рост
 Shorter or taller limbs and body. = Более короткие или длинные конечности и туловище.
 Weight = Вес
 A thinner or heavier build. = Более худое или более плотное телосложение.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Разрешение, которое эмулируемый Xbox 360 сообщает игре. При 480p или 540p некоторые игры рисуют меньше пикселей и работают легче; при 900p или 1080p некоторые рисуют больше (чётче, но тяжелее). Многие игры это игнорируют и остаются в 720p.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2008,6 +2032,8 @@ Height = Boy
 Shorter or taller limbs and body. = Daha kısa veya daha uzun uzuvlar ve gövde.
 Weight = Kilo
 A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Emüle edilen Xbox 360'ın oyuna bildirdiği çözünürlük. 480p veya 540p'de bazı oyunlar daha az piksel çizer ve daha hafif çalışır; 900p veya 1080p'de bazıları daha fazla çizer (daha net, daha ağır). Birçok oyun bunu yok sayar ve 720p'de kalır.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2148,6 +2174,8 @@ Height = 身高
 Shorter or taller limbs and body. = 更短或更长的四肢和躯干。
 Weight = 体重
 A thinner or heavier build. = 更瘦或更壮的体格。
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 模拟的 Xbox 360 告知游戏的分辨率。480p 或 540p 时，部分游戏绘制的像素更少、运行更轻；900p 或 1080p 时部分游戏绘制更多（更清晰、更重）。许多游戏会忽略此设置，保持 720p。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2288,3 +2316,5 @@ Height = 身高
 Shorter or taller limbs and body. = 更短或更長的四肢和軀幹。
 Weight = 體重
 A thinner or heavier build. = 更瘦或更壯的體格。
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 模擬的 Xbox 360 告知遊戲的解析度。480p 或 540p 時，部分遊戲繪製的像素更少、執行更輕；900p 或 1080p 時部分遊戲繪製更多（更清晰、更重）。許多遊戲會忽略此設定，保持 720p。
