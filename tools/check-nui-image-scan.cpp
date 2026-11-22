@@ -416,9 +416,14 @@ void CheckTree() {
   CHECK(game_main.find("kinect_needed = &KinectNeededNotice") != std::string::npos);
   CHECK(covers.find("XexHeaderRequiresKinect") != std::string::npos);
   CHECK(cam.find("ReportKinectNeeded") != std::string::npos);
-  // The title's skeleton frames and the fallback get the normalised body.
-  CHECK(cam.find("const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
-  CHECK(cam.find("auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
+  // The title's skeleton frames and the fallback get the normalised body (fix 107: through the
+  // emergency pose, which passes it on unless L3 + R3 brought the last body back).
+  CHECK(cam.find("const xbox360ps5::motion::Frame pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos ||
+        cam.find("const xbox360ps5::motion::Frame pose = xbox360ps5::motion::emergency_pose.Apply(\n"
+                 "      xbox360ps5::motion::NormalizedSnapshot(), clock::now(), &emergency);") != std::string::npos);
+  CHECK(cam.find("auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos ||
+        cam.find("auto pose = xbox360ps5::motion::emergency_pose.Overlay(xbox360ps5::motion::NormalizedSnapshot());") !=
+            std::string::npos);
   // Kinect Sports (1.0.5_candidate_5): avatars start for Kinect games, and the skeleton hook goes
   // in when the title starts its NUI library (2B003), before NuiSkeletonGetNextFrame is compiled.
   const std::string avatar = ReadText(".deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc");
@@ -428,7 +433,8 @@ void CheckTree() {
   CHECK(cam.find("void BindVirtualKinectEarly(KernelState* kernel_state) {") != std::string::npos);
   // The virtual depth frames show the same body (DBZ's hand detection reads them).
   const std::string depth = ReadText("include/xbox360ps5/virtual_depth_camera.hpp");
-  CHECK(depth.find("Render(NormalizedSnapshot(),depth_);") != std::string::npos);
+  CHECK(depth.find("Render(NormalizedSnapshot(),depth_);") != std::string::npos ||
+        depth.find("Render(emergency_pose.Overlay(NormalizedSnapshot()),depth_);") != std::string::npos);  // fix 107
   std::printf("tree: core files use the code scan; the library offers Camera motion\n");
 }
 
