@@ -274,6 +274,7 @@ Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = 選單導航�
 Motion\spanel = 動作面板
 Motion:\sno\sphone\sconnected = 動作：未連接手機
 Mute\sgame\saudio. = 將遊戲聲音靜音。
+Mute\sgame\ssound = 遊戲靜音
 Muted = 靜音
 Name = 名稱
 Navigate = 導航
@@ -396,6 +397,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = 渲染器
 Rendering = 渲染
 Restart\semulator = 重啟模擬器
+Restart\sgame = 重新啟動遊戲
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 以錯誤回報記錄重新啟動此遊戲
 Restarting\sthe\sgame... = 正在重新啟動遊戲...
 Restore\srecommended = 恢復推薦值

@@ -274,6 +274,7 @@ Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Lautstärke\sd
 Motion\spanel = Bewegungsfeld
 Motion:\sno\sphone\sconnected = Bewegung:\skein\sHandy\sverbunden
 Mute\sgame\saudio. = Spielton\sstummschalten.
+Mute\sgame\ssound = Spielton\sstummschalten
 Muted = Stumm
 Name = Name
 Navigate = Navigieren
@@ -396,6 +397,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderer
 Rendering = Darstellung
 Restart\semulator = Emulator\sneu\sstarten
+Restart\sgame = Spiel\sneu\sstarten
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Dieses\sSpiel\smit\sProtokollen\sfür\seinen\sFehlerbericht\sneu\sstarten
 Restarting\sthe\sgame... = Spiel\swird\sneu\sgestartet...
 Restore\srecommended = Empfohlene\swiederherstellen

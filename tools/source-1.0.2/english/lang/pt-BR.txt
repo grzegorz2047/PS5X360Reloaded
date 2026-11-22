@@ -275,6 +275,7 @@ Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Volume\sdos\se
 Motion\spanel = Painel\sde\smovimento
 Motion:\sno\sphone\sconnected = Movimento:\snenhum\scelular\sconectado
 Mute\sgame\saudio. = Silencia\sa\ssaída\sde\sáudio\sdos\sjogos.
+Mute\sgame\ssound = Silenciar\so\ssom\sdo\sjogo
 Muted = Mudo
 Name = Nome
 Navigate = Mover
@@ -397,6 +398,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Renderizador
 Rendering = Renderização
 Restart\semulator = Reiniciar\so\semulador
+Restart\sgame = Reiniciar\sjogo
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Reiniciar\seste\sjogo\scom\sregistros\spara\srelatório\sde\serro
 Restarting\sthe\sgame... = Reiniciando\so\sjogo...
 Restore\srecommended = Restaurar\so\srecomendado

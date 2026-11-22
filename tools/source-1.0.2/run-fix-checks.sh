@@ -126,6 +126,7 @@ checks=(
   check-unwatched-lock-free.cpp    # fix 111
   check-swap-pacing.cpp            # fix 112
   check-swap-pacing.cpp            # fix 116
+  check-guide-quick.cpp            # fix 115
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -144,6 +145,7 @@ declare -A arguments=(
   [check-bug-report-entries.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-report-session.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
 )
 # The fix each of these checks belongs to: when a test build leaves that fix out
 # (assemble.py --skip-fix, SOURCES.json fixes_skipped) its check is not run.
@@ -223,6 +225,7 @@ declare -A fix_of=(
   [check-unwatched-lock-free.cpp]=111
   [check-swap-pacing.cpp]=112
   [check-swap-pacing.cpp]=116
+  [check-guide-quick.cpp]=115
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

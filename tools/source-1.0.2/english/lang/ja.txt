@@ -274,6 +274,7 @@ Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = メニュー�
 Motion\spanel = モーションパネル
 Motion:\sno\sphone\sconnected = モーション:\sスマートフォン未接続
 Mute\sgame\saudio. = ゲームの音をミュート。
+Mute\sgame\ssound = ゲームの音を消す
 Muted = ミュート
 Name = 名前
 Navigate = 移動
@@ -396,6 +397,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = レンダラー
 Rendering = 描画
 Restart\semulator = エミュレーターを再起動
+Restart\sgame = ゲームを再起動
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 不具合報告用のログを取ってこのゲームを再起動
 Restarting\sthe\sgame... = ゲームを再起動しています...
 Restore\srecommended = 推奨値に戻す

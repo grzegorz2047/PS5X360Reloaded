@@ -274,6 +274,7 @@ Menu\snavigation\ssound\svolume,\sindependent\sof\sgame\saudio. = Громкос
 Motion\spanel = Панель\sдвижения
 Motion:\sno\sphone\sconnected = Движение:\sтелефон\sне\sподключён
 Mute\sgame\saudio. = Отключить\sзвук\sигры.
+Mute\sgame\ssound = Выключить\sзвук\sигры
 Muted = Без\sзвука
 Name = Название
 Navigate = Перемещение
@@ -396,6 +397,7 @@ Removing\sa\slocation\sdoes\snot\sdelete\sgames.\sLogs:\s/download0/xbox360ps5/L
 Renderer = Рендерер
 Rendering = Отрисовка
 Restart\semulator = Перезапустить\sэмулятор
+Restart\sgame = Перезапустить\sигру
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Перезапустить\sэту\sигру\sс\sжурналами\sдля\sотчёта\sоб\sошибке
 Restarting\sthe\sgame... = Перезапуск\sигры...
 Restore\srecommended = Восстановить\sрекомендуемые
