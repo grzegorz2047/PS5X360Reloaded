@@ -175,6 +175,25 @@ int main(int argc, char** argv) {
     CHECK(!m::picture_wanted.load());  // off by default
   }
 
+  // (d1) 1.0.5-work-fix119g: with two on their way the newest shown; a new page counts from 1.
+  {
+    m::PictureStore store;
+    std::vector<uint8_t> out;
+    auto shade = [](uint8_t y, uint32_t sequence) {
+      return Make(16, 16, sequence, [y](uint32_t, uint32_t) { return Solid(y, 128, 128); });
+    };
+    CHECK(store.Publish(shade(50, 5), 1000, true) == m::PictureResult::accepted);
+    CHECK(store.Publish(shade(60, 4), 1010, true) == m::PictureResult::accepted);  // older, came later
+    CHECK(store.Copy(1020, true, out) && out[0] == 50);                            // not shown
+    CHECK(store.Publish(shade(70, 6), 1030, true) == m::PictureResult::accepted);
+    CHECK(store.Copy(1040, true, out) && out[0] == 70);
+    CHECK(store.Publish(shade(80, 6), 1050, true) == m::PictureResult::accepted);  // the same number
+    CHECK(store.Copy(1060, true, out) && out[0] == 70);
+    CHECK(store.Publish(shade(90, 1), 2030, true) == m::PictureResult::accepted);  // a second later: a new page
+    CHECK(store.Copy(2040, true, out) && out[0] == 90);
+    CHECK(store.pictures() == 5 && m::kPictureRestartMs == 1000);
+  }
+
   // (d2) 1.0.5-work-fix119b: the 10 s line and the page's report.
   {
     CHECK(m::ReportNumber("{\"fps\":25,\"picture_on\":1,\"picture_sent\":512}", "picture_on") == 1);
@@ -205,16 +224,27 @@ int main(int argc, char** argv) {
     CHECK(stats.Due(32000, true).find("phone page: switch on, 5 sent, 0 skipped for the network, 0 failed") !=
           std::string::npos);
     stats.Page("{\"picture_on\":1,\"picture_sent\":5,\"picture_skipped\":0,\"picture_wanted\":0}");
-    CHECK(stats.Due(42000, true).find("switch on, sees no ask from the PS5, 5 sent") != std::string::npos);
+    line = stats.Due(42000, true);
+    CHECK(line.find("switch on, sees no ask from the PS5, 5 sent") != std::string::npos);
+    CHECK(line.find("per picture on the phone") == std::string::npos);  // no times reported
+    // 1.0.5-work-fix119g: the page's average time per picture (capture, pack, upload).
+    stats.Page("{\"picture_on\":1,\"picture_sent\":9,\"picture_skipped\":0,\"picture_failed\":0,\"picture_wanted\":1,"
+               "\"picture_capture_ms\":12,\"picture_pack_ms\":3,\"picture_upload_ms\":36}");
+    line = stats.Due(47000, true);
+    CHECK(line.empty());
+    line = stats.Due(52000, true);
+    CHECK(line.find("0 failed; per picture on the phone: capture 12 ms, pack 3 ms, upload 36 ms") != std::string::npos);
+    stats.Page("{\"picture_on\":1,\"picture_sent\":9,\"picture_skipped\":0}");  // no times this time: none told
+    CHECK(stats.Due(62000, true).find("per picture") == std::string::npos);
     stats.Page("{\"picture_on\":0,\"picture_sent\":512,\"picture_skipped\":31}");
     for (int n = 0; n < 300; ++n) stats.Frame(false);
-    line = stats.Due(52000, true);                       // the counters started again
+    line = stats.Due(72000, true);                       // the counters started again
     CHECK(line.find(": 0 taken (last 160x120), refused 0") != std::string::npos);
     CHECK(line.find("colour frames 0 from the picture, 300 grey; setting on; phone page: switch off, 512 sent") != std::string::npos);
     for (int n = 0; n < 300; ++n) stats.Frame(false);
-    CHECK(stats.Due(62000, false).empty());               // setting off and nothing came: no line
+    CHECK(stats.Due(82000, false).empty());               // setting off and nothing came: no line
     stats.Refused(true);
-    CHECK(stats.Due(72000, false).find("setting off; ") != std::string::npos);  // a refusal is told
+    CHECK(stats.Due(92000, false).find("setting off; ") != std::string::npos);  // a refusal is told
   }
 
   // (e) The tree.

@@ -81,32 +81,48 @@ check('(b) the middle 4:3 of the camera', () => {
 check('(c) when a picture goes', () => {
   // due(now, switch, half a pose frame's round trip). Fix 119f: the network's delay alone; frames in
   // flight and dropped pose frames no longer hold pictures back.
+  // Fix 119g: 20 a second (50 ms), 8 a second over 60 ms (125 ms), two on their way at most.
   const g = new L.PictureGate();
+  assert.equal(L.PICTURE_MS, 50);
   assert.equal(L.PICTURE_SLOW_NETWORK_MS, 60);
-  assert.equal(L.PICTURE_SLOW_MS, 250);
+  assert.equal(L.PICTURE_SLOW_MS, 125);
+  assert.equal(L.PICTURE_IN_FLIGHT, 2);
+  assert.equal(g.inFlight, 0);
   assert.equal(g.due(1000, true, 10), false);            // the console has not asked
   g.note({ok: true});                                    // an older console: no "picture"
   assert.equal(g.wanted, false);
   g.note({ok: true, picture: 1});
   assert.equal(g.due(1000, false, 10), false);           // the page's switch off
   assert.equal(g.due(1000, true, 10), true);
-  assert.equal(g.due(1050, true, 10), false);            // under 100 ms
-  g.inFlight = true;
-  assert.equal(g.due(1200, true, 10), false);            // one on its way
-  g.inFlight = false;
-  assert.equal(g.due(1300, true, 21), true);             // the console's 21 ms: 10 a second
-  assert.equal(g.due(1400, true, 61), false);            // slower network: 250 ms apart
+  assert.equal(g.due(1040, true, 10), false);            // under 50 ms
+  g.inFlight = 1;
+  assert.equal(g.due(1100, true, 10), true);             // one on its way: a second may go
+  g.inFlight = 2;
+  assert.equal(g.due(1200, true, 10), false);            // two on their way
+  g.inFlight = 0;
+  assert.equal(g.due(1300, true, 21), true);             // the console's 21 ms
+  assert.equal(g.due(1400, true, 61), false);            // slower network: 125 ms apart
   assert.equal(g.skipped, 0);                            // not a skip, only the pace
-  assert.equal(g.due(1550, true, 61), true);
-  assert.equal(g.due(1800, true, 151), false);           // a slow network
+  assert.equal(g.due(1425, true, 61), true);
+  assert.equal(g.due(1600, true, 151), false);           // a slow network
   assert.equal(g.skipped, 1);
-  assert.equal(g.due(1850, true, 10), false);            // and the next try 100 ms later
-  assert.equal(g.due(1900, true, 150), false);           // 150 ms: 250 ms apart
-  assert.equal(g.due(2050, true, 150), true);
-  // Ten a second at the console's pace: one every 100 ms, answered in time.
+  assert.equal(g.due(1640, true, 10), false);            // and the next try 50 ms later
+  assert.equal(g.due(1700, true, 150), false);           // 150 ms: 125 ms apart
+  assert.equal(g.due(1725, true, 150), true);
+  // Twenty a second at most when tried often enough; the page tries after each pose frame's answer
+  // (every 20 ms at 50 frames a second), which gives 17 (one every 60 ms).
   let sent = 0;
-  for (let t = 3000; t < 4000; t += 20) if (g.due(t, true, 21)) sent++;
-  assert.equal(sent, 10);
+  for (let t = 3000; t < 4000; t += 10) if (g.due(t, true, 21)) sent++;
+  assert.equal(sent, 20);
+  sent = 0;
+  for (let t = 5000; t < 6000; t += 20) if (g.due(t, true, 21)) sent++;
+  assert.equal(sent, 17);
+  // The times: averages since the last report, in whole ms; none timed, nothing.
+  assert.deepEqual(g.takeTimes(), {});
+  g.time(10, 2, 30);
+  g.time(14, 3, 41);
+  assert.deepEqual(g.takeTimes(), {picture_capture_ms: 12, picture_pack_ms: 3, picture_upload_ms: 36});
+  assert.deepEqual(g.takeTimes(), {});
   assert.equal(g.due(1500, true, 10), false);            // (older times: not due)
   assert.equal(g.sending(1500), false);                  // none taken yet
   g.answer(204, 1600);
@@ -130,7 +146,6 @@ check('(c) when a picture goes', () => {
   g.note(null);
   g.note({picture: '1'});
   assert.equal(g.wanted, true);
-  assert.equal(L.PICTURE_MS, 100);
   assert.equal(L.PICTURE_MAX_NETWORK_MS, 150);
 });
 check('(d) the page', () => {
@@ -152,7 +167,13 @@ check('(d) the page', () => {
   assert.ok(!/pictures\.due\([^)]*inFlight/.test(page), 'frames in flight no longer hold pictures back');
   assert.ok(page.includes("  } catch {\n    pictures.failed++;  // fix 119d"));
   assert.ok(page.includes("await fetch('/api/motion/picture', {method: 'POST', headers: {'X-Key': consoleKey, 'Content-Type': 'application/octet-stream'},"));
-  assert.ok(page.includes('body: packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence)});'));
+  assert.ok(page.includes('const body = packPicture(pixels, PICTURE_WIDTH, PICTURE_HEIGHT, ++pictures.sequence);'));
+  // Fix 119g: two on their way at most, each stage timed, the averages in the 2 s report.
+  assert.ok(page.includes('pictures.inFlight++;  // fix 119g') && page.includes('    pictures.inFlight--;\n'));
+  assert.ok(page.includes('pictures.time(captured - started, packed - captured, answered - packed);'));
+  assert.ok(page.indexOf('const captured = performance.now();') > page.indexOf('getImageData(0, 0, PICTURE_WIDTH, PICTURE_HEIGHT)') &&
+            page.indexOf('const answered = performance.now();') > page.indexOf("await fetch('/api/motion/picture'"));
+  assert.ok(page.includes('Object.assign(report, pictures.takeTimes());  // fix 119g'));
   assert.ok(page.includes("const pictureCanvas = document.createElement('canvas');"));  // not in the page, not kept
   assert.equal((page.match(/\/api\/motion\/picture/g) || []).length, 1);
   assert.ok(!/localStorage[^\n]*pixels|sessionStorage[^\n]*pixels/.test(page));
@@ -192,7 +213,7 @@ check('(d) the page', () => {
             tap.includes('pictureChoice.focus();'));
   assert.ok(!tap.includes('pictureChoice.value ='), 'the tap does not turn the picture on');
   assert.ok(page.includes('async function sendPicture() {\n  showPictureNote();'));
-  assert.ok(page.includes('pictures.answer(response.status, performance.now());'));
+  assert.ok(page.includes('pictures.answer(response.status, answered);'));
   assert.ok(page.includes('#picture_live{color:var(--warn);font-weight:700;margin:6px 0}'));
   assert.ok(page.includes('#picture_live.hint{color:var(--text);font-weight:600;cursor:pointer;text-decoration:underline}'));
   for (const code of ['en', 'pt', 'es', 'pl']) {
