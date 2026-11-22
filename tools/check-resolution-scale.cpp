@@ -73,6 +73,14 @@
 // scene and post-processing are 1280 pixels of pitch; its shadow cascade 800 and smaller passes below).
 //  (s) the header: Red Dead Redemption compiled in at 800, below its 1280-pixel scene; the start line
 //      names it.
+// Fix 117k (117k-resolution-scale-classes.patch): Red Dead Redemption's 800 threshold broke its frame (passes
+// sharing EDRAM with the 1280 frame); a game names exact 1x classes (pitch and MSAA) instead, compiled in or
+// from the console's resolution-scale/<TITLE ID>.txt, which wins.
+//  (t) the header: EDRAM tiles of a pitch (80 samples, 40 pixels at 4xMSAA), the MSAA index, the parser
+//      (separators, comments, bad entries), Red Dead Redemption's compiled list and no threshold, the class
+//      bits only at 2x, the start line;
+//  (u) the tree: IsScaleNativeForPitch asks the class list, the launcher reads the console's file, the
+//      game start sets the classes (the file first) and logs them.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -289,14 +297,44 @@ void CheckHeader() {
   Expect(rs::CompiledThreshold("45410950") == 640 && rs::CompiledThreshold("45410950") < 1280 &&
              rs::ThresholdFor(2, rs::CompiledThreshold("45410950")) == 640,
          "fix 117i: Battlefield 3 compiled in at 640, below its 1280-pixel scene");
-  Expect(rs::CompiledThreshold("5454082B") == 800 && rs::CompiledThreshold("5454082b") == 800 &&
-             rs::CompiledThreshold("5454082B") < 1280 && rs::ThresholdFor(2, rs::CompiledThreshold("5454082B")) == 800 &&
-             rs::ThresholdFor(1, rs::CompiledThreshold("5454082B")) == 0,
-         "fix 117j: Red Dead Redemption compiled in at 800, below its 1280-pixel scene, only at 2x");
-  Expect(rs::ThresholdLine(800, "5454082B", "compiled-in") ==
-             "Resolution scale (fix 117e): surfaces up to 800 pixels of pitch render at 1x (preset of 5454082B, "
-             "compiled-in)",
-         "fix 117j: Red Dead Redemption's start line");
+  Expect(rs::CompiledThreshold("5454082B") == 0,
+         "fix 117k: Red Dead Redemption has no threshold any more (800 broke its frame, fix 117j)");
+  // Fix 117k: render target classes at 1x.
+  Expect(rs::PitchTiles(800, 1) == 10 && rs::PitchTiles(1280, 2) == 16 && rs::PitchTiles(40, 4) == 1 &&
+             rs::PitchTiles(160, 4) == 4 && rs::PitchTiles(640, 4) == 16,
+         "EDRAM tiles: 80 pixels each, 40 at 4xMSAA");
+  Expect(rs::PitchTiles(100, 1) == 0 && rs::PitchTiles(0, 1) == 0 && rs::PitchTiles(60, 4) == 0, "not whole tiles: 0");
+  Expect(rs::MsaaIndex(1) == 0 && rs::MsaaIndex(2) == 1 && rs::MsaaIndex(4) == 2, "MSAA index as xenos::MsaaSamples");
+  {
+    const auto parsed = rs::ParseNativeClasses("# shadow\n800x1, 40x4 80X4\n100x1 640x3 abc 160x4 # 320x1\n");
+    Expect(parsed.size() == 4 && parsed[0].pitch_px == 800 && parsed[0].samples == 1 && parsed[1].pitch_px == 40 &&
+               parsed[1].samples == 4 && parsed[2].pitch_px == 80 && parsed[3].pitch_px == 160,
+           "the parser: separators, comments, whole tiles and 1/2/4 samples only (" + std::to_string(parsed.size()) +
+               ")");
+    Expect(rs::ParseNativeClasses("").empty() && rs::ParseNativeClasses("800").empty() &&
+               rs::ParseNativeClasses("x4 800x").empty(),
+           "nothing parsed from nothing");
+    const auto rdr = rs::CompiledNativeClasses("5454082b");
+    Expect(rdr.size() == 8 && rdr[0].pitch_px == 800 && rdr[0].samples == 1,
+           "Red Dead Redemption: its shadow cascade and the passes of 40 to 200 pixels");
+    for (const auto& c : rdr)
+      Expect(c.pitch_px == 800 || c.pitch_px <= 200, "no pass between 200 and 800 (they share EDRAM with the frame)");
+    Expect(rs::CompiledNativeClasses("45410950").empty(), "no list for other games");
+    Expect(rs::SetNativeClasses(rdr, 1) == 0 && !rs::IsNativeClass(10, 0), "1x: no classes");
+    Expect(rs::SetNativeClasses(rdr, 2) == 8, "2x: eight classes");
+    Expect(rs::IsNativeClass(10, 0) && rs::IsNativeClass(1, 2) && rs::IsNativeClass(4, 2) && rs::IsNativeClass(2, 0),
+           "800x1, 40x4, 160x4 and 160x1 at 1x");
+    Expect(!rs::IsNativeClass(16, 1) && !rs::IsNativeClass(16, 0) && !rs::IsNativeClass(16, 2) &&
+               !rs::IsNativeClass(8, 0),
+           "the 1280 scene (2x and 1x MSAA), 640x4 and 640x1 stay scaled");
+    Expect(!rs::IsNativeClass(300, 0) && !rs::IsNativeClass(10, 5), "out of range: no");
+    Expect(rs::NativeClassesLine(rdr, "5454082B", "compiled-in") ==
+               "Resolution scale (fix 117k): classes at 1x for 5454082B (compiled-in): 800x1 40x4 80x4 80x1 120x4 160x4 "
+               "160x1 200x4",
+           "the start line");
+    rs::SetNativeClasses({}, 2);
+    Expect(!rs::IsNativeClass(10, 0), "an empty list clears the classes");
+  }
   Expect(rs::CompiledThreshold("545407F2") == 0 && rs::CompiledThreshold("") == 0 &&
              rs::CompiledThreshold("4E4D08590") == 0,
          "no other title, nor a malformed id");
@@ -609,6 +647,24 @@ void CheckCore() {
   Expect(note_rt != std::string::npos && take != std::string::npos && key_line != std::string::npos &&
              take - note_rt < 400,
          "fix 117h: each render target made at 2x is logged through the 64-line cap");
+  // Fix 117k.
+  const size_t native_check = rt_common.find("xbox360ps5::resolution_scale::IsNativeClass(pitch_tiles_at_32bpp,");
+  const size_t threshold_read = rt_common.find("uint32_t threshold = cvars::draw_resolution_scale_threshold;");
+  Expect(native_check != std::string::npos && threshold_read != std::string::npos && native_check < threshold_read,
+         "fix 117k: IsScaleNativeForPitch asks the game's class list before the threshold");
+  const size_t file_fn = launcher.find("std::string NativeClassesTextFor(const std::string& title_id) {");
+  Expect(file_fn != std::string::npos &&
+             launcher.find("kStorage / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos,
+         "fix 117k: the launcher reads /download0/xbox360ps5/resolution-scale/<TITLE ID>.txt");
+  const size_t classes_set = game_main.find("xbox360ps5::resolution_scale::SetNativeClasses(");
+  Expect(Has(game_main, "std::string NativeClassesTextFor(const std::string& title_id);") &&
+             Has(game_main, "classes_text.empty() ? xbox360ps5::resolution_scale::CompiledNativeClasses(settings_title)\n"
+                            "                                   : xbox360ps5::resolution_scale::ParseNativeClasses(classes_text);") &&
+             classes_set != std::string::npos &&
+             game_main.find("xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale)", classes_set) !=
+                 std::string::npos &&
+             Has(game_main, "xbox360ps5::resolution_scale::NativeClassesLine(classes, settings_title, classes_from)"),
+         "fix 117k: the game start sets the class list (the console's file first) at 2x and logs it");
   Expect(Has(rt_header, "size_t RenderTargetCount() const { return render_targets_.size(); }"),
          "fix 117f: the render target count");
   const size_t stop = render_targets.find("if (key.scale_native && IsDrawResolutionScaled() &&\n"
