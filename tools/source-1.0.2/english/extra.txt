@@ -246,7 +246,6 @@ Motion panel = Painel de movimento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmera aparece sobre o jogo (a pose do celular, o que o jogo precisa das mãos, o código para conectar um celular). Desligado mantém só o código enquanto nenhum celular estiver conectado.
 Top right = Canto superior direito
 Top left = Canto superior esquerdo
-Distance %.1f m = Distância %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nenhum jogador visto. Segure L3 + R3 para trazer de volta a última pose ou pressione-os rapidamente para recentralizar a câmera do celular daqui. Fique a 2,5-3 m do celular com os quadris visíveis.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Solte L3 + R3 para parar; um corpo vindo do celular assume.
@@ -343,7 +342,6 @@ Motion panel = Painel de movimento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Onde o painel de movimento da câmara aparece sobre o jogo (a pose do telemóvel, o que o jogo precisa das mãos, o código para ligar um telemóvel). Desligado mantém só o código enquanto nenhum telemóvel estiver ligado.
 Top right = Canto superior direito
 Top left = Canto superior esquerdo
-Distance %.1f m = Distância %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nenhum jogador visto. Mantenha L3 + R3 premidos para repor a última pose ou prima-os brevemente para recentrar a câmara do telemóvel daqui. Fique a 2,5-3 m do telemóvel com as ancas visíveis.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Pose de emergência ativa: o jogo vê a última pose. Largue L3 + R3 para parar; um corpo vindo do telemóvel toma o lugar.
@@ -440,7 +438,6 @@ Motion panel = Panel de movimiento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del móvil, lo que el juego necesita de las manos, el código para conectar un móvil). Desactivado deja solo el código mientras no haya un móvil conectado.
 Top right = Arriba a la derecha
 Top left = Arriba a la izquierda
-Distance %.1f m = Distancia %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = No se ve a ningún jugador. Mantén L3 + R3 para recuperar la última postura o púlsalos brevemente para recentrar la cámara del teléfono desde aquí. Colócate a 2,5-3 m del teléfono con las caderas a la vista.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para pararla; un cuerpo del teléfono toma el relevo.
@@ -537,7 +534,6 @@ Motion panel = Panel de movimiento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dónde se muestra el panel de movimiento de la cámara sobre el juego (la pose del celular, lo que el juego necesita de las manos, el código para conectar un celular). Desactivado deja solo el código mientras no haya un celular conectado.
 Top right = Arriba a la derecha
 Top left = Arriba a la izquierda
-Distance %.1f m = Distancia %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = No se ve a ningún jugador. Mantén presionados L3 + R3 para recuperar la última postura o presiónalos brevemente para recentrar la cámara del celular desde aquí. Colócate a 2,5-3 m del celular con la cadera a la vista.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Postura de emergencia activa: el juego ve la última postura. Suelta L3 + R3 para detenerla; un cuerpo del celular la reemplaza.
@@ -634,7 +630,6 @@ Motion panel = Bewegungsfeld
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Wo das Kamera-Bewegungsfeld über dem Spiel angezeigt wird (die Pose vom Handy, was das Spiel von den Händen braucht, der Code zum Verbinden eines Handys). Aus zeigt nur den Code, solange kein Handy verbunden ist.
 Top right = Oben rechts
 Top left = Oben links
-Distance %.1f m = Abstand %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Kein Spieler erkannt. Halte L3 + R3, um die letzte Haltung zurückzuholen, oder drück sie kurz, um die Handykamera von hier aus neu zu zentrieren. Stell dich 2,5-3 m vom Handy entfernt hin, die Hüfte im Bild.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Notfall-Haltung aktiv: Das Spiel sieht die letzte Haltung. Lass L3 + R3 los, um sie zu beenden; ein Körper vom Handy übernimmt.
@@ -731,7 +726,6 @@ Motion panel = Panneau de mouvement
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Où le panneau de mouvement de la caméra s'affiche sur le jeu (la pose du téléphone, ce que le jeu attend des mains, le code pour connecter un téléphone). Désactivé ne garde que le code tant qu'aucun téléphone n'est connecté.
 Top right = En haut à droite
 Top left = En haut à gauche
-Distance %.1f m = Distance %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Aucun joueur détecté. Maintenez L3 + R3 pour rétablir la dernière posture, ou appuyez brièvement dessus pour recentrer la caméra du téléphone d'ici. Placez-vous à 2,5-3 m du téléphone, les hanches visibles.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posture de secours active : le jeu voit la dernière posture. Relâchez L3 + R3 pour l'arrêter ; un corps venant du téléphone prend le relais.
@@ -828,7 +822,6 @@ Motion panel = Pannello del movimento
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Dove compare il pannello del movimento della fotocamera sopra il gioco (la posa dal telefono, ciò che il gioco chiede alle mani, il codice per collegare un telefono). Disattivato mostra solo il codice finché nessun telefono è collegato.
 Top right = In alto a destra
 Top left = In alto a sinistra
-Distance %.1f m = Distanza %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nessun giocatore rilevato. Tieni premuti L3 + R3 per riportare l'ultima posa, oppure premili brevemente per ricentrare la fotocamera del telefono da qui. Mettiti a 2,5-3 m dal telefono con i fianchi visibili.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Posa di emergenza attiva: il gioco vede l'ultima posa. Rilascia L3 + R3 per fermarla; un corpo dal telefono subentra.
@@ -925,7 +918,6 @@ Motion panel = モーションパネル
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = ゲーム上にカメラモーションのパネルを表示する位置 (スマートフォンからのポーズ、ゲームが手に求める動き、スマートフォンを接続するコード)。オフにすると、スマートフォンが未接続の間だけコードを表示します。
 Top right = 右上
 Top left = 左上
-Distance %.1f m = 距離 %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = プレイヤーが見つかりません。L3 + R3 を長押しすると最後のポーズに戻せます。短く押すと、ここからスマートフォンのカメラを再センタリングできます。腰が映るようにスマートフォンから 2.5-3 m 離れて立ってください。
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急ポーズ中：ゲームには最後のポーズが送られています。L3 + R3 を離すと終了し、スマートフォンで体が見つかると引き継ぎます。
@@ -1022,7 +1014,6 @@ Motion panel = 모션 패널
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 게임 위에 카메라 모션 패널을 표시할 위치 (휴대폰의 자세, 게임이 손에 요구하는 동작, 휴대폰 연결 코드). 끄면 휴대폰이 연결되지 않은 동안 코드만 표시합니다.
 Top right = 오른쪽 위
 Top left = 왼쪽 위
-Distance %.1f m = 거리 %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 플레이어가 보이지 않습니다. L3 + R3를 길게 누르면 마지막 자세를 되돌리고, 짧게 누르면 여기서 휴대폰 카메라를 다시 중앙에 맞춥니다. 엉덩이가 보이도록 휴대폰에서 2.5-3 m 떨어져 서세요.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 비상 자세 사용 중: 게임에 마지막 자세가 전달됩니다. L3 + R3를 놓으면 멈추고, 휴대폰에서 몸이 잡히면 이어받습니다.
@@ -1119,7 +1110,6 @@ Motion panel = Bewegingspaneel
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Waar het bewegingspaneel van de camera boven het spel staat (de houding van de telefoon, wat het spel van je handen nodig heeft, de code om een telefoon te verbinden). Uit toont alleen de code zolang er geen telefoon verbonden is.
 Top right = Rechtsboven
 Top left = Linksboven
-Distance %.1f m = Afstand %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Geen speler gezien. Houd L3 + R3 ingedrukt om de laatste houding terug te halen, of druk ze kort in om de telefooncamera van hieruit opnieuw te centreren. Ga op 2,5-3 m van de telefoon staan met je heupen in beeld.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Noodhouding aan: de game ziet de laatste houding. Laat L3 + R3 los om te stoppen; een lichaam van de telefoon neemt het over.
@@ -1216,7 +1206,6 @@ Motion panel = Panel ruchu
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Gdzie nad grą rysowany jest panel ruchu z kamery (poza z telefonu, czego gra potrzebuje od rąk, kod do połączenia telefonu). Wyłączony zostawia tylko kod, dopóki żaden telefon nie jest połączony.
 Top right = U góry po prawej
 Top left = U góry po lewej
-Distance %.1f m = Odległość %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Nie widać gracza. Przytrzymaj L3 + R3, aby przywrócić ostatnią pozę, albo naciśnij je krótko, aby stąd wyśrodkować kamerę telefonu. Stań 2,5-3 m od telefonu, z biodrami w kadrze.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Poza awaryjna włączona: gra widzi ostatnią pozę. Puść L3 + R3, aby ją wyłączyć; ciało z telefonu przejmie sterowanie.
@@ -1313,7 +1302,6 @@ Motion panel = Панель движения
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Где над игрой показывается панель движения камеры (поза с телефона, что игре нужно от рук, код для подключения телефона). Выключено: только код, пока телефон не подключён.
 Top right = Вверху справа
 Top left = Вверху слева
-Distance %.1f m = Расстояние %.1f м
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Игрок не виден. Удерживайте L3 + R3, чтобы вернуть последнюю позу, или нажмите их коротко, чтобы отсюда заново центрировать камеру телефона. Встаньте в 2,5-3 м от телефона так, чтобы были видны бёдра.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Аварийная поза включена: игра видит последнюю позу. Отпустите L3 + R3, чтобы её выключить; тело с телефона её сменит.
@@ -1410,7 +1398,6 @@ Motion panel = Hareket paneli
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = Kamera hareket panelinin oyunun üzerinde nerede gösterileceği (telefondan gelen poz, oyunun ellerden beklediği, telefonu bağlama kodu). Kapalı, telefon bağlı değilken yalnızca kodu gösterir.
 Top right = Sağ üst
 Top left = Sol üst
-Distance %.1f m = Mesafe %.1f m
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = Oyuncu görünmüyor. Son pozu geri getirmek için L3 + R3'e basılı tutun veya telefon kamerasını buradan yeniden ortalamak için kısa basın. Kalçalarınız görünecek şekilde telefondan 2,5-3 m uzakta durun.
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = Acil durum pozu açık: oyun son pozu görüyor. Durdurmak için L3 + R3'ü bırakın; telefondan gelen bir vücut devralır.
@@ -1507,7 +1494,6 @@ Motion panel = 动作面板
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 摄像头动作面板在游戏画面上的位置（来自手机的姿势、游戏对手部的要求、连接手机的代码）。关闭时，仅在没有手机连接时显示代码。
 Top right = 右上
 Top left = 左上
-Distance %.1f m = 距离 %.1f 米
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 未检测到玩家。按住 L3 + R3 可恢复上一个姿势，短按则可在这里重新居中手机摄像头。请站在离手机 2.5-3 米处，让臀部进入画面。
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 紧急姿势已开启：游戏看到的是上一个姿势。松开 L3 + R3 即可停止；手机检测到身体后会接管。
@@ -1604,7 +1590,6 @@ Motion panel = 動作面板
 Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected. = 攝影機動作面板在遊戲畫面上的位置（來自手機的姿勢、遊戲對手部的要求、連接手機的代碼）。關閉時，僅在沒有手機連接時顯示代碼。
 Top right = 右上
 Top left = 左上
-Distance %.1f m = 距離 %.1f 公尺
 # Fix 107: the emergency pose and the re-centre from the pad (motion_emergency.hpp).
 No player seen. Hold L3 + R3 to bring the last pose back, or press them briefly to re-centre the phone camera from here. Stand 2.5-3 m from the phone with your hips in view. = 未偵測到玩家。按住 L3 + R3 可恢復上一個姿勢，短按則可在這裡重新置中手機相機。請站在離手機 2.5-3 公尺處，讓臀部進入畫面。
 Emergency pose on: the game sees the last pose. Let go of L3 + R3 to stop; a body from the phone takes over. = 緊急姿勢已開啟：遊戲看到的是上一個姿勢。放開 L3 + R3 即可停止；手機偵測到身體後會接手。

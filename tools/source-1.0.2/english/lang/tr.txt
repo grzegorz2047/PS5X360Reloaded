@@ -144,7 +144,6 @@ Disc = Disk
 Disc\s%u = Disk\s%u
 Disc\s%u\sof\s%u = Disk\s%u\s/\s%u
 Disconnected\sor\sunavailable = Bağlantı\skesik\sveya\skullanılamaz
-Distance\s%.1f\sm = Mesafe\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Gökyüzü\sve\sgölgelerde\sbant\sgörünmemesi\siçin\sçıkışa\stitreme\sekler.
 Does\snot\swork = Çalışmıyor
 Done = Tamam

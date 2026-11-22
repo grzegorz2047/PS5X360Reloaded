@@ -144,7 +144,6 @@ Disc = Disco
 Disc\s%u = Disco\s%u
 Disc\s%u\sof\s%u = Disco\s%u\sdi\s%u
 Disconnected\sor\sunavailable = Scollegata\so\snon\sdisponibile
-Distance\s%.1f\sm = Distanza\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Applica\sil\sdithering\sall'uscita\sperché\scieli\se\sombre\snon\smostrino\sbande.
 Does\snot\swork = Non\sfunziona
 Done = Fatto

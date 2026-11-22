@@ -144,7 +144,6 @@ Disc = 光碟
 Disc\s%u = 光碟\s%u
 Disc\s%u\sof\s%u = 光碟\s%u/%u
 Disconnected\sor\sunavailable = 已斷開或不可用
-Distance\s%.1f\sm = 距離\s%.1f\s公尺
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = 對輸出進行抖動處理，使天空和陰影不出現色帶。
 Does\snot\swork = 無法執行
 Done = 完成

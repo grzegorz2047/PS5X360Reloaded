@@ -144,7 +144,6 @@ Disc = 디스크
 Disc\s%u = 디스크\s%u
 Disc\s%u\sof\s%u = 디스크\s%u/%u
 Disconnected\sor\sunavailable = 연결\s끊김\s또는\s사용\s불가
-Distance\s%.1f\sm = 거리\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = 하늘과\s그림자에\s띠가\s보이지\s않도록\s출력에\s디더링을\s적용합니다.
 Does\snot\swork = 작동하지\s않음
 Done = 완료

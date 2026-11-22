@@ -144,7 +144,6 @@ Disc = 光盘
 Disc\s%u = 光盘\s%u
 Disc\s%u\sof\s%u = 光盘\s%u/%u
 Disconnected\sor\sunavailable = 已断开或不可用
-Distance\s%.1f\sm = 距离\s%.1f\s米
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = 对输出进行抖动处理，使天空和阴影不出现色带。
 Does\snot\swork = 无法运行
 Done = 完成

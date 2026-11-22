@@ -144,7 +144,6 @@ Disc = Disc
 Disc\s%u = Disc\s%u
 Disc\s%u\sof\s%u = Disc\s%u\svon\s%u
 Disconnected\sor\sunavailable = Getrennt\soder\snicht\sverfügbar
-Distance\s%.1f\sm = Abstand\s%.1f\sm
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Fügt\sder\sAusgabe\sDithering\shinzu,\sdamit\sHimmel\sund\sSchatten\skeine\sStreifen\szeigen.
 Does\snot\swork = Funktioniert\snicht
 Done = Fertig

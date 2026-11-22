@@ -144,7 +144,6 @@ Disc = Диск
 Disc\s%u = Диск\s%u
 Disc\s%u\sof\s%u = Диск\s%u\sиз\s%u
 Disconnected\sor\sunavailable = Отключена\sили\sнедоступна
-Distance\s%.1f\sm = Расстояние\s%.1f\sм
 Dithers\sthe\soutput\sso\sskies\sand\sshadows\sdo\snot\sshow\sbands. = Добавляет\sдизеринг\sна\sвыходе,\sчтобы\sна\sнебе\sи\sв\sтенях\sне\sбыло\sполос.
 Does\snot\swork = Не\sработает
 Done = Готово
