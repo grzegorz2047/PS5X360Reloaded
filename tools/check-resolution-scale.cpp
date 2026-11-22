@@ -40,6 +40,14 @@
 //      AdmitTexture anywhere), heaps are not refused, a scaled resolve without a buffer is skipped
 //      before the core's fallback and the copy, the texture cache's eviction takes the pressure limits
 //      and counts what it evicts, and the notice and its text in Tr.
+// Fix 117e (117e-resolution-scale-threshold.patch): a game's presets.txt section may say
+// scale_threshold=<pixels>; at 2x surfaces up to that pitch render at 1x (the core's
+// draw_resolution_scale_threshold). Tekken Tag Tournament 2 drew its fighters dark at 2x.
+//  (j) the header: the threshold only at 2x and only for 1 to 8192 pixels, the start line;
+//  (k) the tree: launcher.cpp reads scale_threshold from the game's presets.txt section, the game
+//      start sets the core's threshold from it and the game's own scale (0 otherwise) and logs it;
+//      assets/presets.txt (argument 1, from the repository) gives Tekken Tag Tournament 2 1040 and
+//      keeps its readback=1.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -237,6 +245,15 @@ void CheckHeader() {
   Expect(ev4.soft_mb == 100 && ev4.lifetime_ms == 1000, "never above the cache's own limits");
   const auto ev5 = rs::TextureEviction(456, 30000, 455, -1);
   Expect(!ev5.pressure && ev5.soft_mb == 456, "unknown free memory: no pressure");
+  // Fix 117e: the threshold only at 2x, only for a sane width.
+  Expect(rs::ThresholdFor(2, 1040) == 1040, "2x with 1040: 1040");
+  Expect(rs::ThresholdFor(1, 1040) == 0, "1x: no threshold");
+  Expect(rs::ThresholdFor(2, 0) == 0 && rs::ThresholdFor(2, -5) == 0, "no preset or a negative one: none");
+  Expect(rs::ThresholdFor(2, 8192) == 8192 && rs::ThresholdFor(2, 8193) == 0, "at most 8192 pixels");
+  Expect(rs::ThresholdLine(1040, "4E4D0859") ==
+             "Resolution scale (fix 117e): surfaces up to 1040 pixels of pitch render at 1x (preset of 4E4D0859)",
+         "the start line");
+  Expect(Has(rs::ThresholdLine(800, ""), "(preset of no identified title)"), "the start line without a title");
   // Fix 117d: the warning, once a session, at 2x under 1 GiB.
   rs::Counters w;
   Expect(!rs::ShouldWarn(w, 500ll << 20), "1x: no warning");
@@ -277,6 +294,8 @@ void CheckHeader() {
   Expect(Has(rs::SparseLine(rs::Sparse::kOffByCvar, 0, 0, 0, -1), "tiled_shared_memory false"), "cvar line");
 }
 
+std::string presets_path = "assets/presets.txt";
+
 void CheckLauncher() {
   const std::string launcher = Read("src/launcher.cpp");
   const std::string header = Read("include/xbox360ps5/launcher.hpp");
@@ -304,8 +323,24 @@ void CheckLauncher() {
   const size_t table_end = launcher.find("\n  };", table);
   Expect(table != std::string::npos && launcher.substr(table, table_end - table).find("draw_scale") == std::string::npos,
          "no built-in preset sets a scale");
-  const std::string presets = Read("assets/presets.txt");
+  const std::string presets = Read(presets_path);
+  Expect(!presets.empty(), "assets/presets.txt read (" + presets_path + ")");
   Expect(!Has(presets, "draw_scale"), "no presets.txt entry sets a scale");
+  {
+    // Fix 117e: Tekken Tag Tournament 2's section.
+    const size_t tekken = presets.find("\n[4E4D0859]\n");
+    const size_t next = presets.find("\n[", tekken + 1);
+    const std::string section = tekken == std::string::npos ? std::string()
+                                                            : presets.substr(tekken, next == std::string::npos
+                                                                                         ? std::string::npos
+                                                                                         : next - tekken);
+    Expect(Has(section, "\nreadback=1\n") && Has(section, "\nscale_threshold=1040\n"),
+           "fix 117e: Tekken Tag Tournament 2 keeps readback=1 and gets scale_threshold=1040");
+    size_t count = 0;
+    for (size_t at = presets.find("scale_threshold="); at != std::string::npos; at = presets.find("scale_threshold=", at + 1))
+      ++count;
+    Expect(count == 1, "fix 117e: only Tekken Tag Tournament 2 has a threshold (" + std::to_string(count) + ")");
+  }
 }
 
 void CheckCore() {
@@ -415,6 +450,21 @@ void CheckCore() {
              Has(game_main, "Tr(\"Resolution scale (test) 2x: this game needs more memory than is left. The picture may "
                             "break; set it to 1x in this game's settings.\")"),
          "fix 117d: the once-a-session notice through Tr");
+  // Fix 117e.
+  const std::string launcher = Read("src/launcher.cpp");
+  const size_t threshold_fn = launcher.find("int ScaleThresholdFor(const std::string& title_id) {");
+  Expect(threshold_fn != std::string::npos &&
+             launcher.find("ReadValues(\"/app0/assets/presets.txt\", title_id)", threshold_fn) != std::string::npos &&
+             launcher.find("values.find(\"scale_threshold\")", threshold_fn) != std::string::npos,
+         "fix 117e: the launcher reads scale_threshold from the game's presets.txt section");
+  Expect(Has(game_main, "DECLARE_uint32(draw_resolution_scale_threshold);") &&
+             Has(game_main, "int ScaleThresholdFor(const std::string& title_id);") &&
+             Has(game_main, "xbox360ps5::resolution_scale::ThresholdFor(\n"
+                            "              xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale),\n"
+                            "              xbox360ps5::ScaleThresholdFor(settings_title));") &&
+             Has(game_main, "cvars::draw_resolution_scale_threshold = scale_threshold;") &&
+             Has(game_main, "xbox360ps5::resolution_scale::ThresholdLine(scale_threshold, settings_title)"),
+         "fix 117e: the game start sets the core's threshold from the preset at 2x (0 otherwise) and logs it");
   const size_t rt_fresh = render_targets.find("xbox360ps5::resolution_scale::DirectFreeFresh(), bytes)");
   Expect(rt_fresh != std::string::npos && rt_fresh > rt_admit && rt_fresh < rt_alloc,
          "render targets ask a fresh reading");
@@ -424,7 +474,8 @@ void CheckCore() {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+  if (argc > 1) presets_path = argv[1];
   CheckHeader();
   CheckLauncher();
   CheckCore();

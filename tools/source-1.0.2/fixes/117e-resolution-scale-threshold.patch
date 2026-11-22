@@ -1,0 +1,87 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -35,6 +35,10 @@
+ // the floor), a scaled resolve that still has no buffer is skipped rather than written into guest memory, the
+ // texture cache evicts what has been unused for 2 s while free memory is under 1.5 GiB instead of growing, and the
+ // player is told once per session when 2x runs under the 1 GiB floor.
++// Fix 117e: Tekken Tag Tournament 2 at 2x draws its fighters dark (lit as at 1x with image readback Off, Fast or
++// Full), most likely from its small offscreen surfaces (shadow-map depths at 1024 and 512 pitch). A game's
++// assets/presets.txt section may say scale_threshold=<pixels>: at 2x, surfaces whose tile-aligned pitch is at most
++// that render at 1x (the core's draw_resolution_scale_threshold, host render targets only), the rest at 2x.
+ #pragma once
+ 
+ #include <atomic>
+@@ -190,6 +194,18 @@ inline EvictionLimits TextureEviction(uint64_t soft_mb, uint64_t lifetime_ms, ui
+   limits.lifetime_ms = lifetime_ms < 2000 ? lifetime_ms : 2000;
+   return limits;
+ }
++// Fix 117e: the core's draw_resolution_scale_threshold for a game: its preset's scale_threshold at 2x, else 0.
++inline constexpr int kMaxScaleThreshold = 8192;  // the widest guest surface
++inline uint32_t ThresholdFor(uint32_t scale, int preset) {
++  return scale > 1 && preset > 0 && preset <= kMaxScaleThreshold ? uint32_t(preset) : 0;
++}
++inline std::string ThresholdLine(uint32_t threshold, const std::string& title_id) {
++  char line[200];
++  std::snprintf(line, sizeof(line),
++                "Resolution scale (fix 117e): surfaces up to %u pixels of pitch render at 1x (preset of %s)", threshold,
++                title_id.empty() ? "no identified title" : title_id.c_str());
++  return line;
++}
+ // Fix 117d: true once per session, when the game renders above 1x and free memory is under the floor.
+ inline bool ShouldWarn(Counters& c, int64_t direct_free) {
+   if (c.scale.load(std::memory_order_relaxed) <= 1) return false;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -33,6 +33,7 @@ void RequestTextureCapture();  // reads the textures of the next frame back (dia
+ // Accurate render targets (FSI) for one game, launcher.cpp (dev.14).
+ bool FsiWantedFor(const std::string& title_id);
+ bool FsiInEffect();
++int ScaleThresholdFor(const std::string& title_id);  // launcher.cpp, fix 117e
+ bool FsiForNextStart(bool enabled);
+ }
+ namespace config {
+@@ -62,6 +63,7 @@ static std::vector<std::pair<uint32_t, uint32_t>> TakeSaveDriveChoices() {
+   return std::move(save_drive_choices);
+ }
+ DECLARE_bool(storage_selection_dialog);
++DECLARE_uint32(draw_resolution_scale_threshold);  // fix 117e
+ // The core's system windows (where to save, who is playing) in the emulator's language.
+ static const char* CoreUiText(const char* english) {
+   // The core's own English (xam_ui.cc) and the interface's key for it.
+@@ -3339,6 +3341,16 @@ int main(int argc, char** argv) {
+           restart = true;
+           break;
+         }
++        // Fix 117e: at 2x, the game's preset may keep its small surfaces at 1x.
++        {
++          const uint32_t scale_threshold = xbox360ps5::resolution_scale::ThresholdFor(
++              xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale),
++              xbox360ps5::ScaleThresholdFor(settings_title));
++          cvars::draw_resolution_scale_threshold = scale_threshold;
++          if (scale_threshold) {
++            XELOGW("{}", xbox360ps5::resolution_scale::ThresholdLine(scale_threshold, settings_title));
++          }
++        }
+         // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
+         // the next start is an ordinary one. A title switch of the session goes on with it.
+         // Fix 93d: the game's own value counts too (its sheet, the guide's restart); both are
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -2329,6 +2329,14 @@ bool FsiWantedFor(const std::string& title_id) {
+   return FsiChoice();
+ }
+ bool FsiInEffect() { return FsiAtStart(); }
++// Fix 117e: the surface pitch (pixels) up to which a game renders at 1x when it is at 2x, from its
++// assets/presets.txt section (scale_threshold=); 0 when it has none.
++int ScaleThresholdFor(const std::string& title_id) {
++  if (title_id.empty()) return 0;
++  const auto values = ReadValues("/app0/assets/presets.txt", title_id);
++  const auto it = values.find("scale_threshold");
++  return it == values.end() ? 0 : it->second;
++}
+ // The choice for the next start only (read and removed by FsiAtStart).
+ bool FsiForNextStart(bool enabled) {
+   std::ofstream output(kFsiOnceFile, std::ios::trunc);

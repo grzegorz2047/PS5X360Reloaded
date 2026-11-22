@@ -855,8 +855,12 @@ readback=2
 # second waited for the GPU (41-43 FPS in fights, the game in slow motion). Fast readback: no
 # stalls (minimum 44 FPS, stand-ins for a moment), 45-50 FPS on candidate 21, smooth on the
 # console, no visible errors. Fix 59 (candidate 22 on) also drops the wait for the previous copy.
+# Fix 117e (2026-11-22, 1.0.5-work-fix117c): at "Resolution scale (test)" 2x the fighters were dark
+# (lit as at 1x with image readback Off, Fast or Full); surfaces up to 1040 pixels of pitch (the
+# shadow maps at 1024 and 512) stay at 1x, the 1280/1360 scene at 2x. No effect at 1x.
 [4E4D0859]
 readback=1
+scale_threshold=1040
 
 # NASCAR '15 - https://github.com/xenia-canary/game-compatibility/issues/560 (labels: gpu-readback)
 [4F4807D1]
