@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Fix 107 (tools/source-1.0.2/fixes/107-dlc-remove.patch): the game sheet's DLCs tab looks at every
+// Fix 109 (tools/source-1.0.2/fixes/109-dlc-remove.patch): the game sheet's DLCs tab looks at every
 // save device and can remove an installed package. Battlefield 3 (45410950) installs its HD
 // textures itself, as a package file in <saves>/0000000000000000/45410950/00000002 of the game's
 // save drive; with the save drive on the extended storage (fix 101) that is

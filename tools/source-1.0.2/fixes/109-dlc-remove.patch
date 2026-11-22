@@ -6,7 +6,7 @@ index ccc8791..cbba958 100644
  //   available: a dlc folder (PPSA83600/dlc, the game's dlc folder, each library root's dlc)
  // Enabling and disabling move the file between the first two; installing copies an available
  // package into the first (staged in 00000002-installing, checked, then renamed).
-+// Fix 107: the first two are looked at on every save device (FindAll: the internal folder and each
++// Fix 109: the first two are looked at on every save device (FindAll: the internal folder and each
 +// drive the storage scan offers), so content a game put on another drive (Battlefield 3's HD
 +// textures on ext1) is listed with its drive and size; Remove deletes one installed package file
 +// (never a dlc folder's, never a folder) while no game is running.
@@ -17,12 +17,12 @@ index ccc8791..cbba958 100644
    fs::path path;
    uint64_t bytes = 0;
    State state = State::available;
-+  // Fix 107: an installed package's save device: its saves root and its name on the page (empty
++  // Fix 109: an installed package's save device: its saves root and its name on the page (empty
 +  // for a package in a dlc folder).
 +  fs::path root;
 +  std::string device;
 +};
-+// Fix 107: a save device's saves root (<root>/0000000000000000/<TITLE>/00000002) and its name.
++// Fix 109: a save device's saves root (<root>/0000000000000000/<TITLE>/00000002) and its name.
 +struct Root {
 +  fs::path path;
 +  std::string device;
@@ -34,7 +34,7 @@ index ccc8791..cbba958 100644
  inline fs::path DisabledFolder(const fs::path& root, uint32_t title) { return Folder(root, title, "00000002-off"); }
  
 -inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::path>& inboxes) {
-+// Fix 107: every save device's root (the storage scan's devices: anything with a .root), each
++// Fix 109: every save device's root (the storage scan's devices: anything with a .root), each
 +// once, in the scan's order (the internal folder first), named by name(device).
 +template <class Devices, class Name>
 +std::vector<Root> RootsOf(const Devices& devices, Name name) {
@@ -49,7 +49,7 @@ index ccc8791..cbba958 100644
 +  return roots;
 +}
 +
-+// Fix 107: the installed packages of every root, then the dlc folders' packages installed on none
++// Fix 109: the installed packages of every root, then the dlc folders' packages installed on none
 +// of them. A file name is listed once per root (the active copy wins over a disabled one), and a
 +// dlc-folder copy only when no root has that file.
 +inline Found FindAll(uint32_t title, const std::vector<Root>& roots, const std::vector<fs::path>& inboxes) {
@@ -111,7 +111,7 @@ index ccc8791..cbba958 100644
    });
    return out;
  }
-+// One root (the internal folder), as before fix 107.
++// One root (the internal folder), as before fix 109.
 +inline Found Find(uint32_t title, const fs::path& root, const std::vector<fs::path>& inboxes) {
 +  std::vector<Root> roots;
 +  if (!root.empty()) roots.push_back({root, {}});
@@ -120,7 +120,7 @@ index ccc8791..cbba958 100644
  
  // Enable (to the active folder) or disable (to the disabled folder): a rename, nothing copied.
 -inline bool Move(const Item& item, const fs::path& root, uint32_t title, bool enable) {
-+// Fix 107: on the package's own device (internal_root for an item without one).
++// Fix 109: on the package's own device (internal_root for an item without one).
 +inline bool Move(const Item& item, const fs::path& internal_root, uint32_t title, bool enable) {
 +  const fs::path& root = item.root.empty() ? internal_root : item.root;
    const fs::path folder = enable ? ActiveFolder(root, title) : DisabledFolder(root, title);
@@ -130,7 +130,7 @@ index ccc8791..cbba958 100644
    return !ec;
  }
  
-+// Fix 107: removing an installed package. Only the listed file in its device's active or disabled
++// Fix 109: removing an installed package. Only the listed file in its device's active or disabled
 +// folder is deleted, and only while no game is running; the folders stay.
 +enum class Removal { removed, game_running, not_installed, missing, failed };
 +inline Removal Remove(const Item& item, uint32_t title, bool game_running) {
@@ -146,7 +146,7 @@ index ccc8791..cbba958 100644
 +  if (!fs::remove(item.path, ec) || ec) return Removal::failed;
 +  return Removal::removed;
 +}
-+// Fix 107: a package's size in decimal units, as the PS5's storage screens give it: "640 KB",
++// Fix 109: a package's size in decimal units, as the PS5's storage screens give it: "640 KB",
 +// "812 MB", "1.2 GB", "15 GB".
 +inline std::string SizeText(uint64_t bytes) {
 +  char text[32];
@@ -169,12 +169,12 @@ index 511d5c2..c2f966c 100644
  bool g_confirm_open = false;
  GameEntry g_confirm_game;
  float g_confirm_shown = 0.0f;  // 0..1, the dialog's entrance.
-+// Fix 107: the DLCs tab's "Remove DLC?" window, for one installed package of the selected game.
++// Fix 109: the DLCs tab's "Remove DLC?" window, for one installed package of the selected game.
 +bool g_dlc_remove_open = false;
 +float g_dlc_remove_shown = 0.0f;
 +dlc2::Item g_dlc_remove_item;
 +uint32_t g_dlc_remove_title = 0;
-+// Fix 107: the save devices the DLCs tab looks at: the storage scan's (the internal folder, then
++// Fix 109: the save devices the DLCs tab looks at: the storage scan's (the internal folder, then
 +// each writable drive under /mnt, as the "where to save" window offers them), each named as that
 +// window names it, without its free space.
 +std::vector<dlc2::Root> DlcRoots(const fs::path& internal) {
@@ -205,7 +205,7 @@ index 511d5c2..c2f966c 100644
        std::vector<std::filesystem::path> inboxes = {fs::path("/app0/assets/dlc") / GameFolderName(launch_.name), "/app0/assets/dlc", "/app0/dlc", launch_.path.parent_path() / "dlc"};
        for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
 -      for (const auto& item : dlc2::Find(title, save_root_, inboxes).items)
-+      for (const auto& item : dlc2::FindAll(title, DlcRoots(save_root_), inboxes).items)  // fix 107
++      for (const auto& item : dlc2::FindAll(title, DlcRoots(save_root_), inboxes).items)  // fix 109
          if (item.state == dlc2::State::available) waiting.push_back(item);
        found = waiting.size();
        const tu::Found updates = tu::Find(title, save_root_, UpdateInboxes(launch_.path, settings_.game_paths, launch_.name));
@@ -214,7 +214,7 @@ index 511d5c2..c2f966c 100644
    if (!loading_.empty()) return;
    message_.clear();
 +  if (g_dlc_remove_open) {
-+    // Fix 107: "Remove DLC?": X removes the package file, Circle keeps it.
++    // Fix 109: "Remove DLC?": X removes the package file, Circle keeps it.
 +    if (key == Key::cross) {
 +      g_dlc_remove_open = false;
 +      const dlc2::Item item = g_dlc_remove_item;
@@ -238,7 +238,7 @@ index 511d5c2..c2f966c 100644
          if (key == Key::down && rows) dlc_row_ = (dlc_row_ + 1) % rows;
          if (!busy && key == Key::square) RefreshDlcs();
 +        if (!busy && key == Key::triangle && rows) {
-+          // Fix 107: Remove, for a package on a save device (On or Off), after the window.
++          // Fix 109: Remove, for a package on a save device (On or Off), after the window.
 +          const dlc2::Item item = DlcPage().items[size_t(dlc_row_)];
 +          if (item.state != dlc2::State::available && !item.root.empty()) {
 +            if (!g_running_path.empty()) {
@@ -258,7 +258,7 @@ index 511d5c2..c2f966c 100644
      Text(label, x + 38, y + 2, 20, kMuted);
      return x + 38 + Width(label, 20) + 44;
    }
-+  // Fix 107: a raised button, as the guide draws its pad buttons: the button filled in the pad's
++  // Fix 109: a raised button, as the guide draws its pad buttons: the button filled in the pad's
 +  // colour with its shape in white, then what it does, on a key that stands off the sheet (a
 +  // darker lip under its face, a soft shadow). danger: a red face, for what cannot be undone.
 +  // Returns where the next one goes.
@@ -301,7 +301,7 @@ index 511d5c2..c2f966c 100644
      c.Hint('o', Tr("Cancel"), hint, y + h - 56);
      c.alpha = 1.0f;
    }
-+  // Fix 107: "Remove DLC?", the same kind of window, standing off the screen with the guide's
++  // Fix 109: "Remove DLC?", the same kind of window, standing off the screen with the guide's
 +  // shadow and raised buttons: what is removed (name, size, drive) and that it is for good.
 +  g_dlc_remove_shown = Smooth(g_dlc_remove_shown, g_dlc_remove_open ? 1.0f : 0.0f, dt, 18);
 +  if (g_dlc_remove_shown > 0.01f) {
@@ -337,7 +337,7 @@ index 511d5c2..c2f966c 100644
      std::vector<std::filesystem::path> inboxes = {own, "/app0/assets/dlc", "/app0/dlc", game->path.parent_path() / "dlc"};
      for (const auto& root : settings_.game_paths) inboxes.emplace_back(std::filesystem::path(root) / "dlc");
 -    DlcPage() = dlc2::Find(title, save_root_, inboxes);
-+    DlcPage() = dlc2::FindAll(title, DlcRoots(save_root_), inboxes);  // fix 107: every save device
++    DlcPage() = dlc2::FindAll(title, DlcRoots(save_root_), inboxes);  // fix 109: every save device
      // What is "ignored" is counted in the game's own folder only: the folders above hold the
      // other games' packages too.
      const dlc2::Found mine = dlc2::Find(title, {}, {own});
@@ -347,7 +347,7 @@ index 511d5c2..c2f966c 100644
    const int rows = int(page.items.size());
 -  const int first = std::clamp(dlc_row_ - 3, 0, std::max(0, rows - 6));
 -  for (int n = first; n < std::min(rows, first + 6); ++n) {
-+  // Fix 107: five rows, each with a second line: the package's size and the drive it is on.
++  // Fix 109: five rows, each with a second line: the package's size and the drive it is on.
 +  const int first = std::clamp(dlc_row_ - 2, 0, std::max(0, rows - 5));
 +  for (int n = first; n < std::min(rows, first + 5); ++n) {
      const auto& item = page.items[size_t(n)];
@@ -372,7 +372,7 @@ index 511d5c2..c2f966c 100644
        : dlc_result_ == "disabled" ? Tr("DLC off: the game does not see it; the file is kept.")
        : dlc_result_ == "installed" ? Tr("DLC installed and on.")
        : dlc_result_ == "move-failed" ? Tr("Could not move the DLC file.")
-+      : dlc_result_ == "removed" ? Tr("DLC removed.")  // fix 107
++      : dlc_result_ == "removed" ? Tr("DLC removed.")  // fix 109
 +      : dlc_result_ == "remove-running" ? Tr("Close the game first: DLC can be removed only while no game is running.")
 +      : dlc_result_ == "remove-failed" ? Tr("Could not remove the DLC file.")
        : Tr("Installing failed: check free space and the file.");
@@ -382,7 +382,7 @@ index 511d5c2..c2f966c 100644
      const auto state = page.items[size_t(std::clamp(dlc_row_, 0, rows - 1))].state;
      hint = c.Hint('x', state == dlc2::State::active ? Tr("Turn off")
                       : state == dlc2::State::disabled ? Tr("Turn on") : Tr("Install"), hint, 1004);
-+    if (state != dlc2::State::available) hint = c.Hint('t', Tr("Remove"), hint, 1004);  // fix 107
++    if (state != dlc2::State::available) hint = c.Hint('t', Tr("Remove"), hint, 1004);  // fix 109
    }
    if (!busy) hint = c.Hint('s', Tr("Reload list"), hint, 1004);
    c.Hint('o', Tr("Back"), hint, 1004);

@@ -111,13 +111,13 @@ void Callers() {
       assert(false);
     }
   }
-  // Fix 107: Canvas::Raised (the "Remove DLC?" window's buttons) takes its pad colour from
-  // HintRgb too, once, for the button it was given (a build without fix 107 has no Raised).
+  // Fix 109: Canvas::Raised (the "Remove DLC?" window's buttons) takes its pad colour from
+  // HintRgb too, once, for the button it was given (a build without fix 109 has no Raised).
   const int raised = Count(launcher, "list->AddCircleFilled(centre, 16 * scale, Color(kinect_ui::HintRgb(pad)), 32);");
   assert(raised == Count(launcher, "float Raised(char button, const std::string& label,") && raised <= 1);
   assert(Count(launcher, "kinect_ui::HintRgb(") == 8 + raised);  // no other caller
   std::printf("  launcher.cpp: Canvas::Hint and NxeHint take the four colours from HintRgb, "
-              "their own for other buttons; Canvas::Raised (fix 107) its button's\n");
+              "their own for other buttons; Canvas::Raised (fix 109) its button's\n");
 }
 
 // The arguments of the macro call whose '(' is at `open`. An argument made only of string

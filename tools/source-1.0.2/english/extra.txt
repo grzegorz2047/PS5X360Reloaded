@@ -238,7 +238,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum celular conectado
 Scan with your phone to use it as Kinect. = Escaneie com o celular para usá-lo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = Remover o DLC?
 Size: %s = Tamanho: %s
 Drive: %s = Unidade: %s
@@ -296,7 +296,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nenhum telemóvel ligado
 Scan with your phone to use it as Kinect. = Leia o código com o telemóvel para o usar como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Mesma rede Wi-Fi, fique a 2-3 m, com o corpo inteiro visível.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = Remover o DLC?
 Size: %s = Tamanho: %s
 Drive: %s = Unidade: %s
@@ -354,7 +354,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún móvil conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el móvil para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = ¿Quitar el DLC?
 Size: %s = Tamaño: %s
 Drive: %s = Unidad: %s
@@ -412,7 +412,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimiento: ningún celular conectado
 Scan with your phone to use it as Kinect. = Escanéalo con el celular para usarlo como Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Misma red Wi-Fi, colócate a 2-3 m, con todo el cuerpo visible.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = ¿Quitar el DLC?
 Size: %s = Tamaño: %s
 Drive: %s = Unidad: %s
@@ -470,7 +470,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Bewegung: kein Handy verbunden
 Scan with your phone to use it as Kinect. = Mit dem Handy scannen, um es als Kinect zu nutzen.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Gleiches WLAN, 2-3 m Abstand, ganzer Körper sichtbar.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = DLC entfernen?
 Size: %s = Größe: %s
 Drive: %s = Laufwerk: %s
@@ -528,7 +528,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Mouvement : aucun téléphone connecté
 Scan with your phone to use it as Kinect. = Scannez avec votre téléphone pour l'utiliser comme Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Même Wi-Fi, placez-vous à 2-3 m, corps entier visible.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = Retirer le DLC ?
 Size: %s = Taille : %s
 Drive: %s = Périphérique : %s
@@ -586,7 +586,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Movimento: nessun telefono connesso
 Scan with your phone to use it as Kinect. = Scansiona con il telefono per usarlo come Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Stessa rete Wi-Fi, stai a 2-3 m, corpo intero visibile.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = Rimuovere il DLC?
 Size: %s = Dimensione: %s
 Drive: %s = Unità: %s
@@ -644,7 +644,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = モーション: スマートフォン未接続
 Scan with your phone to use it as Kinect. = スマートフォンでスキャンして Kinect として使用します。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 同じ Wi-Fi で、2-3 m 離れて全身が映るように立ってください。
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = DLC を削除しますか？
 Size: %s = サイズ: %s
 Drive: %s = ドライブ: %s
@@ -702,7 +702,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 모션: 연결된 휴대폰 없음
 Scan with your phone to use it as Kinect. = 휴대폰으로 스캔하여 Kinect로 사용하세요.
 Same Wi-Fi, stand 2-3 m back, full body visible. = 같은 Wi-Fi에서 2-3 m 떨어져 전신이 보이게 서세요.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = DLC를 제거할까요?
 Size: %s = 크기: %s
 Drive: %s = 드라이브: %s
@@ -760,7 +760,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Beweging: geen telefoon verbonden
 Scan with your phone to use it as Kinect. = Scan met je telefoon om hem als Kinect te gebruiken.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Zelfde wifi, sta 2-3 m achteruit, hele lichaam zichtbaar.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = DLC verwijderen?
 Size: %s = Grootte: %s
 Drive: %s = Station: %s
@@ -818,7 +818,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Ruch: brak połączonego telefonu
 Scan with your phone to use it as Kinect. = Zeskanuj telefonem, aby użyć go jako Kinecta.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Ta sama sieć Wi-Fi, stań 2-3 m dalej, całe ciało widoczne.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = Usunąć DLC?
 Size: %s = Rozmiar: %s
 Drive: %s = Dysk: %s
@@ -876,7 +876,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Движение: телефон не подключён
 Scan with your phone to use it as Kinect. = Отсканируйте телефоном, чтобы использовать его как Kinect.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Та же сеть Wi-Fi, встаньте в 2-3 м, всё тело в кадре.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = Удалить DLC?
 Size: %s = Размер: %s
 Drive: %s = Накопитель: %s
@@ -934,7 +934,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = Hareket: bağlı telefon yok
 Scan with your phone to use it as Kinect. = Kinect olarak kullanmak için telefonunuzla tarayın.
 Same Wi-Fi, stand 2-3 m back, full body visible. = Aynı Wi-Fi, 2-3 m geride durun, tüm vücut görünsün.
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = DLC kaldırılsın mı?
 Size: %s = Boyut: %s
 Drive: %s = Sürücü: %s
@@ -992,7 +992,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 动作：未连接手机
 Scan with your phone to use it as Kinect. = 用手机扫描，即可将其用作 Kinect。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 连接同一 Wi-Fi，站在 2-3 米外，全身入镜。
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = 移除 DLC？
 Size: %s = 大小：%s
 Drive: %s = 驱动器：%s
@@ -1050,7 +1050,7 @@ This game requires Kinect. Turn on Camera motion in the guide (Settings, Control
 Motion: no phone connected = 動作：未連接手機
 Scan with your phone to use it as Kinect. = 用手機掃描，即可將其當作 Kinect 使用。
 Same Wi-Fi, stand 2-3 m back, full body visible. = 連接同一 Wi-Fi，站在 2-3 公尺外，全身入鏡。
-# Fix 107: the DLCs tab's Remove (the same keys in every section).
+# Fix 109: the DLCs tab's Remove (the same keys in every section).
 Remove DLC? = 移除 DLC？
 Size: %s = 大小：%s
 Drive: %s = 磁碟機：%s
