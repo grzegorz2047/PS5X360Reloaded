@@ -18,6 +18,9 @@
 //      four forms of a group's number of games (fix 112b: "%d game", "%d games", "||few", "||one").
 // Fix 112b: a group's tile is a folder (DrawGroupFolder: a mosaic of up to four covers, the name, a
 // badge with the number), never one game's cover; CountKey picks the number's form.
+// Fix 112d: copies of one game (one title ID) count once, so a folder of one game is never a group;
+// a package in a title update's or DLC's content type folder is not read (GamePackageFolder); the
+// console's Halo folders (one game each beside its DLC and title updates) are no groups.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/library_groups.hpp"
@@ -172,6 +175,32 @@ void CheckBuild() {
     Expect(lg::StillThere(layout, "racing/rally/old") == "racing/rally", "StillThere: its nearest group");
     Expect(lg::StillThere(layout, "gone/away") == "", "StillThere: else the library");
   }
+  {
+    // Fix 112d: copies of one game count once. "halo ce" on two drives (one group key), each with
+    // the same game: one game, no group, both copies at the top; with a second game it is a group.
+    const Folders folders = {{"halo ce"}, {"halo ce"}, {"Kinect"}, {"Kinect"}, {}};
+    const std::vector<std::string> ids = {"4D5309B1", "4D5309B1", "4D5308D6", "4E4D07D1", "4D530919"};
+    const auto layout = lg::Build(folders, ids);
+    Expect(!GroupOf(layout, "halo ce") && layout.shown_in[0].empty() && layout.shown_in[1].empty(),
+           "two copies of Halo in folders named halo ce: no group, both at the top");
+    Expect(GroupOf(layout, "kinect") && GroupOf(layout, "kinect")->games.size() == 2, "two Kinect games: a group");
+    const auto mixed = lg::Build({{"halo ce"}, {"halo ce"}, {"halo ce"}, {}}, {"4D5309B1", "4D5309B1", "4D53085B", "4D530919"});
+    Expect(GroupOf(mixed, "halo ce") && GroupOf(mixed, "halo ce")->games.size() == 3, "two games (one in two copies): a group of three");
+    const auto unnamed = lg::Build({{"A"}, {"A"}, {}}, {"", "", ""});
+    Expect(GroupOf(unnamed, "a"), "entries without a title ID are games of their own");
+    // In a subfolder: Racing holds Forza twice and nothing else, so it passes on as one game.
+    const auto nested = lg::Build({{"Racing", "Forza"}, {"Racing"}, {}}, {"4D5307E6", "4D5307E6", "4D530919"});
+    Expect(!GroupOf(nested, "racing") && !GroupOf(nested, "racing/forza") && nested.shown_in[0].empty() &&
+               nested.shown_in[1].empty(),
+           "a folder with one game in two copies, a subfolder's included: no group");
+  }
+  // Fix 112d: a package's content type folder that holds no game is not read.
+  for (const char* type : {"00007000", "000D0000", "000d0000", "00080000", "00004000", "00005000", "02000000"})
+    Expect(lg::GamePackageFolder(type), std::string("GamePackageFolder: a game's content type ") + type);
+  for (const char* type : {"000B0000", "00000002", "00000001", "00009000", "00020000", "00030000", "00090000", "4D5309B1"})
+    Expect(!lg::GamePackageFolder(type), std::string("GamePackageFolder: no game in ") + type);
+  for (const char* folder : {"halo ce", "Racing", "Games", "4D5309B", "ABCDEFGH"})
+    Expect(lg::GamePackageFolder(folder), std::string("GamePackageFolder: the player's folder ") + folder);
   // Fix 112b: the number's form.
   Expect(std::string(lg::CountKey(1)) == "%d game" && std::string(lg::CountKey(2)) == "%d games||few" &&
              std::string(lg::CountKey(4)) == "%d games||few" && std::string(lg::CountKey(5)) == "%d games" &&
@@ -244,6 +273,11 @@ std::vector<Found> Walk(const std::filesystem::path& root) {
         const std::string name = entry.path().filename().string();
         if (Has(name, "(Disc ") && !Has(name, "(Disc 1)")) continue;
         found.push_back({"ISO", entry.path().generic_string(), directory.generic_string()});
+      } else if (extension.empty() || extension == ".xbla" || extension == ".god") {
+        // Fix 112d: a package is read only in a folder that may hold a game's (GamePackageFolder);
+        // here every package read is taken for a game, as ReadPackage takes a GOD package.
+        if (!lg::GamePackageFolder(directory.filename().string())) continue;
+        found.push_back({"GOD/STFS", entry.path().generic_string(), directory.generic_string()});
       }
     }
   };
@@ -321,6 +355,14 @@ void CheckFolders() {
   fs::create_directories(root / "Empty");              // empty folders: nothing
   fs::create_directories(root / "Empty Too" / "Deeper");
   file("Notes/readme.txt");                            // a folder with no game
+  // Fix 112d: the console's Halo folders: one game each, beside its DLC and title updates.
+  file("halo ce/Halo - Combat Evolved Anniversary (axekin.com).iso");
+  file("halo ce/4D5309B1/00000002/D4D738C7BB23B73457C610D52E975958164C074A4D");  // DLC (marketplace)
+  file("halo ce/4D5309B1/000B0000/tu00000001_00000000");                         // a title update
+  file("halo reach/Halo - Reach (axekin.com).iso");
+  file("halo reach/4D53085B/00000002/2EE2ED420A705835078EE64B8562E6EF3BCABFAC4D");
+  file("halo reach/566C10D3/TU_16L622R_000001C000000.000000000008B");           // a raw title update
+  file("Racing/Forza 4 GOD/4D5307E6/00007000/ABCDEF0123456789");                // a GOD game: still a game
   const auto found = Walk(root);
   Folders folders;
   std::map<std::string, size_t> at;
@@ -328,7 +370,10 @@ void CheckFolders() {
     folders.push_back(lg::EntryFolders(root.generic_string(), found[n].kind, found[n].path, found[n].folder));
     at[fs::path(found[n].path).lexically_relative(root).generic_string()] = n;
   }
-  Expect(found.size() == 10, "ten library entries on the folders (" + std::to_string(found.size()) + ")");
+  Expect(found.size() == 13, "thirteen library entries on the folders (" + std::to_string(found.size()) + ")");
+  for (const auto& entry : found)
+    Expect(!Has(entry.path, "/00000002/") && !Has(entry.path, "/000B0000/") && !Has(entry.path, "TU_"),
+           "folders: no DLC or title update is a library entry: " + entry.path);
   const auto layout = lg::Build(folders);
   const auto shown = [&](const std::string& rel) {
     const auto it = at.find(rel);
@@ -348,7 +393,12 @@ void CheckFolders() {
   std::vector<std::string> keys;
   for (const auto& group : layout.groups) keys.push_back(group.key);
   Expect(keys == std::vector<std::string>{"racing", "racing/rally", "shooters"}, "folders: three groups (" + Join(keys) + ")");
-  Expect(GroupOf(layout, "racing") && GroupOf(layout, "racing")->games.size() == 4, "folders: Racing has four games");
+  Expect(GroupOf(layout, "racing") && GroupOf(layout, "racing")->games.size() == 5, "folders: Racing has five games");
+  Expect(shown("Racing/Forza 4 GOD/4D5307E6/00007000/ABCDEF0123456789") == "racing", "folders: the GOD game is in Racing");
+  Expect(shown("halo ce/Halo - Combat Evolved Anniversary (axekin.com).iso").empty() &&
+             shown("halo reach/Halo - Reach (axekin.com).iso").empty(),
+         "folders: a Halo folder with its DLC and title updates is one game at the top, no group");
+  Expect(!GroupOf(layout, "halo ce") && !GroupOf(layout, "halo reach"), "folders: no Halo group");
   Expect(GroupOf(layout, "shooters") && GroupOf(layout, "shooters")->games.size() == 2, "folders: Shooters has two");
   fs::remove_all(root);
 }
@@ -367,7 +417,7 @@ void CheckTree() {
   Expect(root != std::string::npos && walk != std::string::npos && cleared != std::string::npos && drive != std::string::npos,
          "a game folder is named while it is walked, the drive's disc has none");
   const size_t order = launcher.find("std::stable_sort(games_.begin(), games_.end()");
-  const size_t build = launcher.find("g_groups = library_groups::Build(folders);", order);
+  const size_t build = launcher.find("g_groups = library_groups::Build(folders, ids);", order);
   const size_t filter = launcher.find("ApplyFilter();", build);
   Expect(order != std::string::npos && build != std::string::npos && filter != std::string::npos,
          "the groups are made after the shelf's order, before the view");
@@ -382,6 +432,18 @@ void CheckTree() {
   Expect(Has(launcher, "void DrawGroupFolder(") && Has(launcher, "DrawGroupFolder(c, textures_, arts_, g_group_covers[g]") &&
              Has(launcher, "g_groups.groups[g].games.size(), entry.name, box,"),
          "both shelves draw a group as a folder");
+  // Fix 112d: copies of one game count once; non-game content type folders are not read; the log.
+  Expect(Has(launcher, "g_groups = library_groups::Build(folders, ids);") &&
+             Has(launcher, "if (!games_[n].title_id.empty() && games_[n].title_id != \"00000000\") ids[n] = games_[n].title_id;"),
+         "the groups count games by title ID");
+  const size_t skip = launcher.find("if (!library_groups::GamePackageFolder(directory.filename().string())) continue;");
+  const size_t read = launcher.find("if (!ReadPackage(path, package) || !package.game) continue;", skip);
+  Expect(skip != std::string::npos && read != std::string::npos && read - skip < 120,
+         "a non-game content type folder is skipped before a package is read");
+  Expect(Has(launcher, "XELOGW(\"LAUNCHER group {}: {} games\", group.key, group.games.size());") &&
+             Has(launcher, "XELOGW(\"LAUNCHER group {}:   {} ({}, title {})\"") &&
+             Has(launcher, "XELOGW(\"LAUNCHER library entry {} ({}, title {}) at the top{}\""),
+         "each group with its games, and each entry at the top, in the log");
   // Fix 112c: the covers' places come from MosaicCells, with each texture's own proportions.
   Expect(Has(launcher, "aspects.push_back(size_t(shown[i]) < arts.size() ? arts[size_t(shown[i])].aspect : 0.0f);") &&
              Has(launcher, "const auto cells = library_groups::MosaicCells(aspects, folder_h > 0 ? folder_w / folder_h : 0.0f);"),
