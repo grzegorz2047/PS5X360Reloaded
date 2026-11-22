@@ -122,6 +122,7 @@ on:
       - 'tools/check-dark-default.cpp'
       - 'tools/check-content-folders.cpp'
       - 'tools/check-extent-count.cpp'
+      - 'tools/check-unwatched-lock-free.cpp'
       - 'tools/check-content-create.*'
       - 'tools/check-index-unwatched.cpp'
       - 'tools/check-register-writes.cpp'
