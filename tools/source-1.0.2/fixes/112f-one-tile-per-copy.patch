@@ -1,0 +1,198 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index bc3a50c..cf53cf8 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -37,6 +37,9 @@ struct GameEntry {
+   std::vector<GameEntry> discs;
+   // Fix 89: the index into `discs` of the chosen disc.
+   size_t chosen_disc = 0;
++  // Fix 112f: other copies of this game (the same title ID and size, on other drives), shown as this
++  // one tile; GamePaths and the forwarder still find them.
++  std::vector<std::filesystem::path> copies;
+ };
+ // Fix 89: makes discs[index] the entry's disc (its path, format, folder, title ID, size, hash).
+ void ChooseDisc(GameEntry& game, size_t index);
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 9efb74b..f209a03 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -411,6 +411,8 @@ void ChooseDisc(GameEntry& game, size_t index) {
+   game.chosen_disc = index;
+ }
+ bool HasDiscPath(const GameEntry& game, const std::string& path) {
++  for (const auto& copy : game.copies)  // fix 112f: a copy on another drive is this game too
++    if (copy.string() == path) return true;
+   if (game.discs.empty()) return game.path.string() == path;
+   for (const auto& disc : game.discs)
+     if (disc.path.string() == path) return true;
+@@ -1050,6 +1052,7 @@ void Launcher::Scan() {
+   std::set<std::string> seen_games, seen_roots;
+   std::set<std::string> titled;  // fix 89: the games named by their first launch
+   std::map<std::string, std::string> game_roots;  // fix 112: each game's path, the game folder it was found in
++  std::map<std::string, uint64_t> game_bytes;  // fix 112f: an image's or a package's size, by its path
+   std::string scanning_root;
+   const auto add = [&](GameEntry game, const std::vector<uint8_t>& embedded_cover) {
+     // All scan paths are absolute. Keep the complete lexical path as the
+@@ -1151,6 +1154,7 @@ void Launcher::Scan() {
+         }
+         GameEntry game{path.stem().string(), path, "ISO", directory.string()};
+         game.size = SizeText(entry.file_size(error));
++        game_bytes[path.string()] = entry.file_size(error);  // fix 112f
+         add(std::move(game), {});
+       } else if (extension.empty() || extension == ".xbla" || extension == ".god") {
+         Package package;
+@@ -1159,6 +1163,7 @@ void Launcher::Scan() {
+         if (!ReadPackage(path, package) || !package.game) continue;
+         GameEntry game{package.name.empty() ? path.filename().string() : package.name, path, "GOD/STFS", directory.string()};
+         game.title_id = package.title_id;
++        game_bytes[path.string()] = entry.file_size(error);  // fix 112f
+         add(std::move(game), package.thumbnail);
+       }
+     }
+@@ -1251,6 +1256,33 @@ void Launcher::Scan() {
+     games_ = std::move(entries);
+     g_running_synced.clear();  // a set whose disc is running chooses it again
+   }
++  // Fix 112f: copies of one game (the same title ID and size) on two drives are one tile: the copy on
++  // the console's storage, else on ext*, else on usb*; the others stay its copies (GamePaths, the
++  // forwarder, the recent list).
++  {
++    std::vector<library_groups::CopyInfo> infos(games_.size());
++    for (size_t n = 0; n < games_.size(); ++n) {
++      const GameEntry& game = games_[n];
++      const auto bytes = game_bytes.find(game.path.string());
++      infos[n] = {game.title_id, bytes == game_bytes.end() ? 0 : bytes->second, game.path.string(),
++                  game.discs.empty() && (game.kind == "ISO" || game.kind == "GOD/STFS") &&
++                      game.folder != (kStorage / "disc").string()};
++    }
++    const auto into = library_groups::MergeCopies(infos);
++    std::vector<GameEntry> kept;
++    std::vector<size_t> place(games_.size(), 0);
++    for (size_t n = 0; n < games_.size(); ++n)
++      if (into[n] == n) { place[n] = kept.size(); kept.push_back(std::move(games_[n])); }
++    for (size_t n = 0; n < games_.size(); ++n) {
++      if (into[n] == n) continue;
++      GameEntry& shown = kept[place[into[n]]];
++      shown.copies.push_back(games_[n].path);
++      const std::string drive = library_groups::DriveOf(games_[n].path.string());
++      XELOGW("LAUNCHER library entry {} also on {} (same title, same size), one tile", shown.path.string(),
++             drive.empty() ? std::string("the console's storage") : drive);
++    }
++    games_ = std::move(kept);
++  }
+   // Recently played first, in that order; the rest by name. A set: its most recent disc.
+   const auto recency = [&](const GameEntry& game) {
+     size_t best = recents_.size();
+@@ -1340,6 +1372,7 @@ void Launcher::RefreshLibrary(bool automatic) {
+   for (const auto& game : games_) {
+     before.insert(game.path.string());
+     for (const auto& disc : game.discs) before.insert(disc.path.string());  // fix 89
++    for (const auto& copy : game.copies) before.insert(copy.string());      // fix 112f
+   }
+   Scan();
+   int added = 0;
+@@ -1479,6 +1512,7 @@ std::vector<fs::path> Launcher::GamePaths() const {
+   for (const auto& game : games_) {
+     if (game.discs.empty()) paths.push_back(game.path);
+     for (const auto& disc : game.discs) paths.push_back(disc.path);  // fix 89: every disc of a set
++    for (const auto& copy : game.copies) paths.push_back(copy);      // fix 112f: every copy
+   }
+   std::sort(paths.begin(), paths.end());
+   return paths;
+@@ -1495,6 +1529,15 @@ std::vector<GameEntry> Launcher::EntriesWithDiscs() const {
+       disc.folder.clear();
+       entries.push_back(std::move(disc));
+     }
++  // Fix 112f: each other copy of a game, as an entry of its own with no folder (a forwarder may name it).
++  for (const auto& game : games_)
++    for (const auto& copy : game.copies) {
++      GameEntry other = game;
++      other.path = copy;
++      other.copies.clear();
++      other.folder.clear();
++      entries.push_back(std::move(other));
++    }
+   return entries;
+ }
+ void Launcher::StepDisc(int step) {
+@@ -3536,6 +3579,10 @@ void Launcher::DrawShelf(Canvas& c) {
+         const bool group = view_[size_t(n)] < 0;  // fix 112: "Group", its number of games
+         std::string detail = group ? std::string(Tr("Group")) : entry.kind;
+         if (!group && !entry.size.empty()) detail += "  \xC2\xB7  " + entry.size;
++        if (!group && !entry.copies.empty()) {  // fix 112f: the drive of the copy shown
++          const std::string drive = library_groups::DriveOf(entry.path.string());
++          detail += "  \xC2\xB7  " + (drive.empty() ? std::string(Tr("Internal storage")) : drive);
++        }
+         std::string detail2 = group ? entry.size : IsRunning(entry) ? std::string(Tr("RUNNING  ·  X: CONTINUE"))
+                             : !entry.title_id.empty() ? "ID " + entry.title_id : std::string();
+         const float alpha = c.alpha;
+@@ -3730,6 +3777,10 @@ void Launcher::DrawShelf(Canvas& c) {
+       line += "   ·   " + std::string(disc);
+     }
+     if (!game.size.empty()) line += "   ·   " + game.size;
++    if (!group_chosen && !game.copies.empty()) {  // fix 112f: the drive of the copy shown
++      const std::string drive = library_groups::DriveOf(game.path.string());
++      line += "   ·   " + (drive.empty() ? std::string(Tr("Internal storage")) : drive);
++    }
+     if (!game.title_id.empty()) line += "   ·   ID " + game.title_id;
+     c.Text(line, 98, 856, 24, kMuted, 1.0f, 0, 900);
+     if (!patch_summary_.empty()) c.Chip(patch_summary_, 98 + c.Width(line, 24) + 32, 850, kAccent);
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+index 85aa7df..b4a1ba6 100644
+--- a/port/library_groups.hpp
++++ b/port/library_groups.hpp
+@@ -308,6 +308,54 @@ inline DiscRoot ReadDiscRoot(const std::string& iso) {
+   return result;
+ }
+ 
++// Fix 112f: the drive a game's file is on: "ext1", "usb0" (the name under /mnt), "" for the
++// console's own storage (any other path).
++inline std::string DriveOf(const std::string& path) {
++  const std::string p = Slashes(path);
++  if (p.compare(0, 5, "/mnt/") != 0) return std::string();
++  const size_t end = p.find('/', 5);
++  return end == std::string::npos ? std::string() : p.substr(5, end - 5);
++}
++// Which copy of a game is shown: the console's storage first, then the extended storage (ext*),
++// then USB drives (usb*), then anything else under /mnt.
++inline int DriveRank(const std::string& path) {
++  const std::string drive = LowerAscii(DriveOf(path));
++  if (drive.empty()) return 0;
++  if (drive.compare(0, 3, "ext") == 0) return 1;
++  if (drive.compare(0, 3, "usb") == 0) return 2;
++  return 3;
++}
++// One library entry, as MergeCopies sees it. `copyable`: an image or a package of one disc with a
++// known title ID and size (an extracted game, a disc set or a disc in the drive never merges).
++struct CopyInfo {
++  std::string title_id;
++  uint64_t bytes = 0;
++  std::string path;
++  bool copyable = false;
++};
++// For each entry, the entry it is shown as: itself, or the copy of the same game (same title ID
++// and the same size, so the same image or package) on the better drive (DriveRank; of one rank the
++// first found). Entries that differ in title ID or size stay apart.
++inline std::vector<size_t> MergeCopies(const std::vector<CopyInfo>& entries) {
++  std::vector<size_t> into(entries.size());
++  std::map<std::pair<std::string, uint64_t>, size_t> best;
++  for (size_t n = 0; n < entries.size(); ++n) {
++    into[n] = n;
++    const auto& e = entries[n];
++    if (!e.copyable || e.title_id.empty() || e.title_id == "00000000" || !e.bytes) continue;
++    const auto key = std::make_pair(LowerAscii(e.title_id), e.bytes);
++    const auto at = best.find(key);
++    if (at == best.end()) best.emplace(key, n);
++    else if (DriveRank(e.path) < DriveRank(entries[at->second].path)) at->second = n;
++  }
++  for (size_t n = 0; n < entries.size(); ++n) {
++    const auto& e = entries[n];
++    if (!e.copyable || e.title_id.empty() || e.title_id == "00000000" || !e.bytes) continue;
++    into[n] = best.at(std::make_pair(LowerAscii(e.title_id), e.bytes));
++  }
++  return into;
++}
++
+ // The group to stay in when the library is built again: `key`, else the nearest of its parent
+ // folders that is still a group, else the library ("").
+ inline std::string StillThere(const Layout& layout, std::string key) {

@@ -1,0 +1,102 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 9f7f828..567b222 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1149,6 +1149,8 @@ void Launcher::Scan() {
+         add(std::move(game), {});
+       } else if (extension.empty() || extension == ".xbla" || extension == ".god") {
+         Package package;
++        // Fix 112d: a title update's, DLC's or other non-game content type folder is not read.
++        if (!library_groups::GamePackageFolder(directory.filename().string())) continue;
+         if (!ReadPackage(path, package) || !package.game) continue;
+         GameEntry game{package.name.empty() ? path.filename().string() : package.name, path, "GOD/STFS", directory.string()};
+         game.title_id = package.title_id;
+@@ -1268,7 +1270,19 @@ void Launcher::Scan() {
+       if (root == game_roots.end() || root->second.empty()) continue;  // a disc in the drive
+       folders[n] = library_groups::EntryFolders(root->second, first.kind, first.path.string(), first.folder);
+     }
+-    g_groups = library_groups::Build(folders);
++    // Fix 112d: copies of one game (one title ID) are one game when the folders are counted.
++    std::vector<std::string> ids(games_.size());
++    for (size_t n = 0; n < games_.size(); ++n)
++      if (!games_[n].title_id.empty() && games_[n].title_id != "00000000") ids[n] = games_[n].title_id;
++    g_groups = library_groups::Build(folders, ids);
++    // Fix 112d: where each entry is placed, in the log (a group's games are listed with it).
++    for (size_t n = 0; n < games_.size(); ++n) {
++      if (!g_groups.shown_in[n].empty()) continue;
++      std::string where;
++      for (const auto& part : folders[n]) where += (where.empty() ? "" : "/") + part;
++      XELOGW("LAUNCHER library entry {} ({}, title {}) at the top{}", games_[n].path.string(), games_[n].kind,
++             games_[n].title_id.empty() ? "?" : games_[n].title_id, where.empty() ? "" : " (its folder " + where + " is no group)");
++    }
+     g_group_tiles.clear();
+     g_group_covers.clear();
+     g_group_recency.clear();
+@@ -1291,7 +1305,10 @@ void Launcher::Scan() {
+       g_group_tiles.push_back(std::move(tile));
+       g_group_covers.push_back(std::move(covers));
+       g_group_recency.push_back(best);
+-      XELOGI("LAUNCHER group {}: {} games", group.key, group.games.size());
++      XELOGW("LAUNCHER group {}: {} games", group.key, group.games.size());  // fix 112d: in the log
++      for (const size_t n : group.games)
++        XELOGW("LAUNCHER group {}:   {} ({}, title {})", group.key, games_[n].path.string(), games_[n].kind,
++               games_[n].title_id.empty() ? "?" : games_[n].title_id);
+     }
+     g_group = library_groups::StillThere(g_groups, g_group);
+     if (!g_groups.groups.empty()) XELOGW("LAUNCHER {} groups from the game folders' own folders", g_groups.groups.size());
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+index 600b45c..7306d2a 100644
+--- a/port/library_groups.hpp
++++ b/port/library_groups.hpp
+@@ -108,16 +108,38 @@ inline bool PackageFolder(const std::string& name) {
+   return true;
+ }
+ 
++// Fix 112d: whether a package in the folder `name` may be a game. A package's own content type
++// folder (8 hex digits, under its title ID's) says what it holds: Games on Demand 00007000, arcade
++// 000D0000, demos 00080000, installed discs 00004000 and 00005000, community games 02000000, game
++// videos... (the types ReadPackage calls a game). Any other one (title updates 000B0000, DLC
++// 00000002, saves 00000001, themes, gamer pictures, avatar items...) holds no game, and its
++// packages are not read by the library's scan (the DLC and update screens find them on their own).
++// A folder of the player's (not 8 hex digits) may hold a game's package.
++inline bool GamePackageFolder(const std::string& name) {
++  if (!PackageFolder(name)) return true;
++  const std::string type = LowerAscii(name);
++  return type == "000d0000" || type == "00080000" || type == "00007000" || type == "00004000" || type == "00005000" ||
++         type == "02000000" || type == "00060000" || type == "000c0000";
++}
++
+ // `folders`: for each library entry, the folders that hold it below its game folder (FoldersBelow;
+ // empty for an entry at the top of a game folder, or one that is in none, like a disc in the drive).
+-inline Layout Build(const std::vector<std::vector<std::string>>& folders) {
++// Fix 112d: `games`, when given, names each entry's game (its title ID): copies of one game (an
++// image and a package of it, the same game on two drives in folders of one name) count as one game,
++// so a folder holding one game is never a group however many copies it has. Entries without it
++// (an empty name) are games of their own.
++inline Layout Build(const std::vector<std::vector<std::string>>& folders, const std::vector<std::string>& games = {}) {
+   struct Node {
+     std::string name, parent;
+     std::vector<size_t> direct;   // Entries held by this folder itself.
+     std::set<std::string> children;
++    std::set<std::string> ids;    // Fix 112d: the different games inside it, its subfolders' too.
+     size_t total = 0;
+     bool shown = false;
+   };
++  const auto game_of = [&games](size_t entry) {
++    return entry < games.size() && !games[entry].empty() ? "game:" + games[entry] : "entry:" + std::to_string(entry);
++  };
+   std::map<std::string, Node> nodes;
+   std::vector<std::string> holder(folders.size());
+   for (size_t entry = 0; entry < folders.size(); ++entry) {
+@@ -135,8 +157,9 @@ inline Layout Build(const std::vector<std::vector<std::string>>& folders) {
+   }
+   // Totals: the deepest folders first (a longer key sorts after its parent's).
+   for (auto at = nodes.rbegin(); at != nodes.rend(); ++at) {
+-    at->second.total += at->second.direct.size();
+-    if (!at->second.parent.empty()) nodes[at->second.parent].total += at->second.total;
++    for (const size_t entry : at->second.direct) at->second.ids.insert(game_of(entry));
++    at->second.total = at->second.ids.size();
++    if (!at->second.parent.empty()) nodes[at->second.parent].ids.insert(at->second.ids.begin(), at->second.ids.end());
+   }
+   for (auto& [key, node] : nodes) {
+     size_t filled = 0;

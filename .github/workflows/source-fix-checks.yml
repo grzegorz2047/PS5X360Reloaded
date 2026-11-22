@@ -151,6 +151,7 @@ on:
       - 'tools/check-game-language.cpp'
       - 'tools/check-readback-batching.cpp'
       - 'tools/check-async-submit.cpp'
+      - 'tools/check-library-groups.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
