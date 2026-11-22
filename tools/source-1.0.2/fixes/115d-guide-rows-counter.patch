@@ -1,0 +1,130 @@
+diff --git a/include/xbox360ps5/guide_quick.hpp b/include/xbox360ps5/guide_quick.hpp
+index aafefd9..6ca8d09 100644
+--- a/include/xbox360ps5/guide_quick.hpp
++++ b/include/xbox360ps5/guide_quick.hpp
+@@ -63,6 +63,28 @@ std::string FitText(std::string text, float room, Width&& width) {
+   return {};
+ }
+ 
++// Fix 115d: which rows of a guide list are on screen, the same on both tabs: `shown` slots, the
++// window following the focused row (centred while it can be), fix 93d's button (when the list has
++// one) in a slot of its own after the `listed` rows. total: the rows and the button.
++struct ListWindow {
++  int first = 0;        // the first slot on screen
++  int last = 0;         // one past the last row (not the button) on screen
++  bool button_shown = false;
++  bool more_above = false, more_below = false;
++};
++inline ListWindow Window(int row, int total, int listed, int shown) {
++  ListWindow w;
++  const int top = total > shown ? total - shown : 0;
++  w.first = row - shown / 2;
++  if (w.first > top) w.first = top;
++  if (w.first < 0) w.first = 0;
++  w.last = w.first + shown < listed ? w.first + shown : listed;
++  w.button_shown = listed < total && listed >= w.first && listed < w.first + shown;
++  w.more_above = w.first > 0;
++  w.more_below = w.first + shown < total;
++  return w;
++}
++
+ }  // namespace xbox360ps5::guide_quick
+ 
+ #endif  // XBOX360PS5_GUIDE_QUICK_HPP_
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 62c79c2..47778a7 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -990,11 +990,12 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const float list_top = top + tb::kBarHeight;
+     list->AddRectFilledMultiColor(at(left, top), at(right, list_top), fade(92, 98, 106), fade(92, 98, 106), fade(66, 72, 80),
+                                   fade(66, 72, 80));
++    float counter_right = right;  // fix 115d: the row counter ends left of R1's pill
+     {
+       GuidePainter painter{list, medium, scale, reveal};
+       std::vector<std::string> tabs = {Tr(kGuidePages[0]), Tr(kGuidePages[1])};
+       if (state_.category >= 0) tabs[1] += std::string(": ") + Tr(xbox360ps5::kOptionCategories[state_.category]);
+-      tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar);
++      counter_right = tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar).r1.x - 20;
+     }
+     list->AddRectFilledMultiColor(at(left, list_top), at(right, bottom), fade(242, 243, 244), fade(242, 243, 244),
+                                   fade(214, 216, 219), fade(214, 216, 219));
+@@ -1006,18 +1007,17 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const bool button = !items.empty() && items.back().apart;
+     const int listed = int(items.size()) - (button ? 1 : 0);
+     // The settings page is longer than the panel: it scrolls with the focus.
+-    // Fix 115c: both pages, kGuideRows rows below the tab bar (one fewer above fix 93d's button).
+-    const int shown_rows = button ? kGuideRows - 1 : kGuideRows;
+-    const int first_row = std::clamp(state_.row - shown_rows / 2, 0, std::max(0, listed - shown_rows));
+-    const int last_row = std::min(listed, first_row + shown_rows);
++    // Fix 115c: both pages, kGuideRows rows below the tab bar.
++    // Fix 115d: the same on both tabs (the user saw different counts): kGuideRows slots of 63 px,
++    // fix 93d's button in a slot of its own after the rows (it scrolls with them), the window
++    // following the focus the same way on both.
++    const int total = int(items.size());
++    const int shown_rows = kGuideRows;
++    const auto window = xbox360ps5::guide_quick::Window(state_.row, total, listed, shown_rows);
++    const int first_row = window.first, last_row = window.last;
++    const bool button_shown = window.button_shown;
++    const bool more_above = window.more_above, more_below = window.more_below;
+     const bool row_focus = !state_.on_bar;  // fix 115c: no row is lit while the tab bar has the pad
+-    if (state_.page == 1) {
+-      char position[24];
+-      std::snprintf(position, sizeof(position), "%d / %d", state_.row + 1, int(items.size()));
+-      const ImVec2 size = small->CalcTextSizeA(22 * scale, 4096.0f, 0.0f, position);
+-      list->AddText(small, 22 * scale, ImVec2(page_right * scale - 24 * scale - size.x, (bottom - 44) * scale),
+-                    fade(96, 102, 110), position);
+-    }
+     // The focus bar glides to the focused row; on a new page it starts there.
+     const float focus_target = list_top + std::max(0, state_.row - first_row) * 63.0f;
+     if (state_.focus_y < 0.0f || state_.slide > 0.0f) state_.focus_y = focus_target;
+@@ -1043,7 +1043,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+                       lit ? 0xFFFFFFu : 0x5A6068u, content, GuideRowHasValue(items[size_t(n)]));
+       }
+     }
+-    if (button) {
++    if (button_shown) {
+       // Fix 93d: centred below the list, a raised button the player sees can be pressed (the
+       // user's choice after the mock-ups): a soft shadow below it, a light-to-grey gradient with a
+       // highlight along its top, rounded corners, dark text centred, none of the list's green;
+@@ -1054,7 +1054,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+       const ImVec2 size = medium->CalcTextSizeA(26 * scale, 4096.0f, 0.0f, label);
+       const float width = size.x / scale + 2 * 48, height = 54, round = 14;
+       const float x = (page_left + strip + page_right) / 2 - width / 2 + slide_x;
+-      const float y = list_top + std::min(listed - first_row, shown_rows) * 63.0f + 24;
++      const float y = list_top + (listed - first_row) * 63.0f + 4;  // fix 115d: in its slot
+       // The shadow: rounded rectangles a little lower and wider each, faint, as a blur.
+       for (int n = 4; n >= 1; --n)
+         list->AddRectFilled(at(x + 2 - n, y + 3 + n), at(x + width + 2 + n, y + height + 3 + n), fade(40, 44, 52, a * 7 / 100),
+@@ -1068,7 +1068,31 @@ class Guide final : public xe::ui::ImGuiDialog {
+       if (focused) list->AddRect(at(x, y), at(x + width, y + height), fade(70, 76, 84, a), round * scale, 0, 3.0f * scale);
+       list->AddText(medium, 26 * scale, ImVec2(at(x, y).x + (width * scale - size.x) / 2, at(x, y + 13).y), fade(44, 48, 54, a), label);
+     }
++    // Fix 115d: a shadow at the list's top or bottom edge while it has more rows that way.
++    if (more_above)
++      list->AddRectFilledMultiColor(at(left, list_top), at(right, list_top + 22), fade(0, 0, 0, 70), fade(0, 0, 0, 70),
++                                    fade(0, 0, 0, 0), fade(0, 0, 0, 0));
++    if (more_below)
++      list->AddRectFilledMultiColor(at(left, bottom - 22), at(right, bottom), fade(0, 0, 0, 0), fade(0, 0, 0, 0),
++                                    fade(0, 0, 0, 70), fade(0, 0, 0, 70));
+     list->PopClipRect();
++    {
++      // Fix 115d: "row / rows" on the tab bar, left of R1, large and light on the dark bar, the same
++      // place on both tabs ("- / rows" while the bar has the pad), after an up and a down arrow, lit
++      // while the list has more rows that way.
++      char counter[32];
++      if (row_focus) std::snprintf(counter, sizeof(counter), "%d / %d", state_.row + 1, total);
++      else std::snprintf(counter, sizeof(counter), "- / %d", total);
++      const ImVec2 size = medium->CalcTextSizeA(26 * scale, 4096.0f, 0.0f, counter);
++      const float text_x = counter_right * scale - size.x;
++      const float mid = top + tb::kBarHeight / 2;
++      list->AddText(medium, 26 * scale, ImVec2(text_x, (mid - 14) * scale), fade(236, 239, 243), counter);
++      const float ax = text_x / scale - 22;
++      list->AddTriangleFilled(at(ax, mid - 13), at(ax - 7, mid - 3), at(ax + 7, mid - 3),
++                              more_above ? fade(236, 239, 243) : fade(236, 239, 243, 60));
++      list->AddTriangleFilled(at(ax, mid + 13), at(ax + 7, mid + 3), at(ax - 7, mid + 3),
++                              more_below ? fade(236, 239, 243) : fade(236, 239, 243, 60));
++    }
+     // What the buttons do, in the pad's own colours.
+     float x = (left + 136) * scale;
+     const float y = 794 * scale;

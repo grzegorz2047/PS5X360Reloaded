@@ -137,6 +137,7 @@ on:
       - 'tools/check-guide-tabs.cpp'
       - 'tools/check-swap-pacing.cpp'
       - 'tools/check-dynamic-constants.cpp'
+      - 'tools/check-guide-counter.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

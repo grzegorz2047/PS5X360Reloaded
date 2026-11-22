@@ -101,7 +101,7 @@ void CheckGuide() {
     // Fix 115c (check-guide-tabs.cpp): L1 and R1 are white pills at the ends of a tab bar along the
     // panel's top; the legend has neither.
     const std::string legend = Between(main, "const bool in_category = state_.page == 1 && state_.category >= 0;", "kBuildVersionLabel");
-    Expect(!Has(legend, "Shoulder(") && Has(main, "tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar);"),
+    Expect(!Has(legend, "Shoulder(") && Has(main, "tb::Draw(painter, left, right, top, tabs, state_.page, state_.on_bar)"),
            "(b) fix 115c: L1 and R1 on the tab bar, not in the legend");
     Expect(!Has(main, "? \"L1 R1\" :"), "(b) no squeezed \"L1 R1\" circle any more");
     return;

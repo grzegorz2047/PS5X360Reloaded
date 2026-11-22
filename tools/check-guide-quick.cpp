@@ -113,7 +113,9 @@ void CheckGame() {
               Has(main, "std::min(listed, first_row + kGuideGameRows)")) ||
              // Fix 115c (check-guide-tabs.cpp): both pages scroll the same way below the tab bar.
              (Has(main, "const int first_row = std::clamp(state_.row - shown_rows / 2, 0, std::max(0, listed - shown_rows));") &&
-              Has(main, "const int last_row = std::min(listed, first_row + shown_rows);")),
+              Has(main, "const int last_row = std::min(listed, first_row + shown_rows);")) ||
+             // Fix 115d (check-guide-counter.cpp): one window for both tabs.
+             Has(main, "xbox360ps5::guide_quick::Window(state_.row, total, listed, shown_rows);"),
          "(d) the first page scrolls past seven rows (the panel holds seven and a half)");
   // (e)
   Expect(Has(main, "measure, capture, network, restart_game,"), "(e) the restart action");
