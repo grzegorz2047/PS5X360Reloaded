@@ -132,6 +132,7 @@ checks=(
   check-guide-header.cpp           # fix 115b
   check-guide-tabs.cpp             # fix 115c
   check-guide-counter.cpp          # fix 115d
+  check-guide-measure.cpp          # fix 115e
   check-swap-pacing.cpp            # fix 116
   check-nui-hud-check.cpp          # fix 118
   check-kinect-camera-picture.cpp  # fix 119
@@ -158,6 +159,7 @@ declare -A arguments=(
   [check-report-session.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-guide-measure.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -249,6 +251,7 @@ declare -A fix_of=(
   [check-guide-tabs.cpp]=115c
   [check-guide-counter.cpp]=115d
   [check-kinect-camera-picture.cpp]=119
+  [check-guide-measure.cpp]=115e
   [check-dynamic-constants.cpp]=120
   [check-file-sector.cpp]=121
   [check-content-checked.cpp]=125

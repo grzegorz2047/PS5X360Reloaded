@@ -139,6 +139,7 @@ on:
       - 'tools/check-guide-header.cpp'
       - 'tools/check-guide-tabs.cpp'
       - 'tools/check-guide-counter.cpp'
+      - 'tools/check-guide-measure.cpp'
       - 'tools/check-swap-pacing.cpp'
       - 'tools/check-dynamic-constants.cpp'
       - 'tools/check-content-checked.cpp'
