@@ -266,7 +266,13 @@ int main(int argc, char** argv) {
     CHECK(pad.find("\"Virtual Kinect: re-centre requested from the pad (seq {}) (fix 107)\"") != std::string::npos);
     CHECK(pad.find("motion::enabled.load() && motion::game_running.load()) {") != std::string::npos);
     const std::string tls = ReadText("port/phone_camera_tls.cpp");
-    CHECK(tls.find("\"{\\\"ok\\\":true\" + motion::RecentreJson(motion::SteadyMs()) + \"}\"") != std::string::npos);
+    // Fix 119 adds whether the console wants the camera picture.
+    CHECK(tls.find("\"{\\\"ok\\\":true\" + motion::RecentreJson(motion::SteadyMs()) + \"}\"") != std::string::npos ||
+          [&] {  // the file may have CRLF lines
+            const size_t at = tls.find("\"{\\\"ok\\\":true\" + motion::RecentreJson(motion::SteadyMs()) +");
+            return at != std::string::npos &&
+                   tls.find("motion::PictureJson(motion::picture_wanted.load()) + \"}\");", at) < at + 120;
+          }());
     CHECK(tls.find("if (const uint32_t seq = phone_latency::Recentred(body); motion::AckRecentre(seq))") != std::string::npos);
     CHECK(tls.find("\"Virtual Kinect: re-centre requested from the pad (seq {}); phone acknowledged (fix 107)\"") != std::string::npos);
     // Fix 106's reasons line now under the 1.5 s limit with the stages line.

@@ -89,7 +89,9 @@ void CheckMotionCounters() {
   const std::string status = motion::Status();
   CHECK(status.find("\"refused\":{\"malformed\":1,\"out_of_range\":1,\"replay\":1,\"disabled\":0}") !=
         std::string::npos);
-  CHECK(status.find(",\"frames_without_body\":2,\"bodies_lost\":1}") != std::string::npos);
+  // Fix 119 adds "picture" at the end.
+  CHECK(status.find(",\"frames_without_body\":2,\"bodies_lost\":1}") != std::string::npos ||
+        status.find(",\"frames_without_body\":2,\"bodies_lost\":1,\"picture\":0}") != std::string::npos);
   CHECK(status.find("\"packets\":3,") != std::string::npos);  // only accepted frames count
   motion::SetEnabled(false);
   CHECK(motion::Receive(Packet(5, 7, 1, 1.5f)) == R::disabled && motion::refused_disabled == 1);

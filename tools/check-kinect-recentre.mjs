@@ -60,15 +60,20 @@ check('(a) a request counts down from the console\'s time and fires once', () =>
   assert.equal(r.note({recentre: 2.5}, 0), false);
 });
 check('(b) the page takes both answers, re-centres with the cause "pad", shows and reports it', () => {
-  assert.ok(page.includes("RecentreState} from './latency.mjs?v=107';"));
+  // Fix 119 imports the camera picture's helpers too and reads the answer once for both.
+  assert.ok(page.includes("RecentreState} from './latency.mjs?v=107';") ||
+            page.includes("RecentreState,\n  PictureGate, packPicture, pictureCrop, PICTURE_WIDTH, PICTURE_HEIGHT} from './latency.mjs?v=119';"));
   assert.ok(page.includes('const recentring = new RecentreState();  // fix 107'));
   assert.ok(page.includes('if (json) recentring.note(json, performance.now());'));
-  assert.ok(page.includes('if (onConsole) recentring.note(await response.json().catch(() => null), performance.now());'));
+  const oldRead = 'if (onConsole) recentring.note(await response.json()';
+  const newRead = 'const answer = await response.json().catch(() => null);\n      recentring.note(answer, performance.now());';
+  assert.ok(page.includes('if (onConsole) recentring.note(await response.json().catch(() => null), performance.now());') ||
+            page.includes('    if (onConsole) {\n      ' + newRead));
   assert.ok(page.includes("if (recentring.fire(performance.now())) { tracker.resetCalibration('pad'); gestures.reset(); }"));
   assert.ok(page.includes("if (left) { calibrationText.textContent = T('recentre_in', left); return; }"));
   assert.ok(page.includes('report.recentred = recentring.done;'));
   // The frame's answer is read after the frame was taken (an error answer returned before it).
-  const send = page.indexOf('if (onConsole) recentring.note(await response.json()');
+  const send = page.includes(oldRead) ? page.indexOf(oldRead) : page.indexOf(newRead);
   assert.ok(send > page.indexOf('if (!response.ok) {') && send > page.indexOf("latencyWindow.add('network'"));
 });
 check('(b) the countdown in the page\'s four languages', () => {

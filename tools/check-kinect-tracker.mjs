@@ -166,7 +166,8 @@ check('(c) the page uses the title\'s tracker, the reasons and the restart cause
   const page = between(pageHeader, 'R"KINECTPAGE(', ')KINECTPAGE"');
   assert.ok(page.includes("from './kinect_tracker.mjs?v=kinect106';"));
   // Fix 107 imports RecentreState from the same module (a newer ?v).
-  assert.ok(/frameReason(, RecentreState)?\} from '\.\/latency\.mjs\?v=10[67]';/.test(page));
+  assert.ok(/frameReason(, RecentreState)?\} from '\.\/latency\.mjs\?v=10[67]';/.test(page) ||
+            /frameReason, RecentreState,\n  PictureGate, [^}]*\} from '\.\/latency\.mjs\?v=119';/.test(page));  // fix 119
   assert.ok(page.includes('latencyWindow.reason(frameReason(stale, seen, latest, tracked));'));
   assert.ok(page.includes('for (const event of tracker.takeEvents()) latencyWindow.calibration(event);'));
   for (const cause of ['mode', 'recentre', 'camera']) assert.ok(page.includes("tracker.resetCalibration('" + cause + "')"), cause);
