@@ -1,0 +1,156 @@
+diff --git a/include/xbox360ps5/sample_ticket.hpp b/include/xbox360ps5/sample_ticket.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/sample_ticket.hpp
+@@ -0,0 +1,64 @@
++// SPDX-License-Identifier: MIT
++// Fix 126: the performance sampler's request to one thread, answered from that thread's signal
++// handler (platform/ps5/crash_report.cpp, SampleThread and Probe).
++//
++// The sampler used to hand the handler a pointer to its sample and, when no answer came within
++// 20 ms, wait another 100 ms so that a late answer could not write into a sample that was gone.
++// A thread that takes signals late (Grand Theft Auto IV's F8001014, in a system call: 42 answers
++// in 94 rounds on 1.0.5-work-fix120) so cost every round 120 ms, and MEASURE took 94 rounds in
++// 10 s instead of about 1,000. Now each request has a round number and its target thread: the
++// handler answers only the pending request addressed to it, and a request the sampler gave up on
++// is cancelled, so a late answer finds nothing to write into and the sampler moves on at once.
++//
++// State: round << 2 | phase, phase 1 asked, 2 claimed (the handler is writing the sample),
++// 3 answered, 0 cancelled. Lock-free atomics only, so the handler side is async-signal-safe.
++#ifndef XBOX360PS5_SAMPLE_TICKET_HPP_
++#define XBOX360PS5_SAMPLE_TICKET_HPP_
++
++#include <atomic>
++#include <cstdint>
++#include <thread>
++
++namespace xbox360ps5 {
++namespace sample_ticket {
++
++class Ticket {
++ public:
++  // Sampler: a new request to `target`; returns its round.
++  uint64_t Ask(uintptr_t target) {
++    target_.store(target, std::memory_order_relaxed);
++    const uint64_t round = round_.fetch_add(1, std::memory_order_relaxed) + 1;
++    state_.store(round << 2 | 1, std::memory_order_release);
++    return round;
++  }
++  // Handler (signal context) on thread `self`: true when this call answers the pending request;
++  // it then writes the sample and calls Done(claimed).
++  bool Claim(uintptr_t self, uint64_t& claimed) {
++    uint64_t state = state_.load(std::memory_order_acquire);
++    if ((state & 3) != 1 || target_.load(std::memory_order_relaxed) != self) return false;
++    if (!state_.compare_exchange_strong(state, (state & ~uint64_t(3)) | 2, std::memory_order_acq_rel)) return false;
++    claimed = state;
++    return true;
++  }
++  void Done(uint64_t claimed) { state_.store((claimed & ~uint64_t(3)) | 3, std::memory_order_release); }
++  // Sampler: the answer has come.
++  bool Answered(uint64_t round) const { return state_.load(std::memory_order_acquire) == (round << 2 | 3); }
++  // Sampler, at the end of its wait: true when the sample is there to read; false when the request
++  // was still unclaimed and is now cancelled (a later answer is dropped). A handler that has
++  // claimed it is running and is waited for: it only copies a few words.
++  bool Finish(uint64_t round) {
++    uint64_t asked = round << 2 | 1;
++    if (state_.compare_exchange_strong(asked, round << 2, std::memory_order_acq_rel)) return false;
++    while (!Answered(round)) std::this_thread::yield();
++    return true;
++  }
++
++ private:
++  std::atomic<uint64_t> state_{0}, round_{0};
++  std::atomic<uintptr_t> target_{0};
++};
++
++}  // namespace sample_ticket
++}  // namespace xbox360ps5
++
++#endif  // XBOX360PS5_SAMPLE_TICKET_HPP_
+diff --git a/platform/ps5/crash_report.cpp b/platform/ps5/crash_report.cpp
+--- a/platform/ps5/crash_report.cpp
++++ b/platform/ps5/crash_report.cpp
+@@ -4,6 +4,7 @@
+ // eboot+offset, which is the address in the build's llvm-pie.elf.
+ #include "xbox360ps5/crash_report.hpp"
+ #include "xbox360ps5/hang_watch.hpp"  // fix 61: host_stack_query
++#include "xbox360ps5/sample_ticket.hpp"  // fix 126
+ #include <cstring>
+ #include <atomic>
+ #include <cstddef>
+@@ -232,10 +233,19 @@ const char* probe_name = "";
+ // For a performance sample only the instruction is taken and, when it is
+ // outside the title's code and the generated code (a system library), the
+ // nearest return address into the title: what called it.
+-std::atomic<ThreadSample*> sample_out{nullptr};
++// Fix 126: the request has a round and a target thread (xbox360ps5/sample_ticket.hpp); the
++// answer goes into sample_slot, which the sampler copies out once it is answered.
++sample_ticket::Ticket sample_ticket_;
++ThreadSample sample_slot;
++// A ProbeThread request (a WHERE line) and its thread: a late answer to a sample prints nothing.
++std::atomic<bool> where_wanted{false};
++std::atomic<uintptr_t> where_target{0};
+ void Probe(int, siginfo_t*, void* context) {
+   const uint64_t* m = static_cast<const uint64_t*>(context) + 8;
+-  if (ThreadSample* out = sample_out.load()) {
++  const uintptr_t self = (uintptr_t)pthread_self();  // a pointer on the PS5, an integer elsewhere
++  uint64_t claimed = 0;
++  if (sample_ticket_.Claim(self, claimed)) {
++    ThreadSample* out = &sample_slot;
+     out->rip = m[20];
+     out->caller = out->caller2 = out->slot = 0;
+     out->cpu = sceKernelGetCurrentCpu();
+@@ -259,9 +269,11 @@ void Probe(int, siginfo_t*, void* context) {
+       }
+     }
+     if (out->in_title) out->rip -= CodeStart();
+-    probe_done = true;
++    sample_ticket_.Done(claimed);
+     return;
+   }
++  // Fix 126: only the thread a ProbeThread asked answers with a WHERE line.
++  if (where_target.load() != self || !where_wanted.exchange(false)) return;
+   used = 0;
+   Put("[X360] WHERE "); Put(probe_name); Put(" rip="); Address(m[20]); Put(" rsp="); Hex(m[23]);
+   int found = 0;
+@@ -310,24 +322,29 @@ bool HostReadable(const void* address, size_t bytes) {
+ bool SampleThread(void* thread, ThreadSample* out) {
+   InstallProbe();
+   if (!thread || !out) return false;
+-  sample_out = out;
+-  probe_done = false;
+-  bool taken = false;
+-  if (!pthread_kill(reinterpret_cast<pthread_t>(thread), SIGUSR2)) {
+-    for (int wait = 0; wait < 400 && !probe_done; ++wait) usleep(50);
+-    taken = probe_done;
+-    // A late answer must not write into a sample that is gone.
+-    if (!taken) for (int wait = 0; wait < 100 && !probe_done; ++wait) usleep(1000);
++  // Fix 126: a request the thread does not answer within the wait is cancelled; its late answer
++  // finds nothing to write into, so there is no second wait.
++  const uint64_t round = sample_ticket_.Ask(reinterpret_cast<uintptr_t>(thread));
++  if (pthread_kill(reinterpret_cast<pthread_t>(thread), SIGUSR2)) {
++    sample_ticket_.Finish(round);
++    return false;
+   }
+-  sample_out = nullptr;
+-  return taken;
++  for (int wait = 0; wait < 400 && !sample_ticket_.Answered(round); ++wait) usleep(50);
++  if (!sample_ticket_.Finish(round)) return false;
++  *out = sample_slot;
++  return true;
+ }
+ void ProbeThread(void* thread, const char* name) {
+   InstallProbe();
+   if (!thread) return;
+   probe_name = name;
+   probe_done = false;
+-  if (pthread_kill(reinterpret_cast<pthread_t>(thread), SIGUSR2)) return;
++  where_target = reinterpret_cast<uintptr_t>(thread);
++  where_wanted = true;
++  if (pthread_kill(reinterpret_cast<pthread_t>(thread), SIGUSR2)) {
++    where_wanted = false;
++    return;
++  }
+   for (int wait = 0; wait < 200 && !probe_done; ++wait) usleep(1000);
+ }
+ namespace {

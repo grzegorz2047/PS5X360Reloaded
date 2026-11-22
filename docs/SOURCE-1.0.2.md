@@ -257,6 +257,7 @@ also listed here.
 | 118 (`118-nui-hud-check`) | issue 15: Kinect Sports with a signed-in player ("Player") asked where to save once a frame and was refused each time (the NUI HUD check wanted a Kinect flag this console never has); with the virtual Kinect serving a Kinect-required title the Kinect system windows go to the ordinary ones | host-checked (`tools/check-nui-hud-check.cpp`); console: `1.0.5-work-fix118` |
 | 121 (`121-file-sector`) | a 1.0.5 load-time fix: a game asking for a file's disc sector (to order its reads) gets the real one for files on the disc image instead of a random-looking number, without a log line per call (The Sims 3's long load) | host-checked (`tools/check-file-sector.cpp`); console: The Sims 3 load time A/B |
 | 122 (`122-sims3-readback-preset`) | The Sims 3 gets readback Fast by default (its own setting still wins): the Sim's face at distance and the household portrait are drawn by the GPU and read back; with readback off they were black or empty | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix122` |
+| 126 (`126-sampler-late-answers`) | a 1.0.5 diagnostics fix: MEASURE no longer loses 100 ms per round on a thread that answers its sample signal late (Grand Theft Auto IV: 94 rounds in 10 s instead of about 1,000); a late answer is dropped instead of waited for | host-checked (`tools/check-sample-ticket.cpp`); console: `1.0.5-work-fix126` |
 
 ## Comparison with the official executable
 
