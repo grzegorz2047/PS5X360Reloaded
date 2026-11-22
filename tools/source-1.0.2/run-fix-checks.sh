@@ -125,6 +125,7 @@ checks=(
   check-dlc-remove.cpp             # fix 109
   check-extent-count.cpp           # fix 110
   check-unwatched-lock-free.cpp    # fix 111
+  check-avatar-skeleton.cpp        # fix 113
   check-osk-keyboard.cpp           # fix 114
   check-osk-modes.cpp              # fix 114b
   check-guide-quick.cpp            # fix 115
@@ -140,8 +141,6 @@ checks=(
   check-content-checked.cpp        # fix 125
   check-sample-ticket.cpp          # fix 126
   check-vfs-host-ops.cpp           # fix 129
-  check-resolution-scale.cpp       # fixes 117 to 117i
-  check-avatar-skeleton.cpp        # fix 113
   check-submit-parts.cpp           # fix 130
   check-game-language.cpp          # fix 132
   check-readback-batching.cpp      # fix 133
@@ -254,6 +253,7 @@ declare -A fix_of=(
   [check-nui-hud-check.cpp]=118
   [check-osk-modes.cpp]="114 114b"
   [check-dlc-remove.cpp]=109
+  [check-avatar-skeleton.cpp]=113
   [check-guide-header.cpp]=115b
   [check-guide-tabs.cpp]=115c
   [check-guide-counter.cpp]=115d
@@ -264,8 +264,6 @@ declare -A fix_of=(
   [check-content-checked.cpp]=125
   [check-sample-ticket.cpp]=126
   [check-vfs-host-ops.cpp]=129
-  [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i"
-  [check-avatar-skeleton.cpp]=113
   [check-submit-parts.cpp]=130
   [check-game-language.cpp]=132
   [check-readback-batching.cpp]=133
