@@ -1,0 +1,171 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h b/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h
+--- a/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h
++++ b/.deps/xenia-canary/src/xenia/gpu/memexport_batch.h
+@@ -28,6 +28,16 @@
+ // the merges are timed for the 30 s line, with the longest merge and the oldest export pending
+ // at a merge; "max N" in memexport-batching.txt merges once N exports are pending (1: each at
+ // once, as without batching; 0: no limit).
++//
++// Fix 136c: Modern Warfare 2 with batching on drew multicoloured noise over concrete pillars,
++// which stayed after batching was switched off and after loading the checkpoint again (gone
++// after a restart). A merge writes guest memory, which invalidates the GPU's copy of those
++// pages. Merged late, it came after a later GPU write over the same pages (a resolve, an export
++// that is not read back): its invalidation threw that newer GPU data away and the pages were
++// uploaded again from guest memory, which lacks it, and stayed so (static data, never written
++// again). Read back at once, the merge always came first. Now any GPU write over a page of a
++// pending export, other than a batched export's own, merges the batch first (Overlaps), so the
++// order is the old one; the batched exports among themselves merge in their order as before.
+ #ifndef XENIA_GPU_VULKAN_MEMEXPORT_BATCH_H_
+ #define XENIA_GPU_VULKAN_MEMEXPORT_BATCH_H_
+ 
+@@ -50,13 +60,14 @@ enum FlushReason : uint32_t {
+   kInvalidated,
+   kFull,
+   kCap,  // fix 136b: "max N" reached
++  kGpuWrite,  // fix 136c: another GPU write over a pending export's pages
+   kOther,
+   kReasons
+ };
+ inline const char* ReasonName(uint32_t reason) {
+   static const char* const names[] = {"CP write", "interrupt", "WAIT_REG_MEM", "ring part",
+                                       "swap",     "units written", "buffer full", "at most N",
+-                                      "other"};
++                                      "GPU write", "other"};
+   return reason < kReasons ? names[reason] : "?";
+ }
+ 
+@@ -98,6 +109,21 @@ class Batch {
+     pending_.clear();
+     offset_ = 0;
+   }
++  // Fix 136c: whether [start, start + length) shares a page (1 << page_log2 bytes) with a pending
++  // range.
++  bool Overlaps(uint32_t start, uint32_t length, uint32_t page_log2) const {
++    if (!length) return false;
++    const uint64_t first = start >> page_log2, last = (uint64_t(start) + length - 1) >> page_log2;
++    for (const Pending& pending : pending_) {
++      for (const Range& range : pending.ranges) {
++        if (!range.size) continue;
++        const uint64_t range_first = range.start >> page_log2;
++        const uint64_t range_last = (uint64_t(range.start) + range.size - 1) >> page_log2;
++        if (range_first <= last && first <= range_last) return true;
++      }
++    }
++    return false;
++  }
+   // Whether a pending range is no longer valid in the GPU copy (`valid(start, size)` false): the
+   // CPU wrote it, and an upload would replace the exported data.
+   template <class Valid>
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -11,6 +11,7 @@
+ #define XENIA_GPU_SHARED_MEMORY_H_
+ 
+ #include <atomic>
++#include <functional>  // fix 136c
+ #include <utility>
+ #include <vector>
+ #include "xenia/memory.h"
+@@ -135,6 +136,15 @@ class SharedMemory {
+   // the pages they touch, the CPU data is properly loaded to the unmodified
+   // regions in those pages.
+   void RangeWrittenByGpu(uint32_t start, uint32_t length);
++#if XE_PLATFORM_PS5
++  // Fix 136c: called at the start of RangeWrittenByGpu, before the GPU's write is noted (the
++  // command processor merges pending memory exports over those pages first; pages of
++  // 1 << page_log2 bytes).
++  void SetBeforeGpuWrite(std::function<void(uint32_t start, uint32_t length, uint32_t page_log2)> hook) {
++    before_gpu_write_ = std::move(hook);
++  }
++  std::function<void(uint32_t start, uint32_t length, uint32_t page_log2)> before_gpu_write_;
++#endif
+ #if XE_PLATFORM_PS5
+   // Fix 48 (xbox360ps5/memexport_loss.hpp): a memory export's range whose data guest memory
+   // does not have (not read back), one whose data guest memory gets (read back), and whether
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -809,6 +809,11 @@ void SharedMemory::RangeWrittenByGpu(uint32_t start, uint32_t length) {
+     return;
+   }
+   length = std::min(length, kBufferSize - start);
++#if XE_PLATFORM_PS5
++  if (before_gpu_write_) {
++    before_gpu_write_(start, length, page_size_log2_);  // fix 136c
++  }
++#endif
+   uint32_t end = start + length - 1;
+   uint32_t page_first = start >> page_size_log2_;
+   uint32_t page_last = end >> page_size_log2_;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -1017,6 +1017,9 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // Fix 136b: the buffer mapped once; "max N"; the parts timed for the 30 s line.
+   void* memexport_batch_mapped_ = nullptr;
+   uint32_t memexport_batching_max_ = 0;
++  // Fix 136c: a batched export's own GPU write is being noted (no merge of the batch first).
++  bool memexport_batch_own_write_ = false;
++  void FlushMemexportBatchIfOverlaps(uint32_t start, uint32_t length, uint32_t page_log2);
+   uint64_t memexport_batch_check_ns_ = 0, memexport_batch_add_ns_ = 0, memexport_batch_merge_ns_ = 0,
+            memexport_batch_merge_max_ns_ = 0, memexport_batch_age_max_ns_ = 0;
+   std::chrono::steady_clock::time_point memexport_batch_first_add_;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -471,6 +471,12 @@ bool VulkanCommandProcessor::SetupContext() {
+     XELOGE("Failed to initialize shared memory");
+     return false;
+   }
++#if XE_PLATFORM_PS5
++  // Fix 136c: pending memory exports merged before another GPU write over their pages.
++  shared_memory_->SetBeforeGpuWrite([this](uint32_t start, uint32_t length, uint32_t page_log2) {
++    FlushMemexportBatchIfOverlaps(start, length, page_log2);
++  });
++#endif
+ 
+   primitive_processor_ = std::make_unique<VulkanPrimitiveProcessor>(
+       *register_file_, *memory_, trace_writer_, *shared_memory_, *this);
+@@ -1671,6 +1677,19 @@ void* VulkanCommandProcessor::MapMemexportBatch(uint32_t used) {
+   return memexport_batch_mapped_;
+ }
+ 
++// Fix 136c: before a GPU write over [start, start + length) other than a batched export's own (a
++// resolve, an export read back at once or not at all), the pending exports over its pages are
++// merged, so their merge (a write of guest memory, invalidating the GPU's copy of those pages)
++// does not come after it and throw its data away.
++void VulkanCommandProcessor::FlushMemexportBatchIfOverlaps(uint32_t start, uint32_t length,
++                                                           uint32_t page_log2) {
++  if (memexport_batch_own_write_ || memexport_batch_.empty() ||
++      !memexport_batch_.Overlaps(start, length, page_log2)) {
++    return;
++  }
++  FlushMemexportBatch(memexport_batch::kGpuWrite);
++}
++
+ // Fix 136b: the check before a draw or a resolve, timed.
+ void VulkanCommandProcessor::FlushMemexportBatchIfInvalid() {
+   if (memexport_batch_.empty()) {
+@@ -4186,6 +4205,11 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+ 
+   draw_timer.Mark(fc::kDrawRecord);  // fix 73
+   // Invalidate textures in memexported memory and watch for changes.
++#if XE_PLATFORM_PS5
++  // Fix 136c: a batched export's own write merges nothing first (the batch merges in order);
++  // an export read back at once or not at all merges the pending ones over its pages first.
++  memexport_batch_own_write_ = memexport_batch_base != UINT32_MAX;
++#endif
+   for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
+     shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,
+                                       memexport_range.size_bytes);
+@@ -4196,6 +4220,9 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                                   vertex_shader->ucode_data_hash());
+     }
+   }
++#if XE_PLATFORM_PS5
++  memexport_batch_own_write_ = false;  // fix 136c
++#endif
+ 
+   // CPU readback for memexport data (if enabled, or small: fix 30).
+   if (memexport_readback && memexport_before_copied &&

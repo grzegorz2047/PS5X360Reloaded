@@ -22,6 +22,18 @@
 //  (g) the tree: the buffer mapped once and only the bytes used invalidated, the check before a
 //      draw or a resolve timed, "max N" merged right after the export that reaches it, the
 //      parts timed in the 30 s line, the mapping undone before the buffer's memory is freed.
+// Fix 136c: Modern Warfare 2 with batching on drew lasting noise over static pillars: a merge,
+// late, invalidated pages that a later GPU write (a resolve, an export not read back) had
+// written, and they were uploaded again from guest memory, which lacks that write.
+//  (h) Overlaps (page granular, either side, empty ranges);
+//  (i) a model of the GPU's copy, guest memory, the pages' validity and the uploads: a batched
+//      export, then a resolve over the same page, then the merge and a draw reading the page.
+//      Without the merge before the resolve (fix 136) the resolve's data is lost for good; with
+//      it (136c) the GPU's copy and guest memory end as with each export read back at once.
+//      Two batched exports over one page merge in order with the same result; an export that
+//      does not fit (buffer full) is read back after the batch, in order;
+//  (j) the tree: the hook set at the shared memory's creation and called at the start of
+//      RangeWrittenByGpu, a batched export's own write exempt, the "GPU write" reason.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdint>
@@ -84,6 +96,142 @@ void CheckSettings() {
          "the bytes used, aligned (" + std::to_string(batch.used()) + ")");
   Expect(std::string(mb::ReasonName(mb::kCap)) == "at most N" && std::string(mb::ReasonName(mb::kOther)) == "other",
          "the new reason's name, the others kept");
+}
+
+// Fix 136c: Overlaps.
+void CheckOverlaps() {
+  mb::Batch batch;
+  Expect(!batch.Overlaps(0, 4096, 12), "an empty batch overlaps nothing");
+  mb::Pending p;
+  p.ranges = {{0x2010, 16}, {0x9000, 0}};
+  batch.Add(p);
+  Expect(batch.Overlaps(0x2FF0, 4, 12), "the same 4 KiB page, other bytes: overlap");
+  Expect(batch.Overlaps(0x1000, 0x1001, 12), "a range ending in the page: overlap");
+  Expect(!batch.Overlaps(0x1000, 0x1000, 12) && !batch.Overlaps(0x3000, 64, 12), "the pages next to it: none");
+  Expect(!batch.Overlaps(0x9000, 64, 12), "an empty pending range overlaps nothing");
+  Expect(!batch.Overlaps(0x2010, 0, 12), "an empty write overlaps nothing");
+}
+
+// Fix 136c: a model of shared memory's pages. 2 pages of 4 dwords (16 bytes, page_log2 4).
+struct PageModel {
+  static constexpr int kDwords = 8;
+  uint32_t gpu[kDwords] = {}, guest[kDwords] = {};
+  bool valid[2] = {true, true};
+  // The GPU writes dwords [first, first + count) (RangeWrittenByGpu: valid afterwards).
+  void GpuWrite(int first, int count, uint32_t value) {
+    for (int n = first; n < first + count; ++n) gpu[n] = value + n;
+    for (int page = first / 4; page <= (first + count - 1) / 4; ++page) valid[page] = true;
+  }
+  // A merge (or any guest write by the emulator): guest memory written, its pages invalidated (the
+  // write watch).
+  void GuestWrite(int dword, uint32_t value) {
+    guest[dword] = value;
+    valid[dword / 4] = false;
+  }
+  // A draw reading the pages: an invalid page is uploaded from guest memory.
+  void Read() {
+    for (int page = 0; page < 2; ++page) {
+      if (!valid[page]) {
+        for (int n = page * 4; n < page * 4 + 4; ++n) gpu[n] = guest[n];
+        valid[page] = true;
+      }
+    }
+  }
+};
+struct ModelExport {
+  int first, count;
+  uint32_t value;
+  uint32_t before[PageModel::kDwords], after[PageModel::kDwords];
+};
+// The export's draw: the copies before and after (the batch buffer), the GPU's write.
+ModelExport Export(PageModel& m, int first, int count, uint32_t value) {
+  ModelExport e{first, count, value, {}, {}};
+  std::memcpy(e.before, m.gpu, sizeof(m.gpu));
+  m.GpuWrite(first, count, value);
+  std::memcpy(e.after, m.gpu, sizeof(m.gpu));
+  return e;
+}
+void Merge(PageModel& m, const ModelExport& e) {
+  for (int n = e.first; n < e.first + e.count; ++n)
+    if (e.after[n] != e.before[n]) m.GuestWrite(n, e.after[n]);  // fix 30: the dwords written
+}
+
+void CheckGpuWriteOrder() {
+  // The reference: each export read back at once (fix 30).
+  PageModel ref;
+  Merge(ref, Export(ref, 0, 2, 0xE00));
+  ref.Read();
+  ref.GpuWrite(2, 2, 0x500);  // a resolve over the same page, not read back
+  ref.Read();
+  const uint32_t want_gpu_2 = ref.gpu[2], want_gpu_0 = ref.gpu[0];
+  // Fix 136: the export batched, the resolve, then the merge at the next sync point.
+  PageModel late;
+  mb::Batch batch;
+  ModelExport e = Export(late, 0, 2, 0xE00);
+  mb::Pending pending;
+  pending.ranges = {{0, 8}};
+  batch.Add(pending);
+  late.GpuWrite(2, 2, 0x500);
+  Merge(late, e);
+  batch.Clear();
+  late.Read();
+  Expect(late.gpu[2] != want_gpu_2, "fix 136's order loses the resolve's data (the model reproduces it)");
+  // Fix 136c: the resolve's write overlaps the pending export's page: the batch merges first.
+  PageModel fixed;
+  ModelExport f = Export(fixed, 0, 2, 0xE00);
+  batch.Add(pending);
+  bool merged = false;
+  if (batch.Overlaps(8, 8, 4)) {  // the resolve: dwords 2-3, bytes 8-15, page 0
+    Merge(fixed, f);
+    batch.Clear();
+    merged = true;
+  }
+  fixed.GpuWrite(2, 2, 0x500);
+  fixed.Read();
+  Expect(merged && fixed.gpu[2] == want_gpu_2 && fixed.gpu[0] == want_gpu_0 &&
+             std::memcmp(fixed.guest, ref.guest, sizeof(ref.guest)) == 0,
+         "fix 136c: merged before the resolve, the GPU's copy and guest memory as read back at once");
+  // A write over the other page only: no merge needed.
+  batch.Add(pending);
+  Expect(!batch.Overlaps(16, 16, 4), "a GPU write over another page merges nothing");
+  batch.Clear();
+  // Two batched exports over one page, merged in order at the sync point.
+  PageModel two_ref;
+  Merge(two_ref, Export(two_ref, 0, 3, 0xA00));
+  Merge(two_ref, Export(two_ref, 1, 3, 0xB00));
+  two_ref.Read();
+  PageModel two;
+  ModelExport a = Export(two, 0, 3, 0xA00);
+  ModelExport b = Export(two, 1, 3, 0xB00);
+  Merge(two, a);
+  Merge(two, b);
+  two.Read();
+  Expect(std::memcmp(two.gpu, two_ref.gpu, sizeof(two.gpu)) == 0 &&
+             std::memcmp(two.guest, two_ref.guest, sizeof(two.guest)) == 0,
+         "two batched exports over one page: the same as each read back at once");
+  // Buffer full: the export that does not fit is read back at once, after the batch's merge.
+  mb::Batch full;
+  uint32_t fitted = 0;
+  while (full.Reserve(1u << 20, 1u << 20, mb::kMaxBytes) != UINT32_MAX) {
+    mb::Pending q;
+    q.base = full.Reserve(1u << 20, 1u << 20, mb::kMaxBytes);
+    q.before_offset = 1u << 20;
+    q.total = 1u << 20;
+    full.Add(q);
+    ++fitted;
+  }
+  bool full_flag = full.Reserve(1u << 20, 1u << 20, mb::kMaxBytes) == UINT32_MAX && !full.empty();
+  Expect(fitted == 16 && full_flag, "16 exports of 1 MiB fit in 32 MiB, the next is read back at once (" +
+                                       std::to_string(fitted) + ")");
+  PageModel order_ref, order;
+  Merge(order_ref, Export(order_ref, 0, 2, 0xC00));
+  Merge(order_ref, Export(order_ref, 1, 2, 0xD00));
+  ModelExport c = Export(order, 0, 2, 0xC00);   // batched
+  ModelExport d = Export(order, 1, 2, 0xD00);   // full: at once, after the batch
+  Merge(order, c);                              // FlushMemexportBatch(kFull)
+  Merge(order, d);
+  Expect(std::memcmp(order.guest, order_ref.guest, sizeof(order.guest)) == 0,
+         "buffer full: the batch merged before the export read back at once");
 }
 
 void CheckBatch() {
@@ -225,6 +373,29 @@ void CheckTree() {
              vk.find("FlushMemexportBatchIfInvalid();  // fix 136b: timed", copy) != std::string::npos &&
              vk.find("FlushMemexportBatch(memexport_batch::kInvalidated);", if_invalid) != std::string::npos,
          "pending exports the CPU wrote are merged before a draw or a resolve");
+  // Fix 136c.
+  const std::string sm = Read(gpu + "shared_memory.cc"), smh = Read(gpu + "shared_memory.h");
+  const size_t written = sm.find("void SharedMemory::RangeWrittenByGpu(uint32_t start, uint32_t length) {");
+  Expect(written != std::string::npos &&
+             sm.find("before_gpu_write_(start, length, page_size_log2_);  // fix 136c", written) <
+                 sm.find("FireWatches(page_first, page_last, true);", written) &&
+             smh.find("void SetBeforeGpuWrite(") != std::string::npos,
+         "fix 136c: the hook runs at the start of RangeWrittenByGpu, before the write is noted");
+  Expect(vk.find("shared_memory_->SetBeforeGpuWrite([this](uint32_t start, uint32_t length, uint32_t page_log2) {") >
+                 vk.find("if (!shared_memory_->Initialize()) {"),
+         "fix 136c: the hook set when the shared memory is made");
+  const size_t own = vk.find("memexport_batch_own_write_ = memexport_batch_base != UINT32_MAX;");
+  const size_t own_write = vk.find("shared_memory_->RangeWrittenByGpu(memexport_range.base_address_dwords << 2,", own);
+  const size_t own_end = vk.find("memexport_batch_own_write_ = false;  // fix 136c", own_write);
+  Expect(own != std::string::npos && own_write != std::string::npos && own_end != std::string::npos &&
+             own_end < vk.find("// CPU readback for memexport data", own_write),
+         "fix 136c: a batched export's own write exempt, only around it");
+  const size_t overlaps = vk.find("void VulkanCommandProcessor::FlushMemexportBatchIfOverlaps(");
+  Expect(overlaps != std::string::npos &&
+             vk.find("!memexport_batch_.Overlaps(start, length, page_log2)", overlaps) <
+                 vk.find("FlushMemexportBatch(memexport_batch::kGpuWrite);", overlaps) &&
+             std::string(mb::ReasonName(mb::kGpuWrite)) == "GPU write",
+         "fix 136c: another GPU write over a pending export's pages merges the batch first");
   // Fix 136b.
   const size_t map = vk.find("void* VulkanCommandProcessor::MapMemexportBatch(uint32_t used) {");
   Expect(map != std::string::npos && vk.find("if (!memexport_batch_mapped_ &&", map) != std::string::npos &&
@@ -264,6 +435,8 @@ void CheckTree() {
 int main(int argc, char** argv) {
   CheckSwitch();
   CheckSettings();
+  CheckOverlaps();
+  CheckGpuWriteOrder();
   CheckBatch();
   CheckMerge();
   CheckModel();
