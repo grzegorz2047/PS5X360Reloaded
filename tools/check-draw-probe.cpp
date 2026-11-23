@@ -249,6 +249,10 @@ void CheckPatch(const std::string& fixes) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef XBOX360PS5_FRAME_COST_DIAG_SWITCH
+  // Fix 142f-diag: these probes are behind its switch (gpu-diag-detail.txt), on here.
+  fc::diag_detail.store(true);
+#endif
   CheckSampling();
   CheckParts();
   CheckLines();

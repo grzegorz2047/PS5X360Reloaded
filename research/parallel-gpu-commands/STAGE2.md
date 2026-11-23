@@ -597,59 +597,103 @@ counts the WAIT_REG_MEM sleeps as busy time: fix 138, which separates them, is o
 sleeping on the guest is not the bottleneck at this spot. Before more work comes off it, fix
 138's split (or a port of it) has to show how much of "executing" is real work.
 
-## 14. Fix 142f: where the GPU command thread's time goes (diagnostic)
+### 142e on all five games, and MW2's same-spot A/B
 
-In GTA IV, fix 142e took 46 ms/s off the GPU command thread with no measurable frame rate at the
-same spot. "Executing" stayed at 992-994 ms/s, so the thread fills the saved time with something.
-The coordinator's review asked for this diagnostic before any other step. It also deprioritised
-the pipeline "same as previous" skip and steps 2.1 and 2.2.
+Verify mode (switch 1) showed 0 mismatches in all five games:
+
+| Game | Seconds | Updates/s | Could skip |
+|---|---|---|---|
+| MW2 | 92 | 315,350 | 97% |
+| Tekken TT2 at 2x ("2x, scaled resolve sparse") | 554 | 28,489 | 88% |
+| BF3 | 374 | 70,541 | 53% |
+
+GTA IV and RDR were verified before. MW2 in mode 2 skipped 343,828 draws a second with 0 mismatches.
+
+MW2 same-spot A/B, standing still, switch flipped every 35 s, swaps/s from the hang watcher:
+
+| Block | Mode | Swaps/s |
+|---|---|---|
+| 1 | 0 | 34.02 |
+| 2 | 2 | 29.77 |
+| 3 | 0 | 31.17 |
+| 4 | 2 | 30.71 |
+
+- **Frame rate.** Mode 0 averages 32.6 and mode 2 averages 30.2: no gain.
+- **Render targets per draw.** 0.348 and 0.267 us in the mode 0 blocks, against 0.220 and
+  0.145 us in the mode 2 blocks.
+- **GPU thread executing.** 869-921 ms/s in every block.
+
+At this spot MW2 is not bound by the GPU thread either. 142e is correct but gives no frame rate in
+GTA IV or MW2, so the default stays 0.
+
+## 14. Fix 142f-diag: one diagnostic image for what limits the frame rate
+
+The coordinator merged the 142f idea of the review with the useful parts of another agent's 12
+optimisation cards. Each card was checked against the logs; none is taken as written, and the
+cards' helper headers are not ported.
+
+The name is 142f-diag because the earlier 142f plan (widening 142e) is set aside.
 
 - **Base:** `fix/1.0.6-perf` at 20f9b7d (`1.0.6_candidate_3`).
-- **Fixes on top:**
-  - 142d;
-  - 142e, with the skip at 0 by default and switchable as before through
-    `render-target-skip.txt`;
-  - 138, ported from `fix/frame-cost-guest-wait`.
+- **Fixes on top:** 142d, 142e (still 0 by default) and fix 138.
+- **Patch:** `142f-diag-gpu-thread.patch`.
 - **Branch:** `fix/gpu-thread-probe-106`.
-- **Label:** `1.0.6-work-fix142f`.
-- **The patch only adds lines.**
+- **Label:** `1.0.6-work-fix142f-diag`.
+- **Nothing the emulator does changes.**
 
-Fix 138 takes the WAIT_REG_MEM sleeps out of the `Frame time:` line's "executing" and shows them
-as `waiting for the guest (WAIT_REG_MEM) x ms/s in n sleeps/s`.
+**One switch.** `gpu-diag-detail.txt` in the title folder turns on fix 142d's probes and the new
+ones, so the probes' own cost can be measured by switching it at a fixed spot:
+- `1` or `on` turns it on; `0`, `off` or no file turns it off;
+- it is read at most once a second at the end of a submission;
+- each change is logged as `GPU diagnostics detail (fix 142f-diag): on|off`.
 
-Fix 142f adds three lines after fix 142d's in the 30 s summary:
+Fixes 49 to 103's always-on counters stay on. They are estimated at 10-25 ms/s in GTA IV.
 
-```
-Frame time GPU thread without waits (fix 142f): executing E ms/s with every wait in it; sections
-  draws .., resolves .., submissions .., memexport readback .., uploads .., textures .. ms/s (draws
-  hold pipeline waits P); GPU waits G ms/s; WAIT_REG_MEM sleeps W ms/s in n/s; the rest of executing
-  (packets, registers, constants) without waits R ms/s
-Frame time packet timing (GPU thread, fix 142f): the timer costs about a ns inside a timed packet
-  and b ns outside it; INDIRECT_BUFFER own I ms/s in n/s with k timed packets nested each, of which
-  about T ms/s is their timers; type 0 by first register: float constants .. ms/s in n/s (.. ns
-  each), fetch constants .., bool/loop constants .., other registers ..; draws by sub-part (ms/s,
-  1 draw in 8 timed): primitives: Process .., shader modifications .., translations .., samplers ..,
-  window offset ..; pipeline: ConfigurePipeline .., pipeline readiness .., RequestTextures ..,
-  pipeline bind .., viewport and predicate ..
-Frame time resolve waits (GPU thread, fix 142f): X ms/s; full mode .. ms/s in n/s (.. KiB each),
-  first copy of a key .., own copy (fixes 91k, 133) .., downscale buffer growth .., unnamed ..
-```
+What it gives, item by item from the review:
 
-What each reading decides:
-
-| Reading | Decides |
+| Item | Where in the log |
 |---|---|
-| WAIT_REG_MEM sleeps W, against "executing" without waits | Is the GPU thread waiting for the guest's CPU? A large W, and W growing when 142e is on, means the guest CPU limits the frame rate and GPU-thread savings cannot show. |
-| The rest of executing without waits R | The packet and register work left once both kinds of waits are out. Fix 75's line splits it by kind. |
-| The timer's cost, and the share of INDIRECT_BUFFER's own time that is its nested timers | How much of fix 75's INDIRECT_BUFFER and type 0 figures is the measurement itself |
-| Type 0 by group | Which constant writes cost the most per packet (fix 103's groups) |
-| Primitives sub-parts (modifications, translations, samplers) | The case for a shader, modification and sampler memo |
-| `RequestTextures`, together with fix 142d's texture image infos and reuse check | The case for a per-frame texture descriptor set cache |
-| Resolve waits by reason (MW2) | Which readback rule makes MW2 wait, and how much |
+| (a) Fix 138: WAIT_REG_MEM sleeps out of "executing" | `Frame time:` line, `waiting for the guest (WAIT_REG_MEM) x ms/s in n sleeps/s` |
+| (a) The first 30 s block | Every reporter's first line takes the ticks' length from the program's start instead of 1 ns. RDR's first WAIT_REG_MEM block had shown 1,321.6 ms/s of sleeping. |
+| (b) The rest of executing without waits | `Frame time GPU thread without waits (fix 142f-diag)`. Executing with every wait in it, the sections, fix 49's GPU waits and the WAIT_REG_MEM sleeps are each shown apart; the rest has all of them taken out. The detail line's old rest still holds the waits. |
+| (b) RDR's WAIT_REG_MEM | `Frame time packets counted` gives WAIT_REG_MEM's own time and, separately, the sleeping inside it. Fix 77's line gives its polling. |
+| (c) The timer's cost; INDIRECT_BUFFER | `Frame time packet timing`: the timer's cost inside and outside a timed packet, and INDIRECT_BUFFER's own time per nested packet. GTA IV's IB time is a phantom if that is about the outside cost. |
+| (c) Count scaling | `Frame time packets counted`: each kind counted one by one, next to fix 75's scaled count (EVENT_WRITE: 263-336k/s scaled against fix 96's 93-111k/s), with its own time from the timed packets |
+| (d) Sub-marks | `Frame time packet timing`, draws by sub-part. Primitives: Process, shader modifications, translations, samplers, window offset. Pipeline: ConfigurePipeline, pipeline readiness (publication and placeholder checks), RequestTextures, pipeline bind (with its layout), viewport (its arguments and GetHostViewportInfo), BindVIZPredicate and UpdateQuerySegment. |
+| (d) Inside Process | `Frame time draw detail`: Process by index buffer type, with the time before the shared memory request (the normalisation and CacheTransaction) and RequestRange |
+| (e) Textures | `Frame time draw detail`, texture sets per stage: the previous draw's, or among the last 32 of the frame. Keys only (layout, binding epoch, views, samplers), compared in full, nothing reused. |
+| (f) Type 0 | `Frame time packet timing` by register group; `Frame time draw detail` at the hot registers 2102, 48BA, 4800 and 5000 |
+| (f) System constants | Fix 142d's line splits them into the compute (`system constants`) and the upload (`system` in the constants). `Frame time draw detail` adds the updates and the changed ones per second. |
+| (f) Constant writes | `Frame time draw detail`, float constant writes per stage: identical, unused by the current shaders, used |
+| (g) Descriptor indexing | The Vulkan device dump at start: `Vulkan descriptor indexing (fix 142f-diag, supported): ...`, the four features and the update-after-bind limits |
+| (h) Resolve waits | `Frame time readback waits`. Resolve waits by reason: full mode, first copy, own copy (fixes 91k, 133), downscale growth. The fast copies that did not wait: handed over, a steady family's late copy (fix 133), carried over (fix 59). The resolves' own time; memexport by reason: option, small (fix 30), lost before (fix 48). |
+| (h) Faults | `Frame time faults`: MMIO, a write to a watched page, a read of a read-watched page, a watch already lifted; and the guest code faulting most, 1 in 8 resolved through the JIT's code map |
 
-Console runs, the same as for fix 142d:
-- GTA IV city;
-- RDR town;
-- MW2 mission;
-- GTA IV once more with `render-target-skip.txt` = 2 at the same spot, to see whether WAIT_REG_MEM
-  sleeps W grows by about the time 142e saves.
+A correction for the record: textures (fix 49's `textures` section) and the samplers and
+translations (before `Mark(kDrawPrimitive)`) are not inside fix 73's "pipeline" part. The sub-parts
+above follow that.
+
+**Acceptance (card OPT-03).** Each run notes:
+- the build and the scene;
+- the exact 30 s window (the summary's time stamp);
+- the waits (GPU, pipelines, WAIT_REG_MEM sleeps), the sections, and the rest without waits;
+- no double counting: executing with every wait in it equals the sections plus the WAIT_REG_MEM
+  sleeps plus the rest, within the rounding;
+- RDR's sleeping shown apart from WAIT_REG_MEM's own time.
+
+The coordinator runs GTA IV, MW2, RDR and Sims 3 live mode at fixed spots, with the switch off and
+on.
+
+**Decisions waiting on these numbers:**
+
+| Option | Taken only if |
+|---|---|
+| A texture set cache prototype | More than 30% of the writes repeat within a frame |
+| A system constants memo | The compute stays at 20 ms/s or more in MW2 |
+| A pipeline memo | ConfigurePipeline on a repeat is a real share |
+| Bindless | The descriptor work stays large |
+
+**Rejected:**
+- an OPT-04C RAM cache;
+- the OPT-05B JIT audit (it exists, issue #5);
+- the OPT-05C driver pin bump (the GPU is only 17-38% busy).

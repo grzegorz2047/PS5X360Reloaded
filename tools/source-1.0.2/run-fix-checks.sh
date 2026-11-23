@@ -167,7 +167,7 @@ checks=(
   check-readability.cpp            # fix 149c
   check-draw-probe.cpp             # fix 142d
   check-render-target-skip.cpp     # fix 142e
-  check-gpu-thread-probe.cpp       # fix 142f
+  check-gpu-thread-probe.cpp       # fix 142f-diag
 )
 declare -A arguments=(
   [check-draw-probe.cpp]="$repo/tools/source-1.0.2/fixes"

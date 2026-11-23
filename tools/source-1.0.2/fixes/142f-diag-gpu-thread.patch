@@ -1,0 +1,1824 @@
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc
+index 3e52e70..a2f2c86 100644
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc
+@@ -1,20 +1,25 @@
+ /**
+  ******************************************************************************
+  * Xenia : Xbox 360 Emulator Research Project                                 *
+  ******************************************************************************
+  * Copyright 2025 Ben Vanik. All rights reserved.                             *
+  * Released under the BSD license - see LICENSE in the root for more details. *
+  ******************************************************************************
+  */
+ 
+ #include "xenia/cpu/backend/x64/x64_backend.h"
++#include "xenia/base/platform.h"  // fix 142f-diag: XE_PLATFORM_PS5
++#if XE_PLATFORM_PS5
++#include "xenia/cpu/function.h"
++#include "xbox360ps5/frame_cost.hpp"  // fix 142f-diag: faults' guest addresses
++#endif
+ 
+ #include <array>
+ #include <cstddef>
+ 
+ #include "third_party/capstone/include/capstone/capstone.h"
+ #include "third_party/capstone/include/capstone/x86.h"
+ 
+ #include "xenia/base/exception_handler.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/cpu/backend/x64/x64_assembler.h"
+@@ -291,20 +296,34 @@ bool X64Backend::Initialize(Processor* processor) {
+ 
+   auto& xmms = machine_info_.register_sets[1];
+   xmms.id = 1;
+   std::strcpy(xmms.name, "xmm");
+   xmms.types = MachineInfo::RegisterSet::FLOAT_TYPES |
+                MachineInfo::RegisterSet::VEC_TYPES;
+   xmms.count = X64Emitter::XMM_COUNT;
+ 
+   code_cache_ = X64CodeCache::Create();
+   Backend::code_cache_ = code_cache_.get();
++#if XE_PLATFORM_PS5
++  {
++    // Fix 142f-diag: a fault's host address to the guest code's address (0 outside guest code).
++    static CodeCache* fix142f_code_cache = nullptr;
++    fix142f_code_cache = code_cache_.get();
++    xbox360ps5::frame_cost::guest_pc_resolver.store(
++        +[](uint64_t host_pc) -> uint32_t {
++          GuestFunction* function =
++              fix142f_code_cache ? fix142f_code_cache->LookupFunction(host_pc) : nullptr;
++          return function ? function->MapMachineCodeToGuestAddress(uintptr_t(host_pc)) : 0;
++        },
++        std::memory_order_relaxed);
++  }
++#endif
+   if (!code_cache_->Initialize()) {
+     return false;
+   }
+   // HV range
+   code_cache()->CommitExecutableRange(GUEST_TRAMPOLINE_BASE,
+                                       GUEST_TRAMPOLINE_END);
+   // Allocate emitter constant data.
+   emitter_data_ = X64Emitter::PlaceConstData();
+ 
+   // Generate thunks used to transition between jitted code and host code.
+diff --git a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
+index c7cc781..99989fd 100644
+--- a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
+@@ -10,20 +10,23 @@
+ #include "xenia/cpu/mmio_handler.h"
+ 
+ #include <cstring>
+ 
+ #include "xenia/base/assert.h"
+ #include "xenia/base/byte_order.h"
+ #include "xenia/base/exception_handler.h"
+ #include "xenia/base/logging.h"
+ #include "xenia/base/memory.h"
+ #include "xenia/base/platform.h"
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/frame_cost.hpp"  // fix 142f-diag: faults by kind
++#endif
+ 
+ namespace xe {
+ namespace cpu {
+ 
+ MMIOHandler* MMIOHandler::global_handler_ = nullptr;
+ 
+ std::unique_ptr<MMIOHandler> MMIOHandler::Install(
+     uint8_t* virtual_membase, uint8_t* physical_membase, uint8_t* membase_end,
+     HostToGuestVirtual host_to_guest_virtual,
+     const void* host_to_guest_virtual_context,
+@@ -456,34 +459,48 @@ bool MMIOHandler::ExceptionCallback(Exception* ex) {
+     }
+     return false;
+ #else
+     memory::PageAccess cur_access;
+     size_t page_length = memory::page_size();
+     memory::QueryProtect(fault_host_address, page_length, cur_access);
+     if (cur_access != memory::PageAccess::kNoAccess &&
+         (!is_write || cur_access != memory::PageAccess::kReadOnly)) {
+       // Another thread has cleared this watch. Abort.
+       XELOGD("Race condition on watch, was already cleared by another thread!");
++#if XE_PLATFORM_PS5
++      xbox360ps5::frame_cost::NoteFault(xbox360ps5::frame_cost::kFaultCleared,
++                                        uint64_t(ex->pc()));  // fix 142f-diag
++#endif
+       return true;
+     }
++#if XE_PLATFORM_PS5
++    xbox360ps5::frame_cost::NoteFault(is_write
++                                          ? xbox360ps5::frame_cost::kFaultWriteWatch
++                                          : xbox360ps5::frame_cost::kFaultReadWatch,
++                                      uint64_t(ex->pc()));  // fix 142f-diag
++#endif
+     // The address is not found within any range, so either a write watch or an
+     // actual access violation.
+     if (access_violation_callback_) {
+       return access_violation_callback_(std::move(lock),
+                                         access_violation_callback_context_,
+                                         fault_host_address, is_write);
+     }
+     return false;
+ #endif
+   }
+ 
+   auto rip = ex->pc();
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::NoteFault(xbox360ps5::frame_cost::kFaultMmio,
++                                    uint64_t(rip));  // fix 142f-diag
++#endif
+   auto p = reinterpret_cast<const uint8_t*>(rip);
+   DecodedLoadStore decoded_load_store;
+   if (!TryDecodeLoadStore(p, decoded_load_store)) {
+     XELOGE("Unable to decode MMIO load or store instruction at {}",
+            static_cast<const void*>(p));
+     assert_always("Unknown MMIO instruction type");
+     return false;
+   }
+ 
+   HostThreadContext& thread_context = *ex->thread_context();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc b/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc
+index 956d984..7d0cc8c 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/primitive_processor.cc
+@@ -273,20 +273,25 @@ void PrimitiveProcessor::ClearPerFrameCache() {
+   }
+   cache_map_.clear();
+   std::memset(cache_buckets_non_empty_l1_, 0,
+               sizeof(cache_buckets_non_empty_l1_));
+   std::memset(cache_buckets_non_empty_l2_, 0,
+               sizeof(cache_buckets_non_empty_l2_));
+ }
+ 
+ bool PrimitiveProcessor::Process(ProcessingResult& result_out) {
+   SCOPE_profile_cpu_f("gpu");
++#if XE_PLATFORM_PS5
++  // Fix 142f-diag: the time before the shared memory request and the request, by index buffer type.
++  const xbox360ps5::frame_cost::BindMark fix142f_prepare = xbox360ps5::frame_cost::BindStart();
++  xbox360ps5::frame_cost::BindMark fix142f_request;
++#endif
+ 
+   const RegisterFile& regs = register_file_;
+   auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+ 
+   // Parse the primitive type and the tessellation state (VGT_OUTPUT_PATH_CNTL
+   // is only used in the explicit major mode) - there are cases in games when
+   // this register is left over after usage of tessellation in draws that don't
+   // need it.
+   xenos::PrimitiveType guest_primitive_type = vgt_draw_initiator.prim_type;
+   xenos::PrimitiveType host_primitive_type = guest_primitive_type;
+@@ -1013,20 +1018,23 @@ bool PrimitiveProcessor::Process(ProcessingResult& result_out) {
+                   full_32bit_vertex_indices_used_ ? guest_index_endian
+                                                   : xenos::Endian::kNone;
+             }
+             cache_transaction.SetNewResult(cacheable);
+           }
+         }
+       }
+     }
+   }
+ 
++#if XE_PLATFORM_PS5
++  fix142f_request = xbox360ps5::frame_cost::BindStart();  // fix 142f-diag
++#endif
+   // Request the indices in the shared memory if they need to be accessed from
+   // there on the GPU.
+   if (cacheable.index_buffer_type == ProcessedIndexBufferType::kGuestDMA ||
+       cacheable.index_buffer_type ==
+           ProcessedIndexBufferType::kHostBuiltinForDMA) {
+     // Request the index buffer memory.
+     // TODO(Triang3l): Shared memory request cache.
+     // Xbox360PS5 fix 102: indices read from the shared memory (directly, or
+     // through the built-in adapter buffer) are used by this draw only, as
+     // vertex data is: nothing kept here depends on a later invalidation (the
+@@ -1059,20 +1067,24 @@ bool PrimitiveProcessor::Process(ProcessingResult& result_out) {
+   result_out.tessellation_mode = tessellation_mode;
+   result_out.host_draw_vertex_count = cacheable.host_draw_vertex_count;
+   result_out.line_loop_closing_index = line_loop_closing_index;
+   result_out.index_buffer_type = cacheable.index_buffer_type;
+   result_out.guest_index_base = guest_index_base;
+   result_out.host_index_format = cacheable.host_index_format;
+   result_out.host_shader_index_endian = cacheable.host_shader_index_endian;
+   result_out.host_primitive_reset_enabled =
+       cacheable.host_primitive_reset_enabled;
+   result_out.host_index_buffer_handle = cacheable.host_index_buffer_handle;
++#if XE_PLATFORM_PS5
++  xbox360ps5::frame_cost::NoteProcess(uint32_t(cacheable.index_buffer_type), fix142f_prepare,
++                                      fix142f_request);  // fix 142f-diag
++#endif
+   return true;
+ }
+ 
+ bool PrimitiveProcessor::IsResetUsed(const uint16_t* source, uint32_t count,
+                                      uint16_t reset_index_guest_endian) {
+ #if XE_GPU_PRIMITIVE_PROCESSOR_SIMD_SIZE
+   while (count && (reinterpret_cast<uintptr_t>(source) &
+                    (XE_GPU_PRIMITIVE_PROCESSOR_SIMD_SIZE - 1))) {
+     --count;
+     if (*(source++) == reset_index_guest_endian) {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 8df3a5e..8192a73 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -65,20 +65,27 @@
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
+ DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
+ // Xbox360PS5, fix 142d: the draws' bindings by part and the draws like the previous one
+ // (xbox360ps5/frame_cost.hpp, BindReporter), diagnostics only: nothing here changes what is done.
+ #if XE_PLATFORM_PS5
+ #define XE_FIX142D(...) __VA_ARGS__
+ #else
+ #define XE_FIX142D(...)
+ #endif
++// Xbox360PS5, fix 142f-diag: fix 73's primitives and pipeline parts by sub-part, and the resolve
++// readback waits by reason (xbox360ps5/frame_cost.hpp, ProbeReporter), diagnostics only.
++#if XE_PLATFORM_PS5
++#define XE_FIX142F(...) __VA_ARGS__
++#else
++#define XE_FIX142F(...)
++#endif
+ // Xbox360PS5, fix 134 (async_submit.h): chunks of a frame handed to a submit worker. Per game in
+ // assets/config/<title>.config.toml ([GPU]), or live in async-submit.txt in the title folder.
+ DEFINE_uint32(gpu_async_submit, 0,
+               "0: submit on the GPU thread as before; 1: end a submission at a draw once its "
+               "recorded commands reach gpu_async_submit_chunk_kib and let a worker thread "
+               "replay and submit it; 2: the same chunks, submitted on the GPU thread.",
+               "GPU");
+ DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
+               "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
+               "GPU");
+@@ -1924,21 +1931,48 @@ void VulkanCommandProcessor::ShutdownContext() {
+   for (VkSemaphore semaphore : semaphores_free_) {
+     dfn.vkDestroySemaphore(device, semaphore, nullptr);
+   }
+   semaphores_free_.clear();
+ 
+   device_lost_ = false;
+ 
+   CommandProcessor::ShutdownContext();
+ }
+ 
++#if XE_PLATFORM_PS5
++// Fix 142f-diag: float constant writes classified (identical, unused, used) once each: in a run
++// (WriteRegistersSwapped) or alone (WriteRegister outside a run).
++static bool fix142f_in_run = false;
++static void Fix142fClassifyFloatConstants(const uint32_t* values, uint32_t start_index,
++                                          const uint32_t* source, uint32_t count, bool swapped,
++                                          const uint64_t* map_vertex, const uint64_t* map_pixel) {
++  if (!xbox360ps5::frame_cost::DiagDetail()) return;
++  for (uint32_t i = 0; i < count; ++i) {
++    const uint32_t index = start_index + i;
++    if (index < XE_GPU_REG_SHADER_CONSTANT_000_X || index > XE_GPU_REG_SHADER_CONSTANT_511_W) continue;
++    const uint32_t value = swapped ? xe::byte_swap(source[i]) : source[i];
++    const uint32_t float_index = (index - XE_GPU_REG_SHADER_CONSTANT_000_X) >> 2;
++    const uint64_t* map = float_index >= 256 ? map_pixel : map_vertex;
++    const uint32_t in_stage = float_index & 255;
++    xbox360ps5::frame_cost::NoteFloatConstantWrite(
++        float_index, values[index] == value, (map[in_stage >> 6] >> (in_stage & 63)) & 1);
++  }
++}
++#endif
+ void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
++#if XE_PLATFORM_PS5
++  if (!fix142f_in_run) {  // fix 142f-diag
++    Fix142fClassifyFloatConstants(register_file_->values, index, &value, 1, false,
++                                  current_float_constant_map_vertex_,
++                                  current_float_constant_map_pixel_);
++  }
++#endif
+ #if XE_PLATFORM_PS5
+   // Fix 105: a fetch constant written with the bits it has changes nothing
+   // the texture cache or the fetch constant buffer hold (a binding is derived
+   // from the fetch constant's bits alone; a texture outdated, destroyed or a
+   // new frame resets the bindings itself), so it is skipped as a float
+   // constant is (xenia/gpu/register_run.h, the same for runs).
+   if (cvars::vulkan_skip_redundant_constants &&
+       index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
+       index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 &&
+       register_file_->values[index] == value) {
+@@ -2074,20 +2108,27 @@ void VulkanCommandProcessor::WriteRegistersSwapped(uint32_t start_index,
+       register_file_->values,
+       cvars::vulkan_skip_redundant_constants,
+       frame_open_,
+       current_float_constant_map_vertex_,
+       current_float_constant_map_pixel_,
+       {UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatVertex,
+        UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel,
+        UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch,
+        UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop},
+       &current_constant_buffers_up_to_date_};
++  Fix142fClassifyFloatConstants(register_file_->values, start_index, source, num_registers, true,
++                                current_float_constant_map_vertex_,
++                                current_float_constant_map_pixel_);  // fix 142f-diag
++  fix142f_in_run = true;
++  struct Fix142fRunEnd {
++    ~Fix142fRunEnd() { fix142f_in_run = false; }
++  } fix142f_run_end;
+   register_run::Write(
+       state, start_index, source, num_registers,
+       [this](uint32_t first, uint32_t last) {
+         if (texture_cache_) {
+           texture_cache_->TextureFetchConstantsWritten(first, last);
+         }
+       },
+       [this](uint32_t index, uint32_t value) {
+         VulkanCommandProcessor::WriteRegister(index, value);
+       });
+@@ -4909,23 +4950,25 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   // updates done previously must be performed again because the updates done
+   // before the awaiting may be referencing objects destroyed by
+   // CompletedSubmissionUpdated.
+   for (uint32_t i = 0; i < 2; ++i) {
+     if (!BeginSubmission(true)) {
+       return false;
+     }
+ 
+     XE_FIX142D(const fc::BindMark fix142d_primitive = fc::BindStart();)
+     // Process primitives.
++    XE_FIX142F(const fc::BindMark fix142f_process = fc::BindStart();)
+     if (!primitive_processor_->Process(primitive_processing_result)) {
+       return false;
+     }
++    XE_FIX142F(fc::DrawSubStop(fc::kSubProcess, fix142f_process);)
+ #if XE_PLATFORM_PS5
+     {
+       // Fix 142d: the same processing as the previous draw's (the same draw again).
+       static PrimitiveProcessor::ProcessingResult fix142d_last{};
+       const PrimitiveProcessor::ProcessingResult& now = primitive_processing_result;
+       const bool same = now.host_primitive_type == fix142d_last.host_primitive_type &&
+                         now.index_buffer_type == fix142d_last.index_buffer_type &&
+                         now.guest_index_base == fix142d_last.guest_index_base &&
+                         now.host_draw_vertex_count == fix142d_last.host_draw_vertex_count &&
+                         now.host_index_format == fix142d_last.host_index_format &&
+@@ -4961,20 +5004,21 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                            regs, pixel_shader->writes_color_targets())
+                      : 0;
+     apply_host_depth_polygon_offset =
+         pixel_shader && !pixel_shader->writes_depth() &&
+         render_target_cache_->GetPath() ==
+             RenderTargetCache::Path::kHostRenderTargets &&
+         draw_util::GetHostDepthPolygonOffsetIfNeeded(
+             regs, primitive_polygonal, normalized_depth_control,
+             normalized_color_mask, host_depth_polygon_offset);
+ 
++    XE_FIX142F(const fc::BindMark fix142f_modifications = fc::BindStart();)
+     // Shader modifications.
+     vertex_shader_modification =
+         pipeline_cache_->GetCurrentVertexShaderModification(
+             *vertex_shader, primitive_processing_result.host_vertex_shader_type,
+             interpolator_mask, ps_param_gen_pos != UINT32_MAX);
+     pixel_shader_modification =
+         pixel_shader ? pipeline_cache_->GetCurrentPixelShaderModification(
+                            *pixel_shader, interpolator_mask, ps_param_gen_pos,
+                            normalized_depth_control, normalized_color_mask,
+                            apply_host_depth_polygon_offset)
+@@ -4990,34 +5034,38 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+     if (zpd_hybrid && pixel_shader) {
+       pixel_shader_modification.pixel.zpd_total = 1;
+       // The counter buffer write disables early depth/stencil anyway.
+       if (pixel_shader_modification.pixel.depth_stencil_mode ==
+           SpirvShaderTranslator::Modification::DepthStencilMode::kEarlyHint) {
+         pixel_shader_modification.pixel.depth_stencil_mode =
+             SpirvShaderTranslator::Modification::DepthStencilMode::kNoModifiers;
+       }
+     }
+ 
++    XE_FIX142F(fc::DrawSubStop(fc::kSubModifications, fix142f_modifications);)
++    XE_FIX142F(const fc::BindMark fix142f_translations = fc::BindStart();)
+     // Translate the shaders now to obtain the sampler bindings.
+     vertex_shader_translation = static_cast<VulkanShader::VulkanTranslation*>(
+         vertex_shader->GetOrCreateTranslation(
+             vertex_shader_modification.value));
+     pixel_shader_translation =
+         pixel_shader ? static_cast<VulkanShader::VulkanTranslation*>(
+                            pixel_shader->GetOrCreateTranslation(
+                                pixel_shader_modification.value))
+                      : nullptr;
+     if (!pipeline_cache_->EnsureShadersTranslated(vertex_shader_translation,
+                                                   pixel_shader_translation)) {
+       return false;
+     }
+ 
++    XE_FIX142F(fc::DrawSubStop(fc::kSubTranslations, fix142f_translations);)
++    XE_FIX142F(const fc::BindMark fix142f_samplers = fc::BindStart();)
+     // Obtain the samplers. Note that the bindings don't depend on the shader
+     // modification, so if on the second iteration of this loop it becomes
+     // different for some reason (like a race condition with the guest in index
+     // buffer processing in the primitive processor resulting in different host
+     // vertex shader types), the bindings will stay the same.
+     // TODO(Triang3l): Sampler caching and reuse for adjacent draws within one
+     // submission.
+     uint32_t samplers_overflowed_count = 0;
+     for (uint32_t j = 0; j < 2; ++j) {
+       std::vector<std::pair<VulkanTextureCache::SamplerParameters, VkSampler>>&
+@@ -5058,40 +5106,43 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+             // If i == 1, an overflow has happened twice, can't recover from it
+             // anymore (would enter an infinite loop otherwise if the number of
+             // attempts was not limited to 2). Possibly too many unique samplers
+             // in one draw, or failed to await submission completion.
+             return false;
+           }
+           ++samplers_overflowed_count;
+         }
+       }
+     }
++    XE_FIX142F(fc::DrawSubStop(fc::kSubSamplers, fix142f_samplers);)
+     if (!samplers_overflowed_count) {
+       break;
+     }
+     assert_zero(i);
+     // Free space for as many samplers as how many haven't been allocated
+     // successfully - obtain the submission index that needs to be awaited to
+     // reuse `samplers_overflowed_count` slots. This must be done after all the
+     // UseSampler calls, not inside the loop calling UseSampler, because earlier
+     // UseSampler calls may "mark for deletion" some samplers that later
+     // UseSampler calls in the loop may actually demand.
+     uint64_t sampler_overflow_await_submission =
+         texture_cache_->GetSubmissionToAwaitOnSamplerOverflow(
+             samplers_overflowed_count);
+     assert_true(sampler_overflow_await_submission <= GetCurrentSubmission());
+     CheckSubmissionCompletionAndDeviceLoss(sampler_overflow_await_submission);
+   }
+ 
+   // Put the window offset into the EDRAM bases when possible.
++  XE_FIX142F(const fc::BindMark fix142f_window = fc::BindStart();)
+   int32_t window_offset_tiles = render_target_cache_->GetWindowOffsetTiles(
+       regs, normalized_depth_control, normalized_color_mask, frame_current_);
++  XE_FIX142F(fc::DrawSubStop(fc::kSubWindowOffset, fix142f_window);)
+ 
+   draw_timer.Mark(fc::kDrawPrimitive);  // fix 73
+   XE_FIX142D(const fc::BindMark fix142d_targets = fc::BindStart();)
+   // Set up the render targets - this may perform dispatches and draws.
+   if (!render_target_cache_->Update(
+           is_rasterization_done, normalized_depth_control,
+           normalized_color_mask, *vertex_shader, window_offset_tiles)) {
+     return false;
+   }
+ #if XE_PLATFORM_PS5
+@@ -5110,44 +5161,47 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+ #endif
+   draw_timer.Mark(fc::kDrawTargets);  // fix 73
+ 
+   // Create the pipeline (for this, need the render pass from the render target
+   // cache), translating the shaders - doing this now to obtain the used
+   // textures.
+   VulkanRenderTargetCache::RenderPassKey render_pass_key =
+       render_target_cache_->last_update_render_pass_key();
+   VulkanPipelineCache::Pipeline* pipeline;
+   XE_FIX142D(const fc::BindMark fix142d_pipeline = fc::BindStart();)
++  XE_FIX142F(const fc::BindMark fix142f_configure = fc::BindStart();)
+   if (!pipeline_cache_->ConfigurePipeline(
+           vertex_shader_translation, pixel_shader_translation,
+           primitive_processing_result, normalized_depth_control,
+           normalized_color_mask, render_pass_key, zpd_hybrid, viz_survey,
+           &pipeline)) {
+     return false;
+   }
++  XE_FIX142F(fc::DrawSubStop(fc::kSubConfigurePipeline, fix142f_configure);)
+ #if XE_PLATFORM_PS5
+   {
+     // Fix 142d: the same pipeline, and the same shader translations, as the previous draw's.
+     static const void* fix142d_last_pipeline = nullptr;
+     static const void* fix142d_last_vertex = nullptr;
+     static const void* fix142d_last_pixel = nullptr;
+     fc::NoteSame(fc::kSamePipeline, pipeline == fix142d_last_pipeline, fix142d_pipeline);
+     fc::NoteSame(fc::kSameShaders,
+                  vertex_shader_translation == fix142d_last_vertex &&
+                      pixel_shader_translation == fix142d_last_pixel,
+                  fc::BindMark());
+     fix142d_last_pipeline = pipeline;
+     fix142d_last_vertex = vertex_shader_translation;
+     fix142d_last_pixel = pixel_shader_translation;
+   }
+ #endif
+ 
++  XE_FIX142F(const fc::BindMark fix142f_ready = fc::BindStart();)
+   // Xbox360PS5: a failed real compile must never turn its retained stand-in
+   // into a successful guest draw, particularly when the result is read back.
+   if (pipeline->creation_failed.load(std::memory_order_acquire)) {
+     return false;
+   }
+   VkPipeline current_pipeline =
+       pipeline->pipeline.load(std::memory_order_acquire);
+   if (current_pipeline == VK_NULL_HANDLE) {
+     // Pipeline is not ready yet - wait for it to be created.
+     pipeline_cache_->AwaitPipelineCompletion(*pipeline);
+@@ -5220,29 +5274,33 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+ #endif
+     }
+   }
+   // Completion may mean failure rather than publication of a real pipeline.
+   if (pipeline->creation_failed.load(std::memory_order_acquire)) {
+     return false;
+   }
+   // We re-load the handle to pick up any swap that may have happened.
+   current_pipeline = pipeline->pipeline.load(std::memory_order_acquire);
+ 
++  XE_FIX142F(fc::DrawSubStop(fc::kSubPipelineReady, fix142f_ready);)
+   // Update the textures before most other work in the submission because
+   // samplers depend on this (and in case of sampler overflow in a submission,
+   // submissions must be split) - may perform dispatches and copying.
+   uint32_t used_texture_mask =
+       vertex_shader->GetUsedTextureMaskAfterTranslation() |
+       (pixel_shader != nullptr
+            ? pixel_shader->GetUsedTextureMaskAfterTranslation()
+            : 0);
++  XE_FIX142F(const fc::BindMark fix142f_textures = fc::BindStart();)
+   texture_cache_->RequestTextures(used_texture_mask);
++  XE_FIX142F(fc::DrawSubStop(fc::kSubRequestTextures, fix142f_textures);)
++  XE_FIX142F(const fc::BindMark fix142f_bind = fc::BindStart();)
+ 
+   // Update the graphics pipeline, and if the new graphics pipeline has a
+   // different layout, invalidate incompatible descriptor sets before updating
+   // current_guest_graphics_pipeline_layout_.
+   // A null prewarmed handle has been awaited above. Runtime placeholders
+   // are usable when readback is disabled; readback waits for this real entry.
+   if (current_guest_graphics_pipeline_ != current_pipeline) {
+     deferred_command_buffer_.CmdVkBindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                current_pipeline);
+     current_guest_graphics_pipeline_ = current_pipeline;
+@@ -5275,20 +5333,22 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       current_graphics_descriptor_sets_bound_up_to_date_ &=
+           (UINT32_C(1) << descriptor_sets_kept) - 1;
+     } else {
+       // No or unknown pipeline layout previously bound - all bindings are in an
+       // indeterminate state.
+       current_graphics_descriptor_sets_bound_up_to_date_ = 0;
+     }
+     current_guest_graphics_pipeline_layout_ = pipeline_layout;
+   }
+ 
++  XE_FIX142F(fc::DrawSubStop(fc::kSubBindPipeline, fix142f_bind);)
++  XE_FIX142F(const fc::BindMark fix142f_viewport = fc::BindStart();)
+   bool host_render_targets_used = render_target_cache_->GetPath() ==
+                                   RenderTargetCache::Path::kHostRenderTargets;
+ 
+   // Get dynamic rasterizer state.
+   draw_util::ViewportInfo viewport_info;
+ 
+   // Just handling maxViewportDimensions is enough - viewportBoundsRange[1] must
+   // be at least 2 * max(maxViewportDimensions[0...1]) - 1, and
+   // maxViewportDimensions must be greater than or equal to the size of the
+   // largest possible framebuffer attachment (if the viewport has positive
+@@ -5303,29 +5363,33 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   // 360) - and with offset, is probably a situation that never happens in real
+   // life. Or even disregard the viewport bounds range in the fragment shader
+   // interlocks case completely - apply the viewport and the scissor offset
+   // directly to pixel address and to things like ps_param_gen.
+ 
+   // Resolution scale of this draw, which may be 1x1 because of
+   // draw_resolution_scale_threshold, which the divisors have to match too.
+   uint32_t draw_resolution_scale_x = render_target_cache_->GetDrawScaleX();
+   uint32_t draw_resolution_scale_y = render_target_cache_->GetDrawScaleY();
+   // Consumer VIZ draws run under conditional rendering instead of blocking.
++  XE_FIX142F(fc::DrawSubStop(fc::kSubViewport, fix142f_viewport);)
++  XE_FIX142F(const fc::BindMark fix142f_query = fc::BindStart();)
+   // The predicate value may still need copying outside a pass, so bind it
+   // before the segment opens: the pass ending would close it.
+   VkDeviceSize predicate_offset = 0;
+   const VkBuffer predicate_buffer = BindVIZPredicate(predicate_offset);
+   // Segments can't mix scales, hybrid query Total counting, or VIZ IDs.
+   // The resolved sample count is divided by one scale area per segment.
+   // Needs to be split before the counter index goes into system constants.
+   UpdateQuerySegment(draw_resolution_scale_x * draw_resolution_scale_y,
+                      zpd_hybrid, viz_survey);
++  XE_FIX142F(fc::DrawSubStop(fc::kSubQuery, fix142f_query);)
++  XE_FIX142F(const fc::BindMark fix142f_viewport_args = fc::BindStart();)
+   draw_util::GetViewportInfoArgs gviargs{};
+   gviargs.Setup(
+       draw_resolution_scale_x, draw_resolution_scale_y,
+       draw_resolution_scale_x > 1
+           ? texture_cache_->draw_resolution_scale_x_divisor()
+           : divisors::MagicDiv(1),
+       draw_resolution_scale_y > 1
+           ? texture_cache_->draw_resolution_scale_y_divisor()
+           : divisors::MagicDiv(1),
+       false, device_properties.maxViewportDimensions[0],
+@@ -5334,20 +5398,21 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       host_render_targets_used &&
+           render_target_cache_->depth_float24_convert_in_pixel_shader(),
+       host_render_targets_used, pixel_shader && pixel_shader->writes_depth(),
+       !host_render_targets_used ||
+           render_target_cache_->GetSampleLocationsInfo(
+               render_pass_key.msaa_samples,
+               render_pass_key.depth_and_color_used) != nullptr);
+   gviargs.SetupRegisterValues(regs, window_offset_tiles != 0);
+ 
+   draw_util::GetHostViewportInfo(&gviargs, viewport_info);
++  XE_FIX142F(fc::DrawSubStop(fc::kSubViewport, fix142f_viewport_args);)
+   draw_timer.Mark(fc::kDrawPipeline);  // fix 73: from the targets on, the pipeline and its binding
+   XE_FIX142D(const fc::BindMark fix142d_dynamic = fc::BindStart();)
+   // Update dynamic graphics pipeline state.
+   UpdateDynamicState(viewport_info, primitive_polygonal,
+                      normalized_depth_control, draw_resolution_scale_x,
+                      draw_resolution_scale_y, apply_host_depth_polygon_offset,
+                      window_offset_tiles != 0);
+   XE_FIX142D(fc::BindStop(fc::kBindDynamicState, fix142d_dynamic);)
+ 
+   auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+@@ -5848,20 +5913,22 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+         PushBufferMemoryBarrier(
+             readback_buffer, 0, VK_WHOLE_SIZE, VK_PIPELINE_STAGE_TRANSFER_BIT,
+             VK_PIPELINE_STAGE_HOST_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+             VK_ACCESS_HOST_READ_BIT);
+         SubmitBarriers(true);
+ 
+         // Wait for GPU to finish (SYNCHRONIZATION STALL)
+ #if XE_PLATFORM_PS5
+         xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+             xbox360ps5::frame_cost::kMemexport);
++        xbox360ps5::frame_cost::MemexportReasonScope fix142f_memexport(  // fix 142f-diag
++            uint32_t(memexport_reason), memexport_total_size);
+ #endif
+         readback_memexport_batches_.Note(ReadbackSyncPoint());  // fix 133
+         if (AwaitAllQueueOperationsCompletion()) {
+           // Map staging buffer and copy to guest memory.
+           void* mapped_data;
+           if (MapReadbackMemory(memexport_readback_buffer_memory_,
+                                 memexport_readback_host_coherent_,
+                                 &mapped_data)) {
+             if (mapped_data) {
+               const uint8_t* readback_bytes =
+@@ -6589,20 +6656,22 @@ bool VulkanCommandProcessor::IssueCopy() {
+     // key (readback_batching::OwnCopy).
+     const bool key_steady = readback_slots::SteadyPresence(rb.presence);
+     const bool own_copy =
+         g_readback_rules.occasional_own
+             ? readback_batching::OwnCopy(key_steady, family_steady, rb.cpu_reads,
+                                          cvars::readback_steady_by_end)
+             : rb.cpu_reads && occasional;
+     if (g_readback_rules.occasional_own && !key_steady && !own_copy &&
+         readback_mode == ReadbackResolveMode::kFast && !auto_readback && newest_copy >= 0) {
+       ++readback_family_late_;
++      XE_FIX142F(xbox360ps5::frame_cost::NoteResolveOutcome(
++          xbox360ps5::frame_cost::kOutcomeFamilyLate);)  // fix 142f-diag
+     }
+     if (readback_mode == ReadbackResolveMode::kFast && !auto_readback && own_copy &&
+         newest_copy >= 0) {
+       read_cache_miss = true;
+       ++rb.own_window;
+       ++readback_own_copies_;
+       readback_own_batches_.Note(ReadbackSyncPoint());  // fix 133
+       static uint32_t own_shown = 0;
+       if (own_shown < 16) {
+         ++own_shown;
+@@ -6615,20 +6684,22 @@ bool VulkanCommandProcessor::IssueCopy() {
+     if (is_scaled) {
+       // Scaled path: downscale on the GPU, then copy the 1x data to the
+       // readback buffer.
+       if (size > resolve_downscale_buffer_size_) {
+         if (resolve_downscale_buffer_ != VK_NULL_HANDLE) {
+           // The old buffer may still be referenced by commands recorded for
+           // previous resolves - growth is rare, so just await completion.
+ #if XE_PLATFORM_PS5
+           xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+               xbox360ps5::frame_cost::kResolve);
++          xbox360ps5::frame_cost::ResolveReasonScope fix142f_reason(  // fix 142f-diag
++              xbox360ps5::frame_cost::kResolveGrowth, size);
+ #endif
+           if (!AwaitAllQueueOperationsCompletion() || device_lost_ ||
+               !BeginSubmission(true)) {
+             return true;
+           }
+           dfn.vkDestroyBuffer(device, resolve_downscale_buffer_, nullptr);
+           dfn.vkFreeMemory(device, resolve_downscale_buffer_memory_, nullptr);
+           resolve_downscale_buffer_ = VK_NULL_HANDLE;
+           resolve_downscale_buffer_memory_ = VK_NULL_HANDLE;
+           resolve_downscale_buffer_size_ = 0;
+@@ -6841,38 +6912,44 @@ bool VulkanCommandProcessor::IssueCopy() {
+     rb.submissions[write_index] = GetCurrentSubmission();
+     rb.valid_sizes[write_index] = readback_length;
+     rb.passes[write_index] = pass;  // fix 91
+     rb.frames[write_index] = frame_current_;
+ 
+     if (readback_mode != ReadbackResolveMode::kFast) {
+       // Wait for GPU to finish (accurate but slow)
+ #if XE_PLATFORM_PS5
+       xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+           xbox360ps5::frame_cost::kResolve);
++      xbox360ps5::frame_cost::ResolveReasonScope fix142f_reason(  // fix 142f-diag
++          xbox360ps5::frame_cost::kResolveFullMode, readback_length);
+ #endif
+       if (!AwaitAllQueueOperationsCompletion()) {
+         XELOGE(
+             "VulkanCommandProcessor: Failed to complete queue operations for "
+             "resolve readback");
+         return true;
+       }
+     } else if (read_cache_miss && auto_readback) {
+       // Automatic copy: nothing older to hand over yet, and no wait - the
+       // copy just queued is handed over at the next resolve here.
+       return true;
+     } else if (read_cache_miss) {
+       // Delayed sync, but the previous buffer doesn't exist - use the current
+       // buffer with a sync as a fallback.
+       read_index = write_index;
+ #if XE_PLATFORM_PS5
+       xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+           xbox360ps5::frame_cost::kResolve);
++      xbox360ps5::frame_cost::ResolveReasonScope fix142f_reason(  // fix 142f-diag
++          own_copy && newest_copy >= 0 ? xbox360ps5::frame_cost::kResolveOwnCopy
++                                       : xbox360ps5::frame_cost::kResolveFirstCopy,
++          readback_length);
+ #endif
+       if (!AwaitAllQueueOperationsCompletion()) {
+         XELOGE(
+             "VulkanCommandProcessor: Failed to complete queue operations for "
+             "resolve readback fallback");
+         return true;
+       }
+     }
+ 
+     // Even the previous frame's slot may still be in flight. Wait only for
+@@ -6884,20 +6961,24 @@ bool VulkanCommandProcessor::IssueCopy() {
+     if (read_submission > GetCompletedSubmission()) {
+       if (read_submission >
+           completion_timeline_.UpdateAndGetCompletedSubmission()) {
+         // Automatic copy: the GPU has not finished it; never wait.
+         // Fix 59: nor in fast mode (readback=1). Waiting here for the previous copy's
+         // submission was MW2's largest GPU wait on 1.0.4_candidate_20 (fix 58: this line,
+         // 138 ms/s in 55/s); fast mode hands the data over one resolve late anyway, and now
+         // a resolve later still when the GPU is behind. The other modes awaited all work above.
+ #if XE_PLATFORM_PS5
+         if (!auto_readback) xbox360ps5::frame_cost::NoteLateReadback();
++        if (!auto_readback) {
++          xbox360ps5::frame_cost::NoteResolveOutcome(
++              xbox360ps5::frame_cost::kOutcomeCarried);  // fix 142f-diag
++        }
+ #endif
+         return true;
+       }
+       CheckSubmissionCompletionAndDeviceLoss(read_submission);
+     }
+     if (device_lost_ || read_submission > GetCompletedSubmission()) {
+       return true;
+     }
+ 
+     if (rb.buffers[read_index] != VK_NULL_HANDLE &&
+@@ -6919,20 +7000,25 @@ bool VulkanCommandProcessor::IssueCopy() {
+           static uint32_t left_out_shown = 0;
+           if (left_out_shown < 16) {
+             ++left_out_shown;
+             XELOGW("Readback: the fast copy of the key {:08X} ({} bytes) kept out of guest memory "
+                    "(fix 91h)",
+                    written_address, readback_length);
+           }
+         } else {
+           memory::vastcpy(memory_->TranslatePhysical(written_address),
+                           static_cast<uint8_t*>(mapped_data), readback_length);
++          XE_FIX142F(if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
++                         read_index != write_index) {
++            xbox360ps5::frame_cost::NoteResolveOutcome(
++                xbox360ps5::frame_cost::kOutcomeHanded);  // fix 142f-diag
++          })
+         }
+         // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
+         // every 600 frames while it does not). The copy above goes through the physical view,
+         // which the watch does not cover.
+         const bool watch_forced =
+             xbox360ps5::readback_keys::Watched(g_readback_rules, written_address);  // fix 91g
+         if (readback_mode == ReadbackResolveMode::kFast && !auto_readback &&
+             (watch_forced ||
+              (!rb.cpu_reads && (!rb.armed_frame || frame_current_ - rb.armed_frame >= 600)))) {
+           rb.armed_frame = frame_current_;
+@@ -7926,20 +8012,33 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+   return true;
+ }
+ 
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
+ #endif
+   if (render_target_cache_) {
+     render_target_cache_->Fix142eEndSubmission();  // fix 142e: the mode and the line
+   }
++#if XE_PLATFORM_PS5
++  {
++    // Fix 142f-diag: the detailed probes' switch, gpu-diag-detail.txt in the title folder.
++    static bool fix142f_logged = false;
++    if (xbox360ps5::frame_cost::RefreshDiagDetail(XBOX360PS5_DATA_ROOT "/gpu-diag-detail.txt") ||
++        !fix142f_logged) {
++      fix142f_logged = true;
++      XELOGW("GPU diagnostics detail (fix 142f-diag): {}, from " XBOX360PS5_DATA_ROOT
++             "/gpu-diag-detail.txt (1 on, 0 or no file off)",
++             xbox360ps5::frame_cost::DiagDetail() ? "on" : "off");
++    }
++  }
++#endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+       xbox360ps5::frame_cost::kSubmit);
+ #endif
+   ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+ 
+   // Make sure everything needed for submitting exist.
+   if (submission_open_) {
+@@ -9204,20 +9303,21 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+     dirty |= system_constants_.edram_blend_constant[3] !=
+              regs.Get<float>(XE_GPU_REG_RB_BLEND_ALPHA);
+     system_constants_.edram_blend_constant[3] =
+         regs.Get<float>(XE_GPU_REG_RB_BLEND_ALPHA);
+   }
+ 
+   if (dirty) {
+     current_constant_buffers_up_to_date_ &=
+         ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferSystem);
+   }
++  XE_FIX142F(xbox360ps5::frame_cost::NoteSystemConstants(dirty);)  // fix 142f-diag
+ }
+ 
+ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+                                             const VulkanShader* pixel_shader) {
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
+   const RegisterFile& regs = *register_file_;
+ #if XE_PLATFORM_PS5
+@@ -9660,20 +9760,24 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+                   : pixel_texture_image_info_offset,
+         texture_count,
+         is_vertex ? vertex_sampler_image_info_offset
+                   : pixel_sampler_image_info_offset,
+         sampler_count);
+     const VkDescriptorSetLayout layout =
+         is_vertex ? current_guest_graphics_pipeline_layout_
+                         ->descriptor_set_layout_textures_vertex_ref()
+                   : current_guest_graphics_pipeline_layout_
+                         ->descriptor_set_layout_textures_pixel_ref();
++    // Fix 142f-diag: the same set as the previous draw's, or as one of the last 32 of this frame.
++    xbox360ps5::frame_cost::texture_set_history.Note(
++        stage, frame_current_, texture_set_epoch, layout, texture_set_views_.data(), texture_count,
++        texture_set_samplers_.data(), sampler_count);
+     const auto& written = texture_sets_written_[stage];
+     if (written.Matches(frame_current_, texture_set_epoch, layout,
+                         texture_set_views_.data(), texture_count,
+                         texture_set_samplers_.data(), sampler_count)) {
+       write = false;
+       ++texture_sets_reused;
+       if (current_graphics_descriptor_sets_[set_index] != written.set) {
+         current_graphics_descriptor_sets_[set_index] = written.set;
+         current_graphics_descriptor_sets_bound_up_to_date_ &= ~set_bit;
+       }
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
+index 32f4e63..1fe8f4d 100644
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
+@@ -783,20 +783,64 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+ 
+   if (device->extensions_.ext_EXT_depth_bias_control) {
+     if (with_gpu_emulation) {
+       XE_UI_VULKAN_FEATURE_2(features_EXT_depth_bias_control, depthBiasControl)
+       XE_UI_VULKAN_FEATURE_2(features_EXT_depth_bias_control,
+                              leastRepresentableValueForceUnormRepresentation)
+       XE_UI_VULKAN_FEATURE_2(features_EXT_depth_bias_control, depthBiasExact)
+     }
+   }
+ 
++#if XE_PLATFORM_PS5
++  // Xbox360PS5, fix 142f-diag: what a bindless texture path would need (descriptor indexing), as
++  // supported, whether or not enabled.
++  if (ifn.vkGetPhysicalDeviceFeatures2 && ifn.vkGetPhysicalDeviceProperties2) {
++    VkPhysicalDeviceDescriptorIndexingFeatures indexing_features = {};
++    indexing_features.sType =
++        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
++    VkPhysicalDeviceFeatures2 indexing_features_2 = {};
++    indexing_features_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
++    indexing_features_2.pNext = &indexing_features;
++    ifn.vkGetPhysicalDeviceFeatures2(physical_device, &indexing_features_2);
++    VkPhysicalDeviceDescriptorIndexingProperties indexing_properties = {};
++    indexing_properties.sType =
++        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES;
++    VkPhysicalDeviceProperties2 indexing_properties_2 = {};
++    indexing_properties_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
++    indexing_properties_2.pNext = &indexing_properties;
++    ifn.vkGetPhysicalDeviceProperties2(physical_device, &indexing_properties_2);
++    XELOGI(
++        "Vulkan descriptor indexing (fix 142f-diag, supported): "
++        "shaderSampledImageArrayNonUniformIndexing {}, "
++        "descriptorBindingSampledImageUpdateAfterBind {}, "
++        "descriptorBindingPartiallyBound {}, runtimeDescriptorArray {}; "
++        "update-after-bind limits: maxUpdateAfterBindDescriptorsInAllPools {}, "
++        "maxPerStageDescriptorUpdateAfterBindSampledImages {}, "
++        "maxPerStageDescriptorUpdateAfterBindSamplers {}, "
++        "maxPerStageUpdateAfterBindResources {}, "
++        "maxDescriptorSetUpdateAfterBindSampledImages {}, "
++        "maxDescriptorSetUpdateAfterBindSamplers {}, "
++        "shaderSampledImageArrayNonUniformIndexingNative {}",
++        bool(indexing_features.shaderSampledImageArrayNonUniformIndexing),
++        bool(indexing_features.descriptorBindingSampledImageUpdateAfterBind),
++        bool(indexing_features.descriptorBindingPartiallyBound),
++        bool(indexing_features.runtimeDescriptorArray),
++        indexing_properties.maxUpdateAfterBindDescriptorsInAllPools,
++        indexing_properties.maxPerStageDescriptorUpdateAfterBindSampledImages,
++        indexing_properties.maxPerStageDescriptorUpdateAfterBindSamplers,
++        indexing_properties.maxPerStageUpdateAfterBindResources,
++        indexing_properties.maxDescriptorSetUpdateAfterBindSampledImages,
++        indexing_properties.maxDescriptorSetUpdateAfterBindSamplers,
++        bool(indexing_properties.shaderSampledImageArrayNonUniformIndexingNative));
++  }
++#endif
++
+ #undef XE_UI_VULKAN_LIMIT
+ #undef XE_UI_VULKAN_ENUM_LIMIT
+ #undef XE_UI_VULKAN_FEATURE
+ #undef XE_UI_VULKAN_PROPERTY_2
+ #undef XE_UI_VULKAN_ENUM_PROPERTY_2
+ #undef XE_UI_VULKAN_FEATURE_2
+ 
+   // Create the device.
+ 
+   const VkResult device_create_result = ifn.vkCreateDevice(
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+index ca6bf55..6ba6ce8 100644
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -26,7 +26,9 @@
+ #include <chrono>
+ #include <cstdint>
+ #include <cstdio>
++#include <cstring>  // fix 142f-diag
+ #include <string>
++#include <vector>  // fix 142f-diag
+ #if defined(__x86_64__) || defined(_M_X64)
+ #include <x86intrin.h>
+ #endif
+@@ -71,6 +73,35 @@ inline void MarkGpuThread() {
+ inline bool OnGpuThread() {
+   return reinterpret_cast<uintptr_t>(pthread_self()) == gpu_thread_self.load(std::memory_order_relaxed);
+ }
++// Fix 142f-diag: one switch for the detailed probes (fix 142d's and 142f-diag's), off unless
++// gpu-diag-detail.txt in the title folder says 1 (or "on"), so that what they cost can be measured
++// by switching them while the game runs. The always-on counters of fixes 49 to 103 stay on.
++inline std::atomic<bool> diag_detail{false};
++#define XBOX360PS5_FRAME_COST_DIAG_SWITCH 1  // fix 142f-diag: for the host checks
++inline bool DiagDetail() { return diag_detail.load(std::memory_order_relaxed); }
++// "1"/"on" turns it on, "0"/"off" or no file off; the first word decides. Returns the new state.
++inline bool ParseDiagDetail(const std::string& text) {
++  size_t at = text.find_first_not_of(" \t\r\n");
++  if (at == std::string::npos) return false;
++  const std::string word = text.substr(at, text.find_first_of(" \t\r\n#", at) - at);
++  return word == "1" || word == "on" || word == "ON" || word == "On";
++}
++// Read the file at most once a second (call it from the GPU thread's end of a submission). Returns
++// true when the switch changed (the caller logs it).
++inline bool RefreshDiagDetail(const char* path) {
++  static uint64_t checked_ns = 0;
++  const uint64_t now = NowNs();
++  if (checked_ns && now - checked_ns < 1000000000ull) return false;
++  checked_ns = now;
++  bool on = false;
++  if (FILE* file = std::fopen(path, "rb")) {
++    char text[64] = {};
++    const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
++    std::fclose(file);
++    on = ParseDiagDetail(std::string(text, got));
++  }
++  return diag_detail.exchange(on, std::memory_order_relaxed) != on;
++}
+ class CauseScope {
+  public:
+   explicit CauseScope(uint32_t now) : previous_(cause) { cause = now; }
+@@ -120,9 +151,92 @@ inline void AddPlace(int line, uint64_t ns) {
+   slot->waits.store(slot->waits.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+ }
+ 
++// Fix 142f-diag: why a resolve readback waited for the GPU (the GPU thread's; set by
++// ResolveReasonScope around each wait of the kResolve cause).
++enum ResolveReason : uint32_t {
++  kResolveFullMode = 0,  // readback "full" (or not fast): every resolve read back waits for all work
++  kResolveFirstCopy,     // fast mode, no earlier copy of the key to hand over yet
++  kResolveOwnCopy,       // fast mode, the key's own copy (fixes 91k and 133: not steady)
++  kResolveGrowth,        // the scaled downscale buffer grew: all work awaited before freeing it
++  kResolveUnnamed,       // a wait of the kResolve cause outside a named place
++  kResolveReasons
++};
++inline const char* ResolveReasonName(uint32_t reason) {
++  static const char* const names[] = {"full mode", "first copy of a key", "own copy (fixes 91k, 133)",
++                                      "downscale buffer growth", "unnamed"};
++  return reason < kResolveReasons ? names[reason] : "?";
++}
++inline uint32_t resolve_reason = kResolveUnnamed;
++inline std::array<std::atomic<uint64_t>, kResolveReasons> resolve_wait_ns{}, resolve_waits{};
++inline std::array<std::atomic<uint64_t>, kResolveReasons> resolve_wait_bytes{};
++inline uint64_t resolve_reason_bytes = 0;
++class ResolveReasonScope {
++ public:
++  ResolveReasonScope(uint32_t reason, uint64_t bytes)
++      : previous_(resolve_reason), previous_bytes_(resolve_reason_bytes) {
++    if (!gpu_thread) return;
++    resolve_reason = reason < kResolveReasons ? reason : kResolveUnnamed;
++    resolve_reason_bytes = bytes;
++  }
++  ~ResolveReasonScope() {
++    if (!gpu_thread) return;
++    resolve_reason = previous_;
++    resolve_reason_bytes = previous_bytes_;
++  }
++  ResolveReasonScope(const ResolveReasonScope&) = delete;
++  ResolveReasonScope& operator=(const ResolveReasonScope&) = delete;
++
++ private:
++  uint32_t previous_;
++  uint64_t previous_bytes_;
++};
++
++// Fix 142f-diag: why a memexport readback waited for the GPU, by memexport_loss::Reason (0 none, 1
++// the option, 2 a small export (fix 30), 3 exported data lost before (fix 48)).
++constexpr uint32_t kMemexportReasons = 4;
++inline const char* MemexportReasonName(uint32_t reason) {
++  static const char* const names[] = {"unnamed", "the option", "small export (fix 30)",
++                                      "lost before (fix 48)"};
++  return reason < kMemexportReasons ? names[reason] : "?";
++}
++inline uint32_t memexport_reason = 0;
++inline uint64_t memexport_reason_bytes = 0;
++inline std::array<std::atomic<uint64_t>, kMemexportReasons> memexport_wait_ns{}, memexport_waits{},
++    memexport_wait_bytes{};
++class MemexportReasonScope {
++ public:
++  MemexportReasonScope(uint32_t reason, uint64_t bytes)
++      : previous_(memexport_reason), previous_bytes_(memexport_reason_bytes) {
++    if (!gpu_thread) return;
++    memexport_reason = reason < kMemexportReasons ? reason : 0;
++    memexport_reason_bytes = bytes;
++  }
++  ~MemexportReasonScope() {
++    if (!gpu_thread) return;
++    memexport_reason = previous_;
++    memexport_reason_bytes = previous_bytes_;
++  }
++  MemexportReasonScope(const MemexportReasonScope&) = delete;
++  MemexportReasonScope& operator=(const MemexportReasonScope&) = delete;
++
++ private:
++  uint32_t previous_;
++  uint64_t previous_bytes_;
++};
++
+ // A fence wait that took `ns`: the GPU thread's by its cause, other threads' apart.
+ inline void AddFenceWait(uint64_t ns) {
+   if (gpu_thread) {
++    if (cause == kMemexport) {  // fix 142f-diag: by reason
++      memexport_wait_ns[memexport_reason].fetch_add(ns, std::memory_order_relaxed);
++      memexport_waits[memexport_reason].fetch_add(1, std::memory_order_relaxed);
++      memexport_wait_bytes[memexport_reason].fetch_add(memexport_reason_bytes, std::memory_order_relaxed);
++    }
++    if (cause == kResolve) {  // fix 142f-diag: by reason
++      resolve_wait_ns[resolve_reason].fetch_add(ns, std::memory_order_relaxed);
++      resolve_waits[resolve_reason].fetch_add(1, std::memory_order_relaxed);
++      resolve_wait_bytes[resolve_reason].fetch_add(resolve_reason_bytes, std::memory_order_relaxed);
++    }
+     totals.wait_ns[cause].fetch_add(ns, std::memory_order_relaxed);
+     totals.waits[cause].fetch_add(1, std::memory_order_relaxed);
+     if (cause == kOther) AddPlace(wait_line ? wait_line : -2, ns);  // fix 58 (-2: no line)
+@@ -170,6 +284,16 @@ inline uint64_t Ticks() {
+ #endif
+ }
+ inline std::array<std::atomic<uint64_t>, kSections> section_ticks{}, section_count{};
++// Fix 142f-diag: the ticks' length for a reporter's first line, measured from the program's start
++// (each reporter measures it between its lines; with no earlier line it took 1 ns a tick, and the
++// first 30 s block of a line in ticks came out up to the TSC's rate too large: Red Dead
++// Redemption's WAIT_REG_MEM "sleeping" 1,321.6 ms/s).
++inline const uint64_t origin_ticks = Ticks();
++inline const uint64_t origin_ns = NowNs();
++inline double OriginNsPerTick() {
++  const uint64_t ticks = Ticks(), ns = NowNs();
++  return ticks > origin_ticks && ns > origin_ns ? double(ns - origin_ns) / double(ticks - origin_ticks) : 1.0;
++}
+ struct SectionState {
+   uint32_t current = kNoSection;
+   uint64_t since = 0;
+@@ -366,7 +490,7 @@ class DrawReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -562,7 +686,7 @@ class ArmReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -683,10 +807,32 @@ inline std::atomic<uint32_t> packet_sample_every{16};
+ inline uint32_t packet_depth = 0;
+ inline bool packet_sampling = false;
+ inline uint64_t packet_nested_ticks = 0;
++// Fix 142f-diag: the timed packets so far (for the timed packets nested in each INDIRECT_BUFFER), and
++// type 0's own time by register group (RegisterGroupOf, defined with fix 103's counters below).
++inline uint64_t packet_timed_count = 0;
++inline std::atomic<uint64_t> packet_indirect_nested{0};
++inline std::array<std::atomic<uint64_t>, 4> packet_register_ticks{}, packet_register_counts{};
++// Fix 142f-diag: every packet counted by kind (fix 75 scales the timed packets' counts by the share
++// of top packets timed, which put EVENT_WRITE at 263-336k/s against fix 96's 93-111k/s counted one
++// by one); and the WAIT_REG_MEM sleeps inside timed WAIT_REG_MEM packets (fix 138's clock).
++inline std::array<std::atomic<uint64_t>, kPacketKinds> packet_all_counts{};
++// Type 0 packets starting at the registers written most in "other" and fetch (1.0.6 logs): their
++// own time apart from their groups'.
++constexpr uint32_t kHotRegisters[] = {0x2102, 0x48BA, 0x4800, 0x5000};
++constexpr uint32_t kHotRegisterCount = sizeof(kHotRegisters) / sizeof(kHotRegisters[0]);
++inline std::array<std::atomic<uint64_t>, kHotRegisterCount> packet_hot_ticks{}, packet_hot_counts{};
++inline uint32_t HotRegisterOf(uint32_t base_index) {
++  for (uint32_t i = 0; i < kHotRegisterCount; ++i)
++    if (kHotRegisters[i] == base_index) return i;
++  return kHotRegisterCount;
++}
++inline std::atomic<uint64_t> packet_wait_reg_sleep_ns{0};
++inline uint32_t PacketRegisterGroupOf(uint32_t base_index);
+ class PacketTimer {
+  public:
+   explicit PacketTimer(uint32_t packet) {
+     if (!OnGpuThread()) return;
++    if (DiagDetail()) AddOwn(packet_all_counts[PacketKindOf(packet)], 1);  // fix 142f-diag
+     if (packet_depth == 0) {
+       AddOwn(packet_top, 1);
+       packet_sampling = SampleOneIn(packet_sample_every.load(std::memory_order_relaxed));  // fix 77
+@@ -701,6 +847,9 @@ class PacketTimer {
+     start_ = Ticks();
+     other_ = OtherSectionTicks() + OwnSectionTicks();
+     nested_before_ = packet_nested_ticks;
++    packet_ = packet;                         // fix 142f-diag
++    timed_before_ = packet_timed_count;       // fix 142f-diag
++    if (kind_ == kPacketWaitRegMem) guest_before_ = totals.guest_wait_ns.load(std::memory_order_relaxed);
+   }
+   ~PacketTimer() {
+     if (entered_) --packet_depth;
+@@ -711,6 +860,22 @@ class PacketTimer {
+     const uint64_t own = wall > sections + nested ? wall - sections - nested : 0;
+     AddOwn(packet_ticks[kind_], own);
+     AddOwn(packet_counts[kind_], 1);
++    // Fix 142f-diag: an INDIRECT_BUFFER's nested timed packets; type 0 by its first register's group.
++    const bool detail = DiagDetail();
++    if (detail && kind_ == kPacketIndirect) AddOwn(packet_indirect_nested, packet_timed_count - timed_before_);
++    if (detail && kind_ == kPacketWaitRegMem)
++      AddOwn(packet_wait_reg_sleep_ns, totals.guest_wait_ns.load(std::memory_order_relaxed) - guest_before_);
++    if (detail && kind_ == kPacketRegisters) {
++      const uint32_t group = PacketRegisterGroupOf(packet_ & 0x7FFF);
++      AddOwn(packet_register_ticks[group], own);
++      AddOwn(packet_register_counts[group], 1);
++      const uint32_t hot = HotRegisterOf(packet_ & 0x7FFF);
++      if (hot < kHotRegisterCount) {
++        AddOwn(packet_hot_ticks[hot], own);
++        AddOwn(packet_hot_counts[hot], 1);
++      }
++    }
++    ++packet_timed_count;
+     if (event_ < kEventOpcodes) {  // fix 96: each event opcode's own time
+       AddOwn(event_ticks[event_], own);
+       AddOwn(event_timed[event_], 1);
+@@ -729,6 +894,9 @@ class PacketTimer {
+   uint32_t kind_ = kPacketOther;
+   uint32_t event_ = kEventOpcodes;  // fix 96
+   uint64_t start_ = 0, other_ = 0, nested_before_ = 0;
++  uint32_t packet_ = 0;         // fix 142f-diag
++  uint64_t timed_before_ = 0;   // fix 142f-diag
++  uint64_t guest_before_ = 0;   // fix 142f-diag
+ };
+ // "Frame time packets (GPU thread, own time by kind): kind x ms/s in n/s, ..." largest first,
+ // since its previous line.
+@@ -736,7 +904,7 @@ class PacketReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -783,7 +951,7 @@ class EventReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -859,6 +1027,9 @@ inline uint32_t RegisterGroupOf(uint32_t index) {
+   if (index >= 0x4900 && index <= 0x4927) return kRegBoolLoop;  // SHADER_CONSTANT_BOOL_000_031..LOOP_31
+   return kRegOther;
+ }
++inline uint32_t PacketRegisterGroupOf(uint32_t base_index) {  // fix 142f-diag
++  return RegisterGroupOf(base_index);
++}
+ inline const char* RegisterGroupName(uint32_t group) {
+   static const char* const names[] = {"float constants", "fetch constants", "bool/loop constants", "other registers"};
+   return group < kRegGroups ? names[group] : "?";
+@@ -990,7 +1161,7 @@ class WaitRegReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -1071,7 +1242,7 @@ class SubmitPartsReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -1195,7 +1366,7 @@ class UploadReporter {
+  public:
+   std::string Line(double seconds) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     last_ns_per_tick_ = ns_per_tick;
+@@ -1245,7 +1416,7 @@ class SectionReporter {
+       ticks[s] = section_ticks[s].load(std::memory_order_relaxed);
+       counts[s] = section_count[s].load(std::memory_order_relaxed);
+     }
+-    double ns_per_tick = 1.0;
++    double ns_per_tick = OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     else if (last_ns_per_tick_ > 0)
+@@ -1496,7 +1667,7 @@ inline std::atomic<uint64_t> bind_draws{0}, bind_sampled{0}, bind_calls{0}, bind
+ // Whether the current draw is timed (the GPU thread's; set at its start).
+ inline bool bind_probe_active = false;
+ inline void BindBeginDraw() {
+-  if (!OnGpuThread()) {
++  if (!DiagDetail() || !OnGpuThread()) {  // fix 142f-diag: behind the switch
+     bind_probe_active = false;
+     return;
+   }
+@@ -1536,15 +1707,15 @@ class BindScope {
+   BindMark mark_;
+ };
+ inline void CountBindUpload(uint32_t buffer, uint64_t bytes) {
+-  if (buffer >= kBindConstantBuffers || !OnGpuThread()) return;
++  if (buffer >= kBindConstantBuffers || !DiagDetail() || !OnGpuThread()) return;
+   AddOwn(bind_uploads[buffer], 1);
+   AddOwn(bind_upload_bytes[buffer], bytes);
+ }
+ inline void CountBindCall() {
+-  if (OnGpuThread()) AddOwn(bind_calls, 1);
++  if (DiagDetail() && OnGpuThread()) AddOwn(bind_calls, 1);
+ }
+ inline void CountDescriptorUpdate(uint32_t descriptors) {
+-  if (!OnGpuThread()) return;
++  if (!DiagDetail() || !OnGpuThread()) return;
+   AddOwn(bind_update_calls, 1);
+   AddOwn(bind_update_descriptors, descriptors);
+ }
+@@ -1558,7 +1729,7 @@ inline const char* SameCallName(uint32_t call) {
+ // [call * 2 + same]: every draw counted; the timed draws' own ticks and their number.
+ inline std::array<std::atomic<uint64_t>, kSameCalls * 2> same_counts{}, same_ticks{}, same_timed{};
+ inline void NoteSame(uint32_t call, bool same, const BindMark& mark) {
+-  if (call >= kSameCalls || !OnGpuThread()) return;
++  if (call >= kSameCalls || !DiagDetail() || !OnGpuThread()) return;
+   const uint32_t slot = call * 2 + (same ? 1 : 0);
+   AddOwn(same_counts[slot], 1);
+   if (mark.ticks) {
+@@ -1578,7 +1749,7 @@ class BindReporter {
+   // `fixed_ns_per_tick` (tests): the ticks' length instead of the one measured between lines.
+   std::string Lines(double seconds, double fixed_ns_per_tick = 0) {
+     const uint64_t ticks_now = Ticks(), ns_now = NowNs();
+-    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
+     if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
+       ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
+     if (fixed_ns_per_tick > 0) ns_per_tick = fixed_ns_per_tick;
+@@ -1661,5 +1832,500 @@ class BindReporter {
+            last_same_timed_[kSameCalls * 2] = {};
+ };
+ 
++// Fix 142f-diag (research/parallel-gpu-commands/STAGE2.md, section 14): a diagnostic of the GPU command
++// thread, after fix 142e saved Grand Theft Auto IV 46 ms/s of it at no measurable frame rate.
++// Nothing here changes what is done.
++static_assert(kRegGroups == 4, "packet_register_ticks has one slot per register group");
++// Fix 73's "primitives" and "pipeline" parts by sub-part, on fix 142d's timed draws (1 in 8,
++// nested sections taken out, scaled). The rest of each part is fix 73's figure less these.
++enum DrawSubPart : uint32_t {
++  kSubProcess = 0,     // PrimitiveProcessor::Process
++  kSubModifications,   // the vertex and pixel shader modifications
++  kSubTranslations,    // GetOrCreateTranslation and EnsureShadersTranslated
++  kSubSamplers,        // the samplers' parameters and UseSampler
++  kSubWindowOffset,    // RenderTargetCache::GetWindowOffsetTiles
++  kSubConfigurePipeline,  // PipelineCache::ConfigurePipeline
++  kSubPipelineReady,   // the pipeline's readiness checks (and waits for it, fix 49's "pipelines")
++  kSubRequestTextures, // TextureCache::RequestTextures (its own time; textures are a section)
++  kSubBindPipeline,    // binding the pipeline and its layout
++  kSubViewport,        // the viewport's arguments and GetHostViewportInfo
++  kSubQuery,           // BindVIZPredicate and UpdateQuerySegment
++  kDrawSubParts
++};
++constexpr uint32_t kFirstPipelineSub = kSubConfigurePipeline;
++inline const char* DrawSubPartName(uint32_t part) {
++  static const char* const names[] = {"Process", "shader modifications", "translations", "samplers",
++                                      "window offset", "ConfigurePipeline", "pipeline readiness",
++                                      "RequestTextures", "pipeline bind", "viewport (GetHostViewportInfo)",
++                                      "BindVIZPredicate and UpdateQuerySegment"};
++  return part < kDrawSubParts ? names[part] : "?";
++}
++inline std::array<std::atomic<uint64_t>, kDrawSubParts> draw_sub_ticks{};
++inline void DrawSubStop(uint32_t part, const BindMark& mark) {
++  if (mark.ticks && part < kDrawSubParts) AddOwn(draw_sub_ticks[part], BindOwn(mark));
++}
++class DrawSubScope {
++ public:
++  explicit DrawSubScope(uint32_t part) : part_(part), mark_(BindStart()) {}
++  ~DrawSubScope() { DrawSubStop(part_, mark_); }
++  DrawSubScope(const DrawSubScope&) = delete;
++  DrawSubScope& operator=(const DrawSubScope&) = delete;
++
++ private:
++  uint32_t part_;
++  BindMark mark_;
++};
++
++// PrimitiveProcessor::Process by the index buffer type it chose (ProcessedIndexBufferType: none,
++// guest DMA, host converted, built-in for auto, built-in for DMA): every call counted, and on the
++// timed draws its own time before the shared memory request (the normalisation and the processed
++// index cache's CacheTransaction) and the request (RequestRange).
++constexpr uint32_t kIndexTypes = 5;
++inline const char* IndexTypeName(uint32_t type) {
++  static const char* const names[] = {"none", "guest DMA", "host converted", "built-in for auto",
++                                      "built-in for DMA"};
++  return type < kIndexTypes ? names[type] : "?";
++}
++inline std::array<std::atomic<uint64_t>, kIndexTypes> process_counts{}, process_prepare_ticks{},
++    process_request_ticks{};
++inline void NoteProcess(uint32_t type, const BindMark& prepare, const BindMark& request) {
++  if (type >= kIndexTypes || !DiagDetail() || !OnGpuThread()) return;
++  AddOwn(process_counts[type], 1);
++  if (prepare.ticks && request.ticks) {
++    const uint64_t whole = BindOwn(prepare), tail = BindOwn(request);
++    AddOwn(process_prepare_ticks[type], whole > tail ? whole - tail : 0);
++    AddOwn(process_request_ticks[type], tail);
++  }
++}
++
++// The texture sets a draw binds, per stage (0 vertex, 1 pixel), against the previous draw's and the
++// last kTextureSetHistory of this frame: keys only (the layout, fix 104's binding epoch, the image
++// views and samplers), compared in full; nothing is reused. Fix 104 already binds a stage's set again
++// when it equals the one written last in the frame.
++constexpr uint32_t kTextureSetHistory = 32;
++inline std::array<std::atomic<uint64_t>, 2> texture_set_draws{}, texture_set_same_previous{},
++    texture_set_in_history{};
++class TextureSetHistory {
++ public:
++  template <typename Layout, typename View, typename Sampler>
++  void Note(uint32_t stage, uint64_t frame, uint64_t epoch, Layout layout, const View* views, uint32_t view_count,
++            const Sampler* samplers, uint32_t sampler_count) {
++    if (stage > 1 || !DiagDetail() || !OnGpuThread()) return;
++    Stage& st = stages_[stage];
++    if (st.frame != frame) {
++      st.frame = frame;
++      st.used = 0;
++      st.next = 0;
++    }
++    key_.clear();
++    Put(layout);
++    key_.push_back(epoch);
++    key_.push_back(view_count);
++    for (uint32_t i = 0; i < view_count; ++i) Put(views[i]);
++    key_.push_back(sampler_count);
++    for (uint32_t i = 0; i < sampler_count; ++i) Put(samplers[i]);
++    AddOwn(texture_set_draws[stage], 1);
++    if (st.has_previous && st.previous == key_) AddOwn(texture_set_same_previous[stage], 1);
++    bool found = false;
++    for (uint32_t i = 0; i < st.used && !found; ++i) found = st.history[i] == key_;
++    if (found) AddOwn(texture_set_in_history[stage], 1);
++    st.previous = key_;
++    st.has_previous = true;
++    if (!found) {
++      st.history[st.next] = key_;
++      st.next = (st.next + 1) % kTextureSetHistory;
++      if (st.used < kTextureSetHistory) ++st.used;
++    }
++  }
++
++ private:
++  template <typename T>
++  void Put(const T& value) {
++    static_assert(sizeof(T) <= sizeof(uint64_t), "a handle");
++    uint64_t bits = 0;
++    std::memcpy(&bits, &value, sizeof(T));
++    key_.push_back(bits);
++  }
++  struct Stage {
++    uint64_t frame = UINT64_MAX;
++    std::vector<uint64_t> previous;
++    bool has_previous = false;
++    std::array<std::vector<uint64_t>, kTextureSetHistory> history;
++    uint32_t used = 0, next = 0;
++  };
++  std::array<Stage, 2> stages_;
++  std::vector<uint64_t> key_;
++};
++inline TextureSetHistory texture_set_history;
++
++// Float constant writes by stage (0 vertex, 1 pixel): identical (the bits it had), unused by the
++// current shaders (changed, not in their float constant map), used (changed and in it). And the
++// system constants: each UpdateSystemConstantValues call, and those that changed them (an upload,
++// fix 142d's "system" in the constants).
++constexpr uint32_t kConstantIdentical = 0, kConstantUnused = 1, kConstantUsed = 2, kConstantClasses = 3;
++inline std::array<std::array<std::atomic<uint64_t>, kConstantClasses>, 2> constant_writes{};
++inline void NoteFloatConstantWrite(uint32_t float_index, bool identical, bool used) {
++  const uint32_t stage = float_index >= 256 ? 1 : 0;
++  AddOwn(constant_writes[stage][identical ? kConstantIdentical : used ? kConstantUsed : kConstantUnused], 1);
++}
++inline std::atomic<uint64_t> system_constant_calls{0}, system_constant_changes{0};
++inline void NoteSystemConstants(bool changed) {
++  if (!DiagDetail() || !OnGpuThread()) return;
++  AddOwn(system_constant_calls, 1);
++  if (changed) AddOwn(system_constant_changes, 1);
++}
++
++// Resolve readbacks in fast mode that did not wait: the earlier copy handed over, a steady family's
++// late copy taken instead of its own (fix 133), or carried over to a later resolve because the GPU
++// had not finished the copy (fix 59). (Waits are counted by reason above.)
++constexpr uint32_t kOutcomeHanded = 0, kOutcomeFamilyLate = 1, kOutcomeCarried = 2, kOutcomes = 3;
++inline std::array<std::atomic<uint64_t>, kOutcomes> resolve_outcomes{};
++inline void NoteResolveOutcome(uint32_t outcome) {
++  if (outcome < kOutcomes && DiagDetail() && OnGpuThread()) AddOwn(resolve_outcomes[outcome], 1);
++}
++
++// Access faults in guest memory (MMIOHandler::ExceptionCallback, any thread): MMIO, a write to a
++// watched page, a read of a read-watched page (fix 91), and a watch another thread had already
++// lifted; and the guest code that faulted most (one fault in 8 resolved to its guest address
++// through the JIT's code map; 0 is the emulator's own code).
++enum FaultKind : uint32_t { kFaultMmio = 0, kFaultWriteWatch, kFaultReadWatch, kFaultCleared, kFaultKinds };
++inline const char* FaultKindName(uint32_t kind) {
++  static const char* const names[] = {"MMIO", "write to a watched page", "read of a read-watched page",
++                                      "watch already lifted"};
++  return kind < kFaultKinds ? names[kind] : "?";
++}
++inline std::array<std::atomic<uint64_t>, kFaultKinds> faults{};
++inline std::atomic<uint32_t (*)(uint64_t)> guest_pc_resolver{nullptr};
++constexpr uint32_t kFaultSlots = 128;
++struct FaultSlot {
++  std::atomic<uint64_t> key{0};  // guest PC << 8 | kind + 1
++  std::atomic<uint64_t> count{0};
++};
++inline std::array<FaultSlot, kFaultSlots> fault_slots{};
++inline std::atomic<uint32_t> fault_sample{0};
++inline void NoteFault(uint32_t kind, uint64_t host_pc) {
++  if (kind >= kFaultKinds || !DiagDetail()) return;
++  faults[kind].fetch_add(1, std::memory_order_relaxed);
++  if (fault_sample.fetch_add(1, std::memory_order_relaxed) % 8) return;
++  uint32_t (*resolve)(uint64_t) = guest_pc_resolver.load(std::memory_order_relaxed);
++  const uint32_t guest_pc = resolve ? resolve(host_pc) : 0;
++  const uint64_t key = (uint64_t(guest_pc) << 8) | (kind + 1);
++  uint32_t slot = uint32_t((key * 0x9E3779B97F4A7C15ull) >> 57) % kFaultSlots;
++  for (uint32_t probe = 0; probe < 8; ++probe, slot = (slot + 1) % kFaultSlots) {
++    uint64_t current = fault_slots[slot].key.load(std::memory_order_relaxed);
++    if (current == 0 &&
++        fault_slots[slot].key.compare_exchange_strong(current, key, std::memory_order_relaxed)) {
++      current = key;
++    }
++    if (current == key) {
++      fault_slots[slot].count.fetch_add(8, std::memory_order_relaxed);  // scaled back
++      return;
++    }
++  }
++}
++
++// What a timed packet's timer costs: inside the packet's own time (between its two clock reads)
++// and outside it (what the enclosing packet sees beyond that), in ticks. Estimated by running the
++// timer's own steps on scratch counters on the calling thread, which runs on the same kind of core.
++struct TimerCost {
++  double inside_ticks = 0, outside_ticks = 0;
++};
++inline TimerCost EstimatePacketTimerCost(uint32_t rounds = 4096) {
++  std::atomic<uint64_t> scratch_ticks{0}, scratch_count{0};
++  uint64_t nested = 0, inside = 0, timed = 0;
++  volatile bool on_thread = false;
++  const uint64_t outer_start = Ticks();
++  for (uint32_t i = 0; i < rounds; ++i) {
++    on_thread = OnGpuThread();  // the constructor's test
++    const uint64_t start = Ticks();
++    const uint64_t other = OtherSectionTicks() + section_ticks[kDraw].load(std::memory_order_relaxed);
++    const uint64_t nested_before = nested, timed_before = timed;
++    const uint64_t wall = Ticks() - start;  // the destructor
++    const uint64_t sections =
++        OtherSectionTicks() + section_ticks[kDraw].load(std::memory_order_relaxed) - other;
++    const uint64_t own = wall > sections ? wall - sections : 0;
++    AddOwn(scratch_ticks, own);
++    AddOwn(scratch_count, 1);
++    AddOwn(scratch_ticks, timed - timed_before);
++    ++timed;
++    nested = nested_before + wall - sections;
++    inside += own;
++  }
++  const uint64_t outer = Ticks() - outer_start;
++  (void)on_thread;
++  TimerCost cost;
++  if (rounds) {
++    cost.inside_ticks = double(inside) / rounds;
++    cost.outside_ticks = outer > inside ? double(outer - inside) / rounds : 0.0;
++  }
++  return cost;
++}
++
++// "Frame time GPU thread without waits (fix 142f-diag): executing x ms/s, of which sections ..., GPU
++// waits w ms/s (fix 49's fences), WAIT_REG_MEM sleeps z ms/s (fix 138), and the rest (packets,
++// registers, constants) r ms/s" - the detail line's rest of executing holds the waits; this one
++// takes them out. And "Frame time packet timing (GPU thread, fix 142f-diag): ..." with INDIRECT_BUFFER's
++// nested timed packets and the timer's cost in them, type 0 by register group, and fix 73's
++// primitives and pipeline parts by sub-part. And "Frame time readback waits (GPU thread, fix
++// 142f): ..." the resolve and memexport readback waits by reason.
++class ProbeReporter {
++ public:
++  // `fixed_ns_per_tick` and `fixed_cost` (tests): instead of the measured ones.
++  std::string Lines(double seconds, double fixed_ns_per_tick = 0, const TimerCost* fixed_cost = nullptr) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : OriginNsPerTick();  // fix 142f-diag
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    if (fixed_ns_per_tick > 0) ns_per_tick = fixed_ns_per_tick;
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    auto ms_ticks = [&](double ticks) { return ticks * ns_per_tick / 1e6 / s; };
++    auto ms_ns = [&](double ns) { return ns / 1e6 / s; };
++
++    // The GPU thread without its waits.
++    const double execute = ms_ns(Delta(totals.execute_ns, last_execute_));
++    const double guest = ms_ns(Delta(totals.guest_wait_ns, last_guest_));
++    const double guest_n = Delta(totals.guest_waits, last_guest_n_) / s;
++    double sections_ms[kSections] = {};
++    double covered = 0;
++    std::string sections;
++    for (uint32_t n = 1; n < kSections; ++n) {
++      sections_ms[n] = ms_ticks(Delta(section_ticks[n], last_sections_[n]));
++      covered += sections_ms[n];
++      if (n == kWait) continue;
++      char item[64];
++      std::snprintf(item, sizeof(item), "%s%s %.1f", sections.empty() ? "" : ", ", SectionName(n), sections_ms[n]);
++      sections += item;
++    }
++    double pipeline_waits = ms_ns(Delta(totals.wait_ns[kPipeline], last_pipeline_));
++    const double rest = execute > covered + guest ? execute - covered - guest : 0.0;
++    char first[640];
++    std::snprintf(first, sizeof(first),
++                  "Frame time GPU thread without waits (fix 142f-diag): executing %.0f ms/s with every wait in it; "
++                  "sections %s ms/s (draws hold pipeline waits %.1f); GPU waits %.1f ms/s; WAIT_REG_MEM sleeps "
++                  "%.1f ms/s in %.0f/s; the rest of executing (packets, registers, constants) without waits %.1f ms/s",
++                  execute, sections.c_str(), pipeline_waits, sections_ms[kWait], guest, guest_n, rest);
++
++    // Packet timing.
++    const TimerCost cost = fixed_cost ? *fixed_cost : EstimatePacketTimerCost();
++    const uint64_t top = packet_top.load(std::memory_order_relaxed);
++    const uint64_t sampled = packet_top_sampled.load(std::memory_order_relaxed);
++    const double scale = sampled != last_top_sampled_ ? double(top - last_top_) / double(sampled - last_top_sampled_)
++                                                      : 0.0;
++    last_top_ = top;
++    last_top_sampled_ = sampled;
++    const double ib_ms = ms_ticks(Delta(packet_ticks[kPacketIndirect], last_ib_ticks_) * scale);
++    const double ib_n = Delta(packet_counts[kPacketIndirect], last_ib_counts_) * scale;
++    const double nested = Delta(packet_indirect_nested, last_ib_nested_) * scale;
++    const double ib_timers = ms_ticks(nested * cost.outside_ticks);
++    std::string groups;
++    for (uint32_t g = 0; g < kRegGroups; ++g) {
++      const double ms = ms_ticks(Delta(packet_register_ticks[g], last_reg_ticks_[g]) * scale);
++      const double n = Delta(packet_register_counts[g], last_reg_counts_[g]) * scale;
++      char item[128];
++      std::snprintf(item, sizeof(item), "%s%s %.1f ms/s in %.0f/s (%.0f ns each)", g ? ", " : "", RegisterGroupName(g),
++                    ms, n / s, n > 0 ? ms * 1e6 * s / n : 0.0);
++      groups += item;
++    }
++    // Fix 73's parts by sub-part (fix 142d's sampling).
++    const double draws = Delta(bind_draws, last_draws_), timed = Delta(bind_sampled, last_timed_);
++    const double draw_scale = timed > 0 ? draws / timed : 0.0;
++    std::string subs;
++    for (uint32_t n = 0; n < kDrawSubParts; ++n) {
++      const double ms = ms_ticks(Delta(draw_sub_ticks[n], last_subs_[n]) * draw_scale);
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%s%s %.1f", n == 0 ? "primitives: " : n == kFirstPipelineSub ? "; pipeline: " : ", ",
++                    "", DrawSubPartName(n), ms);
++      subs += item;
++    }
++    char second[1200];
++    std::snprintf(second, sizeof(second),
++                  "Frame time packet timing (GPU thread, fix 142f-diag): the timer costs about %.0f ns inside a timed packet "
++                  "and %.0f ns outside it; INDIRECT_BUFFER own %.1f ms/s in %.0f/s with %.1f timed packets nested "
++                  "each (%.0f ns of its own time per nested packet), of which about %.1f ms/s is their timers; type 0 by first register: %s; draws by sub-part "
++                  "(ms/s, 1 draw in 8 timed): %s",
++                  cost.inside_ticks * ns_per_tick, cost.outside_ticks * ns_per_tick, ib_ms, ib_n / s,
++                  ib_n > 0 ? nested / ib_n : 0.0, nested > 0 ? ib_ms * 1e6 * s / nested : 0.0, ib_timers, groups.c_str(), subs.c_str());
++
++    // Resolve waits by reason.
++    std::string reasons;
++    double resolve_total = 0;
++    for (uint32_t r = 0; r < kResolveReasons; ++r) {
++      const double ms = ms_ns(Delta(resolve_wait_ns[r], last_resolve_ns_[r]));
++      const double n = Delta(resolve_waits[r], last_resolve_n_[r]);
++      const double bytes = Delta(resolve_wait_bytes[r], last_resolve_bytes_[r]);
++      resolve_total += ms;
++      char item[128];
++      std::snprintf(item, sizeof(item), "%s%s %.1f ms/s in %.1f/s (%.0f KiB each)", r ? ", " : "", ResolveReasonName(r),
++                    ms, n / s, n > 0 ? bytes / n / 1024.0 : 0.0);
++      reasons += item;
++    }
++    std::string exports;
++    double memexport_total = 0;
++    for (uint32_t r = 0; r < kMemexportReasons; ++r) {
++      const double ms = ms_ns(Delta(memexport_wait_ns[r], last_memexport_ns_[r]));
++      const double n = Delta(memexport_waits[r], last_memexport_n_[r]);
++      const double bytes = Delta(memexport_wait_bytes[r], last_memexport_bytes_[r]);
++      memexport_total += ms;
++      char item[128];
++      std::snprintf(item, sizeof(item), "%s%s %.1f ms/s in %.1f/s (%.1f KiB each)", r ? ", " : "",
++                    MemexportReasonName(r), ms, n / s, n > 0 ? bytes / n / 1024.0 : 0.0);
++      exports += item;
++    }
++    double outcomes[kOutcomes];
++    for (uint32_t o = 0; o < kOutcomes; ++o) outcomes[o] = Delta(resolve_outcomes[o], last_outcomes_[o]) / s;
++    const double resolve_own = sections_ms[kCopy];
++    const double resolve_n = Delta(section_count[kCopy], last_copy_count_) / s;
++    char third[1600];
++    std::snprintf(third, sizeof(third),
++                  "Frame time readback waits (GPU thread, fix 142f-diag): resolves %.1f ms/s (%s); fast copies without a "
++                  "wait: the earlier copy handed over %.1f/s, a steady family's late copy (fix 133) %.1f/s, carried over "
++                  "with the GPU behind (fix 59) %.1f/s; the resolves' own time %.1f ms/s in %.0f/s (%.1f us each); "
++                  "memexport %.1f ms/s (%s)",
++                  resolve_total, reasons.c_str(), outcomes[kOutcomeHanded], outcomes[kOutcomeFamilyLate],
++                  outcomes[kOutcomeCarried], resolve_own, resolve_n, resolve_n > 0 ? resolve_own * 1000 / resolve_n : 0.0,
++                  memexport_total, exports.c_str());
++    // Every packet counted by kind, against fix 75's scaled sample; the sample's own time each.
++    std::string kinds;
++    double kinds_ms = 0;
++    for (uint32_t k = 0; k < kPacketKinds; ++k) {
++      const double all = Delta(packet_all_counts[k], last_all_counts_[k]);
++      const double timed_ticks = Delta(packet_ticks[k], last_kind_ticks_[k]);
++      const double timed_n = Delta(packet_counts[k], last_kind_counts_[k]);
++      const double each_ns = timed_n > 0 ? timed_ticks * ns_per_tick / timed_n : 0.0;
++      const double ms = all * each_ns / 1e6 / s;
++      kinds_ms += ms;
++      if (all < 1 && timed_n < 1) continue;
++      char item[160];
++      std::snprintf(item, sizeof(item), "%s%s %.0f/s (fix 75's scaled %.0f/s), %.0f ns each, %.1f ms/s",
++                    kinds.empty() ? "" : "; ", PacketKindName(k), all / s, timed_n * scale / s, each_ns, ms);
++      kinds += item;
++    }
++    const double wait_reg_sleep = ms_ns(Delta(packet_wait_reg_sleep_ns, last_wait_reg_sleep_) * scale);
++    char fourth[2400];
++    std::snprintf(fourth, sizeof(fourth),
++                  "Frame time packets counted (GPU thread, fix 142f-diag, every packet counted, own time from the "
++                  "timed ones): %s; in all %.1f ms/s; WAIT_REG_MEM's own time holds %.1f ms/s of sleeping (fix 138's "
++                  "sleeps in timed WAIT_REG_MEM packets, scaled)",
++                  kinds.empty() ? "none" : kinds.c_str(), kinds_ms, wait_reg_sleep);
++    // The draws' detail: Process by index buffer type, texture sets, constant writes, hot registers.
++    std::string process;
++    for (uint32_t t = 0; t < kIndexTypes; ++t) {
++      const double n = Delta(process_counts[t], last_process_n_[t]);
++      const double prepare = ms_ticks(Delta(process_prepare_ticks[t], last_process_prepare_[t]) * draw_scale);
++      const double request = ms_ticks(Delta(process_request_ticks[t], last_process_request_[t]) * draw_scale);
++      char item[160];
++      std::snprintf(item, sizeof(item), "%s%s %.0f/s (before the request %.1f ms/s, RequestRange %.1f ms/s)",
++                    t ? ", " : "", IndexTypeName(t), n / s, prepare, request);
++      process += item;
++    }
++    std::string sets;
++    for (uint32_t st = 0; st < 2; ++st) {
++      const double n = Delta(texture_set_draws[st], last_set_draws_[st]);
++      const double same = Delta(texture_set_same_previous[st], last_set_same_[st]);
++      const double found = Delta(texture_set_in_history[st], last_set_found_[st]);
++      char item[160];
++      std::snprintf(item, sizeof(item), "%s%s %.0f/s, the previous draw's %.1f%%, among the last %u of the frame %.1f%%",
++                    st ? "; " : "", st ? "pixel" : "vertex", n / s, n > 0 ? same * 100 / n : 0.0, kTextureSetHistory,
++                    n > 0 ? found * 100 / n : 0.0);
++      sets += item;
++    }
++    std::string writes;
++    for (uint32_t st = 0; st < 2; ++st) {
++      double c[kConstantClasses];
++      for (uint32_t k = 0; k < kConstantClasses; ++k) c[k] = Delta(constant_writes[st][k], last_writes_[st][k]) / s;
++      char item[160];
++      std::snprintf(item, sizeof(item), "%s%s identical %.0f/s, unused %.0f/s, used %.0f/s", st ? "; " : "",
++                    st ? "pixel" : "vertex", c[kConstantIdentical], c[kConstantUnused], c[kConstantUsed]);
++      writes += item;
++    }
++    const double system_calls = Delta(system_constant_calls, last_system_calls_) / s;
++    const double system_changes = Delta(system_constant_changes, last_system_changes_) / s;
++    std::string hot;
++    for (uint32_t h = 0; h < kHotRegisterCount; ++h) {
++      const double ms = ms_ticks(Delta(packet_hot_ticks[h], last_hot_ticks_[h]) * scale);
++      const double n = Delta(packet_hot_counts[h], last_hot_counts_[h]) * scale;
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%04X %.1f ms/s in %.0f/s (%.0f ns each)", h ? ", " : "", kHotRegisters[h], ms,
++                    n / s, n > 0 ? ms * 1e6 * s / n : 0.0);
++      hot += item;
++    }
++    char fifth[2400];
++    std::snprintf(fifth, sizeof(fifth),
++                  "Frame time draw detail (GPU thread, fix 142f-diag): Process by index buffer type: %s; texture "
++                  "sets: %s; float constant writes: %s; system constants %.0f updates/s, %.0f changed/s; type 0 "
++                  "packets at the hot registers: %s",
++                  process.c_str(), sets.c_str(), writes.c_str(), system_calls, system_changes, hot.c_str());
++    // Faults by kind, and the guest code that faulted most.
++    std::string fault_kinds;
++    for (uint32_t k = 0; k < kFaultKinds; ++k) {
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%s %.0f/s", k ? ", " : "", FaultKindName(k),
++                    Delta(faults[k], last_faults_[k]) / s);
++      fault_kinds += item;
++    }
++    struct Top { uint64_t key; double rate; };
++    Top top_faults[8] = {};
++    for (uint32_t i = 0; i < kFaultSlots; ++i) {
++      const uint64_t key = fault_slots[i].key.load(std::memory_order_relaxed);
++      const double rate = Delta(fault_slots[i].count, last_fault_slots_[i]) / s;
++      if (!key || rate <= 0) continue;
++      for (uint32_t t = 0; t < 8; ++t) {
++        if (rate > top_faults[t].rate) {
++          for (uint32_t u = 7; u > t; --u) top_faults[u] = top_faults[u - 1];
++          top_faults[t] = {key, rate};
++          break;
++        }
++      }
++    }
++    std::string top_text;
++    for (const Top& t : top_faults) {
++      if (!t.key) continue;
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%08X (%s) %.0f/s", top_text.empty() ? "" : ", ", uint32_t(t.key >> 8),
++                    FaultKindName(uint32_t(t.key & 0xFF) - 1), t.rate);
++      top_text += item;
++    }
++    const std::string sixth = "Frame time faults (fix 142f-diag, every thread): " + fault_kinds +
++                              "; guest code faulting most (1 in 8 resolved, 00000000 the emulator's own): " +
++                              (top_text.empty() ? std::string("none") : top_text);
++    const char* state = DiagDetail() ? "on" : "off (the detailed figures below are not counted)";
++    return std::string("GPU diagnostics detail (fix 142f-diag): ") + state + "\n" + first + "\n" + second + "\n" +
++           third + "\n" + fourth + "\n" + fifth + "\n" + sixth;
++  }
++
++ private:
++  template <class Counter>
++  static double Delta(const Counter& counter, uint64_t& last) {
++    const uint64_t now = counter.load(std::memory_order_relaxed);
++    const double d = double(now - last);
++    last = now;
++    return d;
++  }
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++  uint64_t last_execute_ = 0, last_guest_ = 0, last_guest_n_ = 0, last_pipeline_ = 0;
++  uint64_t last_sections_[kSections] = {};
++  uint64_t last_top_ = 0, last_top_sampled_ = 0, last_ib_ticks_ = 0, last_ib_counts_ = 0, last_ib_nested_ = 0;
++  uint64_t last_reg_ticks_[kRegGroups] = {}, last_reg_counts_[kRegGroups] = {};
++  uint64_t last_draws_ = 0, last_timed_ = 0, last_subs_[kDrawSubParts] = {};
++  uint64_t last_resolve_ns_[kResolveReasons] = {}, last_resolve_n_[kResolveReasons] = {},
++           last_resolve_bytes_[kResolveReasons] = {};
++  uint64_t last_memexport_ns_[kMemexportReasons] = {}, last_memexport_n_[kMemexportReasons] = {},
++           last_memexport_bytes_[kMemexportReasons] = {};
++  uint64_t last_process_n_[kIndexTypes] = {}, last_process_prepare_[kIndexTypes] = {},
++           last_process_request_[kIndexTypes] = {};
++  uint64_t last_set_draws_[2] = {}, last_set_same_[2] = {}, last_set_found_[2] = {};
++  uint64_t last_writes_[2][kConstantClasses] = {};
++  uint64_t last_system_calls_ = 0, last_system_changes_ = 0;
++  uint64_t last_hot_ticks_[kHotRegisterCount] = {}, last_hot_counts_[kHotRegisterCount] = {};
++  uint64_t last_outcomes_[kOutcomes] = {}, last_copy_count_ = 0, last_faults_[kFaultKinds] = {},
++           last_fault_slots_[kFaultSlots] = {};
++  uint64_t last_all_counts_[kPacketKinds] = {}, last_kind_ticks_[kPacketKinds] = {},
++           last_kind_counts_[kPacketKinds] = {}, last_wait_reg_sleep_ = 0;
++};
++
+ }  // namespace frame_cost
+ }  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 4ad5982..33390bf 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -4376,6 +4376,17 @@ int main(int argc, char** argv) {
+                   XELOGW("{}", lines.substr(0, split));
+                   if (split != std::string::npos) XELOGW("{}", lines.substr(split + 1));
+                 }
++                // Fix 142f-diag: the GPU thread without waits, packet timing and draw sub-parts, resolve waits.
++                static xbox360ps5::frame_cost::ProbeReporter frame_cost_probe;
++                {
++                  std::string lines = frame_cost_probe.Lines(double(summary_samples));
++                  for (size_t start = 0; start <= lines.size();) {
++                    const size_t end = lines.find('\n', start);
++                    XELOGW("{}", lines.substr(start, end == std::string::npos ? std::string::npos : end - start));
++                    if (end == std::string::npos) break;
++                    start = end + 1;
++                  }
++                }
+                 // Fix 74: watch arming by view of physical memory.
+                 static xbox360ps5::frame_cost::ArmReporter frame_cost_arming;
+                 XELOGW("{}", frame_cost_arming.Line(double(summary_samples)));
