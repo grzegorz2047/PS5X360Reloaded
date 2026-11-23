@@ -1,0 +1,695 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
+index 8673713..5bde98f 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.cc
+@@ -538,6 +538,7 @@ uint32_t RenderTargetCache::Transfer::AddRectangle(const Rectangle& rectangle,
+ RenderTargetCache::~RenderTargetCache() { ShutdownCommon(); }
+ 
+ void RenderTargetCache::InitializeCommon() {
++  Fix142eTouch("InitializeCommon");  // fix 142e
+   assert_true(ownership_ranges_.empty());
+   ownership_ranges_.emplace(
+       std::piecewise_construct, std::forward_as_tuple(uint32_t(0)),
+@@ -558,6 +559,7 @@ void RenderTargetCache::InitializeCommon() {
+ }
+ 
+ void RenderTargetCache::DestroyAllRenderTargets(bool shutting_down) {
++  Fix142eTouch("DestroyAllRenderTargets");  // fix 142e
+   ownership_ranges_.clear();
+   if (!shutting_down) {
+     ownership_ranges_.emplace(
+@@ -577,6 +579,7 @@ void RenderTargetCache::DestroyAllRenderTargets(bool shutting_down) {
+ void RenderTargetCache::ShutdownCommon() { DestroyAllRenderTargets(true); }
+ 
+ void RenderTargetCache::ClearCache() {
++  Fix142eTouch("ClearCache");  // fix 142e
+   // Keep only render targets currently owning any EDRAM data.
+   if (!render_targets_.empty()) {
+     std::unordered_set<RenderTargetKey, RenderTargetKey::Hasher>
+@@ -618,6 +621,7 @@ void RenderTargetCache::ClearCache() {
+ }
+ 
+ void RenderTargetCache::BeginFrame() {
++  Fix142eTouch("BeginFrame");  // fix 142e
+ #if XE_PLATFORM_PS5
+   ++trim_frame_;  // fix 117g
+ #endif
+@@ -626,6 +630,7 @@ void RenderTargetCache::BeginFrame() {
+ 
+ #if XE_PLATFORM_PS5
+ size_t RenderTargetCache::TrimUnusedRenderTargets(uint64_t idle_frames) {
++  Fix142eTouch("TrimUnusedRenderTargets");  // fix 142e
+   // Fix 117g: as ClearCache keeps the targets owning EDRAM data, and also the
+   // last bound ones and those used in the last idle_frames frames.
+   std::unordered_set<RenderTargetKey, RenderTargetKey::Hasher> kept;
+@@ -1324,6 +1329,31 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
+   return true;
+ }
+ 
++// Xbox360PS5, fix 142e (render_target_skip.h): the key of an Update on the host render target
++// path. render_target_skip::kRegisters are the registers Update, EstimateMaxY (for a clipped draw)
++// and GetScissor read; the rest are its parameters and the settings and scale it reads.
++void RenderTargetCache::Fix142eKeyFor(bool is_rasterization_done,
++                                      reg::RB_DEPTHCONTROL normalized_depth_control,
++                                      uint32_t normalized_color_mask,
++                                      int32_t window_offset_tiles,
++                                      render_target_skip::Key& key) const {
++  const RegisterFile& regs = register_file();
++  for (size_t i = 0; i < render_target_skip::kRegisterCount; ++i) {
++    key.registers[i] = regs[render_target_skip::kRegisters[i]];
++  }
++  key.Add(uint32_t(is_rasterization_done));
++  key.Add(normalized_depth_control.value);
++  key.Add(normalized_color_mask);
++  key.Add(window_offset_tiles);
++  key.Add(uint32_t(draw_resolution_scale_x()) | uint64_t(draw_resolution_scale_y()) << 32);
++  key.Add(uint32_t(cvars::aliased_depth_read_only) |
++          uint32_t(cvars::mrt_edram_used_range_clamp_to_min) << 1 |
++          uint64_t(cvars::draw_resolution_scale_threshold) << 32);
++#if XE_PLATFORM_PS5
++  key.Add(trim_frame_);  // fix 117g: Update marks the render targets used in this frame
++#endif
++}
++
+ uint32_t RenderTargetCache::GetLastUpdateBoundRenderTargets(
+     uint32_t* depth_and_color_formats_out) const {
+   if (GetPath() != Path::kHostRenderTargets) {
+@@ -1522,6 +1552,7 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+     std::vector<Transfer>& depth_transfers_out,
+     RenderTarget*& color_render_target_out,
+     std::vector<Transfer>& color_transfers_out) {
++  Fix142eTouch("PrepareHostRenderTargetsResolveClear");  // fix 142e
+   assert_true(GetPath() == Path::kHostRenderTargets);
+ 
+   uint32_t pitch_tiles_at_32bpp;
+@@ -1737,6 +1768,7 @@ bool RenderTargetCache::PrepareHostRenderTargetsResolveClear(
+ RenderTargetCache::RenderTarget*
+ RenderTargetCache::PrepareFullEdram1280xRenderTargetForSnapshotRestoration(
+     xenos::ColorRenderTargetFormat color_format) {
++  Fix142eTouch("PrepareFullEdram1280xRenderTargetForSnapshotRestoration");  // fix 142e
+   assert_true(GetPath() == Path::kHostRenderTargets);
+   constexpr uint32_t kPitchTilesAt32bpp = 16;
+   constexpr uint32_t kWidth =
+@@ -1779,6 +1811,7 @@ RenderTargetCache::PrepareFullEdram1280xRenderTargetForSnapshotRestoration(
+ }
+ 
+ void RenderTargetCache::PixelShaderInterlockFullEdramBarrierPlaced() {
++  Fix142eTouch("PixelShaderInterlockFullEdramBarrierPlaced");  // fix 142e
+   assert_true(GetPath() == Path::kPixelShaderInterlock);
+   interlock_last_window_offset_ = UINT32_MAX;
+   // Clear ownership - any overlap of data written before the barrier is safe.
+@@ -1812,6 +1845,7 @@ RenderTargetCache::RenderTarget* RenderTargetCache::GetOrCreateRenderTarget(
+     }
+ #endif
+   } else {
++    Fix142eTouch("GetOrCreateRenderTarget");  // fix 142e: a new render target
+     render_target = CreateRenderTarget(key);
+ #if XE_PLATFORM_PS5
+     if (render_target) {
+@@ -1991,6 +2025,7 @@ void RenderTargetCache::ChangeOwnership(
+       if (it_pre->second.end_tiles > extent_start &&
+           is_claim_needed(it_pre->second)) {
+         // Different render target overlapping the range - split the head.
++        Fix142eTouch("ChangeOwnership");  // fix 142e
+         ownership_ranges_.emplace_hint(it, extent_start, it_pre->second);
+         it_pre->second.end_tiles = extent_start;
+         // Let the next loop do the transfer and needed merging and splitting
+@@ -2073,6 +2108,7 @@ void RenderTargetCache::ChangeOwnership(
+         }
+       }
+       // Claim the current range.
++      Fix142eTouch("ChangeOwnership");  // fix 142e
+       it->second.render_target = dest;
+       if (dest_writes_depth_bits) {
+         it->second.depth_bits_target = dest;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
+index 09bbeaa..5b517a0 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_cache.h
+@@ -27,6 +27,7 @@
+ #include "xenia/gpu/draw_util.h"
+ #include "xenia/gpu/register_file.h"
+ #include "xenia/gpu/registers.h"
++#include "xenia/gpu/render_target_skip.h"  // fix 142e
+ #include "xenia/gpu/shader.h"
+ #include "xenia/gpu/xenos.h"
+ 
+@@ -586,6 +587,30 @@ class RenderTargetCache {
+ 
+   void ResetAccumulatedRenderTargets() {
+     are_accumulated_render_targets_valid_ = false;
++    Fix142eTouch("ResetAccumulatedRenderTargets");  // fix 142e
++  }
++  // Xbox360PS5, fix 142e (render_target_skip.h): the state version, bumped by every change of
++  // what Update reads (check-render-target-skip lists who must bump it), and what bumped it last
++  // (for the verify mode's log).
++  void Fix142eTouch(const char* by) {
++    ++fix142e_version_;
++    fix142e_touched_by_ = by;
++  }
++  uint64_t fix142e_version_ = 0;
++  const char* fix142e_touched_by_ = "";
++  // Fix 142e: the key of an Update on the host render target path (the registers, the parameters
++  // and the settings it reads), and what the common Update leaves for the draw.
++  void Fix142eKeyFor(bool is_rasterization_done,
++                     reg::RB_DEPTHCONTROL normalized_depth_control,
++                     uint32_t normalized_color_mask, int32_t window_offset_tiles,
++                     render_target_skip::Key& key) const;
++  void Fix142eAddOutputs(render_target_skip::Outputs& outputs) const {
++    for (size_t i = 0; i < 1 + xenos::kMaxColorRenderTargets; ++i) {
++      outputs.Add(last_update_used_render_targets_[i]);
++      outputs.Add(last_update_accumulated_render_targets_[i]);
++      outputs.Add(last_update_transfers_[i].size());
++    }
++    outputs.Add(are_accumulated_render_targets_valid_);
+   }
+   RenderTarget* const* last_update_accumulated_render_targets() const {
+     assert_true(GetPath() == Path::kHostRenderTargets);
+@@ -684,6 +709,7 @@ class RenderTargetCache {
+                                xenos::MsaaSamples msaa_samples) {
+     if (pitch_tiles_at_32bpp < 256) {
+       kept_native_[pitch_tiles_at_32bpp * 4 + uint32_t(msaa_samples)] = true;
++      Fix142eTouch("KeepScaleNativeForPitch");  // fix 142e
+     }
+   }
+ #endif
+diff --git a/.deps/xenia-canary/src/xenia/gpu/render_target_skip.h b/.deps/xenia-canary/src/xenia/gpu/render_target_skip.h
+new file mode 100644
+index 0000000..b625f40
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/render_target_skip.h
+@@ -0,0 +1,224 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 142e: skips RenderTargetCache::Update for a draw that would change nothing.
++//
++// Fix 142d measured RenderTargetCache::Update at 86-98 ms/s in Grand Theft Auto IV, 43.6 in Red
++// Dead Redemption and 74.5 in Modern Warfare 2, and the render pass the same as the previous
++// draw's for 99.1-99.9% of the draws. Update is still needed for those draws: it estimates the
++// draw's height from its registers, claims the EDRAM ranges, creates render targets, transfers
++// between them and transitions their layouts. It is skipped here only when running it again
++// cannot do anything:
++//   1. The draw's key matches the last Update's: the registers Update reads (kRegisters, which
++//      check-render-target-skip compares with the functions' text), its parameters, the
++//      resolution scale and the settings it reads.
++//   2. The draw is clipped (PA_CL_CLIP_CNTL.clip_disable clear). An unclipped draw's height can
++//      come from its vertices, run on the CPU, which the key does not hold.
++//   3. The cache's state version is unchanged since that Update returned. Every change of the
++//      state Update reads bumps it (Touch), in Update or anywhere else: a claimed EDRAM range, a
++//      created render target, a layout transition, a resolve, a trim, a cleared cache.
++//   4. That Update changed nothing: the version did not move during it and what it leaves for
++//      the draw (the bound render targets, the transfers, the render pass and framebuffer) is
++//      what it was before it.
++// Then Update would run the same code on the same inputs and state and change nothing again.
++//
++// Modes (render_target_skip, or the number in render-target-skip.txt in the title folder):
++//   0 off: Update always runs and nothing here is looked at (only the version is counted).
++//   1 verify: Update always runs; when the memo says it could have been skipped, whether it then
++//     changed anything is checked, and each such draw counted as a mismatch (the first ones are
++//     logged with what changed).
++//   2 skip: the memo's draws return at once with the last Update's results.
++// Host render targets only; the fragment shader interlock path always runs Update.
++#ifndef XENIA_GPU_RENDER_TARGET_SKIP_H_
++#define XENIA_GPU_RENDER_TARGET_SKIP_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <sstream>
++#include <string>
++#include <type_traits>
++
++#include "xenia/gpu/registers.h"
++
++namespace xe {
++namespace gpu {
++namespace render_target_skip {
++
++enum Mode : uint32_t { kOff = 0, kVerify = 1, kSkip = 2, kModes };
++
++// render-target-skip.txt: one number, 0, 1 or 2, "#" comments. Returns false (mode untouched)
++// for anything else.
++inline bool ParseMode(const std::string& text, uint32_t& mode) {
++  std::istringstream lines(text);
++  std::string line;
++  bool found = false;
++  uint32_t value = kOff;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string word;
++    while (words >> word) {
++      if (found || word.size() != 1 || word[0] < '0' || word[0] >= char('0' + kModes)) {
++        return false;
++      }
++      value = uint32_t(word[0] - '0');
++      found = true;
++    }
++  }
++  if (found) mode = value;
++  return found;
++}
++
++// The registers RenderTargetCache::Update reads for a clipped draw on the host render target
++// path, with DrawExtentEstimator::EstimateMaxY, draw_util::GetScissor and the Vulkan Update.
++constexpr Register kRegisters[] = {
++    XE_GPU_REG_RB_SURFACE_INFO,         XE_GPU_REG_RB_DEPTH_INFO,
++    XE_GPU_REG_RB_COLOR_INFO,           XE_GPU_REG_RB_COLOR1_INFO,
++    XE_GPU_REG_RB_COLOR2_INFO,          XE_GPU_REG_RB_COLOR3_INFO,
++    XE_GPU_REG_RB_DEPTHCONTROL,         XE_GPU_REG_PA_SC_WINDOW_OFFSET,
++    XE_GPU_REG_PA_SC_WINDOW_SCISSOR_TL, XE_GPU_REG_PA_SC_WINDOW_SCISSOR_BR,
++    XE_GPU_REG_PA_SC_SCREEN_SCISSOR_TL, XE_GPU_REG_PA_SC_SCREEN_SCISSOR_BR,
++    XE_GPU_REG_PA_CL_CLIP_CNTL,         XE_GPU_REG_PA_CL_VTE_CNTL,
++    XE_GPU_REG_PA_SU_SC_MODE_CNTL,      XE_GPU_REG_PA_SU_VTX_CNTL,
++    XE_GPU_REG_PA_CL_VPORT_YOFFSET,     XE_GPU_REG_PA_CL_VPORT_YSCALE,
++};
++constexpr size_t kRegisterCount = sizeof(kRegisters) / sizeof(kRegisters[0]);
++
++// Everything Update's outcome depends on besides the cache's own state.
++struct Key {
++  uint32_t registers[kRegisterCount] = {};
++  uint32_t words[16] = {};
++  uint32_t word_count = 0;
++  template <typename T>
++  void Add(const T& value) {
++    static_assert(std::is_trivially_copyable<T>::value && sizeof(T) <= 8, "a word or two");
++    uint64_t bits = 0;
++    std::memcpy(&bits, &value, sizeof(T));
++    if (word_count <= sizeof(words) / sizeof(words[0]) - 2) {  // UINT32_MAX stays
++      words[word_count++] = uint32_t(bits);
++      words[word_count++] = uint32_t(bits >> 32);
++    } else {
++      word_count = UINT32_MAX;  // never equal to a key that fits: no skip
++    }
++  }
++  bool operator==(const Key& other) const {
++    return word_count == other.word_count && word_count != UINT32_MAX &&
++           !std::memcmp(registers, other.registers, sizeof(registers)) &&
++           !std::memcmp(words, other.words, sizeof(words));
++  }
++  // Index of the first register that differs, kRegisterCount for the other words, -1 if none.
++  int FirstDifference(const Key& other) const {
++    for (size_t i = 0; i < kRegisterCount; ++i) {
++      if (registers[i] != other.registers[i]) return int(i);
++    }
++    return *this == other ? -1 : int(kRegisterCount);
++  }
++};
++
++// What Update leaves for the draw and later draws: the bound render targets, the transfers, the
++// render pass and the framebuffer. Compared before and after an Update.
++struct Outputs {
++  uint64_t words[32] = {};
++  uint32_t count = 0;
++  template <typename T>
++  void Add(const T& value) {
++    static_assert(std::is_trivially_copyable<T>::value && sizeof(T) <= 8, "a word");
++    uint64_t bits = 0;
++    std::memcpy(&bits, &value, sizeof(T));
++    if (count < sizeof(words) / sizeof(words[0])) {
++      words[count] = bits;
++    }
++    ++count;  // past the end: never equal, the Update counts as a change
++  }
++  bool operator==(const Outputs& other) const {
++    return count == other.count && count <= sizeof(words) / sizeof(words[0]) &&
++           !std::memcmp(words, other.words, sizeof(words));
++  }
++  // The first word that differs, -1 if none (the count past the end differing counts as 32).
++  int FirstDifference(const Outputs& other) const {
++    if (*this == other) return -1;
++    for (uint32_t i = 0; i < count && i < other.count && i < sizeof(words) / sizeof(words[0]);
++         ++i) {
++      if (words[i] != other.words[i]) return int(i);
++    }
++    return int(sizeof(words) / sizeof(words[0]));
++  }
++};
++
++// Runs a function when the scope ends (Update has several returns).
++template <typename F>
++class AtExit {
++ public:
++  explicit AtExit(F f) : f_(f) {}
++  ~AtExit() { f_(); }
++  AtExit(const AtExit&) = delete;
++  AtExit& operator=(const AtExit&) = delete;
++
++ private:
++  F f_;
++};
++
++// The last Update's key and the cache's state version after it, valid when it changed nothing.
++class Memo {
++ public:
++  bool Predict(const Key& key, uint64_t version) const {
++    return valid_ && version == version_ && key == key_;
++  }
++  void Record(const Key& key, bool succeeded, bool changed, uint64_t version) {
++    valid_ = succeeded && !changed;
++    key_ = key;
++    version_ = version;
++  }
++  void Invalidate() { valid_ = false; }
++  bool valid() const { return valid_; }
++
++ private:
++  Key key_;
++  uint64_t version_ = 0;
++  bool valid_ = false;
++};
++
++enum Mismatch : uint32_t { kMismatchState, kMismatchOutputs, kMismatchFailed, kMismatches };
++
++// Counted on the GPU thread, logged from it once a second.
++struct Stats {
++  uint64_t updates = 0;     // Update calls (host render target path, mode not 0), skipped too
++  uint64_t eligible = 0;    // clipped draws with a key
++  uint64_t unclipped = 0;   // clip_disable set: never skipped
++  uint64_t predicted = 0;   // the memo said the Update could be skipped (mode 1 or 2)
++  uint64_t skipped = 0;     // mode 2: of those, returned at once
++  uint64_t mismatches[kMismatches] = {};  // mode 1: predicted, yet Update changed something
++  uint64_t changed = 0;     // Updates that changed something (the memo starts again)
++  uint64_t MismatchTotal() const {
++    return mismatches[kMismatchState] + mismatches[kMismatchOutputs] +
++           mismatches[kMismatchFailed];
++  }
++};
++
++// The diagnostics line for the counts since `before`.
++inline std::string Line(uint32_t mode, const Stats& now, const Stats& before, double seconds) {
++  const double per_second = seconds > 0 ? 1.0 / seconds : 0.0;
++  auto rate = [&](uint64_t a, uint64_t b) { return uint64_t(double(a - b) * per_second + 0.5); };
++  const uint64_t updates = now.updates - before.updates;
++  const uint64_t predicted = now.predicted - before.predicted;
++  std::ostringstream line;
++  line << "Render target skip (fix 142e): mode " << mode
++       << (mode == kVerify ? " (verify)" : mode == kSkip ? " (skip)" : " (off)") << ", per second "
++       << rate(now.updates, before.updates) << " updates, " << rate(now.eligible, before.eligible)
++       << " clipped, " << rate(now.unclipped, before.unclipped) << " unclipped, "
++       << rate(now.predicted, before.predicted) << " could skip ("
++       << (updates ? predicted * 100 / updates : 0) << "%), "
++       << rate(now.skipped, before.skipped) << " skipped, " << rate(now.changed, before.changed)
++       << " changed; mismatches " << now.MismatchTotal() - before.MismatchTotal() << " (state "
++       << now.mismatches[kMismatchState] - before.mismatches[kMismatchState] << ", outputs "
++       << now.mismatches[kMismatchOutputs] - before.mismatches[kMismatchOutputs] << ", failed "
++       << now.mismatches[kMismatchFailed] - before.mismatches[kMismatchFailed] << "), "
++       << now.MismatchTotal() << " in all";
++  return line.str();
++}
++
++}  // namespace render_target_skip
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_RENDER_TARGET_SKIP_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index fd1e170..8df3a5e 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -7930,6 +7930,9 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
+ #endif
++  if (render_target_cache_) {
++    render_target_cache_->Fix142eEndSubmission();  // fix 142e: the mode and the line
++  }
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+       xbox360ps5::frame_cost::kSubmit);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+index 683e04d..3bf16ad 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -31,8 +31,19 @@
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117b
++#include "xbox360ps5/app_identity.hpp"  // fix 142e: the title's folder
+ #endif
+ 
++// Xbox360PS5, fix 142e (render_target_skip.h): skips RenderTargetCache::Update for a draw that
++// would change nothing. Per game in assets/config/<title>.config.toml ([GPU]), or live in
++// render-target-skip.txt in the title folder (one number).
++DEFINE_uint32(render_target_skip, 0,
++              "Skip the render target update of a draw when the last one, with the same "
++              "registers and nothing changed since, changed nothing (fix 142e). 0 off, 1 verify "
++              "(always update, count the draws that could have been skipped and any that then "
++              "changed something), 2 skip.",
++              "GPU");
++
+ DEFINE_string(
+     render_target_path_vulkan, "",
+     "Render target emulation path to use on Vulkan.\n"
+@@ -209,6 +220,7 @@ VulkanRenderTargetCache::VulkanRenderTargetCache(
+ VulkanRenderTargetCache::~VulkanRenderTargetCache() { Shutdown(true); }
+ 
+ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
++  Fix142eTouch("Initialize");  // fix 142e
+   const ui::vulkan::VulkanDevice* const vulkan_device =
+       command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanInstance::Functions& ifn =
+@@ -996,6 +1008,7 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+ }
+ 
+ void VulkanRenderTargetCache::Shutdown(bool from_destructor) {
++  Fix142eTouch("Shutdown");  // fix 142e
+   const ui::vulkan::VulkanDevice* const vulkan_device =
+       command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -1115,6 +1128,7 @@ void VulkanRenderTargetCache::Shutdown(bool from_destructor) {
+ }
+ 
+ void VulkanRenderTargetCache::ClearCache() {
++  Fix142eTouch("ClearCache");  // fix 142e
+   const ui::vulkan::VulkanDevice* const vulkan_device =
+       command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -1141,6 +1155,7 @@ void VulkanRenderTargetCache::ClearCache() {
+ #if XE_PLATFORM_PS5
+ size_t VulkanRenderTargetCache::TrimUnusedRenderTargetsVulkan(
+     uint64_t idle_frames) {
++  Fix142eTouch("TrimUnusedRenderTargetsVulkan");  // fix 142e
+   const ui::vulkan::VulkanDevice* const vulkan_device =
+       command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -1175,6 +1190,7 @@ bool VulkanRenderTargetCache::Resolve(
+     VulkanTextureCache& texture_cache, uint32_t& written_address_out,
+     uint32_t& written_length_out, reg::RB_COPY_DEST_INFO* copy_dest_info_out,
+     bool* written_scaled_out) {
++  Fix142eTouch("Resolve");  // fix 142e
+   written_address_out = 0;
+   written_length_out = 0;
+   if (written_scaled_out) {
+@@ -1642,6 +1658,68 @@ bool VulkanRenderTargetCache::Update(
+     bool is_rasterization_done, reg::RB_DEPTHCONTROL normalized_depth_control,
+     uint32_t normalized_color_mask, const Shader& vertex_shader,
+     int32_t window_offset_tiles) {
++  // Xbox360PS5, fix 142e (render_target_skip.h): skipped when the last Update, with the same key
++  // and nothing changed since, changed nothing; in mode 1 run anyway and checked.
++  namespace rts = render_target_skip;
++  const uint32_t fix142e_mode = fix142e_mode_;
++  rts::Key fix142e_key;
++  bool fix142e_eligible = false;
++  bool fix142e_predicted = false;
++  bool fix142e_succeeded = false;
++  rts::Outputs fix142e_before;
++  const uint64_t fix142e_version_before = fix142e_version_;
++  if (fix142e_mode != rts::kOff && GetPath() == Path::kHostRenderTargets) {
++    ++fix142e_stats_.updates;
++    if (register_file().Get<reg::PA_CL_CLIP_CNTL>().clip_disable) {
++      ++fix142e_stats_.unclipped;
++    } else {
++      fix142e_eligible = true;
++      ++fix142e_stats_.eligible;
++      Fix142eKeyFor(is_rasterization_done, normalized_depth_control,
++                    normalized_color_mask, window_offset_tiles, fix142e_key);
++      fix142e_predicted = fix142e_memo_.Predict(fix142e_key, fix142e_version_);
++      if (fix142e_predicted) {
++        ++fix142e_stats_.predicted;
++        if (fix142e_mode == rts::kSkip) {
++          ++fix142e_stats_.skipped;
++          return true;
++        }
++      }
++      Fix142eAddVulkanOutputs(fix142e_before);
++    }
++  }
++  const rts::AtExit fix142e_finish([&]() {
++    if (!fix142e_eligible) {
++      fix142e_memo_.Invalidate();
++      return;
++    }
++    rts::Outputs after;
++    Fix142eAddVulkanOutputs(after);
++    const bool state_moved = fix142e_version_ != fix142e_version_before;
++    const int outputs_moved = after.FirstDifference(fix142e_before);
++    const bool changed = state_moved || outputs_moved >= 0;
++    fix142e_stats_.changed += uint64_t(changed);
++    fix142e_memo_.Record(fix142e_key, fix142e_succeeded, changed, fix142e_version_);
++    if (!fix142e_predicted || (fix142e_succeeded && !changed)) {
++      return;
++    }
++    const rts::Mismatch kind = !fix142e_succeeded ? rts::kMismatchFailed
++                               : state_moved      ? rts::kMismatchState
++                                                  : rts::kMismatchOutputs;
++    ++fix142e_stats_.mismatches[kind];
++    if (fix142e_mismatches_logged_ < 16) {
++      ++fix142e_mismatches_logged_;
++      XELOGW(
++          "Render target skip (fix 142e): mismatch {} of 16 logged: {}, the state version +{} "
++          "(last by {}), outputs word {} differs, surface {:08X} color mask {:04X}",
++          fix142e_mismatches_logged_,
++          kind == rts::kMismatchFailed ? "the update failed"
++          : kind == rts::kMismatchState ? "the update changed the cache's state"
++                                        : "the update changed what it leaves for the draw",
++          fix142e_version_ - fix142e_version_before, fix142e_touched_by_, outputs_moved,
++          fix142e_key.registers[0], normalized_color_mask);
++    }
++  });
+   if (!RenderTargetCache::Update(
+           is_rasterization_done, normalized_depth_control,
+           normalized_color_mask, vertex_shader, window_offset_tiles)) {
+@@ -1774,9 +1852,68 @@ bool VulkanRenderTargetCache::Update(
+       return false;
+   }
+ 
++  fix142e_succeeded = true;  // fix 142e
+   return true;
+ }
+ 
++// Xbox360PS5, fix 142e (render_target_skip.h): what an Update leaves for the draw and the later
++// draws, the common part's and the Vulkan part's.
++void VulkanRenderTargetCache::Fix142eAddVulkanOutputs(
++    render_target_skip::Outputs& outputs) const {
++  Fix142eAddOutputs(outputs);
++  outputs.Add(last_update_render_pass_key_.key);
++  outputs.Add(last_update_render_pass_);
++  outputs.Add(last_update_framebuffer_);
++  outputs.Add(last_update_framebuffer_pitch_tiles_at_32bpp_);
++  for (size_t i = 0; i < 1 + xenos::kMaxColorRenderTargets; ++i) {
++    outputs.Add(last_update_framebuffer_attachments_[i]);
++  }
++}
++
++// Xbox360PS5, fix 142e: the mode from render-target-skip.txt in the title folder when it exists
++// (read again at most once a second), else render_target_skip; while it is not 0, the line once
++// a second.
++void VulkanRenderTargetCache::Fix142eEndSubmission() {
++  const auto now = std::chrono::steady_clock::now();
++  const bool first = fix142e_checked_ == std::chrono::steady_clock::time_point();
++  if (!first && now - fix142e_checked_ < std::chrono::seconds(1)) {
++    return;
++  }
++  const double seconds =
++      first ? 0.0 : std::chrono::duration<double>(now - fix142e_checked_).count();
++  fix142e_checked_ = now;
++  // A value that is not a mode is off, never the strongest one.
++  uint32_t mode = cvars::render_target_skip < render_target_skip::kModes
++                      ? uint32_t(cvars::render_target_skip)
++                      : uint32_t(render_target_skip::kOff);
++  const char* from = "the settings";
++#if XE_PLATFORM_PS5
++  const char* const path = XBOX360PS5_DATA_ROOT "/render-target-skip.txt";
++  if (FILE* file = std::fopen(path, "rb")) {
++    std::string text;
++    char chunk[256];
++    size_t got;
++    while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++    std::fclose(file);
++    from = render_target_skip::ParseMode(text, mode) ? path : "the settings (file not understood)";
++  }
++#endif
++  if (!fix142e_mode_logged_ || mode != fix142e_mode_) {
++    XELOGW("Render target skip (fix 142e): mode {} ({}), from {}", mode,
++           mode == render_target_skip::kVerify ? "verify"
++           : mode == render_target_skip::kSkip ? "skip"
++                                               : "off",
++           from);
++    fix142e_mode_ = mode;
++    fix142e_mode_logged_ = true;
++    fix142e_memo_.Invalidate();
++    fix142e_mismatches_logged_ = 0;
++  } else if (seconds > 0 && mode != render_target_skip::kOff) {
++    XELOGW("{}", render_target_skip::Line(mode, fix142e_stats_, fix142e_stats_logged_, seconds));
++  }
++  fix142e_stats_logged_ = fix142e_stats_;
++}
++
+ VkRenderPass VulkanRenderTargetCache::GetHostRenderTargetsRenderPass(
+     RenderPassKey key) {
+   assert_true(GetPath() == Path::kHostRenderTargets);
+@@ -2436,6 +2573,11 @@ void VulkanRenderTargetCache::CommitEdramBufferShaderWrites(
+ void VulkanRenderTargetCache::TransitionRenderTarget(
+     VulkanRenderTarget& render_target, VkPipelineStageFlags dst_stage_mask,
+     VkAccessFlags dst_access_mask, VkImageLayout new_layout) {
++  if (render_target.current_stage_mask() != dst_stage_mask ||  // fix 142e
++      render_target.current_access_mask() != dst_access_mask ||
++      render_target.current_layout() != new_layout) {
++    Fix142eTouch("TransitionRenderTarget");
++  }
+   RenderTargetKey key = render_target.key();
+ 
+   // Use the depth's sample locations for all transitions, including those
+@@ -4853,6 +4995,14 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+     const std::vector<Transfer>* render_target_transfers,
+     const uint64_t* render_target_resolve_clear_values,
+     const Transfer::Rectangle* resolve_clear_rectangle) {
++  // Fix 142e: a transfer or a clear here changes the render targets.
++  for (uint32_t i = 0; i < render_target_count; ++i) {
++    if ((render_target_transfers && !render_target_transfers[i].empty()) ||
++        (render_target_resolve_clear_values && resolve_clear_rectangle)) {
++      Fix142eTouch("PerformTransfersAndResolveClears");
++      break;
++    }
++  }
+   assert_true(GetPath() == Path::kHostRenderTargets);
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device =
+@@ -6366,6 +6516,7 @@ void VulkanRenderTargetCache::DumpRenderTargets(uint32_t dump_base,
+                                                 uint32_t dump_rows,
+                                                 uint32_t dump_pitch,
+                                                 bool native_layout) {
++  Fix142eTouch("DumpRenderTargets");  // fix 142e
+   assert_true(GetPath() == Path::kHostRenderTargets);
+ 
+   GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used, dump_rows,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h
+index 5ccad59..8af712a 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.h
+@@ -11,6 +11,7 @@
+ #define XENIA_GPU_VULKAN_VULKAN_RENDER_TARGET_CACHE_H_
+ 
+ #include <array>
++#include <chrono>  // fix 142e
+ #include <cstdint>
+ #include <cstring>
+ #include <functional>
+@@ -152,6 +153,9 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+   const Framebuffer* last_update_framebuffer() const {
+     return last_update_framebuffer_;
+   }
++  // Xbox360PS5, fix 142e (render_target_skip.h): at the end of a submission, the mode (from
++  // render-target-skip.txt in the title folder, read at most once a second) and the line.
++  void Fix142eEndSubmission();
+ 
+   // Using R16G16[B16A16]_SNORM, which are -1...1, not the needed -32...32.
+   // Persistent data doesn't depend on this, so can be overriden by per-game
+@@ -353,6 +357,16 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
+           {};
+   const Framebuffer* last_update_framebuffer_ = VK_NULL_HANDLE;
+ 
++  // Xbox360PS5, fix 142e (render_target_skip.h): the memo of the last Update that changed nothing.
++  void Fix142eAddVulkanOutputs(render_target_skip::Outputs& outputs) const;
++  render_target_skip::Memo fix142e_memo_;
++  render_target_skip::Stats fix142e_stats_;
++  render_target_skip::Stats fix142e_stats_logged_;
++  uint32_t fix142e_mode_ = render_target_skip::kOff;
++  bool fix142e_mode_logged_ = false;
++  uint32_t fix142e_mismatches_logged_ = 0;
++  std::chrono::steady_clock::time_point fix142e_checked_{};
++
+   // For host render targets.
+ 
+   // Can only be destroyed when framebuffers referencing it are destroyed!
