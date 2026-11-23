@@ -6,9 +6,10 @@
 // thread, which executes them with the handlers it had.
 //  (a) parallel-record.txt: mode, fifo, filter and sibling lines, comments, bounds, lines not
 //      understood; the defaults (mode 0: off);
-//  (b) the FIFO of ops: ops in order, wraps at the end, room (RoomNeeded), retired only at the end
-//      of an executed op (never between a wrap and the op after it), a producer and a consumer
-//      on two threads;
+//  (b) the FIFO of ops: ops in order, wraps at the end, room (RoomNeeded, WaitRoom), retired only
+//      at the end of an executed op (never between a wrap and the op after it), a producer and a
+//      consumer on two threads; WaitRoom's position comes from the same reading of retired as the
+//      bytes needed (the first version could wait for more than was published, for ever);
 //  (c) a reference model of the PM4 interpreter (its own reader and packets: type 0/1/2, bad
 //      packets, overflow, predication, indirect buffers, register and constant packets,
 //      LOAD_ALU_CONSTANT, REG_RMW, COND_WRITE, memory writes, WAIT_REG_MEM, draws and their
@@ -28,11 +29,20 @@
 //      unchanged), RunParallelRecord returning false for mode 0 before it makes anything, the
 //      cvars' defaults, the ops' execution, the decode thread's name, the line after fix 134's;
 //  (h) the off path: the fix's patch only adds lines (argv[1]: the fixes folder), and the only
-//      lines it adds to command_processor.cc are the hook.
+//      lines it adds to command_processor.cc are the hook;
+//  (i) what the decoder mirrors stays in step with the tree: pm4::Known() equals the case list of
+//      ExecutePacketType3's switch (an opcode handled there and not here would end its buffer in
+//      the split), and the functions whose behaviour fix 142 copies or mirrors (the ring loop,
+//      ExecutePrimaryBuffer, the packet dispatch and the handlers the decoder reads, the register
+//      writes the filter relies on) still have the text they had when fix 142 was written: a
+//      fingerprint of each (whitespace collapsed); a change fails here with what to update.
+//      "--print-sync" prints the current fingerprints.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
+#include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -114,6 +124,25 @@ void CheckRing() {
     ++read;
   }
   Expect(ring.RoomNeeded(8000) == 0, "room once retired");
+  {
+    // The race fixed in WaitRoom: room needed while full, then the consumer retires everything
+    // before the producer waits. Waiting for a later reading of retired plus the bytes counted
+    // from the earlier one asked for more than was ever published and never returned.
+    pr::OpRing race(256 * 1024);
+    while (!race.RoomNeeded(4000)) {
+      race.Begin(pr::kOpPackets, 4000);
+      race.Grow(4000);
+      race.Commit();
+    }
+    race.Publish();
+    const uint64_t need = race.RoomNeeded(4000);
+    while (race.Front()) race.Pop();
+    Expect(need > 0 && race.retired() + need > race.published(),
+           "the old wait's position was past everything published");
+    int polls = 0;
+    Expect(race.WaitRoom(4000, [&] { return ++polls > 100; }) && polls == 0,
+           "WaitRoom returns at once when the consumer already made room");
+  }
   pr::OpRing ring2(256 * 1024);
   uint64_t pos = 0;
   for (int n = 0; n < 31; ++n) {
@@ -167,9 +196,9 @@ void CheckRing() {
   });
   for (uint32_t n = 0; n < 200000; ++n) {
     const uint32_t bytes = (n % 97) * 8;
-    while (const uint64_t need = shared.RoomNeeded(bytes)) {
+    if (shared.RoomNeeded(bytes)) {
       shared.Publish();
-      shared.WaitRetired(shared.retired() + need, [] { return false; });
+      Expect(shared.WaitRoom(bytes, [] { return false; }), "room once the consumer retires");
     }
     pr::OpHeader* op = shared.Begin(pr::kOpRegisters, bytes, n);
     std::memset(shared.Payload(op), int(n & 0xFF), bytes);
@@ -529,10 +558,7 @@ class TestHost : public pr::Host {
       ExecuteAll();
       return true;
     }
-    while (const uint64_t need = ring_.RoomNeeded(payload_bytes)) {
-      ring_.WaitRetired(ring_.retired() + need, [] { return false; });
-    }
-    return true;
+    return ring_.WaitRoom(payload_bytes, [] { return false; });
   }
   void ExecuteAll() {
     while (const pr::OpHeader* op = ring_.Front()) {
@@ -1015,9 +1041,179 @@ void CheckPatch(const std::string& fixes) {
          "command_processor.cc gets the hook alone");
 }
 
+// (i)
+// The text of the function whose definition starts with `signature`: from it to the brace that
+// closes its body, with whitespace collapsed (a reformatting alone changes nothing).
+std::string FunctionText(const std::string& file, const std::string& signature) {
+  const size_t start = file.find(signature);
+  if (start == std::string::npos) return std::string();
+  const size_t open = file.find('{', start);
+  if (open == std::string::npos) return std::string();
+  int depth = 0;
+  size_t end = open;
+  for (; end < file.size(); ++end) {
+    if (file[end] == '{') ++depth;
+    if (file[end] == '}' && --depth == 0) break;
+  }
+  std::string text;
+  bool space = false;
+  for (size_t i = start; i <= end && i < file.size(); ++i) {
+    const char c = file[i];
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+      space = true;
+      continue;
+    }
+    if (space && !text.empty()) text += ' ';
+    space = false;
+    text += c;
+  }
+  return text;
+}
+std::string Fingerprint(const std::string& text) {
+  uint64_t h = 1469598103934665603ull;
+  for (unsigned char c : text) h = (h ^ c) * 1099511628211ull;
+  char out[17];
+  std::snprintf(out, sizeof(out), "%016llx", (unsigned long long)h);
+  return out;
+}
+
+void CheckOpcodes() {
+  const std::string implement = Read(".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h");
+  const std::string xenos = Read(".deps/xenia-canary/src/xenia/gpu/xenos.h");
+  // PM4_NAME = 0xNN in xenos.h.
+  std::map<std::string, uint32_t> values;
+  for (size_t at = xenos.find("PM4_"); at != std::string::npos; at = xenos.find("PM4_", at + 4)) {
+    size_t name_end = at + 4;
+    while (name_end < xenos.size() && (std::isalnum((unsigned char)xenos[name_end]) || xenos[name_end] == '_')) ++name_end;
+    size_t eq = name_end;
+    while (eq < xenos.size() && xenos[eq] == ' ') ++eq;
+    if (eq >= xenos.size() || xenos[eq] != '=') continue;
+    values[xenos.substr(at, name_end - at)] = uint32_t(std::strtoul(xenos.c_str() + eq + 1, nullptr, 0));
+  }
+  Expect(values.size() > 30, "xenos.h's PM4 opcodes read");
+  // The cases of ExecutePacketType3's switch.
+  const std::string dispatch =
+      FunctionText(implement, "bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet)");
+  Expect(!dispatch.empty(), "ExecutePacketType3 found");
+  std::vector<bool> handled(128, false);
+  int cases = 0;
+  for (size_t at = dispatch.find("case PM4_"); at != std::string::npos;
+       at = dispatch.find("case PM4_", at + 9)) {
+    size_t end = at + 5;
+    while (end < dispatch.size() && dispatch[end] != ':' && dispatch[end] != ' ') ++end;
+    const std::string name = dispatch.substr(at + 5, end - at - 5);
+    const auto value = values.find(name);
+    Expect(value != values.end() && value->second < 128, "the case " + name + " has a value in xenos.h");
+    if (value != values.end() && value->second < 128) handled[value->second] = true;
+    ++cases;
+  }
+  Expect(cases > 30, "ExecutePacketType3's cases read");
+  for (uint32_t opcode = 0; opcode < 128; ++opcode) {
+    char hex[8];
+    std::snprintf(hex, sizeof(hex), "0x%02X", opcode);
+    Expect(handled[opcode] == pr::pm4::Known(opcode),
+           std::string("opcode ") + hex +
+               (handled[opcode]
+                    ? ": ExecutePacketType3 handles it and parallel_record.h's pm4::Known() does not "
+                      "(the split would end its buffer there): add it to pm4::Known() and decide what "
+                      "the decoder does with it (Decoder::Packet)"
+                    : ": pm4::Known() lists it and ExecutePacketType3 no longer handles it: remove it"));
+  }
+}
+
+struct Mirrored {
+  const char* file;
+  const char* signature;
+  const char* mirrored_by;  // what in fix 142 has to follow a change
+  const char* fingerprint;  // when fix 142 was written
+};
+const Mirrored kMirrored[] = {
+    {".deps/xenia-canary/src/xenia/gpu/command_processor.cc", "void CommandProcessor::WorkerThreadMain() {",
+     "the ring loop copied into ParallelFrontLoop, ParallelBackLoop and ParallelInlineLoop (idle waits, "
+     "PrepareForWait/ReturnFromWait, ZPD, the hang watch's marks, fix 49's times, pending functions, the "
+     "read pointer's write-back)", "c1bb41adab9f5e32"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "uint32_t COMMAND_PROCESSOR::ExecutePrimaryBuffer(",
+     "Decoder::DecodePrimary and the kOpPrimaryBegin/kOpPrimaryEnd ops (fix 87's epoch, fix 125's "
+     "CheckContentUnits, OnPrimaryBufferEnd)", "35a71223077f316d"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "void COMMAND_PROCESSOR::ExecuteIndirectBuffer(", "Decoder::Packet's indirect buffers", "e661c76c5a891375"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h", "bool COMMAND_PROCESSOR::ExecutePacket() {",
+     "Decoder::Packet's packet header (bad packets, types)", "9c9abb118fd1ff6b"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType0(uint32_t packet)", "Decoder::Packet's type 0 runs", "5cc2a72546f1a5a2"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType1(uint32_t packet)", "Decoder::Packet's type 1", "b76cfed87179298b"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3(uint32_t packet)",
+     "Decoder::Packet's type 3 dispatch: overflow, predication, the SET_BIN_* state, the buffer ends", "d8d803797c0e07f9"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_INDIRECT_BUFFER(", "Decoder::Packet's indirect buffers", "fe79027a6d66df64"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3Draw(", "Decoder::DrawFails", "1026ffea1c83da6a"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_IM_LOAD(uint32_t packet,",
+     "Decoder::Packet's shader type check", "77e761ecfc2598ca"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_IM_LOAD_IMMEDIATE(", "Decoder::Packet's shader type check", "c3c858b1e79b4b28"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_SET_CONSTANT(", "Decoder::Packet's SET_CONSTANT runs", "090cafb4ff1bb812"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_SET_CONSTANT2(", "Decoder::Packet's SET_CONSTANT2 runs", "b2a3694bd6376de9"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_SET_SHADER_CONSTANTS(",
+     "Decoder::Packet's SET_SHADER_CONSTANTS runs", "56786c8af8510960"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_LOAD_ALU_CONSTANT(",
+     "Decoder::Packet's LOAD_ALU_CONSTANT (the range the shadow forgets)", "0908a599776eb9ec"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_REG_RMW(", "Decoder::Packet's REG_RMW (shadow reset)", "215f230c515078d4"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_COND_WRITE(",
+     "Decoder::Packet's COND_WRITE (shadow reset, its write address)", "d404d76ec5cc6c10"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(", "Decoder::Packet's pending write address", "53c1c0e914b3809f"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(", "Decoder::Packet's pending write address", "1bfba13eea4dbf66"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(", "Decoder::Packet's pending write address", "d38a4a79cd69baf1"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(", "Decoder::Packet's pending write address", "39380ff4a23b53b6"},
+    {".deps/xenia-canary/src/xenia/gpu/command_processor.cc", "void CommandProcessor::WriteRegister(uint32_t index",
+     "the filter: which registers have write side effects (never dropped; only constants are)", "dce4611e11f5b2f7"},
+    {".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc",
+     "void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {",
+     "the filter: dropping an unchanged constant equals vulkan_skip_redundant_constants' early return", "b0b1323f67ad1db9"},
+    {".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc",
+     "void VulkanCommandProcessor::WriteRegistersSwapped(",
+     "kOpRegisters: the runs applied with fix 103's path", "a70978bd15a99aab"},
+};
+
+void CheckMirrored(bool print) {
+  std::map<std::string, std::string> files;
+  for (const Mirrored& m : kMirrored) {
+    if (!files.count(m.file)) files[m.file] = Read(m.file);
+    const std::string text = FunctionText(files[m.file], m.signature);
+    const std::string now = Fingerprint(text);
+    if (print) {
+      std::printf("%s  %s\n", now.c_str(), m.signature);
+      continue;
+    }
+    Expect(!text.empty(), std::string("found in the tree: ") + m.signature);
+    Expect(now == m.fingerprint,
+           std::string(m.signature) + " changed since fix 142 was written (fingerprint " + now + ", was " +
+               m.fingerprint + "): check " + m.mirrored_by +
+               ", then put the new fingerprint in check-parallel-record.cpp's kMirrored");
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
+  if (argc > 1 && std::string(argv[1]) == "--print-sync") {
+    CheckMirrored(true);
+    return 0;
+  }
   CheckParse();
   CheckRing();
   CheckFilter();
@@ -1027,6 +1223,8 @@ int main(int argc, char** argv) {
   const bool model_only = argc > 1 && std::string(argv[1]) == "--model-only";
   if (!model_only) {
     CheckTree();
+    CheckOpcodes();
+    CheckMirrored(false);
     if (argc > 1) CheckPatch(argv[1]);
   }
   if (failures) {

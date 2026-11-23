@@ -32,10 +32,10 @@ index ab9e068..2cc1ca4 100644
    // rarely needed, most register writes have no special logic here
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
 new file mode 100644
-index 0000000..2524d6e
+index 0000000..5065160
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
-@@ -0,0 +1,865 @@
+@@ -0,0 +1,885 @@
 +// SPDX-License-Identifier: MIT
 +// Xbox360PS5, fix 142: the GPU command processing of a frame split over two threads (prototype).
 +//
@@ -256,11 +256,21 @@ index 0000000..2524d6e
 +  // Room for an op of `payload_bytes` at the write position (and a wrap op before it when it
 +  // would cross the end): the bytes the consumer must retire first, 0 when there is room now.
 +  uint64_t RoomNeeded(uint32_t payload_bytes) const {
-+    const uint64_t at = write_ % capacity_;
-+    uint64_t need = OpSpan(payload_bytes);
-+    if (at + need > capacity_) need += capacity_ - at;  // the wrap
-+    const uint64_t used = write_ - retired_.load(std::memory_order_acquire);
-+    return used + need > capacity_ ? used + need - capacity_ : 0;
++    return RoomNeededAt(payload_bytes, retired_.load(std::memory_order_acquire));
++  }
++  // Waits until there is room for an op of `payload_bytes` (or `stop` turns true); the committed
++  // ops must be published. The bytes to retire and the position waited for come from one reading
++  // of `retired`: waiting for a later reading plus the bytes counted from an earlier one could
++  // ask for more than was ever published, and wait for ever. Returns whether there is room.
++  template <class Stop>
++  bool WaitRoom(uint32_t payload_bytes, const Stop& stop) {
++    for (;;) {
++      const uint64_t retired = retired_.load(std::memory_order_acquire);
++      const uint64_t need = RoomNeededAt(payload_bytes, retired);
++      if (!need) return true;
++      if (stop()) return false;
++      WaitRetired(retired + need, stop);  // at most write_: what is published
++    }
 +  }
 +  // The op's header, its payload written in place after it and grown up to `reserve` bytes; the
 +  // caller has made room for `reserve` (RoomNeeded 0).
@@ -364,6 +374,16 @@ index 0000000..2524d6e
 +  uint64_t retired() const { return retired_.load(std::memory_order_acquire); }
 +
 + private:
++  // With `retired` read once: what must be retired beyond it (never more than was written, as an
++  // op is never larger than the buffer).
++  uint64_t RoomNeededAt(uint32_t payload_bytes, uint64_t retired) const {
++    const uint64_t at = write_ % capacity_;
++    uint64_t need = OpSpan(payload_bytes);
++    if (at + need > capacity_) need += capacity_ - at;  // the wrap
++    const uint64_t used = write_ - retired;
++    return used + need > capacity_ ? used + need - capacity_ : 0;
++  }
++
 +  size_t capacity_ = 0;
 +  std::vector<uint8_t> data_;
 +  uint64_t write_ = 0;      // the producer's
@@ -902,7 +922,7 @@ index 0000000..2524d6e
 +
 +#endif  // XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index a18d529..cbed166 100644
+index a18d529..873db83 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -59,6 +59,12 @@
@@ -944,7 +964,7 @@ index a18d529..cbed166 100644
  // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
  // address) is steady takes the late copy, unless the CPU reads it. Off per game in
  // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
-@@ -1705,6 +1730,426 @@ void VulkanCommandProcessor::StopAsyncSubmit() {
+@@ -1705,6 +1730,419 @@ void VulkanCommandProcessor::StopAsyncSubmit() {
    async_command_buffers_.clear();
  }
  
@@ -1313,14 +1333,7 @@ index a18d529..cbed166 100644
 +  if (parallel_settings_.mode == parallel_record::kInline) {
 +    ExecuteParallelOps();
 +  } else {
-+    while (const uint64_t needed = parallel_ring_->RoomNeeded(payload_bytes)) {
-+      if (!worker_running_) {
-+        room = false;
-+        break;
-+      }
-+      parallel_ring_->WaitRetired(parallel_ring_->retired() + needed,
-+                                  [this]() { return !worker_running_; });
-+    }
++    room = parallel_ring_->WaitRoom(payload_bytes, [this]() { return !worker_running_; });
 +  }
 +  const uint64_t waited = fc::NowNs() - start;
 +  parallel_front_waited_ns_ += waited;

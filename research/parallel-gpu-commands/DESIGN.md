@@ -352,6 +352,20 @@ ThreadSanitizer there. It is listed in `source-fix-checks.yml`'s paths.
 - the tree: the hook's place before the unchanged ring loop, mode 0 returning before anything, the
   cvar defaults, the ops' execution, the opcodes' `static_assert`s against `xenos.h`
 - the patch: no line removed; `command_processor.cc` gets only the 6-line hook
+- **the mirrors stay in step with the tree.** `pm4::Known()` must equal the `case` list of
+  `ExecutePacketType3`'s switch: an opcode handled there and unknown here would end its buffer in
+  the split. Each function whose behaviour fix 142 copies or mirrors has a fingerprint of its
+  text, whitespace collapsed, in `kMirrored`: the ring loop, `ExecutePrimaryBuffer`,
+  `ExecuteIndirectBuffer`, the packet dispatch, the handlers whose operands the decoder reads,
+  and the two `WriteRegister`s the filter relies on. Reformatting alone passes. A real change,
+  from Xenia or a later fix, fails with what in fix 142 to update and the new fingerprint
+  (`--print-sync` prints them all).
+
+The two-thread stress later found a second one. The FIFO's wait for room took the bytes to retire
+from one reading of `retired` and waited for a later reading plus those bytes. When the GPU thread
+retired ops between the two readings, the target lay past everything published, and the decoder
+waited for ever: on the console, a hang of the decode thread whenever the FIFO filled.
+`OpRing::WaitRoom` now takes both from one reading, and a direct test covers it.
 
 Writing the check found one real bug before any build. A failing packet inside an IB was followed,
 in the same op, by the parent buffer's next packets, which the GPU thread's `break` then skipped.
