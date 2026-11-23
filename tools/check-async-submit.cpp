@@ -35,6 +35,12 @@
 //  (h) the tree: the query pool's recorder for both kinds of command buffer (the Vulkan one
 //      unchanged), the resolves recorded into the deferred commands before the hand-off
 //      decision, only when it hands off, the reasons counted, the 30 s line and the settings.
+// Fix 134e: mode 1 by default for Grand Theft Auto IV (545407F2) and Red Dead Redemption
+// (5454082B), confirmed on the console in mode 1 (1.0.5-work-fix134b to 134d).
+//  (j) PresetMode and ModeFor: the two games mode 1, every other title and no title (0) 0; a
+//      cvar other than 0 wins over the preset (and is clamped), the file's "mode" line over
+//      both; the tree: RefreshAsyncSubmitSettings takes the mode from ModeFor with the running
+//      title, the file's lines decide when it exists, the settings line names the preset.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
@@ -189,6 +195,31 @@ void CheckKept() {
   }
 }
 
+// Fix 134e.
+void CheckPreset() {
+  Expect(as::PresetMode(0x545407F2) == as::kWorker && as::PresetMode(0x5454082B) == as::kWorker,
+         "fix 134e: Grand Theft Auto IV and Red Dead Redemption get mode 1");
+  Expect(as::PresetMode(0x534507E1) == as::kOff && as::PresetMode(0x41560817) == as::kOff &&
+             as::PresetMode(0x4D5308C9) == as::kOff && as::PresetMode(0) == as::kOff,
+         "fix 134e: every other title (Virtua Tennis 3, Modern Warfare 2, Kinect Sports) and none: 0");
+  bool from_preset = true;
+  Expect(as::ModeFor(0, 0x545407F2, &from_preset) == as::kWorker && from_preset,
+         "fix 134e: the cvar at 0: the game's preset");
+  Expect(as::ModeFor(0, 0x534507E1, &from_preset) == as::kOff && !from_preset,
+         "fix 134e: the cvar at 0, no preset: off");
+  Expect(as::ModeFor(2, 0x545407F2, &from_preset) == as::kChunkOnly && !from_preset,
+         "fix 134e: a cvar other than 0 wins over the preset");
+  Expect(as::ModeFor(7, 0x534507E1, &from_preset) == as::kModes - 1 && !from_preset,
+         "fix 134e: a cvar out of range clamped as before");
+  as::Settings s;
+  s.mode = as::ModeFor(0, 0x5454082B, &from_preset);
+  Expect(as::Parse("mode 0\n", s) == 0 && s.mode == as::kOff, "fix 134e: the file's mode line wins over the preset");
+  as::Settings t;
+  t.mode = as::ModeFor(0, 0x5454082B, &from_preset);
+  Expect(as::Parse("chunk 128\n", t) == 0 && t.mode == as::kWorker && t.chunk_kib == 128,
+         "fix 134e: a file without a mode line keeps the preset's mode");
+}
+
 void CheckNeedsDrain() {
   Expect(!as::NeedsDrain(0, 0, 0, false), "a wait for 0 with nothing handed off: no drain");
   Expect(!as::NeedsDrain(0, 7, 9, false), "BeginSubmission's wait for 0: no drain");
@@ -338,6 +369,19 @@ void CheckTree() {
   Expect(vk.find("xbox360ps5::frame_cost::async_kept[kept].fetch_add(1, std::memory_order_relaxed);", end) < hand &&
              vk.find("query resolves {} (fix 134c)") != std::string::npos,
          "fix 134c: why a submission stays, counted; the settings line");
+  // Fix 134e.
+  const size_t refresh = vk.find("void VulkanCommandProcessor::RefreshAsyncSubmitSettings() {");
+  const size_t refresh_end = vk.find("\nbool VulkanCommandProcessor::", refresh + 1);
+  const std::string refresh_body = vk.substr(refresh, refresh_end - refresh);
+  Expect(refresh != std::string::npos &&
+             refresh_body.find("next.mode = async_submit::ModeFor(cvars::gpu_async_submit, title_id, &from_preset);") <
+                 refresh_body.find("not_understood = async_submit::Parse(text, next);") &&
+             refresh_body.find("const uint32_t title_id = kernel_state_ ? kernel_state_->title_id() : 0;") !=
+                 std::string::npos &&
+             refresh_body.find("from_preset = false;  // fix 134e") != std::string::npos &&
+             refresh_body.find("\"the preset for title {:08X} (fix 134e)\"") != std::string::npos &&
+             vk.find("DEFINE_uint32(gpu_async_submit, 0,") != std::string::npos,
+         "fix 134e: the preset taken while the cvar is 0, before the file, and named in the settings line");
   const std::string fc = Read("include/xbox360ps5/frame_cost.hpp");
   Expect(fc.find("\"; kept on the GPU thread per frame: swap %.2f, sparse binds %.2f, query resolves %.2f; \"") !=
              std::string::npos,
@@ -364,6 +408,7 @@ int main(int argc, char** argv) {
   CheckDecisions();
   CheckWorker();
   CheckNeedsDrain();
+  CheckPreset();
   CheckKept();
   CheckModel();
   if (!(argc > 1 && std::string(argv[1]) == "--model-only")) CheckTree();
