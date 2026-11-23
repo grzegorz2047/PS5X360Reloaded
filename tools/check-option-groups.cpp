@@ -221,8 +221,10 @@ void CheckGuide() {
   Expect(Has(main, "return item.action == GuideAction::option || item.action == GuideAction::network;"),
          "(e) left and right do nothing on it");
   const std::string draw = Between(main, "if (items[size_t(n)].action == GuideAction::notice) {", "continue;");
-  Expect(Has(draw, "items[size_t(n)].label.c_str(), nullptr, (page_right - page_left - strip - 76) * scale);"),
-         "(e) the notice is drawn wrapped over its row");
+  // Fix 149b: one short line, large, instead of two small wrapped ones.
+  Expect(Has(draw, "items[size_t(n)].label.c_str(), nullptr, (page_right - page_left - strip - 76) * scale);") ||
+             Has(draw, "list->AddText(large, 28 * scale, at(page_left + strip + 56 + slide_x, y + 16), fade(60, 44, 10, a), items[size_t(n)].label.c_str());"),
+         "(e) the notice is drawn over its row");
   const std::string option = Between(main, "case GuideAction::option: {", "case GuideAction::capture:");
   const std::string warn = Between(option, "if (option.category == xbox360ps5::option_groups::kEmulation) {", "\n                  }");
   Expect(Has(warn, "guide.group_changed = xbox360ps5::option_groups::kChangedSeconds;") &&
@@ -246,7 +248,8 @@ void CheckGuide() {
 
 void CheckLanguages(const fs::path& folder) {
   const char* keys[] = {"Picture and smoothness", "Emulation (advanced)", og::kVideoRateLabel, og::kVideoRateAbout,
-                        og::kVsyncLabel, og::kVsyncAbout, og::kResolutionAbout, og::kGuideNotice, og::kGuideChanged};
+                        og::kVsyncLabel, og::kVsyncAbout, og::kResolutionAbout};
+  // The guide's notice and warning: fix 149b made them short; check-settings-tree.cpp checks their translations.
   int files = 0;
   for (const auto& entry : fs::directory_iterator(folder)) {
     if (entry.path().extension() != ".txt") continue;

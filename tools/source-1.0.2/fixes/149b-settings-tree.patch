@@ -49,7 +49,7 @@ diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_gr
  #include <string_view>
  #include <vector>
  
-@@ -143,6 +144,117 @@ inline const char* About(std::string_view key, const char* table_about) {
+@@ -143,13 +144,193 @@ inline const char* About(std::string_view key, const char* table_about) {
    return entry && entry->about ? entry->about : table_about;
  }
  
@@ -164,9 +164,89 @@ diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_gr
 +  return row;
 +}
 +
++// Fix 149b: the help card beside the guide's focused row (and the launcher's help under its list): the
++// option's name, its choices, one or two short sentences on what it changes, and for an Emulation
++// (advanced) option the risk. The user asked for it after 1.0.6-work-fix149 ("a small window on the
++// right of the selected option"). Every option the guide shows has a text here.
++struct Brief {
++  const char* key;
++  const char* text;
++};
++inline constexpr Brief kBriefs[] = {
++    {"image_filter", "How the picture is scaled to your screen. CAS sharpens; FSR upscales with cleaner edges."},
++    {"antialiasing", "Smooths jagged edges. FXAA is light; SMAA 1x gives the cleanest edges."},
++    {"color_preset", "Changes the picture's colors: deeper blacks, richer or brighter colors."},
++    {"overscan_crop", "Cuts a thin border off the edges, for games with a stripe at the edge."},
++    {"sharpness", "How strongly CAS and FSR sharpen the picture."},
++    {"dither", "Hides banding in skies and shadows."},
++    {"stretch", "Keep the game's proportions, or stretch the picture to fill the screen."},
++    {"anisotropic", "Keeps textures on floors and walls sharp at an angle."},
++    {"present_limit", "Shows new pictures at most this often, for even motion. The game runs as before."},
++    {"video_clock", "The emulated console's clock, not your TV. 120 Hz can make games run too fast."},
++    {"dynamic_buffers", "Lighter tracking of data the game rewrites all the time. Off only to compare."},
++    {"memory_window", "How much memory is sent to video again after the game writes to it."},
++    {"readback", "Lets the game read back what it drew. Some effects need it; it is slower."},
++    {"memexport", "Lets the game read data made by video. Fixes missing objects; it is slower."},
++    {"async_shaders", "Prepares new effects in the background: fewer stops, effects may appear late."},
++    {"clear_pages", "A fix for Team Ninja games where characters disappear. It is slower."},
++    {"released_memory", "Draws from memory the game already gave back, so nothing goes missing."},
++    {"mute", "Turns the game's sound off or on."},
++    {"volume", "The game's sound volume. The TV's volume still applies."},
++    {"ui_sounds", "The emulator's menu sounds."},
++    {"ui_sound_volume", "The volume of the menu sounds."},
++    {"touchpad_menu", "What a touchpad click does: open this guide, or press Xbox Back."},
++    {"vibration", "Sends the game's vibration to the controller."},
++    {"deadzone_left", "Ignores small movements of the left stick."},
++    {"deadzone_right", "Ignores small movements of the right stick."},
++    {"motion_phone", "A phone as a motion camera (research). It shows diagnostics."},
++    {"motion_panel", "Where the motion panel is drawn over the game."},
++    {"motion_picture", "Sends the phone camera's picture to games that show the camera."},
++    {"show_fps", "Shows the frames per second in a corner."},
++    {"achievement_toasts", "Shows a notification when you unlock an achievement."},
++    {"save_drive", "Where the game keeps its saves."},
++};
++inline const char* BriefOf(std::string_view key) {
++  for (const Brief& brief : kBriefs)
++    if (key == brief.key) return brief.text;
++  return nullptr;
++}
++// The line an Emulation (advanced) option's help adds.
++inline constexpr const char* kRiskLine = "Changes how the game runs: it can run faster, slower or wrong.";
++inline bool ChangesHowGameRuns(std::string_view key) {
++  const Entry* entry = Find(key);
++  return entry && entry->group == Group::emulation;
++}
++// An option's choices on one line ("Off  ·  FXAA  ·  SMAA 1x"), each already translated.
++inline std::string JoinChoices(const std::vector<std::string>& choices) {
++  std::string line;
++  for (const std::string& choice : choices) {
++    if (choice.empty()) continue;
++    if (!line.empty()) line += "  ·  ";  // the launcher's own separator
++    line += choice;
++  }
++  return line;
++}
++// Where the help card goes: beside its row, inside the band [top, bottom] it may use.
++inline float CardTop(float row_y, float height, float top, float bottom) {
++  float y = row_y;
++  if (y + height > bottom) y = bottom - height;
++  if (y < top) y = top;
++  return y;
++}
++
  // The guide (src/canary_game_main.cpp). On the Emulation (advanced) page, a notice is its first row
  // (the focus lands on it as the page opens); after one of its options is changed, kChanged is shown
  // over the list's bottom for kChangedSeconds.
+-inline constexpr const char* kGuideNotice =
+-    "These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game.";
+-inline constexpr const char* kGuideChanged =
+-    "Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back.";
++// Fix 149b: one short line each, large (the user could not read 149's two small lines).
++inline constexpr const char* kGuideNotice = "These options change how the game runs.";
++inline constexpr const char* kGuideChanged = "Changed for this game. Too fast or wrong? Set it back.";
+ inline constexpr float kChangedSeconds = 8.0f;
+ // The time left for kGuideChanged after a frame of `dt` seconds.
+ inline float ChangedLeft(float left, float dt) { return left > dt ? left - dt : 0.0f; }
 diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
 --- a/platform/ps5/web_settings.cpp
 +++ b/platform/ps5/web_settings.cpp
@@ -196,7 +276,53 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
                           bug_report_restart };  // fix 93d
  struct GuideItem {
    GuideAction action;
-@@ -783,8 +784,23 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+@@ -689,6 +690,45 @@ struct GuideItem {
+ inline bool GuideRowHasValue(const GuideItem& item) {
+   return item.action == GuideAction::option || item.action == GuideAction::network;
+ }
++// Fix 149b: the help card beside the guide's focused option: its name, its choices, what it changes and,
++// for an Emulation (advanced) option, the risk (option_groups.hpp). In 1080p units; row_y is the focused
++// row's top, the card stays between top and bottom.
++void DrawHelpCard(ImDrawList* list, ImFont* text_font, ImFont* title_font, float scale, float reveal,
++                  const xbox360ps5::Option& option, float x, float row_y, float top, float bottom) {
++  namespace groups = xbox360ps5::option_groups;
++  const auto colour = [reveal](int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, int(float(a) * reveal)); };
++  const auto at = [scale](float px, float py) { return ImVec2(px * scale, py * scale); };
++  const float width = 372, pad = 18, inner = width - 2 * pad - 6;
++  std::vector<std::string> choices;
++  for (const char* choice : option.choices) choices.push_back(Tr(choice));
++  const std::string title = Tr(option.label), line = groups::JoinChoices(choices);
++  const char* brief = groups::BriefOf(option.key);
++  const bool risk = groups::ChangesHowGameRuns(option.key);
++  const auto height_of = [&](ImFont* font, float size, const char* text) {
++    return font->CalcTextSizeA(size * scale, 4096.0f, inner * scale, text).y / scale;
++  };
++  float height = pad + height_of(title_font, 26, title.c_str()) + 8 + height_of(text_font, 22, line.c_str());
++  if (brief) height += 12 + height_of(text_font, 24, Tr(brief));
++  if (risk) height += 12 + height_of(text_font, 22, Tr(groups::kRiskLine));
++  height += pad;
++  const float y0 = groups::CardTop(row_y, height, top, bottom);
++  for (int n = 3; n >= 1; --n)
++    list->AddRectFilled(at(x - 2.0f * float(n), y0 - float(n) + 6), at(x + width + 2.0f * float(n), y0 + height + 3.0f * float(n) + 6),
++                        colour(0, 0, 0, 34), (10.0f + 2.0f * float(n)) * scale);
++  list->AddRectFilled(at(x, y0), at(x + width, y0 + height), colour(242, 243, 244), 12 * scale);
++  list->AddRectFilled(at(x, y0), at(x + 6, y0 + height), risk ? colour(222, 150, 40) : colour(118, 188, 62), 12 * scale,
++                      ImDrawFlags_RoundCornersLeft);
++  float y = y0 + pad;
++  const auto text = [&](ImFont* font, float size, ImU32 ink, const char* s) {
++    list->AddText(font, size * scale, at(x + pad + 6, y), ink, s, nullptr, inner * scale);
++    y += height_of(font, size, s);
++  };
++  text(title_font, 26, colour(30, 34, 40), title.c_str());
++  y += 8;
++  text(text_font, 22, colour(96, 102, 110), line.c_str());
++  if (brief) { y += 12; text(text_font, 24, colour(44, 48, 54), Tr(brief)); }
++  if (risk) { y += 12; text(text_font, 22, colour(150, 90, 0), Tr(groups::kRiskLine)); }
++}
+ // Fix 115c: tab_bar.hpp draws through this: 1080p units, colours faded in with the guide.
+ struct GuidePainter {
+   ImDrawList* list;
+@@ -783,8 +823,23 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
      items.push_back({GuideAction::notice, Tr(xbox360ps5::option_groups::kGuideNotice), ""});
      items.push_back({GuideAction::measure, Tr("Measure performance (10 s)"), ""});  // fix 54: was 5 s
    }
@@ -220,20 +346,53 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
      items.push_back({GuideAction::option, Tr(option.label), Tr(option.choices[size_t(settings.*option.field)]), &option});
    }
    if (category == 4) {
-@@ -1073,6 +1089,12 @@ class Guide final : public xe::ui::ImGuiDialog {
-                       items[size_t(n)].label.c_str(), nullptr, (page_right - page_left - strip - 76) * scale);
-         continue;
-       }
+@@ -1069,8 +1124,14 @@ class Guide final : public xe::ui::ImGuiDialog {
+         list->AddRectFilled(from, to, fade(255, 214, 120, a));
+         if (focused) list->AddRect(from, to, fade(70, 56, 20, a), 0.0f, 0, 3.0f * scale);
+         list->AddText(large, 32 * scale, at(page_left + strip + 22 + slide_x, y + 12), fade(150, 90, 0, a), "!");
+-        list->AddText(medium, 20 * scale, at(page_left + strip + 52 + slide_x, y + 7), fade(60, 44, 10, a),
+-                      items[size_t(n)].label.c_str(), nullptr, (page_right - page_left - strip - 76) * scale);
++        // Fix 149b: one short line, about as large as the rows.
++        list->AddText(large, 28 * scale, at(page_left + strip + 56 + slide_x, y + 16), fade(60, 44, 10, a), items[size_t(n)].label.c_str());
++        continue;
++      }
 +      if (items[size_t(n)].action == GuideAction::section) {
 +        // Fix 149b: a section's name over its rows: smaller and grey on a thin line; the focus never lands on it.
 +        list->AddLine(at(page_left + strip + 24 + slide_x, y + 58), at(page_right - 24 + slide_x, y + 58), fade(150, 156, 164, a), 1.0f * scale);
 +        list->AddText(medium, 24 * scale, at(page_left + strip + 24 + slide_x, y + 26), fade(104, 110, 118, a), items[size_t(n)].label.c_str());
-+        continue;
-+      }
+         continue;
+       }
        list->AddLine(at(page_left + strip + slide_x, y + 62), at(page_right + slide_x, y + 62), fade(170, 175, 181, a), 1.5f * scale);
-       const ImU32 ink = lit ? fade(255, 255, 255, a) : fade(44, 48, 54, a);
-       list->AddText(large, (state_.page == 0 ? 34 : 30) * scale,
-@@ -1231,11 +1253,20 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
+@@ -1122,11 +1183,11 @@ class Guide final : public xe::ui::ImGuiDialog {
+     state_.group_changed = xbox360ps5::option_groups::ChangedLeft(state_.group_changed, frame_time);
+     if (state_.group_changed > 0.0f) {
+       const int a = int(255 * std::min(1.0f, state_.group_changed / 0.5f));
+-      list->AddRectFilled(at(left + 24, bottom - 76), at(right - 24, bottom - 10), fade(255, 214, 120, a), 12 * scale);
+-      list->AddRect(at(left + 24, bottom - 76), at(right - 24, bottom - 10), fade(150, 90, 0, a), 12 * scale, 0, 2.0f * scale);
+-      list->AddText(large, 32 * scale, at(left + 44, bottom - 62), fade(150, 90, 0, a), "!");
+-      list->AddText(medium, 21 * scale, at(left + 74, bottom - 68), fade(60, 44, 10, a), Tr(xbox360ps5::option_groups::kGuideChanged),
+-                    nullptr, (right - left - 122) * scale);
++      // Fix 149b: one short line, large.
++      list->AddRectFilled(at(left + 24, bottom - 70), at(right - 24, bottom - 10), fade(255, 214, 120, a), 12 * scale);
++      list->AddRect(at(left + 24, bottom - 70), at(right - 24, bottom - 10), fade(150, 90, 0, a), 12 * scale, 0, 2.0f * scale);
++      list->AddText(large, 32 * scale, at(left + 46, bottom - 59), fade(150, 90, 0, a), "!");
++      list->AddText(large, 30 * scale, at(left + 78, bottom - 57), fade(60, 44, 10, a), Tr(xbox360ps5::option_groups::kGuideChanged));
+     }
+     {
+       // Fix 115d: "row / rows" on the tab bar, left of R1, large and light on the dark bar, the same
+@@ -1158,6 +1219,11 @@ class Guide final : public xe::ui::ImGuiDialog {
+       list->AddText(small, 20 * scale, ImVec2(right * scale - size.x, 835 * scale), fade(140, 146, 154), web_.c_str());
+     }
+     list->PopClipRect();
++    // Fix 149b: beside the focused option, a card with its name, its choices, what it changes and, for an
++    // Emulation (advanced) option, the risk; it unfolds with the guide (drawn before the unfold below).
++    if (!state_.on_bar && state_.row >= 0 && state_.row < int(items.size()) &&
++        items[size_t(state_.row)].action == GuideAction::option && items[size_t(state_.row)].option)
++      DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, right + 14, state_.focus_y, 238, 860);
+     // The 3D unfold: while it opens, the panel stands tipped back (its top edge drawn in and
+     // lower), and it comes upright as it finishes, as the home's row turns in.
+     const float tip = 1.0f - reveal;
+@@ -1231,11 +1297,20 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
      json += std::string(n ? "," : "") + JsonText(Tr(xbox360ps5::kOptionCategories[groups::kOrder[n]]));
    json += "],\"options\":[";
    bool first = true;
@@ -256,7 +415,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
              "\",\"recommended\":" + std::to_string(option.recommended) + ",\"perGame\":" + (option.per_game ? "true" : "false") +
              ",\"value\":" + std::to_string(global.*option.field) + ",\"choices\":[";
      for (size_t n = 0; n < option.choices.size(); ++n) json += std::string(n ? "," : "") + JsonText(Tr(option.choices[n]));
-@@ -3816,6 +3847,13 @@ int main(int argc, char** argv) {
+@@ -3816,6 +3891,13 @@ int main(int argc, char** argv) {
              }
              guide.on_bar = nav.on_bar;
              guide.row = nav.row;
@@ -270,7 +429,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
              if (effect.back && guide.page == 1 && guide.category >= 0) {
                // Circle inside a category: back to the list of categories, on the one just left.
                const auto categories = GuideItems(1, settings, -1);
-@@ -3876,12 +3914,18 @@ int main(int argc, char** argv) {
+@@ -3876,12 +3958,18 @@ int main(int argc, char** argv) {
                  case GuideAction::category:
                    guide.category = items[size_t(guide.row)].category;
                    guide.row = 0;
@@ -488,9 +647,8 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
 -        if (key == Key::circle || key == Key::square) CloseSettings();
 +        if (key == Key::circle) settings_tab_ = 0;
 +        if (key == Key::square) CloseSettings();
-         break;
-       }
--      const int rows = 15;  // fix 93d: the last one is "Problem with a game? Logs for a bug report"
++        break;
++      }
 +      if (settings_tab_ == 2) {
 +        const int rows = 4;  // Download covers, Game folders, Refresh game list, Saved data
 +        if (key == Key::up) library_row_ = (library_row_ + rows - 1) % rows;
@@ -504,8 +662,9 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
 +        if (key == Key::up || key == Key::down) scan_result_.clear();
 +        if (key == Key::circle) settings_tab_ = 0;
 +        if (key == Key::square) CloseSettings();
-+        break;
-+      }
+         break;
+       }
+-      const int rows = 15;  // fix 93d: the last one is "Problem with a game? Logs for a bug report"
 +      const int rows = 13;  // fix 93d, 149b: the last one is "Problem with a game? Logs for a bug report"
        if (key == Key::up) settings_row_ = (settings_row_ + rows - 1) % rows;
        if (key == Key::down) settings_row_ = (settings_row_ + 1) % rows;
@@ -657,7 +816,30 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    const auto& options = Options();
    const int rows = int(category_rows_.size());
    if (!rows) return;
-@@ -4599,29 +4722,78 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+@@ -4590,7 +4713,21 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+     c.Text(std::string(Tr("Code: ")) + web_key_, x + 276, 628, 40, kAccent);
+     c.Wrapped(CameraQrText(), x + 276, 684, 20, kBody, 530);
+   } else {
+-    c.Wrapped(Tr(option.about), x + 56, 632, 20, kBody, 750);
++    // Fix 149b: as the guide's help card: in short, the choices and, for an Emulation (advanced) option, the
++    // risk; then the long help, cut where the recommended value's line starts.
++    float y = 628;
++    const auto wrapped = [&](const std::string& text, float size, uint32_t rgb) {
++      c.Wrapped(text, x + 56, y, size, rgb, 750);
++      y += c.Font(size)->CalcTextSizeA(size * c.scale, 4096.0f, 750 * c.scale, text.c_str()).y / c.scale + 8;
++    };
++    if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 22, kText);
++    std::vector<std::string> choices;
++    for (const char* choice : option.choices) choices.push_back(Tr(choice));
++    wrapped(option_groups::JoinChoices(choices), 20, kMuted);
++    if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 20, kWarning);
++    c.list->PushClipRect(c.At(x + 40, 620), c.At(x + 820, 852), true);
++    c.Wrapped(Tr(option.about), x + 56, y + 4, 20, kBody, 750);
++    c.list->PopClipRect();
+   }
+   // What is recommended, and when a change takes effect.
+   c.Text(std::string(Tr("Recommended: ")) + Tr(option.choices[size_t(option.recommended)]), x + 56, 860, 20, kAccent, 1.0f, 0, 750);
+@@ -4599,29 +4736,78 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
                                                         : Tr("Applies at once, also in a running game (from the guide).");
    c.Text(when, x + 56, 892, 20, kMuted, 1.0f, 0, 750);
    if (option.per_game)
@@ -748,7 +930,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    const char* language = "English";
    for (const auto& entry : kLanguages) if (entry.id == settings_.interface_language) language = Tr(entry.name);
    std::string profile = Tr("None");
-@@ -4646,17 +4818,16 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+@@ -4646,17 +4832,16 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
        {Tr("Controls"), changed(3), Tr("Touchpad click, vibration and stick dead zones.")},
        {Tr("System"), changed(4), Tr("FPS counter, achievement notifications, Arcade games and logs.")},
        {Tr("Emulation (advanced)"), changed(option_groups::kEmulation), Tr("How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, the renderer, memory, readbacks, shaders and tests. They can change a game's speed or correctness; change them game by game.")},
@@ -770,7 +952,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      const float y = 122 + n * 38.0f;
      const bool focused = n == settings_row_;
      c.Fill(x + 40, y, 780, 36, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
-@@ -4664,10 +4835,8 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+@@ -4664,10 +4849,8 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
      c.Text(rows[n].label, x + 64, y + 6, 24, focused ? kText : kBody);
      c.Text(rows[n].value, x + 796, y + 6, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
    }
@@ -782,7 +964,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
    if (web_qr_.size) {
      // The settings page: its QR code on a white card, the address and the key beside it.
-@@ -4694,7 +4863,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+@@ -4694,7 +4877,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
                " Xenia. " + Tr("RADV graphics (PS5_Vulkan), XMA audio (FFmpeg) and Xenia Canary patches. No games, BIOS or keys are included."),
                x + 56, 860, 20, kMuted, 750);
    }
@@ -791,7 +973,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    hint = c.Hint('o', Tr("Close"), hint, 1004);
    c.Hint('v', Tr("Navigate"), hint, 1004);
  }
-@@ -4728,14 +4897,14 @@ void Launcher::DrawPerGame(Canvas& c, float x) {
+@@ -4728,14 +4911,14 @@ void Launcher::DrawPerGame(Canvas& c, float x) {
      std::snprintf(position, sizeof(position), Tr("%d of %d"), per_game_row_ + 1, rows);
      c.Text(position, x + 820, 678, 20, kFaint, 1.0f, 2);
    }

@@ -212,4 +212,10 @@ Settings
    stops on them (Up from the first option goes to the tab bar). Emulation (advanced): the amber notice,
    Measure performance, then the sections' names over their options.
 8. Phone page: the Picture and smoothness and Emulation (advanced) tabs show the section headings.
-9. Polish interface: "Wygładzanie i ostrość", "Biblioteka i zapisy", the titles translated.
+9. Guide, any option focused: a light card right of the guide at the row's height: the option's name, its
+   choices ("Off  ·  FXAA  ·  FXAA Extreme  ·  SMAA 1x"), a short text and, on Emulation (advanced) options,
+   an orange risk line ("Changes how the game runs..."). No card on the tab bar, headers, the notice or
+   Measure. The amber notice is one large line; changing an emulation option shows one large line for 8 s.
+10. Launcher, an option focused: its help starts with the short text (white), the choices (grey) and, for
+   emulation options, the risk (orange); the long help follows and never covers "Recommended: ...".
+11. Polish interface: "Wygładzanie i ostrość", "Biblioteka i zapisy", the titles translated.

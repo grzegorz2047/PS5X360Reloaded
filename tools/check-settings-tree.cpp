@@ -16,7 +16,11 @@
 //      library first, the titles (Path);
 //  (d) the guide: sections' names as headers the focus passes, in the launcher's order;
 //  (e) the phone page: each option's section, a heading where a section starts;
-//  (f) the new texts in all 16 language files of the argument's folder, translated (not en).
+//  (f) the new texts in all 16 language files of the argument's folder, translated (not en);
+//  (g) the help card (the user, after 1.0.6-work-fix149: "a small window on the right of the selected
+//      option"): every option the guide shows has a short text; the notice and the warning after a change
+//      are one short line each; the card beside the guide's focused option and the launcher's help show
+//      the name, the choices, the short text and, for an Emulation (advanced) option, the risk.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh), with
 // tools/source-1.0.2/english/lang as its argument.
 #undef NDEBUG
@@ -211,6 +215,49 @@ void CheckGuide() {
          "(e) the phone page puts a heading where a section starts");
 }
 
+void CheckHelp() {
+  const std::string launcher = Read("src/launcher.cpp");
+  const std::regex row("\\{\"([a-z_0-9]+)\", &S::[a-z_0-9]+, (-?[0-9]+), W::([a-z]+), [0-9]+, (true|false),");
+  int live = 0;
+  for (std::sregex_iterator it(launcher.begin(), launcher.end(), row), end; it != end; ++it) {
+    const std::string key = (*it)[1].str();
+    if ((*it)[3].str() != "live" || key == "detailed_logs" || key == "bug_report") continue;
+    ++live;
+    Expect(og::BriefOf(key) != nullptr, "(g) " + key + " (shown in the guide) has a short text");
+  }
+  Expect(live >= 30, "(g) the guide's options are read (" + std::to_string(live) + ")");
+  for (const auto& brief : og::kBriefs) {
+    Expect(og::Find(brief.key) != nullptr, std::string("(g) ") + brief.key + " is an option");
+    Expect(std::strlen(brief.text) <= 100, std::string("(g) ") + brief.key + "'s text is short");
+  }
+  Expect(std::strlen(og::kGuideNotice) <= 50 && std::strlen(og::kGuideChanged) <= 60 && std::strlen(og::kRiskLine) <= 70,
+         "(g) the notice, the warning and the risk are one short line each");
+  Expect(og::ChangesHowGameRuns("video_clock") && og::ChangesHowGameRuns("readback") && !og::ChangesHowGameRuns("antialiasing") &&
+             !og::ChangesHowGameRuns("volume"),
+         "(g) the risk line for Emulation (advanced) options only");
+  Expect(og::JoinChoices({"Off", "FXAA", "", "SMAA 1x"}) == "Off  ·  FXAA  ·  SMAA 1x" && og::JoinChoices({}) == "",
+         "(g) the choices on one line");
+  Expect(og::CardTop(400, 200, 238, 860) == 400 && og::CardTop(800, 200, 238, 860) == 660 && og::CardTop(100, 200, 238, 860) == 238,
+         "(g) the card beside its row, inside the band");
+  const std::string main = Read("src/canary_game_main.cpp");
+  const std::string card = Between(main, "void DrawHelpCard(", "\n}\n");
+  Expect(Has(card, "groups::JoinChoices(choices)") && Has(card, "groups::BriefOf(option.key)") &&
+             Has(card, "groups::ChangesHowGameRuns(option.key)") && Has(card, "Tr(groups::kRiskLine)") &&
+             Has(card, "text(text_font, 24, colour(44, 48, 54), Tr(brief));"),
+         "(g) the card: name, choices, short text (24 px), risk");
+  Expect(Has(main, "DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, right + 14, state_.focus_y, 238, 860);") &&
+             main.find("DrawHelpCard(list, medium") > main.find("    list->PopClipRect();\n    // Fix 149b: beside the focused option") &&
+             main.find("DrawHelpCard(list, medium") < main.find("    // The 3D unfold:"),
+         "(g) beside the guide, outside its clip, unfolding with it");
+  Expect(Has(main, "list->AddText(large, 30 * scale, at(left + 78, bottom - 57), fade(60, 44, 10, a), Tr(xbox360ps5::option_groups::kGuideChanged));"),
+         "(g) the warning after a change: one line, large");
+  Expect(Has(launcher, "if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 22, kText);") &&
+             Has(launcher, "wrapped(option_groups::JoinChoices(choices), 20, kMuted);") &&
+             Has(launcher, "if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 20, kWarning);") &&
+             Has(launcher, "c.list->PushClipRect(c.At(x + 40, 620), c.At(x + 820, 852), true);"),
+         "(g) the launcher's help: short text, choices, risk, then the long help cut above the recommended value");
+}
+
 void CheckLanguages(const fs::path& folder) {
   std::vector<std::string> keys;
   for (int section = 0; section < int(std::size(og::kSections)); ++section) keys.push_back(og::SectionName(section));
@@ -218,8 +265,10 @@ void CheckLanguages(const fs::path& folder) {
                           "Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings.",
                           "Covers, game folders, the game list and saved data.",
                           "Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings.",
-                          "Each game can have its own value: Settings > Game settings."})
+                          "Each game can have its own value: Settings > Game settings.", og::kGuideNotice, og::kGuideChanged,
+                          og::kRiskLine})
     keys.push_back(key);
+  for (const auto& brief : og::kBriefs) keys.push_back(brief.text);
   int files = 0;
   for (const auto& entry : fs::directory_iterator(folder)) {
     if (entry.path().extension() != ".txt") continue;
@@ -251,6 +300,7 @@ int main(int argc, char** argv) {
   CheckHelpers();
   CheckLauncher();
   CheckGuide();
+  CheckHelp();
   if (argc > 1) CheckLanguages(argv[1]);
   else Expect(false, "(f) the language folder is the argument");
   if (failures) {
