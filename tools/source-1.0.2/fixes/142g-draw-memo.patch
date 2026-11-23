@@ -1,0 +1,669 @@
+diff --git a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
+index 99989fd..2fc0ac4 100644
+--- a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
+@@ -452,6 +452,14 @@ bool MMIOHandler::ExceptionCallback(Exception* ex) {
+     // The callback will handle it correctly — if watches were already cleared,
+     // TriggerCallbacks will find no watches and the page will be unprotected
+     // by the time the instruction retries.
++#if XE_PLATFORM_PS5
++    // Fix 142g: the PS5 build takes this branch, so fix 142f-diag's watch faults are counted here
++    // too (a watch already lifted is not told apart on it).
++    xbox360ps5::frame_cost::NoteFault(is_write
++                                          ? xbox360ps5::frame_cost::kFaultWriteWatch
++                                          : xbox360ps5::frame_cost::kFaultReadWatch,
++                                      uint64_t(ex->pc()));
++#endif
+     if (access_violation_callback_) {
+       return access_violation_callback_(std::move(lock),
+                                         access_violation_callback_context_,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/draw_memo.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/draw_memo.h
+new file mode 100644
+index 0000000..de31f61
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/draw_memo.h
+@@ -0,0 +1,162 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 142g: repeat memos for three per-draw computations on the GPU command thread
++// that fix 142f-diag measured as mostly repeating (research/parallel-gpu-commands/STAGE2.md,
++// section 15):
++//   - the system constants (UpdateSystemConstantValues): Modern Warfare 2 22-23 ms/s, 95.8% of
++//     the updates changing nothing;
++//   - the samplers (GetSamplerParameters and UseSampler for each of a shader's sampler
++//     bindings): MW2 45.9 ms/s, Grand Theft Auto IV 21.5;
++//   - the viewport (GetHostViewportInfo): MW2 25.9 ms/s, GTA IV 24.0.
++// Each builds a key of everything its computation reads; when the key equals the last one, the
++// computation would give the same result as last time.
++// Modes, per memo (draw_memo_* cvars, or draw-memo.txt in the title folder):
++//   0 off: computed as before (nothing here is looked at);
++//   1 verify: computed every time; when the memo says it would repeat and the result differs,
++//     a mismatch is counted (the first ones logged);
++//   2 skip: a repeat takes the last result.
++// draw-memo.txt: "system N", "samplers N", "viewport N" lines, or one number for all three.
++#ifndef XENIA_GPU_VULKAN_DRAW_MEMO_H_
++#define XENIA_GPU_VULKAN_DRAW_MEMO_H_
++
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <sstream>
++#include <string>
++#include <type_traits>
++#include <vector>
++
++namespace xe {
++namespace gpu {
++namespace draw_memo {
++
++enum Mode : uint32_t { kOff = 0, kVerify = 1, kSkip = 2, kModes };
++enum Which : uint32_t { kSystem = 0, kSamplers, kViewport, kMemos };
++inline const char* WhichName(uint32_t which) {
++  static const char* const names[] = {"system", "samplers", "viewport"};
++  return which < kMemos ? names[which] : "?";
++}
++
++struct Settings {
++  uint32_t mode[kMemos] = {};
++  bool operator==(const Settings& other) const {
++    return !std::memcmp(mode, other.mode, sizeof(mode));
++  }
++};
++
++// Returns the lines not understood; what a line does not set keeps its value.
++inline int Parse(const std::string& text, Settings& settings) {
++  int not_understood = 0;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string first, second, extra;
++    if (!(words >> first)) continue;
++    const bool has_second = bool(words >> second);
++    if (words >> extra) {
++      ++not_understood;
++      continue;
++    }
++    auto mode_of = [](const std::string& word, uint32_t& mode) {
++      if (word.size() != 1 || word[0] < '0' || word[0] >= char('0' + kModes)) return false;
++      mode = uint32_t(word[0] - '0');
++      return true;
++    };
++    uint32_t mode;
++    if (!has_second) {
++      if (!mode_of(first, mode)) {
++        ++not_understood;
++        continue;
++      }
++      for (uint32_t& m : settings.mode) m = mode;
++      continue;
++    }
++    uint32_t which = kMemos;
++    for (uint32_t w = 0; w < kMemos; ++w)
++      if (first == WhichName(w)) which = w;
++    if (which == kMemos || !mode_of(second, mode)) {
++      ++not_understood;
++      continue;
++    }
++    settings.mode[which] = mode;
++  }
++  return not_understood;
++}
++
++// A key: words appended in a fixed order by the caller.
++class Key {
++ public:
++  void Clear() { words_.clear(); }
++  template <typename T>
++  void Add(const T& value) {
++    static_assert(std::is_trivially_copyable<T>::value, "plain data");
++    AddBytes(&value, sizeof(T));
++  }
++  void AddBytes(const void* data, size_t size) {
++    const uint8_t* bytes = static_cast<const uint8_t*>(data);
++    while (size) {
++      uint32_t word = 0;
++      const size_t n = size < 4 ? size : 4;
++      std::memcpy(&word, bytes, n);
++      words_.push_back(word);
++      bytes += n;
++      size -= n;
++    }
++  }
++  bool operator==(const Key& other) const { return words_ == other.words_; }
++  size_t size() const { return words_.size(); }
++
++ private:
++  std::vector<uint32_t> words_;
++};
++
++// The last key whose computation ran to the end.
++class Slot {
++ public:
++  Key& Begin() {
++    key_.Clear();
++    return key_;
++  }
++  bool Predict() const { return valid_ && key_ == last_; }
++  void Commit() {
++    std::swap(last_, key_);
++    valid_ = true;
++  }
++  void Invalidate() { valid_ = false; }
++  bool valid() const { return valid_; }
++
++ private:
++  Key key_, last_;
++  bool valid_ = false;
++};
++
++struct Stats {
++  uint64_t calls = 0, predicted = 0, skipped = 0, mismatches = 0;
++};
++
++// "Draw memo (fix 142g): system mode m: n/s, repeats p%, skipped s/s, mismatches x (t in all);
++// samplers ...; viewport ..." for the counts since `before`.
++inline std::string Line(const Settings& settings, const Stats* now, const Stats* before, double seconds) {
++  const double s = seconds > 0 ? seconds : 1.0;
++  std::ostringstream line;
++  line << "Draw memo (fix 142g): ";
++  for (uint32_t w = 0; w < kMemos; ++w) {
++    const uint64_t calls = now[w].calls - before[w].calls;
++    const uint64_t predicted = now[w].predicted - before[w].predicted;
++    line << (w ? "; " : "") << WhichName(w) << " mode " << settings.mode[w] << ": "
++         << uint64_t(double(calls) / s + 0.5) << "/s, repeats "
++         << (calls ? predicted * 100 / calls : 0) << "%, skipped "
++         << uint64_t(double(now[w].skipped - before[w].skipped) / s + 0.5) << "/s, mismatches "
++         << now[w].mismatches - before[w].mismatches << " (" << now[w].mismatches << " in all)";
++  }
++  return line.str();
++}
++
++}  // namespace draw_memo
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_DRAW_MEMO_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 4b44293..772d02d 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -12,6 +12,7 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
++#include <ctime>  // fix 142g: the console's clock in the switch's line
+ #include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include <sys/stat.h>
+@@ -42,6 +43,9 @@
+ #if XE_PLATFORM_PS5
+ #include "xenia/gpu/register_run.h"  // fix 103
+ #endif
++#if XE_PLATFORM_PS5
++#include "xenia/gpu/vulkan/draw_memo.h"  // fix 142g
++#endif
+ #include "xenia/gpu/shader.h"
+ #include "xenia/gpu/spirv_shader_translator.h"
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+@@ -89,6 +93,15 @@ DEFINE_uint32(gpu_async_submit, 0,
+ DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
+               "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
+               "GPU");
++// Xbox360PS5, fix 142g (draw_memo.h): repeat memos for the system constants, the samplers and the
++// viewport. 0 off, 1 verify, 2 skip; or draw-memo.txt in the title folder ("system N",
++// "samplers N", "viewport N", or one number for all).
++DEFINE_uint32(draw_memo_system, 0,
++              "Fix 142g: the system constants' repeat memo (0 off, 1 verify, 2 skip).", "GPU");
++DEFINE_uint32(draw_memo_samplers, 0,
++              "Fix 142g: the samplers' repeat memo (0 off, 1 verify, 2 skip).", "GPU");
++DEFINE_uint32(draw_memo_viewport, 0,
++              "Fix 142g: the viewport's repeat memo (0 off, 1 verify, 2 skip).", "GPU");
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -1939,6 +1952,74 @@ void VulkanCommandProcessor::ShutdownContext() {
+ }
+ 
+ #if XE_PLATFORM_PS5
++// Fix 142g (draw_memo.h): the memos' state, the GPU thread's alone.
++namespace fix142g {
++draw_memo::Settings settings;
++bool settings_logged = false;
++draw_memo::Stats stats[draw_memo::kMemos], stats_logged[draw_memo::kMemos];
++uint32_t mismatches_logged[draw_memo::kMemos] = {};
++std::chrono::steady_clock::time_point checked{}, line_at{};
++draw_memo::Slot system_slot, sampler_slots[2], viewport_slot;
++draw_util::ViewportInfo viewport_last{};
++std::vector<std::pair<uint32_t, VkSampler>> samplers_last[2];
++bool sampler_active[2] = {}, sampler_predicted[2] = {};
++void Mismatch(uint32_t which, const char* what) {
++  ++stats[which].mismatches;
++  if (mismatches_logged[which] < 8) {
++    ++mismatches_logged[which];
++    XELOGW("Draw memo (fix 142g): {} mismatch {} of 8 logged: {}", draw_memo::WhichName(which),
++           mismatches_logged[which], what);
++  }
++}
++// The modes from draw-memo.txt in the title folder when it exists (read again at most once a
++// second), else the cvars (a value that is not a mode is off); the line every 30 s while a memo
++// is on.
++void Refresh() {
++  const auto now = std::chrono::steady_clock::now();
++  if (settings_logged && now - checked < std::chrono::seconds(1)) return;
++  checked = now;
++  draw_memo::Settings next;
++  const uint32_t from_cvars[draw_memo::kMemos] = {cvars::draw_memo_system, cvars::draw_memo_samplers,
++                                                  cvars::draw_memo_viewport};
++  for (uint32_t w = 0; w < draw_memo::kMemos; ++w)
++    next.mode[w] = from_cvars[w] < draw_memo::kModes ? from_cvars[w] : draw_memo::kOff;
++  const char* const path = XBOX360PS5_DATA_ROOT "/draw-memo.txt";
++  int not_understood = 0;
++  bool from_file = false;
++  if (FILE* file = std::fopen(path, "rb")) {
++    std::string text;
++    char chunk[256];
++    size_t got;
++    while ((got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) text.append(chunk, got);
++    std::fclose(file);
++    not_understood = draw_memo::Parse(text, next);
++    from_file = true;
++  }
++  if (!settings_logged || !(next == settings)) {
++    XELOGW("Draw memo (fix 142g): system {}, samplers {}, viewport {} (0 off, 1 verify, 2 skip), "
++           "from {}{}",
++           next.mode[0], next.mode[1], next.mode[2], from_file ? path : "the settings",
++           not_understood ? fmt::format(", {} lines not understood", not_understood)
++                          : std::string());
++    settings = next;
++    settings_logged = true;
++    system_slot.Invalidate();
++    viewport_slot.Invalidate();
++    sampler_slots[0].Invalidate();
++    sampler_slots[1].Invalidate();
++    for (uint32_t& logged : mismatches_logged) logged = 0;
++  }
++  if (line_at == std::chrono::steady_clock::time_point()) line_at = now;
++  const double seconds = std::chrono::duration<double>(now - line_at).count();
++  if (seconds >= 30.0) {
++    if (settings.mode[0] || settings.mode[1] || settings.mode[2]) {
++      XELOGW("{}", draw_memo::Line(settings, stats, stats_logged, seconds));
++    }
++    for (uint32_t w = 0; w < draw_memo::kMemos; ++w) stats_logged[w] = stats[w];
++    line_at = now;
++  }
++}
++}  // namespace fix142g
+ // Fix 142f-diag: float constant writes classified (identical, unused, used) once each: in a run
+ // (WriteRegistersSwapped) or alone (WriteRegister outside a run).
+ static bool fix142f_in_run = false;
+@@ -5071,6 +5152,48 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       std::vector<std::pair<VulkanTextureCache::SamplerParameters, VkSampler>>&
+           shader_samplers =
+               j ? current_samplers_pixel_ : current_samplers_vertex_;
++#if XE_PLATFORM_PS5
++      // Fix 142g: the samplers' repeat memo, per stage. The key: the shader (its sampler
++      // bindings), the fetch constants they read, the anisotropy override, the submission (a
++      // sampler used in it is not destroyed in it, and using it again changes nothing) and the
++      // texture cache's binding epoch (any sampler destroyed).
++      fix142g::sampler_active[j] = false;
++      if (fix142g::settings.mode[draw_memo::kSamplers] != draw_memo::kOff) {
++        const VulkanShader* memo_shader = j ? pixel_shader : vertex_shader;
++        if (i || !memo_shader) {
++          fix142g::sampler_slots[j].Invalidate();
++        } else {
++          ++fix142g::stats[draw_memo::kSamplers].calls;
++          draw_memo::Key& key = fix142g::sampler_slots[j].Begin();
++          key.Add(memo_shader);
++          key.Add(GetCurrentSubmission());
++          key.Add(texture_cache_->binding_epoch());
++          key.Add(int32_t(cvars::anisotropic_override));
++          for (const VulkanShader::SamplerBinding& binding :
++               memo_shader->GetSamplerBindingsAfterTranslation()) {
++            const uint32_t fetch_index = binding.fetch_constant;
++            key.Add(fetch_index | uint32_t(binding.mag_filter) << 8 |
++                    uint32_t(binding.min_filter) << 12 | uint32_t(binding.mip_filter) << 16 |
++                    uint32_t(binding.aniso_filter) << 20);
++            key.AddBytes(&regs.values[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + fetch_index * 6],
++                         6 * sizeof(uint32_t));
++          }
++          fix142g::sampler_active[j] = true;
++          fix142g::sampler_predicted[j] = fix142g::sampler_slots[j].Predict();
++          if (fix142g::sampler_predicted[j]) {
++            ++fix142g::stats[draw_memo::kSamplers].predicted;
++            if (fix142g::settings.mode[draw_memo::kSamplers] == draw_memo::kSkip) {
++              ++fix142g::stats[draw_memo::kSamplers].skipped;
++              fix142g::sampler_active[j] = false;  // the stage keeps the last draw's samplers
++              continue;
++            }
++          }
++          // Computed now: the stage's samplers change, so the memo holds again only once they
++          // are complete (a failure part way leaves it empty).
++          fix142g::sampler_slots[j].Invalidate();
++        }
++      }
++#endif
+       if (!i) {
+         shader_samplers.clear();
+       }
+@@ -5114,6 +5237,28 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       }
+     }
+     XE_FIX142F(fc::DrawSubStop(fc::kSubSamplers, fix142f_samplers);)
++#if XE_PLATFORM_PS5
++    // Fix 142g: check (mode 1) and keep each stage's samplers as the memo's last result.
++    for (uint32_t j = 0; j < 2; ++j) {
++      if (!fix142g::sampler_active[j]) continue;
++      if (samplers_overflowed_count) {
++        fix142g::sampler_slots[j].Invalidate();
++        continue;
++      }
++      const auto& now = j ? current_samplers_pixel_ : current_samplers_vertex_;
++      auto& last = fix142g::samplers_last[j];
++      bool same = now.size() == last.size();
++      for (size_t k = 0; same && k < now.size(); ++k)
++        same = now[k].first.value == last[k].first && now[k].second == last[k].second;
++      if (fix142g::sampler_predicted[j] && !same) {
++        fix142g::Mismatch(draw_memo::kSamplers, j ? "the pixel shader's samplers came out different"
++                                                  : "the vertex shader's samplers came out different");
++      }
++      last.clear();
++      for (const auto& pair : now) last.emplace_back(pair.first.value, pair.second);
++      fix142g::sampler_slots[j].Commit();
++    }
++#endif
+     if (!samplers_overflowed_count) {
+       break;
+     }
+@@ -5404,7 +5549,43 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+               render_pass_key.depth_and_color_used) != nullptr);
+   gviargs.SetupRegisterValues(regs, window_offset_tiles != 0);
+ 
++#if XE_PLATFORM_PS5
++  {
++    // Fix 142g: the viewport's repeat memo (GetHostViewportInfo reads only its arguments and
++    // half_pixel_offset).
++    namespace dm = draw_memo;
++    const uint32_t memo_mode = fix142g::settings.mode[dm::kViewport];
++    bool memo_predicted = false, memo_computed = true;
++    if (memo_mode != dm::kOff) {
++      ++fix142g::stats[dm::kViewport].calls;
++      dm::Key& key = fix142g::viewport_slot.Begin();
++      key.AddBytes(&gviargs, 64);  // the union of the registers and flags (operator==)
++      key.Add(uint32_t(cvars::half_pixel_offset));
++      memo_predicted = fix142g::viewport_slot.Predict();
++      if (memo_predicted) {
++        ++fix142g::stats[dm::kViewport].predicted;
++        if (memo_mode == dm::kSkip) {
++          viewport_info = fix142g::viewport_last;
++          memo_computed = false;
++          ++fix142g::stats[dm::kViewport].skipped;
++        }
++      }
++    }
++    if (memo_computed) {
++      draw_util::GetHostViewportInfo(&gviargs, viewport_info);
++    }
++    if (memo_mode != dm::kOff && memo_computed) {
++      if (memo_predicted &&
++          std::memcmp(&viewport_info, &fix142g::viewport_last, sizeof(viewport_info))) {
++        fix142g::Mismatch(dm::kViewport, "the viewport came out different");
++      }
++      fix142g::viewport_last = viewport_info;
++      fix142g::viewport_slot.Commit();
++    }
++  }
++#else
+   draw_util::GetHostViewportInfo(&gviargs, viewport_info);
++#endif
+   XE_FIX142F(fc::DrawSubStop(fc::kSubViewport, fix142f_viewport_args);)
+   draw_timer.Mark(fc::kDrawPipeline);  // fix 73: from the targets on, the pipeline and its binding
+   XE_FIX142D(const fc::BindMark fix142d_dynamic = fc::BindStart();)
+@@ -8020,15 +8201,22 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     render_target_cache_->Fix142eEndSubmission();  // fix 142e: the mode and the line
+   }
+ #if XE_PLATFORM_PS5
++  fix142g::Refresh();  // fix 142g: the draw memos' modes and line
+   {
+     // Fix 142f-diag: the detailed probes' switch, gpu-diag-detail.txt in the title folder.
+     static bool fix142f_logged = false;
+     if (xbox360ps5::frame_cost::RefreshDiagDetail(XBOX360PS5_DATA_ROOT "/gpu-diag-detail.txt") ||
+         !fix142f_logged) {
+       fix142f_logged = true;
++      // Fix 142g: with the console's clock and the file's write time by it, to line up the side
++      // that switches.
++      const int64_t fix142g_now = int64_t(std::time(nullptr));
++      const int64_t fix142g_written = xbox360ps5::frame_cost::diag_file_mtime.load();
+       XELOGW("GPU diagnostics detail (fix 142f-diag): {}, from " XBOX360PS5_DATA_ROOT
+-             "/gpu-diag-detail.txt (1 on, 0 or no file off)",
+-             xbox360ps5::frame_cost::DiagDetail() ? "on" : "off");
++             "/gpu-diag-detail.txt (1 on, 0 or no file off); console clock {} (unix), the file "
++             "written at {} ({} s before)",
++             xbox360ps5::frame_cost::DiagDetail() ? "on" : "off", fix142g_now, fix142g_written,
++             fix142g_written ? fix142g_now - fix142g_written : 0);
+     }
+   }
+ #endif
+@@ -8740,6 +8928,85 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
+   const RegisterFile& regs = *register_file_;
++#if XE_PLATFORM_PS5
++  // Fix 142g: the system constants' repeat memo. The key holds everything below reads (the
++  // parameters' fields it uses, the registers, the texture cache's answers for the used textures,
++  // the render target cache's, the query state); check-draw-memo compares it with this
++  // function's text. A forced zpd counter update is never a repeat.
++  namespace dm = draw_memo;
++  const uint32_t fix142g_mode = fix142g::settings.mode[dm::kSystem];
++  bool fix142g_predicted = false;
++  if (fix142g_mode != dm::kOff) {
++    ++fix142g::stats[dm::kSystem].calls;
++    dm::Key& key = fix142g::system_slot.Begin();
++    // The parameters (the fields used of the structures).
++    key.Add(uint32_t(primitive_polygonal) | uint32_t(shader_32bit_index_dma) << 1 |
++            uint32_t(host_depth_polygon_offset != nullptr) << 2);
++    key.Add(used_texture_mask);
++    key.Add(normalized_depth_control.value);
++    key.Add(normalized_color_mask);
++    key.Add(window_offset_tiles);
++    key.Add(primitive_processing_result.guest_index_base);
++    key.Add(primitive_processing_result.host_shader_index_endian);
++    key.Add(primitive_processing_result.index_buffer_type);
++    key.Add(viewport_info.ndc_offset);
++    key.Add(viewport_info.ndc_scale);
++    key.Add(viewport_info.xy_extent);
++    if (host_depth_polygon_offset) {
++      key.Add(*host_depth_polygon_offset);
++    }
++    // The registers.
++    static const uint32_t kFix142gRegisters[] = {
++        XE_GPU_REG_PA_CL_VTE_CNTL,          XE_GPU_REG_PA_SU_SC_MODE_CNTL,
++        XE_GPU_REG_RB_ALPHA_REF,            XE_GPU_REG_RB_COLORCONTROL,
++        XE_GPU_REG_RB_DEPTH_INFO,           XE_GPU_REG_RB_STENCILREFMASK,
++        XE_GPU_REG_RB_STENCILREFMASK_BF,    XE_GPU_REG_RB_SURFACE_INFO,
++        XE_GPU_REG_VGT_INDX_OFFSET,         XE_GPU_REG_PA_CL_CLIP_CNTL,
++        XE_GPU_REG_PA_SC_WINDOW_OFFSET,     XE_GPU_REG_PA_SU_POINT_MINMAX,
++        XE_GPU_REG_PA_SU_POINT_SIZE,        XE_GPU_REG_RB_DEPTHCONTROL,
++        XE_GPU_REG_PA_SU_POLY_OFFSET_FRONT_SCALE, XE_GPU_REG_PA_SU_POLY_OFFSET_FRONT_OFFSET,
++        XE_GPU_REG_PA_SU_POLY_OFFSET_BACK_SCALE,  XE_GPU_REG_PA_SU_POLY_OFFSET_BACK_OFFSET,
++        XE_GPU_REG_RB_BLEND_RED,            XE_GPU_REG_RB_BLEND_GREEN,
++        XE_GPU_REG_RB_BLEND_BLUE,           XE_GPU_REG_RB_BLEND_ALPHA,
++    };
++    for (uint32_t index : kFix142gRegisters) key.Add(regs.values[index]);
++    for (uint32_t i = 0; i < xenos::kMaxColorRenderTargets; ++i) {
++      key.Add(regs.values[reg::RB_COLOR_INFO::rt_register_indices[i]]);
++      key.Add(regs.values[reg::RB_BLENDCONTROL::rt_register_indices[i]]);
++    }
++    key.AddBytes(&regs.values[XE_GPU_REG_PA_CL_UCP_0_X], 6 * 4 * sizeof(uint32_t));
++    {
++      const auto initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
++      key.Add(uint32_t(initiator.prim_type) | uint32_t(initiator.index_size) << 8);
++    }
++    // The render target cache's and the texture cache's answers, the query state.
++    key.Add(uint32_t(render_target_cache_->GetPath()));
++    key.Add(render_target_cache_->GetDrawScaleX());
++    key.Add(render_target_cache_->GetDrawScaleY());
++    key.Add(uint32_t(render_target_cache_->gamma_render_target_as_unorm16()) |
++            uint32_t(render_target_cache_->IsFixedRG16TruncatedToMinus1To1()) << 1 |
++            uint32_t(render_target_cache_->IsFixedRGBA16TruncatedToMinus1To1()) << 2);
++    uint32_t textures_remaining = used_texture_mask;
++    uint32_t texture_index;
++    while (xe::bit_scan_forward(textures_remaining, &texture_index)) {
++      textures_remaining &= ~(UINT32_C(1) << texture_index);
++      key.Add(uint32_t(texture_cache_->GetActiveTextureSwizzledSigns(texture_index)) |
++              uint32_t(texture_cache_->IsActiveTextureResolutionScaled(texture_index)) << 8);
++      key.Add(texture_cache_->GetActiveIntegerScaleBits(texture_index));
++      key.Add(texture_cache_->GetActiveTextureHostSwizzle(texture_index));
++    }
++    key.Add(active_query_index_);
++    key.Add(uint32_t(active_query_is_fsi_) | uint32_t(active_segment_.hybrid) << 1);
++    fix142g_predicted = !zpd_counter_index_force_update_ && fix142g::system_slot.Predict();
++    if (fix142g_predicted) {
++      ++fix142g::stats[dm::kSystem].predicted;
++      if (fix142g_mode == dm::kSkip) {
++        ++fix142g::stats[dm::kSystem].skipped;
++        return;
++      }
++    }
++  }
++#endif
+   auto pa_cl_vte_cntl = regs.Get<reg::PA_CL_VTE_CNTL>();
+   auto pa_su_sc_mode_cntl = regs.Get<reg::PA_SU_SC_MODE_CNTL>();
+   auto rb_alpha_ref = regs.Get<float>(XE_GPU_REG_RB_ALPHA_REF);
+@@ -9311,6 +9578,14 @@ void VulkanCommandProcessor::UpdateSystemConstantValues(
+         ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferSystem);
+   }
+   XE_FIX142F(xbox360ps5::frame_cost::NoteSystemConstants(dirty);)  // fix 142f-diag
++#if XE_PLATFORM_PS5
++  if (fix142g_mode != draw_memo::kOff) {  // fix 142g
++    if (fix142g_predicted && dirty) {
++      fix142g::Mismatch(draw_memo::kSystem, "the system constants changed");
++    }
++    fix142g::system_slot.Commit();
++  }
++#endif
+ }
+ 
+ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+@@ -9719,6 +9994,36 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   }
+ #if XE_PLATFORM_PS5
+   fc142d::BindStop(fc142d::kBindImageInfos, fix142d_infos);
++  // Fix 142g: fix 142f-diag's texture set history, out of fix 142d's reuse check span: the same set
++  // as the previous draw's, or as one of the last 32 of this frame (its own pass over the stages).
++  if (xbox360ps5::frame_cost::DiagDetail()) {
++    for (uint32_t stage = 0; stage < 2; ++stage) {
++      const bool is_vertex = stage == 0;
++      if (!(is_vertex ? write_vertex_textures : write_pixel_textures)) continue;
++      const uint32_t texture_count = is_vertex ? texture_count_vertex : texture_count_pixel;
++      const uint32_t sampler_count = is_vertex ? sampler_count_vertex : sampler_count_pixel;
++      const size_t texture_offset =
++          is_vertex ? vertex_texture_image_info_offset : pixel_texture_image_info_offset;
++      const size_t sampler_offset =
++          is_vertex ? vertex_sampler_image_info_offset : pixel_sampler_image_info_offset;
++      VkImageView views[64];
++      VkSampler samplers[64];
++      const uint32_t view_n = std::min<uint32_t>(texture_count, 64);
++      const uint32_t sampler_n = std::min<uint32_t>(sampler_count, 64);
++      for (uint32_t i = 0; i < view_n; ++i)
++        views[i] = descriptor_write_image_info_[texture_offset + i].imageView;
++      for (uint32_t i = 0; i < sampler_n; ++i)
++        samplers[i] = descriptor_write_image_info_[sampler_offset + i].sampler;
++      const VkDescriptorSetLayout layout =
++          is_vertex ? current_guest_graphics_pipeline_layout_
++                          ->descriptor_set_layout_textures_vertex_ref()
++                    : current_guest_graphics_pipeline_layout_
++                          ->descriptor_set_layout_textures_pixel_ref();
++      xbox360ps5::frame_cost::texture_set_history.Note(stage, frame_current_,
++                                                       texture_cache_->binding_epoch(), layout,
++                                                       views, view_n, samplers, sampler_n);
++    }
++  }
+   const fc142d::BindMark fix142d_reuse = fc142d::BindStart();
+   // Fix 104: reuse or write, for each stage.
+   const uint64_t texture_set_epoch = texture_cache_->binding_epoch();
+@@ -9767,10 +10072,6 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+                         ->descriptor_set_layout_textures_vertex_ref()
+                   : current_guest_graphics_pipeline_layout_
+                         ->descriptor_set_layout_textures_pixel_ref();
+-    // Fix 142f-diag: the same set as the previous draw's, or as one of the last 32 of this frame.
+-    xbox360ps5::frame_cost::texture_set_history.Note(
+-        stage, frame_current_, texture_set_epoch, layout, texture_set_views_.data(), texture_count,
+-        texture_set_samplers_.data(), sampler_count);
+     const auto& written = texture_sets_written_[stage];
+     if (written.Matches(frame_current_, texture_set_epoch, layout,
+                         texture_set_views_.data(), texture_count,
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
+index 1fe8f4d..65e49ec 100644
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
+@@ -808,7 +808,7 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     indexing_properties_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+     indexing_properties_2.pNext = &indexing_properties;
+     ifn.vkGetPhysicalDeviceProperties2(physical_device, &indexing_properties_2);
+-    XELOGI(
++    XELOGW(  // fix 142g: the game log leaves out XELOGI
+         "Vulkan descriptor indexing (fix 142f-diag, supported): "
+         "shaderSampledImageArrayNonUniformIndexing {}, "
+         "descriptorBindingSampledImageUpdateAfterBind {}, "
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+index 6ba6ce8..1a4403f 100644
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -21,6 +21,7 @@
+ #pragma once
+ #include <algorithm>
+ #include <pthread.h>  // fix 75: pthread_self
++#include <sys/stat.h>  // fix 142g: the switch file's write time
+ #include <array>
+ #include <atomic>
+ #include <chrono>
+@@ -88,12 +89,25 @@ inline bool ParseDiagDetail(const std::string& text) {
+ }
+ // Read the file at most once a second (call it from the GPU thread's end of a submission). Returns
+ // true when the switch changed (the caller logs it).
++// Fix 142g: the time the switch was on, so that a summary's block says how much of it was on (the
++// state at the line's time misled when the switch flipped inside a block), and the file's write
++// time by the console's clock (the switching side's clock ran 23.5 s ahead).
++inline std::atomic<uint64_t> diag_on_ns{0}, diag_seen_ns{0};
++inline std::atomic<int64_t> diag_file_mtime{0};
+ inline bool RefreshDiagDetail(const char* path) {
+-  static uint64_t checked_ns = 0;
++  static uint64_t checked_ns = 0, counted_ns = 0;
+   const uint64_t now = NowNs();
++  if (counted_ns && now > counted_ns) {  // fix 142g
++    diag_seen_ns.fetch_add(now - counted_ns, std::memory_order_relaxed);
++    if (DiagDetail()) diag_on_ns.fetch_add(now - counted_ns, std::memory_order_relaxed);
++  }
++  counted_ns = now;
+   if (checked_ns && now - checked_ns < 1000000000ull) return false;
+   checked_ns = now;
+   bool on = false;
++  struct stat file_stat = {};
++  diag_file_mtime.store(stat(path, &file_stat) == 0 ? int64_t(file_stat.st_mtime) : 0,
++                        std::memory_order_relaxed);  // fix 142g
+   if (FILE* file = std::fopen(path, "rb")) {
+     char text[64] = {};
+     const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
+@@ -2291,7 +2305,11 @@ class ProbeReporter {
+     const std::string sixth = "Frame time faults (fix 142f-diag, every thread): " + fault_kinds +
+                               "; guest code faulting most (1 in 8 resolved, 00000000 the emulator's own): " +
+                               (top_text.empty() ? std::string("none") : top_text);
+-    const char* state = DiagDetail() ? "on" : "off (the detailed figures below are not counted)";
++    // Fix 142g: how much of the block the switch was on (the figures below are counted only then).
++    const double seen = Delta(diag_seen_ns, last_diag_seen_), on_ns = Delta(diag_on_ns, last_diag_on_);
++    char state[160];
++    std::snprintf(state, sizeof(state), "on for %.0f%% of this block (now %s; the figures below count only while on)",
++                  seen > 0 ? on_ns * 100 / seen : (DiagDetail() ? 100.0 : 0.0), DiagDetail() ? "on" : "off");
+     return std::string("GPU diagnostics detail (fix 142f-diag): ") + state + "\n" + first + "\n" + second + "\n" +
+            third + "\n" + fourth + "\n" + fifth + "\n" + sixth;
+   }
+@@ -2321,6 +2339,7 @@ class ProbeReporter {
+   uint64_t last_writes_[2][kConstantClasses] = {};
+   uint64_t last_system_calls_ = 0, last_system_changes_ = 0;
+   uint64_t last_hot_ticks_[kHotRegisterCount] = {}, last_hot_counts_[kHotRegisterCount] = {};
++  uint64_t last_diag_seen_ = 0, last_diag_on_ = 0;  // fix 142g
+   uint64_t last_outcomes_[kOutcomes] = {}, last_copy_count_ = 0, last_faults_[kFaultKinds] = {},
+            last_fault_slots_[kFaultSlots] = {};
+   uint64_t last_all_counts_[kPacketKinds] = {}, last_kind_ticks_[kPacketKinds] = {},

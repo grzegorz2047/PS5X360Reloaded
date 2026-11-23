@@ -699,3 +699,93 @@ on.
 - an OPT-04C RAM cache;
 - the OPT-05B JIT audit (it exists, issue #5);
 - the OPT-05C driver pin bump (the GPU is only 17-38% busy).
+
+## 15. Results of fix 142f-diag, and fix 142g
+
+### Fix 142f-diag on the console
+
+Build `1.0.6-work-fix142f-diag`, fixed spots, the switch flipped between 0 and 1 every 35 s.
+
+**What limits the frame rate:**
+
+| Game | FPS | What limits it |
+|---|---|---|
+| GTA IV | 42.9 | The GPU thread's own work: 994 ms/s with no waits. Draws 571 ms/s (bindings 173), the rest 232. |
+| MW2 | 30.8 | The GPU thread is saturated at 1,001 ms/s: about 916 of own work plus 38-88 ms/s of memexport readback waits, which "the option" causes. The waits track the frame rate. |
+| RDR | 30 (the game's cap) | The GPU thread takes 28.1 ms a frame, about 5 ms of headroom. |
+| Sims 3 | 19.6 (3-vblank lock) | About 31 ms of work plus an 8.5 ms resolve wait ("first copy of a key") per frame: 166 ms/s in 236 waits/s. |
+
+**The probes' own cost with the switch on:** GTA IV -16%, MW2 -13%, RDR -20%, Sims 3 0 fps.
+
+**Decisions:**
+
+| Option | Decision | Why |
+|---|---|---|
+| Texture set cache | No | Writes repeating among the last 32: MW2 8%, GTA IV 23.8%, Sims 3 29.5%, RDR 49.8% (capped) |
+| System constants memo | Go, small | MW2 compute 22-23 ms/s, 95.8% of the updates unchanged |
+| Pipeline memo | No | ConfigurePipeline is 14-15 ms/s, about 1.5% |
+| Bindless | Measure more | Descriptor work 7-11%. The indexing line was missing (a bug, fixed in 142g). |
+| Sampler and viewport memo | Go | MW2 45.9 + 25.9 ms/s (about 2.3 ms a frame), GTA IV 21.5 + 24.0 |
+| MW2's memexport readback option | A/B it off | No build needed |
+| Sims 3 | A/B fix 125 off (3.4 ms a frame) | Also: why fix 91k stops giving the 3.6 MiB keys their own copies in steady live mode |
+
+**Diagnostic bugs found:**
+- The per-block on/off line showed the state at the report's time, not over the block.
+- The descriptor indexing line was info-level, which the game log leaves out.
+- The watch faults were counted only in the non-Linux branch, which the PS5 build does not take.
+- The texture set history ran inside fix 142d's reuse check span.
+- The switching side's timestamps ran about 23.5 s ahead of the console's clock.
+
+### Fix 142g
+
+- **Base:** `1.0.6_candidate_3` with 142d, 142e, 138 and 142f-diag.
+- **Patch:** `142g-draw-memo.patch`.
+- **Label:** `1.0.6-work-fix142g`.
+
+**The diagnostic fixes:**
+- The switch's line now says `on for X% of this block (now on|off; ...)`.
+- The descriptor indexing line is a warning.
+- Watch faults are counted in the branch the PS5 build takes. A watch already lifted is not told
+  apart there.
+- The texture set history runs before fix 142d's reuse check span, with its own pass over the
+  stages.
+- Each change of the switch is logged with the console's clock and the switch file's write time
+  by that clock, in unix seconds.
+
+**Three repeat memos** (`xenia/gpu/vulkan/draw_memo.h`). Each builds a key of everything its
+computation reads; a repeat of the last key gives the last result.
+
+| Memo | The key holds | Notes |
+|---|---|---|
+| System constants (`UpdateSystemConstantValues`) | The fields of the parameters it uses; its registers (the four render targets' color info and blend control, the six clip planes); the render target cache's answers; the texture cache's answers for each used texture; the query state | A forced zpd counter update never repeats. check-draw-memo compares the key with the function's text: a register, a field, a cache call or a member read and not keyed fails the check. |
+| Samplers, per stage | The shader; for each sampler binding, its fetch constant's six words and its filters; `anisotropic_override`; the submission; the texture cache's binding epoch | A sampler used in a submission is not destroyed in it, and using it again there changes nothing. A stage computed again is no memo until it completes; an overflow commits nothing. |
+| Viewport (`GetHostViewportInfo`) | `GetViewportInfoArgs`' 64-byte union (what its `operator==` compares) and `half_pixel_offset` | — |
+
+**The modes.** Each memo has its own cvar, 0 by default: `draw_memo_system`,
+`draw_memo_samplers` and `draw_memo_viewport`. Or `draw-memo.txt` in the title folder, read at
+most once a second:
+- one number sets all three;
+- `system N`, `samplers N` and `viewport N` lines set one each.
+
+The values:
+- **0 off**;
+- **1 verify:** computed every time; a repeat that comes out different is a mismatch, counted, and
+  the first 8 are logged;
+- **2 skip.**
+
+The log gives:
+- each change: `Draw memo (fix 142g): system m, samplers m, viewport m (0 off, 1 verify, 2 skip), from ...`;
+- every 30 s while one is on: `Draw memo (fix 142g): system mode m: n/s, repeats p%, skipped s/s,
+  mismatches x (t in all); samplers ...; viewport ...`.
+
+**Console protocol, MW2 and GTA IV, at the same fixed spots:**
+1. `draw-memo.txt` = `1` (verify all) for a few minutes, including a menu and a loading screen.
+   `t in all` must stay 0 for all three memos.
+2. Then switch `draw-memo.txt` between `0` and `2` every 35 s, with `gpu-diag-detail.txt` at 0
+   (the probes cost 13-16%). Compare the swaps per second, `GPU thread executing` and fix 73's
+   draws parts.
+
+With the detail switch on in a separate pass, the 142f-diag lines show:
+- the samplers sub-part, and the viewport;
+- the draw detail's system constants;
+- fix 142d's `system constants`.
