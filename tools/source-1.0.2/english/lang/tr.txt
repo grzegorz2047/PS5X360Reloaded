@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Biçim\s\s
 Frame\sgeneration\s(test) = Kare\süretimi\s(deneme)
 Frame\sgeneration\soutput\s(test) = Kare\süretimi\sçıkışı\s(deneme)
+Frame\srate\slimit\s(screen) = Kare\ssınırı\s(ekran)
 Full\s(slow) = Tam\s(yavaş)
 Full\sversion = Tam\ssürüm
 Game = Oyun
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Şununla\soyun\syok:\s"
 No\sgames\sin\sthis\sfilter = Bu\sfiltrede\soyun\syok
 No\sgames\syet = Henüz\soyun\syok
+No\slimit = Sınır\syok
 No\smatching\sDLC\spackages\sfound. = Uygun\sDLC\spaketi\sbulunamadı.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Yeni\skare\syok\s(gölgelendiriciler\sderleniyor\sveya\syükleniyor).\sOPTIONS\s+\sdokunmatik\syüzey:\srehber
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Yeni\skare\syok\s(gölgelendiriciler\sderleniyor\sveya\syükleniyor).\sDokunmatik\syüzey:\srehber
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = Oyunda\sFPS'yi\sgöster
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Oyunun\ssaniyedeki\skaresini\sekranın\sköşesinde\sgösterir.
 Show\syour\swhole\sbody\sto\sthe\scamera = Tüm\svücudunuzu\skameraya\sgösterin
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Bir\soyun\sbir\sXbox\s360\sbaşarımını\saçtığında\sPS5\sbildirimi\sgösterir.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Oyunun\syeni\sgörüntülerini\ssaniyede\sen\sfazla\sbu\skadar\skez,\sher\sbirini\saynı\ssüre\sgöstererek\sekranda\sdüzgün\sbir\shareket\ssağlar.\sOyunun\skendisi\seskisi\sgibi\sçalışır\s(hızı,\ssesi\sve\sEmüle\sedilen\sgörüntü\shızı\sdeğişmez)\sve\ssınırdan\syavaş\sbir\soyun\solduğu\sgibi\sgösterilir.\s40\siçin\s120\sHz\sçıkış\sgerekir\s(Kare\süretimi\sçıkışı:\s120\sHz'e\skadar);\s60\sHz'de\sher\sgörüntüyü\sgösterir.\sKare\süretimi\saçıkken\setkisi\syoktur.\sOtomatik:\seskisi\sgibi.
 Sign\sIn = Bir\sprofille\soturum\saç
 Signing\sout\sof\sonline\splay... = Çevrimiçi\soyundan\sçıkılıyor...
 Size:\s%s = Boyut:\s%s

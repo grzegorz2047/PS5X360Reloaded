@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Формат\s\s
 Frame\sgeneration\s(test) = Генерация\sкадров\s(тест)
 Frame\sgeneration\soutput\s(test) = Вывод\sгенерации\sкадров\s(тест)
+Frame\srate\slimit\s(screen) = Ограничение\sкадров\s(экран)
 Full\s(slow) = Полное\s(медленно)
 Full\sversion = Полная\sверсия
 Game = Игра
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Нет\sигры\sс\s"
 No\sgames\sin\sthis\sfilter = В\sэтом\sфильтре\sнет\sигр
 No\sgames\syet = Пока\sнет\sигр
+No\slimit = Без\sограничения
 No\smatching\sDLC\spackages\sfound. = Подходящие\sпакеты\sDLC\sне\sнайдены.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Нет\sновых\sкадров\s(компиляция\sшейдеров\sили\sзагрузка).\sOPTIONS\s+\sсенсорная\sпанель:\sменю
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Нет\sновых\sкадров\s(компиляция\sшейдеров\sили\sзагрузка).\sСенсорная\sпанель:\sменю
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = Показывать\sFPS\sв\sигре
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Показывает\sкадры\sв\sсекунду\sигры\sв\sуглу\sэкрана.
 Show\syour\swhole\sbody\sto\sthe\scamera = Покажите\sкамере\sвсё\sтело
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Показывает\sуведомление\sPS5,\sкогда\sигра\sоткрывает\sдостижение\sXbox\s360.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Показывает\sновые\sизображения\sигры\sне\sчаще\sэтого\sчисла\sраз\sв\sсекунду,\sкаждое\sодинаковое\sвремя,\sдля\sровного\sдвижения\sна\sэкране.\sСама\sигра\sработает\sкак\sраньше\s(её\sскорость,\sзвук\sи\sЭмулируемая\sчастота\sкадров\sне\sменяются),\sа\sигра\sмедленнее\sограничения\sпоказывается\sкак\sесть.\sДля\s40\sнужен\sвывод\s120\sГц\s(Вывод\sгенерации\sкадров:\sДо\s120\sГц);\sпри\s60\sГц\sпоказывается\sкаждое\sизображение.\sНе\sдействует,\sпока\sвключена\sгенерация\sкадров.\sАвтоматически:\sкак\sраньше.
 Sign\sIn = Войти\sс\sпрофилем
 Signing\sout\sof\sonline\splay... = Выход\sиз\sсетевой\sигры...
 Size:\s%s = Размер:\s%s

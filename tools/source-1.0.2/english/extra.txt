@@ -347,6 +347,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan funcionam apenas com o renderizador Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = A resolução que o Xbox 360 emulado informa ao jogo. Em 480p ou 540p alguns jogos desenham menos pontos e ficam mais leves; em 900p ou 1080p alguns desenham mais (mais nítido, mais pesado). Muitos jogos ignoram e continuam em 720p.
+Frame rate limit (screen) = Limite de quadros (tela)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Mostra as imagens novas do jogo no máximo esta quantidade de vezes por segundo, cada uma pelo mesmo tempo, para um movimento uniforme na tela. O jogo continua rodando como antes (a velocidade, o som e o Ritmo do vídeo emulado não mudam), e um jogo mais lento que o limite é mostrado como está. 40 precisa da saída de 120 Hz (Saída de vídeo da geração: Até 120 Hz); em 60 Hz mostra todas as imagens. Não faz nada com a geração de quadros ligada. Automático: como antes.
+No limit = Sem limite
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -506,6 +509,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan só funcionam com o renderizador Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = A resolução que o Xbox 360 emulado informa ao jogo. Em 480p ou 540p alguns jogos desenham menos pontos e ficam mais leves; em 900p ou 1080p alguns desenham mais (mais nítido, mais pesado). Muitos jogos ignoram e continuam em 720p.
+Frame rate limit (screen) = Limite de fotogramas (ecrã)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Mostra as imagens novas do jogo no máximo este número de vezes por segundo, cada uma durante o mesmo tempo, para um movimento uniforme no ecrã. O jogo continua a correr como antes (a velocidade, o som e o Ritmo do vídeo emulado não mudam), e um jogo mais lento do que o limite é mostrado tal como está. 40 precisa da saída de 120 Hz (Saída de vídeo da geração de fotogramas: Até 120 Hz); a 60 Hz mostra todas as imagens. Não faz nada com a geração de fotogramas ligada. Automático: como antes.
+No limit = Sem limite
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -665,6 +671,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La resolución que la Xbox 360 emulada informa al juego. En 480p o 540p algunos juegos dibujan menos puntos y van más ligeros; en 900p o 1080p algunos dibujan más (más nítido, más pesado). Muchos juegos la ignoran y siguen en 720p.
+Frame rate limit (screen) = Límite de fotogramas (pantalla)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Muestra las imágenes nuevas del juego como mucho este número de veces por segundo, cada una durante el mismo tiempo, para un movimiento uniforme en pantalla. El juego sigue funcionando como antes (su velocidad, su sonido y el Ritmo del vídeo emulado no cambian), y un juego más lento que el límite se muestra tal cual. 40 necesita la salida de 120 Hz (Salida de vídeo de la generación: Hasta 120 Hz); a 60 Hz muestra todas las imágenes. No hace nada con la generación de fotogramas activada. Automático: como antes.
+No limit = Sin límite
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -824,6 +833,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La resolución que la Xbox 360 emulada informa al juego. En 480p o 540p algunos juegos dibujan menos puntos y van más ligeros; en 900p o 1080p algunos dibujan más (más nítido, más pesado). Muchos juegos la ignoran y siguen en 720p.
+Frame rate limit (screen) = Límite de fotogramas (pantalla)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Muestra las imágenes nuevas del juego como mucho esta cantidad de veces por segundo, cada una durante el mismo tiempo, para un movimiento uniforme en pantalla. El juego sigue funcionando como antes (su velocidad, su sonido y el Ritmo del video emulado no cambian), y un juego más lento que el límite se muestra tal cual. 40 necesita la salida de 120 Hz (Salida de video de la generación de fotogramas: Hasta 120 Hz); a 60 Hz muestra todas las imágenes. No hace nada con la generación de fotogramas activada. Automático: como antes.
+No limit = Sin límite
 
 [added de]
 Console storage = Konsolenspeicher
@@ -983,6 +995,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Farbvoreinstellungen und Overscan-Beschnitt funktionieren nur mit dem Vulkan-Renderer.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Die Auflösung, die die emulierte Xbox 360 dem Spiel meldet. Bei 480p oder 540p zeichnen manche Spiele weniger Pixel und laufen leichter; bei 900p oder 1080p zeichnen manche mehr (schärfer, schwerer). Viele Spiele ignorieren sie und bleiben bei 720p.
+Frame rate limit (screen) = Bildratenlimit (Bildschirm)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Zeigt neue Bilder des Spiels höchstens so oft pro Sekunde, jedes gleich lange, für eine gleichmäßige Bewegung auf dem Bildschirm. Das Spiel selbst läuft wie bisher (Tempo, Ton und die Emulierte Bildrate ändern sich nicht), und ein Spiel, das langsamer als das Limit ist, wird so gezeigt, wie es ist. 40 braucht die 120-Hz-Ausgabe (Ausgabe der Bildgenerierung: Bis zu 120 Hz); bei 60 Hz zeigt es jedes Bild. Bei eingeschalteter Bildgenerierung wirkt es nicht. Automatisch: wie bisher.
+No limit = Kein Limit
 
 [added fr]
 Console storage = Stockage de la console
@@ -1142,6 +1157,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Les préréglages de couleurs et le recadrage overscan ne fonctionnent qu'avec le moteur de rendu Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La résolution que la Xbox 360 émulée annonce au jeu. En 480p ou 540p, certains jeux dessinent moins de pixels et sont plus légers ; en 900p ou 1080p, certains en dessinent plus (plus net, plus lourd). Beaucoup de jeux l'ignorent et restent en 720p.
+Frame rate limit (screen) = Limite d'images (écran)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Affiche les nouvelles images du jeu au plus ce nombre de fois par seconde, chacune pendant la même durée, pour un mouvement régulier à l'écran. Le jeu lui-même tourne comme avant (sa vitesse, son son et la Fréquence vidéo émulée ne changent pas), et un jeu plus lent que la limite est affiché tel quel. 40 nécessite la sortie 120 Hz (Sortie de la génération d'images : Jusqu'à 120 Hz) ; à 60 Hz, toutes les images sont affichées. Sans effet quand la génération d'images est activée. Automatique : comme avant.
+No limit = Sans limite
 
 [added it]
 Console storage = Memoria della console
@@ -1301,6 +1319,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = I preset colore e il ritaglio overscan funzionano solo con il renderer Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La risoluzione che la Xbox 360 emulata comunica al gioco. A 480p o 540p alcuni giochi disegnano meno pixel e sono più leggeri; a 900p o 1080p alcuni ne disegnano di più (più nitido, più pesante). Molti giochi la ignorano e restano a 720p.
+Frame rate limit (screen) = Limite fotogrammi (schermo)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Mostra le nuove immagini del gioco al massimo questo numero di volte al secondo, ognuna per lo stesso tempo, per un movimento uniforme sullo schermo. Il gioco continua come prima (velocità, audio e Frequenza video emulata non cambiano), e un gioco più lento del limite viene mostrato così com'è. 40 richiede l'uscita a 120 Hz (Uscita della generazione di fotogrammi: Fino a 120 Hz); a 60 Hz mostra tutte le immagini. Non ha effetto con la generazione di fotogrammi attiva. Automatico: come prima.
+No limit = Nessun limite
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1460,6 +1481,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = カラープリセットとオーバースキャン切り取りは Vulkan レンダラーでのみ使えます。
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = エミュレートされた Xbox 360 がゲームに伝える解像度。480p や 540p では一部のゲームが描画するピクセルが減って軽くなり、900p や 1080p では増えます（鮮明になるが重くなる）。多くのゲームは無視して 720p のままです。
+Frame rate limit (screen) = フレームレート上限（画面）
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = ゲームの新しい画像を1秒間に最大この回数だけ、それぞれ同じ時間ずつ表示し、画面上の動きを均一にします。ゲーム自体はこれまでどおり動作し（速度、音声、エミュレートされた映像のレートは変わりません）、上限より遅いゲームはそのまま表示されます。40には120 Hz出力が必要です（フレーム生成の出力：最大 120 Hz）。60 Hzではすべての画像を表示します。フレーム生成がオンの間は何もしません。自動：これまでどおり。
+No limit = 制限なし
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1619,6 +1643,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = 색상 프리셋과 오버스캔 자르기는 Vulkan 렌더러에서만 작동합니다.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 에뮬레이트된 Xbox 360이 게임에 알려 주는 해상도. 480p나 540p에서는 일부 게임이 픽셀을 덜 그려 가벼워지고, 900p나 1080p에서는 더 그립니다(더 선명하지만 무거움). 많은 게임은 무시하고 720p를 유지합니다.
+Frame rate limit (screen) = 프레임 제한(화면)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = 게임의 새 화면을 1초에 최대 이 횟수만큼, 각각 같은 시간 동안 보여 주어 화면의 움직임을 고르게 합니다. 게임 자체는 이전과 같이 실행되며(속도, 소리, 에뮬레이트된 화면 주사율은 바뀌지 않음), 제한보다 느린 게임은 그대로 표시됩니다. 40은 120Hz 출력이 필요합니다(프레임 생성 출력: 최대 120Hz). 60Hz에서는 모든 화면을 보여 줍니다. 프레임 생성이 켜져 있으면 아무 효과가 없습니다. 자동: 이전과 같음.
+No limit = 제한 없음
 
 [added nl]
 Console storage = Consoleopslag
@@ -1778,6 +1805,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Kleurvoorinstellingen en overscan bijsnijden werken alleen met de Vulkan-renderer.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = De resolutie die de geëmuleerde Xbox 360 aan de game doorgeeft. Bij 480p of 540p tekenen sommige games minder pixels en draaien lichter; bij 900p of 1080p tekenen sommige er meer (scherper, zwaarder). Veel games negeren het en blijven op 720p.
+Frame rate limit (screen) = Beeldlimiet (scherm)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Toont de nieuwe beelden van de game hooguit zo vaak per seconde, elk even lang, voor een gelijkmatige beweging op het scherm. De game zelf loopt zoals voorheen (snelheid, geluid en de Geëmuleerde beeldfrequentie veranderen niet), en een game die trager is dan de limiet wordt getoond zoals hij is. 40 heeft de 120 Hz-uitvoer nodig (Uitvoer van beeldgeneratie: Tot 120 Hz); bij 60 Hz toont hij elk beeld. Doet niets zolang beeldgeneratie aan staat. Automatisch: zoals voorheen.
+No limit = Geen limiet
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1937,6 +1967,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Profile kolorów i przycięcie overscanu działają tylko z rendererem Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Rozdzielczość, którą emulowany Xbox 360 zgłasza grze. W 480p lub 540p niektóre gry rysują mniej pikseli i działają lżej; w 900p lub 1080p niektóre rysują więcej (ostrzej, ciężej). Wiele gier to ignoruje i zostaje przy 720p.
+Frame rate limit (screen) = Limit klatek (ekran)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Pokazuje nowe obrazy gry najwyżej tyle razy na sekundę, każdy przez ten sam czas, dla równego ruchu na ekranie. Sama gra działa jak dotąd (jej tempo, dźwięk i Emulowana częstotliwość obrazu się nie zmieniają), a gra wolniejsza od limitu jest pokazywana tak, jak działa. 40 wymaga wyjścia 120 Hz (Wyjście generowania klatek: Do 120 Hz); przy 60 Hz pokazuje każdy obraz. Nie działa, gdy generowanie klatek jest włączone. Automatycznie: jak dotąd.
+No limit = Bez limitu
 
 [added ru]
 Console storage = Память консоли
@@ -2096,6 +2129,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Цветовые профили и обрезка оверскана работают только с рендерером Vulkan.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Разрешение, которое эмулируемый Xbox 360 сообщает игре. При 480p или 540p некоторые игры рисуют меньше пикселей и работают легче; при 900p или 1080p некоторые рисуют больше (чётче, но тяжелее). Многие игры это игнорируют и остаются в 720p.
+Frame rate limit (screen) = Ограничение кадров (экран)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Показывает новые изображения игры не чаще этого числа раз в секунду, каждое одинаковое время, для ровного движения на экране. Сама игра работает как раньше (её скорость, звук и Эмулируемая частота кадров не меняются), а игра медленнее ограничения показывается как есть. Для 40 нужен вывод 120 Гц (Вывод генерации кадров: До 120 Гц); при 60 Гц показывается каждое изображение. Не действует, пока включена генерация кадров. Автоматически: как раньше.
+No limit = Без ограничения
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2255,6 +2291,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = Renk ön ayarları ve overscan kırpma yalnızca Vulkan oluşturucuyla çalışır.
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Emüle edilen Xbox 360'ın oyuna bildirdiği çözünürlük. 480p veya 540p'de bazı oyunlar daha az piksel çizer ve daha hafif çalışır; 900p veya 1080p'de bazıları daha fazla çizer (daha net, daha ağır). Birçok oyun bunu yok sayar ve 720p'de kalır.
+Frame rate limit (screen) = Kare sınırı (ekran)
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = Oyunun yeni görüntülerini saniyede en fazla bu kadar kez, her birini aynı süre göstererek ekranda düzgün bir hareket sağlar. Oyunun kendisi eskisi gibi çalışır (hızı, sesi ve Emüle edilen görüntü hızı değişmez) ve sınırdan yavaş bir oyun olduğu gibi gösterilir. 40 için 120 Hz çıkış gerekir (Kare üretimi çıkışı: 120 Hz'e kadar); 60 Hz'de her görüntüyü gösterir. Kare üretimi açıkken etkisi yoktur. Otomatik: eskisi gibi.
+No limit = Sınır yok
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2414,6 +2453,9 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = 色彩预设和过扫描裁切仅适用于 Vulkan 渲染器。
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 模拟的 Xbox 360 告知游戏的分辨率。480p 或 540p 时，部分游戏绘制的像素更少、运行更轻；900p 或 1080p 时部分游戏绘制更多（更清晰、更重）。许多游戏会忽略此设置，保持 720p。
+Frame rate limit (screen) = 帧率上限（屏幕）
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = 每秒最多显示这么多次游戏的新画面，每帧显示相同的时间，让画面运动更均匀。游戏本身照旧运行（速度、声音和模拟的画面刷新率都不变），比上限慢的游戏按原样显示。40 需要 120 Hz 输出（帧生成输出：最高 120 Hz）；在 60 Hz 下会显示每一帧。开启帧生成时不起作用。自动：与以前相同。
+No limit = 无限制
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2573,3 +2615,6 @@ Cuts a thin border off each edge of the game's picture and enlarges the rest, ke
 Color presets and overscan crop work with the Vulkan renderer only. = 色彩預設和過掃描裁切僅適用於 Vulkan 繪圖器。
 900p (1600x900) = 900p (1600x900)
 The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 模擬的 Xbox 360 告知遊戲的解析度。480p 或 540p 時，部分遊戲繪製的像素更少、執行更輕；900p 或 1080p 時部分遊戲繪製更多（更清晰、更重）。許多遊戲會忽略此設定，保持 720p。
+Frame rate limit (screen) = 影格率上限（螢幕）
+Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before. = 每秒最多顯示這麼多次遊戲的新畫面，每個畫面顯示相同的時間，讓畫面動作更平順。遊戲本身照常執行（速度、聲音和模擬的畫面更新率都不變），比上限慢的遊戲會照原樣顯示。40 需要 120 Hz 輸出（幀生成輸出：最高 120 Hz）；在 60 Hz 下會顯示每個畫面。開啟幀生成時不起作用。自動：與以前相同。
+No limit = 無限制

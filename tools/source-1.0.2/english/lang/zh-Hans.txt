@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = 格式\s\s
 Frame\sgeneration\s(test) = 帧生成（测试）
 Frame\sgeneration\soutput\s(test) = 帧生成输出（测试）
+Frame\srate\slimit\s(screen) = 帧率上限（屏幕）
 Full\s(slow) = 完整（慢）
 Full\sversion = 完整版
 Game = 游戏
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = 没有包含此内容的游戏："
 No\sgames\sin\sthis\sfilter = 此筛选中没有游戏
 No\sgames\syet = 还没有游戏
+No\slimit = 无限制
 No\smatching\sDLC\spackages\sfound. = 未找到匹配的\sDLC\s包。
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = 没有新画面（正在编译着色器或加载）。OPTIONS\s+\s触摸板：指南
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = 没有新画面（正在编译着色器或加载）。触摸板：指南
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = 在游戏中显示\sFPS
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = 在屏幕角落显示游戏每秒帧数。
 Show\syour\swhole\sbody\sto\sthe\scamera = 让摄像头看到你的全身
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = 游戏解锁\sXbox\s360\s成就时显示\sPS5\s通知。
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = 每秒最多显示这么多次游戏的新画面，每帧显示相同的时间，让画面运动更均匀。游戏本身照旧运行（速度、声音和模拟的画面刷新率都不变），比上限慢的游戏按原样显示。40\s需要\s120\sHz\s输出（帧生成输出：最高\s120\sHz）；在\s60\sHz\s下会显示每一帧。开启帧生成时不起作用。自动：与以前相同。
 Sign\sIn = 使用配置文件登录
 Signing\sout\sof\sonline\splay... = 正在退出在线游戏...
 Size:\s%s = 大小：%s
