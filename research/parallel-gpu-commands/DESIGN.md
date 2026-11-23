@@ -476,11 +476,12 @@ Kinect Sports (boxing: Kinect, readbacks and queries).
 ## 11. Builds
 
 - Branch: `fix/parallel-gpu-record`
-- `BUILD_VERSION`: `1.0.5-work-fix142b` (fix 142b, section 12; fix 142 alone was
-  `1.0.5-work-fix142`)
-- Build run to test now (fix 142b, section 12): **45137416431**, green, at `f536dc2` (artifact
-  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks of the same commit: run 45137415931,
+- `BUILD_VERSION`: `1.0.5-work-fix142c` (fix 142c, section 14; 142b was `1.0.5-work-fix142b`, 142
+  alone `1.0.5-work-fix142`)
+- Build run to test now (fix 142c, section 14): **45148979687**, green, at `53f80b0` (artifact
+  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks of the same commit: run 45148980106,
   green.
+- Fix 142b: run 45137416431 at `f536dc2` (tested on the console: section 13).
 - Fix 142 alone: run 45126559706 at `e33de55` (tested on the console: section 12).
 - Do not test run 45088598997 (`c9d7652`). Its decode thread can hang for good when the FIFO
   fills: the wait-for-room race fixed by `OpRing::WaitRoom` in `e33de55`.
