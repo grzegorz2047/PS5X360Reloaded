@@ -171,6 +171,9 @@ on:
       - 'tools/check-package-io.cpp'
       - 'tools/check-file-io.cpp'
       - 'tools/check-harmonix-keys.cpp'
+      - 'tools/check-option-groups.cpp'
+      - 'tools/check-settings-tree.cpp'
+      - 'tools/check-readability.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

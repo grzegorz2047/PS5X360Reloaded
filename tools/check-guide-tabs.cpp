@@ -218,7 +218,7 @@ void CheckLook() {
   Expect(game && settings && game->rgb == 0xFFFFFF && settings->rgb == 0xA9AFB7, "(b) the open tab white, the other grey");
   int underlines = 0, green_fills = 0;
   for (const Op& op : r.ops) {
-    if (op.kind != "fill" || op.rgb != 0x76BC3E) continue;
+    if (op.kind != "fill" || op.rgb != tb::kGreen) continue;  // fix 149c: the green is a constant (0x76BC3E before)
     if (op.h == tb::kUnderline) ++underlines; else ++green_fills;
     if (game) Expect(op.x <= game->x && op.x + op.w >= game->x + 3 * 28 * 0.5f, "(b) the green under the open tab");
   }
@@ -227,7 +227,7 @@ void CheckLook() {
   tb::Draw(focused, x0, x1, y, tabs, 1, true);
   underlines = green_fills = 0;
   for (const Op& op : focused.ops)
-    if (op.kind == "fill" && op.rgb == 0x76BC3E) (op.h == tb::kUnderline ? underlines : green_fills)++;
+    if (op.kind == "fill" && op.rgb == tb::kGreen) (op.h == tb::kUnderline ? underlines : green_fills)++;
   const Op* open = focused.TextOf("Ustawienia");
   Expect(underlines == 0 && green_fills == 1 && open && open->rgb == 0xFFFFFF, "(b) the bar has the pad: the open tab on the green");
   // Values.
