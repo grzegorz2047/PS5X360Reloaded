@@ -159,10 +159,12 @@ checks=(
   check-file-io.cpp                # fix 148d
   check-harmonix-keys.cpp          # fix 147c
   check-stfs-cut-short.cpp         # fix 148e
+  check-dlc-incomplete.cpp         # fix 148f
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
+  [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -298,6 +300,7 @@ declare -A fix_of=(
   [check-file-io.cpp]=148d
   [check-harmonix-keys.cpp]=147c
   [check-stfs-cut-short.cpp]=148e
+  [check-dlc-incomplete.cpp]=148f
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

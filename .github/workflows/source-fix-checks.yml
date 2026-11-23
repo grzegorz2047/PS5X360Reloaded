@@ -168,6 +168,7 @@ on:
       - 'tools/check-file-io.cpp'
       - 'tools/check-harmonix-keys.cpp'
       - 'tools/check-stfs-cut-short.cpp'
+      - 'tools/check-dlc-incomplete.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

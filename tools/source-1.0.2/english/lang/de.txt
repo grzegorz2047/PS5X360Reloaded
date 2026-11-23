@@ -628,6 +628,7 @@ game = Spiel
 game\sname\sor\sID = Spielname\soder\sID
 games = Spiele
 incomplete\sresponse = unvollständige\sAntwort
+incomplete:\s%s\sof\s%s = unvollständig:\s%s\svon\s%s
 invalid\simage = ungültiges\sBild
 new = neu
 new||plural = neu

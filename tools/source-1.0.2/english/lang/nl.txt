@@ -628,6 +628,7 @@ game = game
 game\sname\sor\sID = gamenaam\sof\sID
 games = games
 incomplete\sresponse = onvolledig\santwoord
+incomplete:\s%s\sof\s%s = onvolledig:\s%s\svan\s%s
 invalid\simage = ongeldige\safbeelding
 new = nieuw
 new||plural = nieuw

@@ -352,6 +352,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Salvar
 Keys saved: %u of %u. Restart the game to use them. = Chaves salvas: %u de %u. Reinicie o jogo para usá-las.
 Keys refused (no fingerprint matches): %u = Chaves recusadas (nenhuma impressão digital confere): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -516,6 +518,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Guardar
 Keys saved: %u of %u. Restart the game to use them. = Chaves guardadas: %u de %u. Reinicie o jogo para as usar.
 Keys refused (no fingerprint matches): %u = Chaves recusadas (nenhuma impressão digital corresponde): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -680,6 +684,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Guardar
 Keys saved: %u of %u. Restart the game to use them. = Claves guardadas: %u de %u. Reinicia el juego para usarlas.
 Keys refused (no fingerprint matches): %u = Claves rechazadas (ninguna huella coincide): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -844,6 +850,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Guardar
 Keys saved: %u of %u. Restart the game to use them. = Claves guardadas: %u de %u. Reinicia el juego para usarlas.
 Keys refused (no fingerprint matches): %u = Claves rechazadas (ninguna huella coincide): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1008,6 +1016,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Speichern
 Keys saved: %u of %u. Restart the game to use them. = Gespeicherte Schlüssel: %u von %u. Starte das Spiel neu, um sie zu verwenden.
 Keys refused (no fingerprint matches): %u = Abgelehnte Schlüssel (kein Fingerabdruck passt): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = unvollständig: %s von %s
 
 [added fr]
 Console storage = Stockage de la console
@@ -1172,6 +1182,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Enregistrer
 Keys saved: %u of %u. Restart the game to use them. = Clés enregistrées : %u sur %u. Redémarrez le jeu pour les utiliser.
 Keys refused (no fingerprint matches): %u = Clés refusées (aucune empreinte ne correspond) : %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incomplet : %s sur %s
 
 [added it]
 Console storage = Memoria della console
@@ -1336,6 +1348,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Salva
 Keys saved: %u of %u. Restart the game to use them. = Chiavi salvate: %u di %u. Riavvia il gioco per usarle.
 Keys refused (no fingerprint matches): %u = Chiavi rifiutate (nessuna impronta corrisponde): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s di %s
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1500,6 +1514,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = 保存
 Keys saved: %u of %u. Restart the game to use them. = 保存されたキー：%u / %u。使うにはゲームを再起動してください。
 Keys refused (no fingerprint matches): %u = 拒否されたキー（一致する指紋なし）：%u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 不完全：%s / %s
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1664,6 +1680,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = 저장
 Keys saved: %u of %u. Restart the game to use them. = 저장된 키: %u / %u. 사용하려면 게임을 다시 시작하세요.
 Keys refused (no fingerprint matches): %u = 거부된 키(일치하는 지문 없음): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 불완전: %s / %s
 
 [added nl]
 Console storage = Consoleopslag
@@ -1828,6 +1846,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Opslaan
 Keys saved: %u of %u. Restart the game to use them. = Opgeslagen sleutels: %u van %u. Start de game opnieuw om ze te gebruiken.
 Keys refused (no fingerprint matches): %u = Geweigerde sleutels (geen vingerafdruk komt overeen): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = onvolledig: %s van %s
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1992,6 +2012,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Zapisz
 Keys saved: %u of %u. Restart the game to use them. = Zapisane klucze: %u z %u. Uruchom grę ponownie, aby ich użyć.
 Keys refused (no fingerprint matches): %u = Odrzucone klucze (żaden odcisk się nie zgadza): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = niepełna: %s z %s
 
 [added ru]
 Console storage = Память консоли
@@ -2156,6 +2178,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Сохранить
 Keys saved: %u of %u. Restart the game to use them. = Сохранено ключей: %u из %u. Перезапустите игру, чтобы использовать их.
 Keys refused (no fingerprint matches): %u = Отклонено ключей (нет совпадающего отпечатка): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = неполный: %s из %s
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2320,6 +2344,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = Kaydet
 Keys saved: %u of %u. Restart the game to use them. = Kaydedilen anahtarlar: %u / %u. Kullanmak için oyunu yeniden başlatın.
 Keys refused (no fingerprint matches): %u = Reddedilen anahtarlar (eşleşen parmak izi yok): %u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = eksik: %s / %s
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2484,6 +2510,8 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = 保存
 Keys saved: %u of %u. Restart the game to use them. = 已保存的密钥：%u / %u。重新启动游戏后生效。
 Keys refused (no fingerprint matches): %u = 被拒绝的密钥（无匹配的指纹）：%u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 不完整：%s / %s
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2648,3 +2676,5 @@ This game's music is encrypted with Harmonix keys, which are not included. Paste
 Save = 儲存
 Keys saved: %u of %u. Restart the game to use them. = 已儲存的金鑰：%u / %u。重新啟動遊戲後生效。
 Keys refused (no fingerprint matches): %u = 遭拒絕的金鑰（沒有相符的指紋）：%u
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 不完整：%s / %s

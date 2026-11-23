@@ -628,6 +628,7 @@ game = gra
 game\sname\sor\sID = nazwa\slub\sID\sgry
 games = gier
 incomplete\sresponse = niepełna\sodpowiedź
+incomplete:\s%s\sof\s%s = niepełna:\s%s\sz\s%s
 invalid\simage = nieprawidłowy\sobraz
 new = nowa
 new||plural = nowe

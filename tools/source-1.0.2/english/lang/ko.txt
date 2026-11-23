@@ -628,6 +628,7 @@ game = 개
 game\sname\sor\sID = 게임\s이름\s또는\sID
 games = 개
 incomplete\sresponse = 응답이\s불완전합니다
+incomplete:\s%s\sof\s%s = 불완전:\s%s\s/\s%s
 invalid\simage = 잘못된\s이미지
 new = 새\s게임
 new||plural = 새\s게임

@@ -628,6 +628,7 @@ game = 個遊戲
 game\sname\sor\sID = 遊戲名稱或\sID
 games = 個遊戲
 incomplete\sresponse = 響應不完整
+incomplete:\s%s\sof\s%s = 不完整：%s\s/\s%s
 invalid\simage = 影像無效
 new = 新
 new||plural = 新

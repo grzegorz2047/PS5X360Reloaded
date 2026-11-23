@@ -628,6 +628,7 @@ game = 本
 game\sname\sor\sID = ゲーム名または\sID
 games = 本
 incomplete\sresponse = 応答が不完全です
+incomplete:\s%s\sof\s%s = 不完全：%s\s/\s%s
 invalid\simage = 無効な画像
 new = 新規
 new||plural = 新規

@@ -628,6 +628,7 @@ game = jeu
 game\sname\sor\sID = nom\sou\sID\sdu\sjeu
 games = jeux
 incomplete\sresponse = réponse\sincomplète
+incomplete:\s%s\sof\s%s = incomplet\s:\s%s\ssur\s%s
 invalid\simage = image\sinvalide
 new = nouveau
 new||plural = nouveaux

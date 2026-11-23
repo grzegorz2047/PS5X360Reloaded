@@ -628,6 +628,7 @@ game = игра
 game\sname\sor\sID = название\sили\sID\sигры
 games = игр
 incomplete\sresponse = неполный\sответ
+incomplete:\s%s\sof\s%s = неполный:\s%s\sиз\s%s
 invalid\simage = недопустимое\sизображение
 new = новая
 new||plural = новых

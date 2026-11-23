@@ -1,0 +1,88 @@
+diff --git a/port/dlc_manager.hpp b/port/dlc_manager.hpp
+--- a/port/dlc_manager.hpp
++++ b/port/dlc_manager.hpp
+@@ -13,6 +13,7 @@
+ // (never a dlc folder's, never a folder) while no game is running.
+ #pragma once
+ #include <algorithm>
++#include "xbox360ps5/stfs_size.hpp"  // fix 148f
+ #include <atomic>
+ #include <cerrno>
+ #include <cstdint>
+@@ -41,7 +42,12 @@
+   // for a package in a dlc folder).
+   fs::path root;
+   std::string device;
++  // Fix 148f: the size its STFS header says the file has (0 when not known); a smaller file is
++  // cut short (an install or copy that stopped before its end; fix 148e does not mount it).
++  uint64_t expected = 0;
+ };
++// Fix 148f: a package file shorter than its header says.
++inline bool CutShort(const Item& item) { return item.expected && item.bytes < item.expected; }
+ // Fix 109: a save device's saves root (<root>/0000000000000000/<TITLE>/00000002) and its name.
+ struct Root {
+   fs::path path;
+@@ -59,6 +65,7 @@
+   bool package = false;
+   uint32_t type = 0, title = 0;
+   std::string name;
++  uint64_t expected = 0;  // fix 148f: header + the blocks its STFS volume counts; 0 for SVOD
+ };
+ // Offsets of the Xbox 360 content header: magic 0x000, content type 0x344, title ID 0x360,
+ // English display name 0x411 (UTF-16BE, 128 characters).
+@@ -72,6 +79,14 @@
+   h.package = true;
+   h.type = Be32(b + 0x344);
+   h.title = Be32(b + 0x360);
++  // Fix 148f: an STFS volume (type 0 at 0x3A9): its data starts after the header (size at 0x340,
++  // rounded to 4 KiB) and ends after the last of the blocks the volume descriptor (0x379) counts.
++  if (Be32(b + 0x3A9) == 0) {
++    const uint64_t header = (uint64_t(Be32(b + 0x340)) + 0xFFF) & ~uint64_t(0xFFF);
++    const uint32_t blocks = Be32(b + 0x379 + 0x1C);
++    const uint64_t per_table = (b[0x379 + 2] & 1) ? 1 : 2;
++    if (blocks) h.expected = header + xbox360ps5::stfs_size::DataNeeded(blocks, per_table);
++  }
+   for (int i = 0; i < 128; ++i) {
+     const unsigned c = unsigned(b[0x411 + 2 * i]) << 8 | b[0x412 + 2 * i];
+     if (!c) break;
+@@ -135,14 +150,14 @@
+     if (inbox) {
+       if (installed.count(file) || listed.count(file)) return;  // installed on a device already
+       listed[file] = true;
+-      out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, {}, {}});
++      out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, {}, {}, h.expected});
+       return;
+     }
+     const std::string key = where->path.string() + '\n' + (state == State::active ? "on" : "off") + '\n' + file;
+     if (listed.count(key)) return;
+     listed[key] = true;
+     installed[file] = true;
+-    out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, where->path, where->device});
++    out.items.push_back({h.name.empty() ? file : h.name, file, p, size, state, where->path, where->device, h.expected});
+   };
+   if (title) {
+     for (const auto& root : roots) {
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -4171,8 +4171,18 @@
+     const bool selected = n == dlc_row_ && g_list_focus_tab == 4;  // fix 109
+     if (selected) c.Fill(x + 48, y, 768, 60, kSurfaceHigh, 1, 8);
+     c.Text(item.name, x + 64, y + 6, 22, selected ? kText : kBody, 1, 0, 560);
+-    c.Text(dlc2::SizeText(item.bytes) + (item.device.empty() ? std::string() : "  \u00b7  " + item.device),
+-           x + 64, y + 34, 18, selected ? kBody : kMuted, 1, 0, 600);
++    // Fix 148f: a package shorter than its header says, as "incomplete: 1.4 GB of 2.1 GB" in the
++    // warning colour (an install that stopped; Triangle removes it).
++    std::string size_line = dlc2::SizeText(item.bytes);
++    const bool cut_short = dlc2::CutShort(item);
++    if (cut_short) {
++      char incomplete[160];
++      std::snprintf(incomplete, sizeof(incomplete), Tr("incomplete: %s of %s"), dlc2::SizeText(item.bytes).c_str(),
++                    dlc2::SizeText(item.expected).c_str());
++      size_line = incomplete;
++    }
++    c.Text(size_line + (item.device.empty() ? std::string() : "  \u00b7  " + item.device),
++           x + 64, y + 34, 18, cut_short ? kWarning : selected ? kBody : kMuted, 1, 0, 600);
+     const bool on = item.state == dlc2::State::active, off = item.state == dlc2::State::disabled;
+     c.Text(on ? Tr("On||DLC") : off ? Tr("Off||DLC")
+                                                           : Tr("Not installed"),

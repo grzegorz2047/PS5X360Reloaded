@@ -628,6 +628,7 @@ game = oyun
 game\sname\sor\sID = oyun\sadı\sveya\skimliği
 games = oyun
 incomplete\sresponse = eksik\syanıt
+incomplete:\s%s\sof\s%s = eksik:\s%s\s/\s%s
 invalid\simage = geçersiz\sgörüntü
 new = yeni
 new||plural = yeni
