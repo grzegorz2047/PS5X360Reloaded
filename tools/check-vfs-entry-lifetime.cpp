@@ -185,6 +185,11 @@ void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition dispo
   if (!made) return;
   vfs::Entry* dying = made->entry();
   if (!by_close) made->Destroy();
+#ifdef XE_VFS_BACKGROUND_DELETE
+  // Earlier deletes still queued (fix 150) would run the slow hook and set in_delete before
+  // this delete starts, and the open below would race it (C0000035 in CI run 45273903022).
+  vfs::Entry::FlushBackgroundDeletes();
+#endif
   in_delete = false;
   vfs::entry_io::test_hook = SlowDelete;
   std::thread deleter([&] {
@@ -290,6 +295,7 @@ void BackgroundDelete(vfs::VirtualFileSystem& fs, bool background) {
   Expect(made && Write(made, 7), name + ": created");
   if (!made) return;
   made->Destroy();
+  vfs::Entry::FlushBackgroundDeletes();  // nothing earlier runs the slow hook below
   in_delete = false;
   vfs::entry_io::test_hook = SlowDelete;
   auto start = std::chrono::steady_clock::now();
