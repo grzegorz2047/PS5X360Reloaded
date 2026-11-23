@@ -38,6 +38,11 @@
 //      console run: game intervals 18-36 ms, mode 59.94, presents 119.88) capped at 40 and 30 never
 //      keep a picture past two periods while paints go on (the console's 0.2-0.9 s holds came
 //      with as many presents missing, so with no paint to take a picture);
+//  (l) fix 146e, the present-stall line: paints of 8 ms a refresh apart write nothing; a paint
+//      that waited 800 ms for earlier paints, or 300 ms spent outside the presenter between two
+//      paints, writes one line that says where the time went (every stage named, "other" for the
+//      rest); at most 10 lines a minute, the next one counting those not written; the Vulkan
+//      presenter times each stage and logs at any return, the mailbox's consumer lock is timed;
 //  (h) the assembled tree: the mailbox keeps the acquired picture while the limit holds (under
 //      the consumer lock, before the exchange), the producer notes each picture, the Vulkan
 //      presenter gives the display refresh and notes each paint and logs the lines, nothing in
@@ -46,6 +51,7 @@
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "xbox360ps5/present_limit.hpp"
+#include "xbox360ps5/present_stall.hpp"  // fix 146e
 
 #include <algorithm>
 #include <cmath>
@@ -545,6 +551,51 @@ void CheckHardBound() {
   }
 }
 
+// (l) fix 146e.
+void CheckPresentStall() {
+  namespace ps = xbox360ps5::present_stall;
+  ps::Timer timer;
+  std::string line;
+  int64_t t = 1000000000;
+  bool any = false;
+  for (int i = 0; i < 600; ++i) {  // 5 s of 8 ms paints, 0.3 ms apart
+    timer.Begin(t);
+    timer.Add(ps::kAcquire, 2000000);
+    t += 8000000;
+    any = timer.End(t, line) || any;
+    t += 300000;
+  }
+  Expect(!any, "(l) ordinary paints write no present-stall line");
+  timer.Begin(t);
+  timer.Add(ps::kPending, 800000000);
+  timer.Add(ps::kDrawers, 1500000);
+  t += 805000000;
+  Expect(timer.End(t, line) &&
+             Has(line, "Present stall (fix 146e): 805.3 ms from the end of the previous paint to the end of this one: "
+                       "0.3 ms outside the presenter (the UI loop), 805.0 ms in the paint: waiting for earlier paints 800.0, "
+                       "acquire 0.0, guest output 0.0, image waits 0.0, drawers 1.5, submit 0.0, present 0.0, other 3.5 ms"),
+         "(l) a long wait for earlier paints: " + line);
+  t += 300000000;  // 300 ms outside the presenter
+  timer.Begin(t);
+  t += 8000000;
+  Expect(timer.End(t, line) && Has(line, "300.0 ms outside the presenter (the UI loop), 8.0 ms in the paint"),
+         "(l) a gap between paints: " + line);
+  // At most 10 lines a minute.
+  int written = 0;
+  for (int i = 0; i < 15; ++i) {
+    t += 150000000;
+    timer.Begin(t);
+    t += 1000000;
+    written += timer.End(t, line) ? 1 : 0;
+  }
+  Expect(written == 8, "(l) 10 lines a minute (2 above and 8 more), got " + std::to_string(written + 2));
+  t += 61000000000LL;
+  timer.Begin(t);
+  t += 1000000;
+  Expect(timer.End(t, line) && Has(line, "(7 earlier not written)"), "(l) the next minute's line counts the rest: " + line);
+  Expect(timer.stalls() == 18, "(l) every stall is counted, got " + std::to_string(timer.stalls()));
+}
+
 // (h) the assembled tree.
 void CheckTree() {
   const std::string header = Read("include/xbox360ps5/present_limit.hpp");
@@ -584,6 +635,15 @@ void CheckTree() {
   Expect(Has(platform, "const std::string& DisplayModeList() { return ModeListText(); }") &&
              Has(platform, "listed += \" \" + std::to_string(mode.parameters.visibleRegion.width)"),
          "(j) CreateDisplaySurface keeps every listed mode for the log");
+  // (l) fix 146e: every stage of the paint is timed, and the line is written at any return.
+  Expect(Has(paint, "struct StallPaint {") && Has(paint, "~StallPaint() {") && Has(paint, "} stall_paint;"),
+         "(l) PaintAndPresentImpl times the whole paint and logs at any return");
+  for (const char* stage : {"kPending", "kAcquire", "kImageWaits", "kDrawers", "kSubmit", "kPresent"})
+    Expect(Has(vulkan, std::string("present_stall::Span stall_span(xbox360ps5::present_stall::") + stage + ")"),
+           std::string("(l) the paint times ") + stage);
+  Expect(Has(consume, "present_stall::Span stall_span(xbox360ps5::present_stall::kGuestOutput);") &&
+             consume.find("kGuestOutput") < consume.find("guest_output_mailbox_consumer_mutex_"),
+         "(l) ConsumeGuestOutput times its consumer lock");
   Expect(Has(paint, "present_limit::Instance().NotePaint(") && Has(paint, "paint_context_.swapchain_is_fifo") &&
              Has(paint, "ps5x360::framegen::source_ticks") && Has(paint, "XELOGW(\"{}\""),
          "(h) each paint notes the output, frame generation and vblanks, and logs the lines");
@@ -626,6 +686,7 @@ int main() {
   CheckConsoleCases();
   CheckMeasuredRefresh();
   CheckHardBound();
+  CheckPresentStall();
   CheckTree();
   if (failures) {
     std::printf("check-present-limit: %d failure(s)\n", failures);

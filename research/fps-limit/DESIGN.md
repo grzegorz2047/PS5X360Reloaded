@@ -246,3 +246,25 @@ and nothing was consumed then; the gate cannot hold a picture while no paint ask
   present count says (the limit itself holds at most one period; the pause rule was 250 ms);
 - the summary's present part ends `longest n ms, m over 100 ms`. A freeze with `m` > 0 is the
   present path; a long `interval ... longest` with `m` = 0 would be the limit.
+
+## 11. Fix 146e: where a stopped present goes
+
+`1.0.6-work-fix146d` (GTA IV, 120 Hz output, `research/fix146d-120/`): every long picture was a
+present stall (`present interval ... longest` equal to the shown interval's longest, one over 100 ms
+per 30 s window), at 40 and 30 and in the last two Automatic windows (549.7 and 275.4 ms), but in
+none of the first windows (Automatic, 60). After the limit is set back to Automatic the gate takes
+every picture (`Take` returns at once when the plan is not applied) and keeps nothing that changes
+the paint, so the stalls do not come from a state the limit leaves; they started about two
+minutes into the session and come about once a minute in the hang watch (150, 210, 330, 450, 480,
+510 s: the UI loop at 186-245 loops/s instead of about 360, in "paint", acquires of 1-4 ms). The
+Vulkan stage timers stayed under 4 ms (submit), 0.07 ms (present). VFS deletes of up to 998 ms
+(fix 129's line) do not line up with them (a 640 ms delete in a window with no stall).
+
+146e times the parts of each paint and writes `Present stall (fix 146e): ...` for a paint of 100
+ms or more, or a gap of 100 ms or more before it: outside the presenter (the UI loop), waiting for
+earlier paints on the GPU (`AwaitMaxSubmissionsPending`), acquire, guest output (consumer lock),
+image waits, drawers (guide, FPS overlay), submit and present (with the queue's lock), other.
+Reading it: "waiting for earlier paints" large means the GPU did not finish a paint (the GPU
+busy with the game, or a GPU hang the queue recovers from); "submit" or "present" large means the
+queue's lock (the GPU command thread holding it); "outside the presenter" large means the UI loop
+(`context.Tick()` and the work between paints), the next place to time.
