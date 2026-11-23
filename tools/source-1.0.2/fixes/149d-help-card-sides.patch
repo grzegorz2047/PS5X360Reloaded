@@ -1,0 +1,81 @@
+diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_groups.hpp
+--- a/include/xbox360ps5/option_groups.hpp
++++ b/include/xbox360ps5/option_groups.hpp
+@@ -56,8 +56,11 @@ inline constexpr const char* kVideoRateAbout =
+ inline constexpr const char* kVsyncLabel = "VSync (emulated, game speed)";
+ inline constexpr const char* kVsyncAbout =
+     "The emulated console's vertical sync, not your TV's. On: games show at most 60 frames a second, so games with a 60 FPS patch do not speed up. Off: no cap, and some games run too fast.";
++// Fix 149d (review of candidate 3): since fix 140b a game is told only modes a real console reports (480p is
++// 640x480 widescreen, 540p is not one: the game is told 720p), and since 140c the mode is latched when the
++// game starts; the text said 540p made games draw fewer pixels.
+ inline constexpr const char* kResolutionAbout =
+-    "The resolution the emulated Xbox 360 reports to the game; it is not your TV's resolution. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p.";
++    "The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p.";
+ 
+ // Every option of the launcher's table (src/launcher.cpp, Options()), with its group.
+ inline constexpr Entry kEntries[] = {
+@@ -324,6 +327,35 @@ inline float CardTop(float row_y, float height, float top, float bottom) {
+   if (y < top) y = top;
+   return y;
+ }
++// Fix 149d (review of candidate 3): the card must not cover the panels the in-game overlay draws beside the
++// guide (FpsOverlay, canary_game_main.cpp): the motion panel (phone_qr_panel.hpp's box, x 1550-1900, or
++// x 24-374 with "Motion panel: Top left") while camera motion is on, and fix 147c's Harmonix music keys
++// panel (the same box on the other side, down to y 760) while a game waits for its keys. The card goes
++// right of the guide when that side is free, else left of it, else it is not drawn (the rows still show
++// each option's name and value; the launcher has the whole help).
++inline constexpr float kCardWidth = 372;  // the card, in 1080p units
++inline constexpr float kCardGap = 14;     // between the guide and the card
++struct SidePanels {
++  bool left = false, right = false;  // a panel is drawn on that side of the guide
++};
++// motion_shown: camera motion is on (its panel, or its phone QR code, is drawn); motion_panel: the "Motion
++// panel" option (0 top right, 1 top left, 2 off: the QR code still shows at the right while no phone is
++// connected); keys_shown: a game waits for the Harmonix keys (its panel goes where the motion panel is not).
++inline SidePanels BusySides(bool motion_shown, int motion_panel, bool keys_shown) {
++  SidePanels sides;
++  const bool motion_left = motion_panel == 1;
++  if (motion_shown) (motion_left ? sides.left : sides.right) = true;
++  if (keys_shown) (motion_left ? sides.right : sides.left) = true;
++  return sides;
++}
++enum class CardSide { right, left, none };
++inline CardSide HelpCardSide(SidePanels busy) {
++  return !busy.right ? CardSide::right : !busy.left ? CardSide::left : CardSide::none;
++}
++// The card's left edge for a side, given the guide's left and right edges.
++inline float CardX(CardSide side, float guide_left, float guide_right) {
++  return side == CardSide::left ? guide_left - kCardGap - kCardWidth : guide_right + kCardGap;
++}
+ 
+ // The guide (src/canary_game_main.cpp). On the Emulation (advanced) page, a notice is its first row
+ // (the focus lands on it as the page opens); after one of its options is changed, kChanged is shown
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -756,7 +756,7 @@ void DrawHelpCard(ImDrawList* list, ImFont* text_font, ImFont* title_font, float
+   namespace groups = xbox360ps5::option_groups;
+   const auto colour = [reveal](int r, int g, int b, int a = 255) { return IM_COL32(r, g, b, int(float(a) * reveal)); };
+   const auto at = [scale](float px, float py) { return ImVec2(px * scale, py * scale); };
+-  const float width = 372, pad = 18, inner = width - 2 * pad - 6;
++  const float width = groups::kCardWidth, pad = 18, inner = width - 2 * pad - 6;
+   std::vector<std::string> choices;
+   for (const char* choice : option.choices) choices.push_back(Tr(choice));
+   const std::string title = Tr(option.label), line = groups::JoinChoices(choices);
+@@ -1280,9 +1280,14 @@ class Guide final : public xe::ui::ImGuiDialog {
+     list->PopClipRect();
+     // Fix 149b: beside the focused option, a card with its name, its choices, what it changes and, for an
+     // Emulation (advanced) option, the risk; it unfolds with the guide (drawn before the unfold below).
+-    if (!state_.on_bar && state_.row >= 0 && state_.row < int(items.size()) &&
++    // Fix 149d: on the side of the guide no overlay panel (motion, Harmonix keys) uses; none free: no card.
++    namespace groups = xbox360ps5::option_groups;
++    const groups::CardSide card_side = groups::HelpCardSide(groups::BusySides(
++        xbox360ps5::motion::enabled.load(), settings_.motion_panel, xbox360ps5::harmonix_keys::needed.load()));
++    if (card_side != groups::CardSide::none && !state_.on_bar && state_.row >= 0 && state_.row < int(items.size()) &&
+         items[size_t(state_.row)].action == GuideAction::option && items[size_t(state_.row)].option)
+-      DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, right + 14, state_.focus_y, 238, 860);
++      DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, groups::CardX(card_side, left, right),
++                   state_.focus_y, 238, 860);
+     // The 3D unfold: while it opens, the panel stands tipped back (its top edge drawn in and
+     // lower), and it comes upright as it finishes, as the home's row turns in.
+     const float tip = 1.0f - reveal;
