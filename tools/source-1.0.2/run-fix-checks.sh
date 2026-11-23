@@ -167,10 +167,12 @@ checks=(
   check-readability.cpp            # fix 149c
   check-draw-probe.cpp             # fix 142d
   check-render-target-skip.cpp     # fix 142e
+  check-gpu-thread-probe.cpp       # fix 142f
 )
 declare -A arguments=(
   [check-draw-probe.cpp]="$repo/tools/source-1.0.2/fixes"
   [check-render-target-skip.cpp]="$repo/tools/source-1.0.2/fixes"
+  [check-gpu-thread-probe.cpp]="$repo/tools/source-1.0.2/fixes"
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -319,6 +321,7 @@ declare -A fix_of=(
   [check-readability.cpp]=149c
   [check-draw-probe.cpp]=142d
   [check-render-target-skip.cpp]=142e
+  [check-gpu-thread-probe.cpp]=142f
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

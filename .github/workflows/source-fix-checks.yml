@@ -176,6 +176,7 @@ on:
       - 'tools/check-readability.cpp'
       - 'tools/check-draw-probe.cpp'
       - 'tools/check-render-target-skip.cpp'
+      - 'tools/check-gpu-thread-probe.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
