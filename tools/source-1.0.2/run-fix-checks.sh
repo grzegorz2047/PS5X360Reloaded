@@ -153,8 +153,10 @@ checks=(
   check-swap-smaa.cpp              # fix 145
   check-low-half-size.cpp          # fix 144
   check-video-mode.cpp             # fixes 140 and 140b
+  check-draw-probe.cpp             # fix 142d
 )
 declare -A arguments=(
+  [check-draw-probe.cpp]="$repo/tools/source-1.0.2/fixes"
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -285,6 +287,7 @@ declare -A fix_of=(
   [check-swap-smaa.cpp]=145
   [check-low-half-size.cpp]=144
   [check-video-mode.cpp]="140 140b"
+  [check-draw-probe.cpp]=142d
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -1,0 +1,561 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index e7d7b59..fd1e170 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -65,6 +65,13 @@
+ DECLARE_bool(clear_memory_page_state);
+ DECLARE_bool(readback_resolve_half_pixel_offset);
+ DECLARE_uint32(readback_memexport_small);  // Xbox360PS5 (fix 30)
++// Xbox360PS5, fix 142d: the draws' bindings by part and the draws like the previous one
++// (xbox360ps5/frame_cost.hpp, BindReporter), diagnostics only: nothing here changes what is done.
++#if XE_PLATFORM_PS5
++#define XE_FIX142D(...) __VA_ARGS__
++#else
++#define XE_FIX142D(...)
++#endif
+ // Xbox360PS5, fix 134 (async_submit.h): chunks of a frame handed to a submit worker. Per game in
+ // assets/config/<title>.config.toml ([GPU]), or live in async-submit.txt in the title folder.
+ DEFINE_uint32(gpu_async_submit, 0,
+@@ -4778,6 +4785,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   } draw_timer;
+   namespace fc = xbox360ps5::frame_cost;
+ #endif
++  XE_FIX142D(fc::BindBeginDraw();)  // fix 142d: whether this draw is timed
+ #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
+   SCOPE_profile_cpu_f("gpu");
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+@@ -4906,10 +4914,27 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       return false;
+     }
+ 
++    XE_FIX142D(const fc::BindMark fix142d_primitive = fc::BindStart();)
+     // Process primitives.
+     if (!primitive_processor_->Process(primitive_processing_result)) {
+       return false;
+     }
++#if XE_PLATFORM_PS5
++    {
++      // Fix 142d: the same processing as the previous draw's (the same draw again).
++      static PrimitiveProcessor::ProcessingResult fix142d_last{};
++      const PrimitiveProcessor::ProcessingResult& now = primitive_processing_result;
++      const bool same = now.host_primitive_type == fix142d_last.host_primitive_type &&
++                        now.index_buffer_type == fix142d_last.index_buffer_type &&
++                        now.guest_index_base == fix142d_last.guest_index_base &&
++                        now.host_draw_vertex_count == fix142d_last.host_draw_vertex_count &&
++                        now.host_index_format == fix142d_last.host_index_format &&
++                        now.host_index_buffer_handle == fix142d_last.host_index_buffer_handle &&
++                        now.host_vertex_shader_type == fix142d_last.host_vertex_shader_type;
++      fc::NoteSame(fc::kSamePrimitive, same, fix142d_primitive);
++      fix142d_last = now;
++    }
++#endif
+     if (!primitive_processing_result.host_draw_vertex_count) {
+       // Nothing to draw.
+       return true;
+@@ -5062,12 +5087,27 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       regs, normalized_depth_control, normalized_color_mask, frame_current_);
+ 
+   draw_timer.Mark(fc::kDrawPrimitive);  // fix 73
++  XE_FIX142D(const fc::BindMark fix142d_targets = fc::BindStart();)
+   // Set up the render targets - this may perform dispatches and draws.
+   if (!render_target_cache_->Update(
+           is_rasterization_done, normalized_depth_control,
+           normalized_color_mask, *vertex_shader, window_offset_tiles)) {
+     return false;
+   }
++#if XE_PLATFORM_PS5
++  {
++    // Fix 142d: the same render pass and framebuffer as the previous draw's.
++    static uint32_t fix142d_last_key = UINT32_MAX;
++    static const void* fix142d_last_framebuffer = nullptr;
++    const uint32_t key = render_target_cache_->last_update_render_pass_key().key;
++    const void* framebuffer = render_target_cache_->last_update_framebuffer();
++    fc::NoteSame(fc::kSameTargets,
++                 key == fix142d_last_key && framebuffer == fix142d_last_framebuffer,
++                 fix142d_targets);
++    fix142d_last_key = key;
++    fix142d_last_framebuffer = framebuffer;
++  }
++#endif
+   draw_timer.Mark(fc::kDrawTargets);  // fix 73
+ 
+   // Create the pipeline (for this, need the render pass from the render target
+@@ -5076,6 +5116,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   VulkanRenderTargetCache::RenderPassKey render_pass_key =
+       render_target_cache_->last_update_render_pass_key();
+   VulkanPipelineCache::Pipeline* pipeline;
++  XE_FIX142D(const fc::BindMark fix142d_pipeline = fc::BindStart();)
+   if (!pipeline_cache_->ConfigurePipeline(
+           vertex_shader_translation, pixel_shader_translation,
+           primitive_processing_result, normalized_depth_control,
+@@ -5083,6 +5124,22 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+           &pipeline)) {
+     return false;
+   }
++#if XE_PLATFORM_PS5
++  {
++    // Fix 142d: the same pipeline, and the same shader translations, as the previous draw's.
++    static const void* fix142d_last_pipeline = nullptr;
++    static const void* fix142d_last_vertex = nullptr;
++    static const void* fix142d_last_pixel = nullptr;
++    fc::NoteSame(fc::kSamePipeline, pipeline == fix142d_last_pipeline, fix142d_pipeline);
++    fc::NoteSame(fc::kSameShaders,
++                 vertex_shader_translation == fix142d_last_vertex &&
++                     pixel_shader_translation == fix142d_last_pixel,
++                 fc::BindMark());
++    fix142d_last_pipeline = pipeline;
++    fix142d_last_vertex = vertex_shader_translation;
++    fix142d_last_pixel = pixel_shader_translation;
++  }
++#endif
+ 
+   // Xbox360PS5: a failed real compile must never turn its retained stand-in
+   // into a successful guest draw, particularly when the result is read back.
+@@ -5285,11 +5342,13 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+ 
+   draw_util::GetHostViewportInfo(&gviargs, viewport_info);
+   draw_timer.Mark(fc::kDrawPipeline);  // fix 73: from the targets on, the pipeline and its binding
++  XE_FIX142D(const fc::BindMark fix142d_dynamic = fc::BindStart();)
+   // Update dynamic graphics pipeline state.
+   UpdateDynamicState(viewport_info, primitive_polygonal,
+                      normalized_depth_control, draw_resolution_scale_x,
+                      draw_resolution_scale_y, apply_host_depth_polygon_offset,
+                      window_offset_tiles != 0);
++  XE_FIX142D(fc::BindStop(fc::kBindDynamicState, fix142d_dynamic);)
+ 
+   auto vgt_draw_initiator = regs.Get<reg::VGT_DRAW_INITIATOR>();
+ 
+@@ -5316,6 +5375,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+         ~(UINT32_C(1) << SpirvShaderTranslator::kConstantBufferTessellation);
+   }
+ 
++  XE_FIX142D(const fc::BindMark fix142d_system = fc::BindStart();)
+   // Update system constants before uploading them.
+   UpdateSystemConstantValues(
+       primitive_polygonal, primitive_processing_result, shader_32bit_index_dma,
+@@ -5323,6 +5383,7 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+       normalized_color_mask,
+       apply_host_depth_polygon_offset ? &host_depth_polygon_offset : nullptr,
+       window_offset_tiles);
++  XE_FIX142D(fc::BindStop(fc::kBindSystemConstants, fix142d_system);)
+ 
+   draw_timer.Mark(fc::kDrawState);  // fix 73
+   // Update uniform buffers and descriptor sets after binding the pipeline with
+@@ -9156,6 +9217,11 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
+   const RegisterFile& regs = *register_file_;
++#if XE_PLATFORM_PS5
++  namespace fc142d = xbox360ps5::frame_cost;  // fix 142d: UpdateBindings by part
++  fc142d::CountBindCall();
++  const fc142d::BindScope fix142d_total(fc142d::kBindTotal);
++#endif
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -9222,6 +9288,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     // System constants.
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferSystem))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindSystem);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferSystem];
+       uint8_t* mapping = uniform_buffer_pool_->Request(
+@@ -9231,6 +9298,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = sizeof(SpirvShaderTranslator::SystemConstants);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindSystem, buffer_info.range);)
+       std::memcpy(mapping, &system_constants_,
+                   sizeof(SpirvShaderTranslator::SystemConstants));
+       current_constant_buffers_up_to_date_ |=
+@@ -9241,6 +9309,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     // because the descriptor set write always includes all constant buffers.
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferClipPlanes))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindClip);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferClipPlanes];
+       uint8_t* mapping = uniform_buffer_pool_->Request(
+@@ -9250,6 +9319,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = sizeof(SpirvShaderTranslator::ClipPlaneConstants);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindClip, buffer_info.range);)
+       auto pa_cl_clip_cntl = regs.Get<reg::PA_CL_CLIP_CNTL>();
+       bool clip_planes_enabled =
+           !pa_cl_clip_cntl.clip_disable && pa_cl_clip_cntl.ucp_ena;
+@@ -9270,6 +9340,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1)
+            << SpirvShaderTranslator::kConstantBufferTessellation))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindTessellation);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferTessellation];
+       uint8_t* mapping = uniform_buffer_pool_->Request(
+@@ -9279,6 +9350,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = sizeof(SpirvShaderTranslator::TessellationConstants);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindTessellation, buffer_info.range);)
+       // Populate tessellation constants from registers.
+       SpirvShaderTranslator::TessellationConstants tessellation_constants;
+       // Tessellation factor range, plus 1.0 according to Xbox 360 docs.
+@@ -9313,6 +9385,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     // Vertex shader float constants.
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatVertex))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindFloatVertex);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferFloatVertex];
+       // Even if the shader doesn't need any float constants, a valid binding
+@@ -9330,6 +9403,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = VkDeviceSize(float_constants_size);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindFloatVertex, float_constants_size);)
+       CopyFloatConstantRuns(
+           mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_000_X],
+           current_float_constant_map_vertex_,
+@@ -9340,6 +9414,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     // Pixel shader float constants.
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFloatPixel))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindFloatPixel);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferFloatPixel];
+       size_t float_constants_size =
+@@ -9351,6 +9426,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = VkDeviceSize(float_constants_size);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindFloatPixel, float_constants_size);)
+       CopyFloatConstantRuns(
+           mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_256_X],
+           current_float_constant_map_pixel_,
+@@ -9361,6 +9437,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     // Bool and loop constants.
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferBoolLoop))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindBoolLoop);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferBoolLoop];
+       constexpr size_t kBoolLoopConstantsSize = sizeof(uint32_t) * (8 + 32);
+@@ -9371,6 +9448,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = VkDeviceSize(kBoolLoopConstantsSize);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindBoolLoop, buffer_info.range);)
+       std::memcpy(mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031],
+                   kBoolLoopConstantsSize);
+       current_constant_buffers_up_to_date_ |=
+@@ -9379,6 +9457,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     // Fetch constants.
+     if (!(current_constant_buffers_up_to_date_ &
+           (UINT32_C(1) << SpirvShaderTranslator::kConstantBufferFetch))) {
++      XE_FIX142D(const fc142d::BindScope fix142d_buffer(fc142d::kBindFetch);)
+       VkDescriptorBufferInfo& buffer_info = current_constant_buffer_infos_
+           [SpirvShaderTranslator::kConstantBufferFetch];
+       constexpr size_t kFetchConstantsSize = sizeof(uint32_t) * 6 * 32;
+@@ -9389,6 +9468,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         return false;
+       }
+       buffer_info.range = VkDeviceSize(kFetchConstantsSize);
++      XE_FIX142D(fc142d::CountBindUpload(fc142d::kBindFetch, buffer_info.range);)
+       std::memcpy(mapping, &regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0],
+                   kFetchConstantsSize);
+       current_constant_buffers_up_to_date_ |=
+@@ -9401,6 +9481,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   // buffers (pages of the pool) and the frame; the offsets go to the bind.
+   if (constants_dynamic_) {
+     VkBuffer constant_buffers[SpirvShaderTranslator::kConstantBufferCount];
++    const fc142d::BindScope fix142d_sets(fc142d::kBindConstantSets);
+     for (uint32_t i = 0; i < SpirvShaderTranslator::kConstantBufferCount;
+          ++i) {
+       constant_buffers[i] = current_constant_buffer_infos_[i].buffer;
+@@ -9481,6 +9562,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       !(current_graphics_descriptor_set_values_up_to_date_ &
+         (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesPixel));
+ #endif
++  XE_FIX142D(const fc142d::BindMark fix142d_infos = fc142d::BindStart();)
+   descriptor_write_image_info_.clear();
+   descriptor_write_image_info_.reserve(
+       (write_vertex_textures ? texture_count_vertex + sampler_count_vertex
+@@ -9533,6 +9615,8 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     }
+   }
+ #if XE_PLATFORM_PS5
++  fc142d::BindStop(fc142d::kBindImageInfos, fix142d_infos);
++  const fc142d::BindMark fix142d_reuse = fc142d::BindStart();
+   // Fix 104: reuse or write, for each stage.
+   const uint64_t texture_set_epoch = texture_cache_->binding_epoch();
+   uint32_t texture_sets_reused = 0;
+@@ -9601,8 +9685,10 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+   xbox360ps5::frame_cost::CountTextureSets(
+       texture_sets_reused,
+       uint32_t(write_vertex_textures) + uint32_t(write_pixel_textures));
++  fc142d::BindStop(fc142d::kBindReuseCheck, fix142d_reuse);
+ #endif
+ 
++  XE_FIX142D(const fc142d::BindMark fix142d_allocate = fc142d::BindStart();)
+   // Write the new descriptor sets.
+ 
+   // Consecutive bindings updated via a single VkWriteDescriptorSet must have
+@@ -9757,16 +9843,27 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         write_textures[0].dstSet);  // fix 104
+ #endif
+   }
++  XE_FIX142D(fc142d::BindStop(fc142d::kBindAllocate, fix142d_allocate);)
+   // Write.
+   if (write_descriptor_set_count) {
++#if XE_PLATFORM_PS5
++    const fc142d::BindMark fix142d_update = fc142d::BindStart();
++    uint32_t fix142d_descriptors = 0;
++    for (uint32_t i = 0; i < write_descriptor_set_count; ++i) {
++      fix142d_descriptors += write_descriptor_sets[i].descriptorCount;
++    }
++#endif
+     dfn.vkUpdateDescriptorSets(device, write_descriptor_set_count,
+                                write_descriptor_sets.data(), 0, nullptr);
++    XE_FIX142D(fc142d::BindStop(fc142d::kBindUpdateSets, fix142d_update);)
++    XE_FIX142D(fc142d::CountDescriptorUpdate(fix142d_descriptors);)
+   }
+   // Only make valid if all descriptor sets have been allocated and written
+   // successfully.
+   current_graphics_descriptor_set_values_up_to_date_ |=
+       write_descriptor_set_bits;
+ 
++  XE_FIX142D(const fc142d::BindMark fix142d_bind = fc142d::BindStart();)
+   // Bind the new descriptor sets.
+   uint32_t descriptor_sets_needed =
+       (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetCount) - 1;
+@@ -9813,6 +9910,7 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     descriptor_sets_remaining &=
+         ~((UINT32_C(1) << descriptor_set_mask_tzcnt) - 1);
+   }
++  XE_FIX142D(fc142d::BindStop(fc142d::kBindBind, fix142d_bind);)
+   current_graphics_descriptor_sets_bound_up_to_date_ |= descriptor_sets_needed;
+ 
+   return true;
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+index b964291..92f16d2 100644
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1444,5 +1444,198 @@ class TextureSetReporter {
+   uint64_t last_reused_ = 0, last_written_ = 0;
+ };
+ 
++// Fix 142d (research/parallel-gpu-commands/STAGE2.md, step 2.0): where a draw's "bindings" and
++// "dynamic state and constants" (fix 73) go, and how often a draw's primitive processing, render
++// pass, pipeline and shaders come out as the previous draw's, with the time those calls take
++// either way. Diagnostics only, on the GPU thread. One draw in 8 is timed (as fix 73's, nested
++// sections taken out) and scaled; the counts are every draw's.
++enum BindPart : uint32_t {
++  kBindSystem = 0, kBindClip, kBindTessellation, kBindFloatVertex, kBindFloatPixel, kBindBoolLoop,
++  kBindFetch,  // the seven constant buffers, in UpdateBindings' order
++  kBindConstantSets, kBindImageInfos, kBindReuseCheck, kBindAllocate, kBindUpdateSets, kBindBind,
++  kBindTotal,  // the whole of UpdateBindings
++  kBindDynamicState, kBindSystemConstants, kBindParts
++};
++constexpr uint32_t kBindConstantBuffers = 7;
++inline const char* BindPartName(uint32_t part) {
++  static const char* const names[] = {"system", "clip", "tessellation", "float VS", "float PS",
++                                      "bool/loop", "fetch", "constant sets", "texture image infos",
++                                      "texture set reuse check", "set allocation and writes",
++                                      "vkUpdateDescriptorSets", "binds", "total", "dynamic state",
++                                      "system constants"};
++  return part < kBindParts ? names[part] : "?";
++}
++inline std::array<std::atomic<uint64_t>, kBindParts> bind_part_ticks{};
++inline std::array<std::atomic<uint64_t>, kBindConstantBuffers> bind_uploads{}, bind_upload_bytes{};
++inline std::atomic<uint64_t> bind_draws{0}, bind_sampled{0}, bind_calls{0}, bind_update_calls{0},
++    bind_update_descriptors{0};
++// Whether the current draw is timed (the GPU thread's; set at its start).
++inline bool bind_probe_active = false;
++inline void BindBeginDraw() {
++  if (!OnGpuThread()) {
++    bind_probe_active = false;
++    return;
++  }
++  AddOwn(bind_draws, 1);
++  bind_probe_active = SampleOneIn(8);
++  if (bind_probe_active) AddOwn(bind_sampled, 1);
++}
++struct BindMark {
++  uint64_t ticks = 0, other = 0;
++};
++inline BindMark BindStart() {
++  BindMark mark;
++  if (bind_probe_active && OnGpuThread()) {
++    mark.ticks = Ticks();
++    mark.other = OtherSectionTicks();
++  }
++  return mark;
++}
++// The own ticks since `mark` (nested sections taken out), or 0 when the draw is not timed.
++inline uint64_t BindOwn(const BindMark& mark) {
++  if (!mark.ticks) return 0;
++  const uint64_t wall = Ticks() - mark.ticks, nested = OtherSectionTicks() - mark.other;
++  return wall > nested ? wall - nested : 0;
++}
++inline void BindStop(uint32_t part, const BindMark& mark) {
++  if (mark.ticks) AddOwn(bind_part_ticks[part], BindOwn(mark));
++}
++class BindScope {
++ public:
++  explicit BindScope(uint32_t part) : part_(part), mark_(BindStart()) {}
++  ~BindScope() { BindStop(part_, mark_); }
++  BindScope(const BindScope&) = delete;
++  BindScope& operator=(const BindScope&) = delete;
++
++ private:
++  uint32_t part_;
++  BindMark mark_;
++};
++inline void CountBindUpload(uint32_t buffer, uint64_t bytes) {
++  if (buffer >= kBindConstantBuffers || !OnGpuThread()) return;
++  AddOwn(bind_uploads[buffer], 1);
++  AddOwn(bind_upload_bytes[buffer], bytes);
++}
++inline void CountBindCall() {
++  if (OnGpuThread()) AddOwn(bind_calls, 1);
++}
++inline void CountDescriptorUpdate(uint32_t descriptors) {
++  if (!OnGpuThread()) return;
++  AddOwn(bind_update_calls, 1);
++  AddOwn(bind_update_descriptors, descriptors);
++}
++// The calls whose result is compared with the previous draw's.
++enum SameCall : uint32_t { kSamePrimitive = 0, kSameTargets, kSamePipeline, kSameShaders, kSameCalls };
++inline const char* SameCallName(uint32_t call) {
++  static const char* const names[] = {"primitive processing", "render pass and framebuffer", "pipeline",
++                                      "shaders"};
++  return call < kSameCalls ? names[call] : "?";
++}
++// [call * 2 + same]: every draw counted; the timed draws' own ticks and their number.
++inline std::array<std::atomic<uint64_t>, kSameCalls * 2> same_counts{}, same_ticks{}, same_timed{};
++inline void NoteSame(uint32_t call, bool same, const BindMark& mark) {
++  if (call >= kSameCalls || !OnGpuThread()) return;
++  const uint32_t slot = call * 2 + (same ? 1 : 0);
++  AddOwn(same_counts[slot], 1);
++  if (mark.ticks) {
++    AddOwn(same_ticks[slot], BindOwn(mark));
++    AddOwn(same_timed[slot], 1);
++  }
++}
++// "Frame time bindings (GPU thread, fix 142d, 1 draw in 8 timed): n draws/s, c UpdateBindings/s,
++// t us each; constants: system a ms/s (u/s, b B each), ..., fetch ...; constant sets ..., texture
++// image infos ..., texture set reuse check ..., set allocation and writes ..., vkUpdateDescriptorSets
++// x ms/s in k calls/s (d descriptors each), binds ..., the rest ...; dynamic state ... ms/s, system
++// constants ... ms/s" and "Frame time draws like the previous one (GPU thread, fix 142d): primitive
++// processing p% (x ms/s when the same, y when not), render pass and framebuffer ..., pipeline ...,
++// shaders q%".
++class BindReporter {
++ public:
++  // `fixed_ns_per_tick` (tests): the ticks' length instead of the one measured between lines.
++  std::string Lines(double seconds, double fixed_ns_per_tick = 0) {
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    if (fixed_ns_per_tick > 0) ns_per_tick = fixed_ns_per_tick;
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double s = seconds > 0 ? seconds : 1;
++    const double draws = Delta(bind_draws, last_draws_), sampled = Delta(bind_sampled, last_sampled_);
++    const double calls = Delta(bind_calls, last_calls_);
++    const double scale = sampled > 0 ? draws / sampled : 0.0;
++    double ms[kBindParts];
++    for (uint32_t n = 0; n < kBindParts; ++n) {
++      ms[n] = Delta(bind_part_ticks[n], last_parts_[n]) * scale * ns_per_tick / 1e6 / s;
++    }
++    std::string constants;
++    double parts_sum = 0;
++    for (uint32_t n = 0; n < kBindConstantBuffers; ++n) {
++      const double uploads = Delta(bind_uploads[n], last_uploads_[n]);
++      const double bytes = Delta(bind_upload_bytes[n], last_bytes_[n]);
++      char item[96];
++      std::snprintf(item, sizeof(item), "%s%s %.1f ms/s (%.0f/s, %.0f B each)", n ? ", " : "", BindPartName(n),
++                    ms[n], uploads / s, uploads > 0 ? bytes / uploads : 0.0);
++      constants += item;
++      parts_sum += ms[n];
++    }
++    for (uint32_t n = kBindConstantSets; n <= kBindBind; ++n) parts_sum += ms[n];
++    const double updates = Delta(bind_update_calls, last_update_calls_);
++    const double descriptors = Delta(bind_update_descriptors, last_update_descriptors_);
++    char text[1024];
++    std::snprintf(text, sizeof(text),
++                  "Frame time bindings (GPU thread, fix 142d, 1 draw in 8 timed): %.0f draws/s, %.0f "
++                  "UpdateBindings/s, %.2f us each; constants: %s; constant sets %.1f ms/s, texture image infos "
++                  "%.1f ms/s, texture set reuse check %.1f ms/s, set allocation and writes %.1f ms/s, "
++                  "vkUpdateDescriptorSets %.1f ms/s in %.0f calls/s (%.1f descriptors each), binds %.1f ms/s, the "
++                  "rest %.1f ms/s; dynamic state %.1f ms/s, system constants %.1f ms/s",
++                  draws / s, calls / s, calls > 0 ? ms[kBindTotal] * 1000.0 * s / calls : 0.0, constants.c_str(),
++                  ms[kBindConstantSets], ms[kBindImageInfos], ms[kBindReuseCheck], ms[kBindAllocate],
++                  ms[kBindUpdateSets], updates / s, updates > 0 ? descriptors / updates : 0.0, ms[kBindBind],
++                  ms[kBindTotal] > parts_sum ? ms[kBindTotal] - parts_sum : 0.0, ms[kBindDynamicState],
++                  ms[kBindSystemConstants]);
++    std::string same = "Frame time draws like the previous one (GPU thread, fix 142d): ";
++    for (uint32_t c = 0; c < kSameCalls; ++c) {
++      double count[2], ms_bucket[2];
++      for (uint32_t b = 0; b < 2; ++b) {
++        const uint32_t slot = c * 2 + b;
++        count[b] = Delta(same_counts[slot], last_same_counts_[slot]);
++        const double timed = Delta(same_timed[slot], last_same_timed_[slot]);
++        const double ticks = Delta(same_ticks[slot], last_same_ticks_[slot]);
++        ms_bucket[b] = timed > 0 ? ticks * (count[b] / timed) * ns_per_tick / 1e6 / s : 0.0;
++      }
++      const double total = count[0] + count[1];
++      char item[160];
++      if (c == kSameShaders) {
++        std::snprintf(item, sizeof(item), "%s%s %.1f%%", c ? ", " : "", SameCallName(c),
++                      total > 0 ? 100.0 * count[1] / total : 0.0);
++      } else {
++        std::snprintf(item, sizeof(item), "%s%s %.1f%% (%.1f ms/s when the same, %.1f when not)", c ? ", " : "",
++                      SameCallName(c), total > 0 ? 100.0 * count[1] / total : 0.0, ms_bucket[1], ms_bucket[0]);
++      }
++      same += item;
++    }
++    return std::string(text) + "\n" + same;
++  }
++
++ private:
++  template <class Counter>
++  static double Delta(const Counter& counter, uint64_t& last) {
++    const uint64_t now = counter.load(std::memory_order_relaxed);
++    const double d = double(now - last);
++    last = now;
++    return d;
++  }
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
++  uint64_t last_draws_ = 0, last_sampled_ = 0, last_calls_ = 0, last_update_calls_ = 0,
++           last_update_descriptors_ = 0;
++  uint64_t last_parts_[kBindParts] = {};
++  uint64_t last_uploads_[kBindConstantBuffers] = {}, last_bytes_[kBindConstantBuffers] = {};
++  uint64_t last_same_counts_[kSameCalls * 2] = {}, last_same_ticks_[kSameCalls * 2] = {},
++           last_same_timed_[kSameCalls * 2] = {};
++};
++
+ }  // namespace frame_cost
+ }  // namespace xbox360ps5
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 5a3264e..f4c6e76 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -4172,6 +4172,14 @@ int main(int argc, char** argv) {
+                 // Fix 73: the draws' own time by part.
+                 static xbox360ps5::frame_cost::DrawReporter frame_cost_draws;
+                 XELOGW("{}", frame_cost_draws.Line(double(summary_samples)));
++                // Fix 142d: the draws' bindings by part, and the draws like the previous one.
++                static xbox360ps5::frame_cost::BindReporter frame_cost_bindings;
++                {
++                  const std::string lines = frame_cost_bindings.Lines(double(summary_samples));
++                  const size_t split = lines.find('\n');
++                  XELOGW("{}", lines.substr(0, split));
++                  if (split != std::string::npos) XELOGW("{}", lines.substr(split + 1));
++                }
+                 // Fix 74: watch arming by view of physical memory.
+                 static xbox360ps5::frame_cost::ArmReporter frame_cost_arming;
+                 XELOGW("{}", frame_cost_arming.Line(double(summary_samples)));
