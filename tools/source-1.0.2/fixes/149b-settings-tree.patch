@@ -1,0 +1,810 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -279,6 +279,7 @@ class Launcher {
+   int RevealGame(int index);            // Shows games_[index] in its group; its place in view_, else -1.
+   void OpenGameSheet(int tab = 0);
+   void FillGameRows();
++  bool GameSectionList() const;  // fix 149b
+   void RefreshPerGame();
+   void CloseSettings();
+   void DrawDlcs(Canvas& c, float x);
+@@ -297,6 +298,9 @@ class Launcher {
+   int achievement_row_ = 0, achievement_player_ = 0;
+   void DrawGamePlay(Canvas& c, float x);
+   void DrawPerGame(Canvas& c, float x);
++  void DrawLibraryMenu(Canvas& c, float x);  // fix 149b: the settings' levels
++  void DrawSections(Canvas& c, float x);
++  void DrawGameSections(Canvas& c, float x, int category);
+   void DrawShelf(Canvas& c);
+   void DrawGameSheet(Canvas& c);
+   void DrawSettingsSheet(Canvas& c);
+@@ -346,13 +350,17 @@ class Launcher {
+   bool restored_ = false;                   // "Restore the recommended" was just used.
+   int category_ = 0, option_row_ = 0;      // The open sub-menu of the settings.
+   std::vector<int> category_rows_;         // Its options, as indices into Options().
++  int section_ = -1, section_row_ = 0;     // Fix 149b: its open section (-1: its list of sections, or none).
+   // The game sheet: play, patches, or the game's own options (one subject at a time).
+   int game_tab_ = 0, game_option_row_ = 0, game_category_ = 0;
+   bool game_category_open_ = false;
++  int game_section_ = -1, game_section_row_ = 0;  // Fix 149b: the open subject's open section (-1: none yet).
++  std::vector<int> game_sections_;         // Fix 149b: the open subject's sections with options a game may own.
+   std::vector<int> game_rows_;             // The shown subject's options a game may own, as indices into Options().
+   std::vector<int> game_categories_;       // The subjects that have any.
+   Mode game_return_ = Mode::shelf;         // Where closing the game sheet goes back to.
+-  int settings_tab_ = 0, per_game_row_ = 0; // The settings sheet: general, or the list of games.
++  int settings_tab_ = 0, per_game_row_ = 0; // The settings sheet's level: the top, Game settings (1), Library and saves (2).
++  int library_row_ = 0;                    // Fix 149b: Settings > Library and saves.
+   std::vector<int> per_game_;              // One entry of games_ per identified title.
+   GameOverrides overrides_;                // Of the selected game.
+   GameEntry launch_;
+diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_groups.hpp
+--- a/include/xbox360ps5/option_groups.hpp
++++ b/include/xbox360ps5/option_groups.hpp
+@@ -17,6 +17,7 @@
+ 
+ #include <algorithm>
+ #include <iterator>
++#include <string>
+ #include <string_view>
+ #include <vector>
+ 
+@@ -143,6 +144,117 @@ inline const char* About(std::string_view key, const char* table_about) {
+   return entry && entry->about ? entry->about : table_about;
+ }
+ 
++// Fix 149b: the settings as a menu of several levels. On 1.0.6-work-fix149 the user found the
++// launcher's settings and a game's settings unreadable: long flat pages, and a game's subjects
++// switched with Triangle ("Next subject"), a list nobody sees. The two long pages, Picture and
++// smoothness and Emulation (advanced), now open a short list of sections, each a short list of
++// options; Audio, Controls and System (six or seven options each) stay one list. The same tree is
++// the launcher's (general settings and each game's), the guide's (the sections as headers over their
++// rows) and the phone page's (the sections as headings). A title above each list says where it is
++// (Path). The launcher's own rows (frame generation, its output, the general FSI switch) have keys
++// here too, so they sit in their section.
++enum Section : int {
++  kNoSection = -1,
++  kAaSharpness, kColorsFit, kFrameRate, kDetail,                                // Picture and smoothness
++  kVideoClock, kRendererAccuracy, kMemoryReadback, kShadersThreads, kProcessor,  // Emulation (advanced)
++};
++struct SectionInfo {
++  int category;
++  const char* name;
++};
++inline constexpr SectionInfo kSections[] = {
++    {kPicture, "Anti-aliasing and sharpness"}, {kPicture, "Colors and screen fit"},
++    {kPicture, "Frame rate and 120 Hz"},       {kPicture, "Detail and resolution"},
++    {kEmulation, "Video clock and mode"},      {kEmulation, "Renderer and accuracy"},
++    {kEmulation, "Video memory and readback"}, {kEmulation, "Shaders and threads"},
++    {kEmulation, "Processor"},
++};
++// The launcher's rows that are not options of the table (Settings > Picture and smoothness and
++// Emulation (advanced) in the launcher only; a game cannot have its own value of them).
++inline constexpr const char* kFramegenRowKey = "framegen";
++inline constexpr const char* kFramegenOutputRowKey = "framegen_output";
++inline constexpr const char* kFsiRowKey = "fsi_general";
++inline bool IsLauncherRow(std::string_view key) {
++  return key == kFramegenRowKey || key == kFramegenOutputRowKey || key == kFsiRowKey;
++}
++struct TreeEntry {
++  int section;
++  const char* key;
++};
++// Each section's rows, in the order they are shown.
++inline constexpr TreeEntry kTree[] = {
++    {kAaSharpness, "antialiasing"}, {kAaSharpness, "image_filter"}, {kAaSharpness, "sharpness"},
++    {kAaSharpness, "dither"},
++    {kColorsFit, "color_preset"}, {kColorsFit, "overscan_crop"}, {kColorsFit, "stretch"},
++    {kFrameRate, "present_limit"}, {kFrameRate, kFramegenRowKey}, {kFrameRate, kFramegenOutputRowKey},
++    {kDetail, "anisotropic"}, {kDetail, "draw_scale"},
++    {kVideoClock, "video_clock"}, {kVideoClock, "vsync"}, {kVideoClock, "internal_resolution"},
++    {kVideoClock, "gamma"},
++    {kRendererAccuracy, "renderer"}, {kRendererAccuracy, "depth_precision"}, {kRendererAccuracy, "decal_bias"},
++    {kRendererAccuracy, "mulsc"}, {kRendererAccuracy, "occlusion"}, {kRendererAccuracy, "fsi"},
++    {kRendererAccuracy, kFsiRowKey},
++    {kMemoryReadback, "memory_boost"}, {kMemoryReadback, "dynamic_buffers"}, {kMemoryReadback, "memory_window"},
++    {kMemoryReadback, "readback"}, {kMemoryReadback, "memexport"}, {kMemoryReadback, "clear_pages"},
++    {kMemoryReadback, "released_memory"},
++    {kShadersThreads, "async_shaders"}, {kShadersThreads, "pipeline_threads"}, {kShadersThreads, "threaded_driver"},
++    {kProcessor, "fast_locks"}, {kProcessor, "guest_yield"}, {kProcessor, "fast_dot"}, {kProcessor, "no_promotion"},
++    {kProcessor, "zero_page"},
++};
++
++inline const char* SectionName(int section) {
++  return section >= 0 && section < int(std::size(kSections)) ? kSections[section].name : "";
++}
++// The section a row is in (kNoSection for the options of Audio, Controls and System).
++inline int SectionOf(std::string_view key) {
++  for (const TreeEntry& entry : kTree)
++    if (key == entry.key) return entry.section;
++  return kNoSection;
++}
++// The sections of a page, in order (none: the page is one list).
++inline std::vector<int> SectionsOf(int category) {
++  std::vector<int> sections;
++  for (int n = 0; n < int(std::size(kSections)); ++n)
++    if (kSections[n].category == category) sections.push_back(n);
++  return sections;
++}
++inline bool HasSections(int category) { return !SectionsOf(category).empty(); }
++// A section's rows, in order.
++inline std::vector<const char*> SectionKeys(int section) {
++  std::vector<const char*> keys;
++  for (const TreeEntry& entry : kTree)
++    if (entry.section == section) keys.push_back(entry.key);
++  return keys;
++}
++// Where a row goes in the tree's order: by section, then by its place there; rows without a section
++// after them, in their own order (std::stable_sort keeps it).
++inline int TreeRank(std::string_view key) {
++  for (int n = 0; n < int(std::size(kTree)); ++n)
++    if (key == kTree[n].key) return n;
++  return int(std::size(kTree));
++}
++// The title over a list: the levels from the top, translated by the caller ("Settings > Picture and
++// smoothness > Colors and screen fit"). ">" as the launcher's own rows show a level below.
++inline std::string Path(const std::vector<std::string>& levels) {
++  std::string path;
++  for (const std::string& level : levels) {
++    if (level.empty()) continue;
++    if (!path.empty()) path += "  >  ";
++    path += level;
++  }
++  return path;
++}
++// The guide's rows a header only names: Up and Down move past it, in the direction they went; past the
++// first row is the tab bar (-1). is_header(row) says whether a row is a header.
++template <typename IsHeader>
++int SkipHeader(int row, int direction, int rows, IsHeader&& is_header) {
++  while (row >= 0 && row < rows && is_header(row)) row += direction < 0 ? -1 : 1;
++  if (row >= rows) {  // a header at the end (none is): back to the last row that is not one
++    row = rows - 1;
++    while (row >= 0 && is_header(row)) --row;
++  }
++  return row;
++}
++
+ // The guide (src/canary_game_main.cpp). On the Emulation (advanced) page, a notice is its first row
+ // (the focus lands on it as the page opens); after one of its options is changed, kChanged is shown
+ // over the list's bottom for kChangedSeconds.
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -97,12 +97,12 @@ function render(){
+     const link=$('cameraLink');link.textContent=cameraPT?'Usar câmera do celular':'Use phone camera';link.href='/camera?k='+encodeURIComponent(key);return;
+   }
+   const game=scope?games.find(g=>g.id==scope):null,own=game?(game.own||{}):null,pre=game?(game.preset||{}):{};
+-  $('list').innerHTML=state.options.filter(o=>o.category==tab&&(!scope||o.perGame)).map(o=>{
++  $('list').innerHTML=state.options.filter(o=>o.category==tab&&(!scope||o.perGame)).map((o,i,list)=>{
+     const mine=own&&(o.key in own),value=own?(mine?own[o.key]:-1):o.value;
+     let choices=o.choices.map((c,i)=>'<option value="'+i+'"'+(i==value?' selected':'')+'>'+esc(c)+(i==o.recommended?' ★':'')+'</option>').join('');
+     if(own)choices='<option value="-1"'+(mine?'':' selected')+'>'+((o.key in pre)?t.recommended+esc(o.choices[pre[o.key]]):t.general+': '+esc(o.choices[o.value]))+'</option>'+choices;
+     const cls=own?(mine?'own':''):(o.value!=o.recommended?'changed':'');
+-    return '<div class="option '+cls+'"><div class="top"><b>'+esc(o.label)+'</b><select data-key="'+o.key+'">'+choices+'</select></div><p>'+esc(o.about)+'</p><p class="note">'+t.recommended+' '+esc(o.choices[o.recommended])+' · '+t[o.when]+'</p></div>';
++    return (o.section&&(!i||list[i-1].section!=o.section)?'<h3>'+esc(o.section)+'</h3>':'')+'<div class="option '+cls+'"><div class="top"><b>'+esc(o.label)+'</b><select data-key="'+o.key+'">'+choices+'</select></div><p>'+esc(o.about)+'</p><p class="note">'+t.recommended+' '+esc(o.choices[o.recommended])+' · '+t[o.when]+'</p></div>';
+   }).join('')||'<p>'+t.none+'</p>';
+ }
+ async function logs(){
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -676,6 +676,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+ // of settings. The loop that reads the pad drives it; the dialog only draws.
+ enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network, restart_game,  // fix 115
+                          notice,  // fix 149: a row that only tells (the Emulation (advanced) page's first)
++                         section,  // fix 149b: a section's name over its rows (never focused)
+                          bug_report_restart };  // fix 93d
+ struct GuideItem {
+   GuideAction action;
+@@ -783,8 +784,23 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+     items.push_back({GuideAction::notice, Tr(xbox360ps5::option_groups::kGuideNotice), ""});
+     items.push_back({GuideAction::measure, Tr("Measure performance (10 s)"), ""});  // fix 54: was 5 s
+   }
++  // Fix 149b: a page with sections (option_groups.hpp) lists its options under their sections' names, in
++  // the launcher's order; a section with nothing to change while the game runs is left out.
++  const bool sections = xbox360ps5::option_groups::HasSections(category);
++  if (sections)
++    for (const int section : xbox360ps5::option_groups::SectionsOf(category)) {
++      bool header = false;
++      for (const char* key : xbox360ps5::option_groups::SectionKeys(section))
++        for (const auto& option : xbox360ps5::Options()) {
++          if (std::strcmp(option.key, key) != 0 || !shown(option) || option.category != category) continue;
++          if (!header) items.push_back({GuideAction::section, Tr(xbox360ps5::option_groups::SectionName(section)), ""});
++          header = true;
++          items.push_back({GuideAction::option, Tr(option.label), Tr(option.choices[size_t(settings.*option.field)]), &option});
++        }
++    }
+   for (const auto& option : xbox360ps5::Options()) {
+     if (!shown(option) || option.category != category) continue;
++    if (sections && xbox360ps5::option_groups::SectionOf(option.key) != xbox360ps5::option_groups::kNoSection) continue;  // fix 149b: above
+     items.push_back({GuideAction::option, Tr(option.label), Tr(option.choices[size_t(settings.*option.field)]), &option});
+   }
+   if (category == 4) {
+@@ -1073,6 +1089,12 @@ class Guide final : public xe::ui::ImGuiDialog {
+                       items[size_t(n)].label.c_str(), nullptr, (page_right - page_left - strip - 76) * scale);
+         continue;
+       }
++      if (items[size_t(n)].action == GuideAction::section) {
++        // Fix 149b: a section's name over its rows: smaller and grey on a thin line; the focus never lands on it.
++        list->AddLine(at(page_left + strip + 24 + slide_x, y + 58), at(page_right - 24 + slide_x, y + 58), fade(150, 156, 164, a), 1.0f * scale);
++        list->AddText(medium, 24 * scale, at(page_left + strip + 24 + slide_x, y + 26), fade(104, 110, 118, a), items[size_t(n)].label.c_str());
++        continue;
++      }
+       list->AddLine(at(page_left + strip + slide_x, y + 62), at(page_right + slide_x, y + 62), fade(170, 175, 181, a), 1.5f * scale);
+       const ImU32 ink = lit ? fade(255, 255, 255, a) : fade(44, 48, 54, a);
+       list->AddText(large, (state_.page == 0 ? 34 : 30) * scale,
+@@ -1231,11 +1253,20 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
+     json += std::string(n ? "," : "") + JsonText(Tr(xbox360ps5::kOptionCategories[groups::kOrder[n]]));
+   json += "],\"options\":[";
+   bool first = true;
+-  for (const auto& option : xbox360ps5::Options()) {
++  // Fix 149b: in the tree's order, each with its section's name (the page shows it as a heading).
++  std::vector<const xbox360ps5::Option*> ordered;
++  for (const auto& option : xbox360ps5::Options()) ordered.push_back(&option);
++  std::stable_sort(ordered.begin(), ordered.end(), [](const xbox360ps5::Option* a, const xbox360ps5::Option* b) {
++    return groups::TreeRank(a->key) < groups::TreeRank(b->key);
++  });
++  for (const xbox360ps5::Option* entry : ordered) {
++    const xbox360ps5::Option& option = *entry;
++    const int section = groups::SectionOf(option.key);
+     const char* when = option.when == xbox360ps5::OptionWhen::live ? "live"
+                      : option.when == xbox360ps5::OptionWhen::launch ? "launch" : "start";
+     json += std::string(first ? "" : ",") + "{\"key\":" + JsonText(option.key) + ",\"label\":" + JsonText(Tr(option.label)) +
+-            ",\"about\":" + JsonText(Tr(option.about)) + ",\"category\":" + std::to_string(groups::Position(option.category)) + ",\"when\":\"" + when +
++            ",\"about\":" + JsonText(Tr(option.about)) + ",\"category\":" + std::to_string(groups::Position(option.category)) + ",\"section\":" +
++            JsonText(section == groups::kNoSection ? std::string() : std::string(Tr(groups::SectionName(section)))) + ",\"when\":\"" + when +
+             "\",\"recommended\":" + std::to_string(option.recommended) + ",\"perGame\":" + (option.per_game ? "true" : "false") +
+             ",\"value\":" + std::to_string(global.*option.field) + ",\"choices\":[";
+     for (size_t n = 0; n < option.choices.size(); ++n) json += std::string(n ? "," : "") + JsonText(Tr(option.choices[n]));
+@@ -3816,6 +3847,13 @@ int main(int argc, char** argv) {
+             }
+             guide.on_bar = nav.on_bar;
+             guide.row = nav.row;
++            // Fix 149b: a section's name only names the rows below it: the focus moves past it, the way it
++            // went (Up past the first row: the tab bar).
++            if (!guide.on_bar && guide.row < rows) {
++              const int row = xbox360ps5::option_groups::SkipHeader(guide.row, (pressed & 0x10) ? -1 : 1, rows,
++                  [&items](int r) { return items[size_t(r)].action == GuideAction::section; });
++              if (row < 0) { guide.on_bar = true; guide.row = 0; } else guide.row = row;
++            }
+             if (effect.back && guide.page == 1 && guide.category >= 0) {
+               // Circle inside a category: back to the list of categories, on the one just left.
+               const auto categories = GuideItems(1, settings, -1);
+@@ -3876,12 +3914,18 @@ int main(int argc, char** argv) {
+                 case GuideAction::category:
+                   guide.category = items[size_t(guide.row)].category;
+                   guide.row = 0;
++                  {  // fix 149b: on the first row that is not a section's name
++                    const auto opened = GuideItems(1, settings, guide.category);
++                    guide.row = std::max(0, xbox360ps5::option_groups::SkipHeader(0, 1, int(opened.size()),
++                        [&opened](int r) { return opened[size_t(r)].action == GuideAction::section; }));
++                  }
+                   guide.slide = 1.0f;
+                   guide.slide_direction = 1;
+                   changed = false;
+                   break;
+                 case GuideAction::quit: quit = true; changed = false; break;
+                 case GuideAction::notice: changed = false; break;  // fix 149: it only tells
++                case GuideAction::section: changed = false; break;  // fix 149b: never focused
+                 case GuideAction::back_button:
+                   guide.open = false;
+                   changed = false;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1890,6 +1890,8 @@ void Launcher::OpenGameSheet(int tab) {
+   game_info_scroll = 0;
+   game_option_row_ = game_category_ = 0;
+   game_category_open_ = false;
++  game_section_ = option_groups::kNoSection;  // fix 149b
++  game_section_row_ = 0;
+   achievement_row_ = 0; RefreshAchievements();
+   // The subjects a game has options of its own in.
+   game_categories_.clear();
+@@ -1902,12 +1904,25 @@ void Launcher::OpenGameSheet(int tab) {
+   mode_ = Mode::game;
+   sheet_ = 0.0f;
+ }
++// Fix 149b: the rows of one list of the settings tree (option_groups.hpp): a page without sections, or
++// one section of a page; for a game only the options it may have its own value of. Defined below the
++// launcher's own rows (kFramegenRow...).
++std::vector<int> TreeRows(int category, int section, bool game);
++std::string SectionSummary(int category, int section, bool game);
+ void Launcher::FillGameRows() {
+   game_rows_.clear();
++  game_sections_.clear();
+   if (game_categories_.empty()) return;
+   const int category = game_categories_[size_t(game_category_) % game_categories_.size()];
+-  for (int n = 0; n < int(Options().size()); ++n)
+-    if (Options()[size_t(n)].per_game && Options()[size_t(n)].category == category) game_rows_.push_back(n);
++  // Fix 149b: a page with sections lists those with options a game may own; the rows are the open one's.
++  for (const int section : option_groups::SectionsOf(category))
++    if (!TreeRows(category, section, true).empty()) game_sections_.push_back(section);
++  game_rows_ = TreeRows(category, option_groups::HasSections(category) ? game_section_ : option_groups::kNoSection, true);
++}
++// Fix 149b: a game's open subject shows its sections first, when it has any.
++bool Launcher::GameSectionList() const {
++  return game_category_open_ && !game_categories_.empty() && game_section_ == option_groups::kNoSection &&
++         option_groups::HasSections(game_categories_[size_t(game_category_) % game_categories_.size()]);
+ }
+ // One entry per identified title, in the shelf's order.
+ void Launcher::RefreshPerGame() {
+@@ -1919,6 +1934,13 @@ void Launcher::RefreshPerGame() {
+     for (int other : per_game_) listed = listed || games_[size_t(other)].title_id == id;
+     if (!listed) per_game_.push_back(n);
+   }
++  // Fix 149b: the game chosen in the library first (Settings > Game settings opens on it).
++  if (const GameEntry* chosen = Selected())
++    for (size_t n = 0; n < per_game_.size(); ++n)
++      if (games_[size_t(per_game_[n])].title_id == chosen->title_id) {
++        std::rotate(per_game_.begin(), per_game_.begin() + std::ptrdiff_t(n), per_game_.begin() + std::ptrdiff_t(n) + 1);
++        break;
++      }
+   per_game_row_ = std::clamp(per_game_row_, 0, std::max(0, int(per_game_.size()) - 1));
+ }
+ 
+@@ -1989,6 +2011,38 @@ const char* FramegenModeName(int mode) {
+ constexpr int kFramegenRow = -1;
+ constexpr int kFsiRow = -2;
+ constexpr int kFramegenOutputRow = -3;
++// Fix 149b (declared above FillGameRows).
++std::vector<int> TreeRows(int category, int section, bool game) {
++  std::vector<int> rows;
++  const auto& options = Options();
++  const auto add = [&](std::string_view key) {
++    if (key == option_groups::kFramegenRowKey) { if (!game) rows.push_back(kFramegenRow); return; }
++    if (key == option_groups::kFramegenOutputRowKey) { if (!game) rows.push_back(kFramegenOutputRow); return; }
++    if (key == option_groups::kFsiRowKey) { if (!game) rows.push_back(kFsiRow); return; }
++    for (int n = 0; n < int(options.size()); ++n)
++      if (key == options[size_t(n)].key && options[size_t(n)].category == category && (!game || options[size_t(n)].per_game))
++        rows.push_back(n);
++  };
++  if (section != option_groups::kNoSection) {
++    for (const char* key : option_groups::SectionKeys(section)) add(key);
++  } else {
++    for (int n = 0; n < int(options.size()); ++n)
++      if (options[size_t(n)].category == category && (!game || options[size_t(n)].per_game)) rows.push_back(n);
++  }
++  return rows;
++}
++// Fix 149b: what a section holds, under its row: the names of its rows.
++std::string SectionSummary(int category, int section, bool game) {
++  std::string text;
++  for (const int row : TreeRows(category, section, game)) {
++    const char* label = row == kFramegenRow ? "Frame generation (test)"
++                      : row == kFramegenOutputRow ? "Frame generation output (test)"
++                      : row == kFsiRow ? "Accurate render targets (FSI, test)" : Options()[size_t(row)].label;
++    if (!text.empty()) text += ", ";
++    text += Tr(label);
++  }
++  return text;
++}
+ // Writes the three lines. Line 1 stays the switch the builds before modes read; the output
+ // rate line is written back as it was unless `output` is a new choice.
+ bool WriteFramegen(int mode, const std::string& output) {
+@@ -2160,10 +2214,10 @@ void Launcher::Press(Key key) {
+       const bool list_tab = game_tab_ >= 1 && game_tab_ <= 5;
+       const bool nav_identified = Selected() && !Selected()->title_id.empty();
+       int no_row = 0;
+-      int& nav_row = game_tab_ == 1 ? patch_row_ : game_tab_ == 2 ? (game_category_open_ ? game_option_row_ : game_category_)
++      int& nav_row = game_tab_ == 1 ? patch_row_ : game_tab_ == 2 ? (game_category_open_ ? (GameSectionList() ? game_section_row_ : game_option_row_) : game_category_)
+                : game_tab_ == 3 ? achievement_row_ : game_tab_ == 4 ? dlc_row_ : game_tab_ == 5 ? Updates().row : no_row;
+       const int nav_rows = game_tab_ == 1 ? int(patch_rows_.size())
+-                     : game_tab_ == 2 ? (game_category_open_ ? (nav_identified ? int(game_rows_.size()) : 0)
++                     : game_tab_ == 2 ? (game_category_open_ ? (GameSectionList() ? int(game_sections_.size()) : nav_identified ? int(game_rows_.size()) : 0)
+                                                              : int(game_categories_.size()) + (nav_identified ? 1 : 0))
+                      : game_tab_ == 3 ? int(achievements_.size()) : game_tab_ == 4 ? int(DlcPage().items.size())
+                      : game_tab_ == 5 ? int(Updates().page.items.size()) : 0;
+@@ -2175,7 +2229,8 @@ void Launcher::Press(Key key) {
+                       : key == Key::right ? Pad::right : key == Key::up ? Pad::up : key == Key::down ? Pad::down : Pad::cross;
+         // The rows whose value left and right change: a subject's options, and the bug report row.
+         const auto has_value = [&](int n) {
+-          return game_tab_ == 2 && (game_category_open_ || (nav_identified && n == int(game_categories_.size())));
++          // Fix 149b: not a section's row (it opens the section).
++          return game_tab_ == 2 && (game_category_open_ ? !GameSectionList() : nav_identified && n == int(game_categories_.size()));
+         };
+         tab_bar::Nav nav{game_tab_, on_bar, nav_row};
+         const tab_bar::Effect effect = tab_bar::Press(nav, pad, 7, list_tab ? nav_rows : 0, has_value);
+@@ -2186,9 +2241,9 @@ void Launcher::Press(Key key) {
+           g_list_focus_tab = nav.on_bar ? -1 : game_tab_;
+           nav_row = nav.row;
+         }
+-        if (effect.value_step && game_tab_ == 2 && game_category_open_) {
++        if (effect.value_step && game_tab_ == 2 && game_category_open_ && !GameSectionList()) {
+           ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], effect.value_step);
+-        } else if (effect.value_step && game_tab_ == 2) {
++        } else if (effect.value_step && game_tab_ == 2 && !game_category_open_) {
+           // The bug report row (fix 93d): left and right turn it on and off, as X does.
+           if (overrides_.count("bug_report") && overrides_["bug_report"]) overrides_.erase("bug_report");
+           else overrides_["bug_report"] = 1;
+@@ -2310,27 +2365,36 @@ void Launcher::Press(Key key) {
+               SaveGameOverrides(Selected()->title_id, overrides_);
+             }
+           } else if (key == Key::cross && categories && identified) {
++            game_section_ = option_groups::kNoSection; game_section_row_ = 0;  // fix 149b: its sections first
+             FillGameRows(); game_option_row_ = 0; game_category_open_ = true;
+           }
+           if (key == Key::circle) close();
+           break;
+         }
++        // Fix 149b: a subject with sections: X opens one, Circle goes back to the subjects.
++        if (GameSectionList()) {
++          if (key == Key::cross && !game_sections_.empty()) {
++            game_section_ = game_sections_[size_t(game_section_row_)];
++            FillGameRows(); game_option_row_ = 0;
++          }
++          if (key == Key::circle) game_category_open_ = false;
++          break;
++        }
+         // The game's own options: each follows the general one until changed here.
+         const int own_rows = Selected() && !Selected()->title_id.empty() ? int(game_rows_.size()) : 0;
+         if (key == Key::cross && own_rows)  // fix 109d: left and right through tab_bar::Press (value_step)
+           ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], 1);
+-        if (key == Key::triangle && game_categories_.size() > 1) {
+-          // The next subject.
+-          game_category_ = (game_category_ + 1) % int(game_categories_.size());
+-          game_option_row_ = 0;
+-          FillGameRows();
+-        }
++        // Fix 149b: no hidden "Next subject" on Triangle any more: the subjects and sections are lists.
+         if (key == Key::square && own_rows) {
+           // Back to what is recommended for this game, or to the general options.
+           overrides_.clear();
+           SaveGameOverrides(Selected()->title_id, overrides_);
+         }
+-        if (key == Key::circle) game_category_open_ = false;
++        // Fix 149b: Circle goes up one level: from a section's options to the sections.
++        if (key == Key::circle) {
++          if (game_section_ != option_groups::kNoSection) game_section_ = option_groups::kNoSection;
++          else game_category_open_ = false;
++        }
+         break;
+       }
+       const int rows = int(patch_rows_.size());
+@@ -2354,11 +2418,9 @@ void Launcher::Press(Key key) {
+       break;
+     }
+     case Mode::settings: {
+-      if (key == Key::l1 || key == Key::r1) {
+-        settings_tab_ = 1 - settings_tab_;
+-        if (settings_tab_ == 1) RefreshPerGame();
+-        break;
+-      }
++      // Fix 149b: a menu of several levels, no L1/R1 tabs: the top list (settings_tab_ 0), Settings > Game
++      // settings (1: the identified games, the one chosen in the library first) and Settings > Library and
++      // saves (2). Circle goes up one level; Square closes the settings from any level.
+       if (settings_tab_ == 1) {
+         // Every identified game: its own settings open from here too.
+         const int games = int(per_game_.size());
+@@ -2369,14 +2431,31 @@ void Launcher::Press(Key key) {
+           filter_ = 0;
+           ApplyFilter();
+           RevealGame(wanted);  // fix 112: in the group it is in
++          per_game_row_ = 0;   // fix 149b: back here the game is the first row (RefreshPerGame)
+           OpenGameSheet(2);
+           game_return_ = Mode::settings;
+           sheet_ = 1.0f;  // One sheet turns into the other: no slide.
+         }
+-        if (key == Key::circle || key == Key::square) CloseSettings();
++        if (key == Key::circle) settings_tab_ = 0;
++        if (key == Key::square) CloseSettings();
+         break;
+       }
+-      const int rows = 15;  // fix 93d: the last one is "Problem with a game? Logs for a bug report"
++      if (settings_tab_ == 2) {
++        const int rows = 4;  // Download covers, Game folders, Refresh game list, Saved data
++        if (key == Key::up) library_row_ = (library_row_ + rows - 1) % rows;
++        if (key == Key::down) library_row_ = (library_row_ + 1) % rows;
++        if (key == Key::cross) {
++          if (library_row_ == 0) StartCoverDownload();
++          else if (library_row_ == 1) { mode_ = Mode::paths; path_row_ = 0; path_error_.clear(); }
++          else if (library_row_ == 2) RefreshLibrary(false);
++          else { RefreshSaves(); mode_ = Mode::saves; }
++        }
++        if (key == Key::up || key == Key::down) scan_result_.clear();
++        if (key == Key::circle) settings_tab_ = 0;
++        if (key == Key::square) CloseSettings();
++        break;
++      }
++      const int rows = 13;  // fix 93d, 149b: the last one is "Problem with a game? Logs for a bug report"
+       if (key == Key::up) settings_row_ = (settings_row_ + rows - 1) % rows;
+       if (key == Key::down) settings_row_ = (settings_row_ + 1) % rows;
+       if (key == Key::left || key == Key::right || key == Key::cross) {
+@@ -2396,35 +2475,29 @@ void Launcher::Press(Key key) {
+           if (key != Key::left) {
+             category_ = option_groups::kOrder[settings_row_ - 2];  // fix 149: the rows in the pages' order
+             option_row_ = 0;
+-            category_rows_.clear();
+-            for (int n = 0; n < int(Options().size()); ++n)
+-              if (Options()[size_t(n)].category == category_) category_rows_.push_back(n);
+-            // Fix 149: frame generation and its output (the rate sent to the TV) change only what is
+-            // shown; the general FSI switch is emulation.
+-            if (category_ == option_groups::kPicture) {
+-              category_rows_.push_back(kFramegenRow);
+-              category_rows_.push_back(kFramegenOutputRow);
+-            }
+-            if (category_ == option_groups::kEmulation) category_rows_.push_back(kFsiRow);
++            // Fix 149b: a long page (Picture and smoothness, Emulation (advanced)) lists its sections first;
++            // frame generation, its output and the general FSI switch are rows of their sections.
++            section_ = option_groups::kNoSection;
++            section_row_ = 0;
++            category_rows_ = TreeRows(category_, option_groups::kNoSection, false);
+             mode_ = Mode::options;
+           }
+         }
+-        else if (settings_row_ == 7 && key == Key::cross) StartCoverDownload();
+-        else if (settings_row_ == 8 && key == Key::cross) { mode_ = Mode::paths; path_row_ = 0; path_error_.clear(); }
+-        else if (settings_row_ == 9 && key == Key::cross) RefreshLibrary(false);
+-        else if (settings_row_ == 10 && key == Key::cross) { RefreshSaves(); mode_ = Mode::saves; }
+-        else if (settings_row_ == 11 && key == Key::cross) {
++        // Fix 149b: Game settings and Library and saves open a level of their own.
++        else if (settings_row_ == 7 && key == Key::cross) { RefreshPerGame(); per_game_row_ = 0; settings_tab_ = 1; }
++        else if (settings_row_ == 8 && key == Key::cross) { library_row_ = 0; settings_tab_ = 2; }
++        else if (settings_row_ == 9 && key == Key::cross) {
+           for (const auto& option : Options()) settings_.*option.field = option.recommended;
+           settings_.Save();
+           settings_.Apply();
+           restored_ = true;
+         }
+-        else if (settings_row_ == 12 && key == Key::cross) {
++        else if (settings_row_ == 10 && key == Key::cross) {
+           // Reconstructed (1.0.2): the theme; it is read at start, so the emulator starts again.
+           if (dark_theme::Toggle()) { settings_.Save(); restart_ = true; }
+         }
+-        else if (settings_row_ == 13 && key == Key::cross) { settings_.Save(); restart_ = true; }
+-        else if (settings_row_ == 14) {
++        else if (settings_row_ == 11 && key == Key::cross) { settings_.Save(); restart_ = true; }
++        else if (settings_row_ == 12) {
+           // Fix 93d: the next game start records logs for a bug report (fix 93), then it is off again.
+           settings_.bug_report = settings_.bug_report ? 0 : 1;
+           settings_.Save();
+@@ -2435,6 +2508,20 @@ void Launcher::Press(Key key) {
+       break;
+     }
+     case Mode::options: {
++      // Fix 149b: a page with sections lists them first; X opens one, Circle goes back up one level.
++      if (option_groups::HasSections(category_) && section_ == option_groups::kNoSection) {
++        const std::vector<int> sections = option_groups::SectionsOf(category_);
++        const int count = int(sections.size());
++        if (key == Key::up && count) section_row_ = (section_row_ + count - 1) % count;
++        if (key == Key::down && count) section_row_ = (section_row_ + 1) % count;
++        if ((key == Key::cross || key == Key::right) && count) {
++          section_ = sections[size_t(section_row_)];
++          category_rows_ = TreeRows(category_, section_, false);
++          option_row_ = 0;
++        }
++        if (key == Key::circle || key == Key::square) mode_ = Mode::settings;
++        break;
++      }
+       const int rows = int(category_rows_.size());
+       if (key == Key::up && rows) option_row_ = (option_row_ + rows - 1) % rows;
+       if (key == Key::down && rows) option_row_ = (option_row_ + 1) % rows;
+@@ -2452,7 +2539,8 @@ void Launcher::Press(Key key) {
+           ChangeOption(Options()[size_t(category_rows_[size_t(option_row_)])], key == Key::left ? -1 : 1);
+         }
+       }
+-      if (key == Key::circle || key == Key::square) mode_ = Mode::settings;
++      if (key == Key::circle && section_ != option_groups::kNoSection) section_ = option_groups::kNoSection;  // fix 149b
++      else if (key == Key::circle || key == Key::square) mode_ = Mode::settings;
+       break;
+     }
+     case Mode::saves: {
+@@ -4382,7 +4470,11 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+     return;
+   }
+   const int category = game_categories_[size_t(game_category_)];
+-  c.Text(Tr(kOptionCategories[category]), x + 56, 334, 28, kText);  // fix 149
++  // Fix 149b: where the list is: the subject, and the section once one is open.
++  c.Text(option_groups::Path({Tr(kOptionCategories[category]),
++                              game_section_ == option_groups::kNoSection ? std::string() : std::string(Tr(option_groups::SectionName(game_section_)))}),
++         x + 56, 334, 28, kText, 1.0f, 0, 750);
++  if (GameSectionList()) { DrawGameSections(c, x, category); return; }
+   const int rows = int(game_rows_.size()), shown = 8;
+   const int first = std::clamp(game_option_row_ - shown / 2, 0, std::max(0, rows - shown));
+   if (rows > shown) {
+@@ -4428,11 +4520,37 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+   std::snprintf(own_count, sizeof(own_count), Tr("%d settings of this game's own"), int(overrides_.size()));
+   c.Text(own_count, x + 56, 966, 20, overrides_.empty() ? kFaint : kAccent);
+   if (g_list_focus_tab == 2) hint = c.Hint('x', Tr("Change"), hint, 1004);  // fix 109d: once a row is chosen
+-  if (game_categories_.size() > 1) hint = c.Hint('t', Tr("Next subject"), hint, 1004);
+   hint = c.Hint('s', preset.empty() ? Tr("Clear") : Tr("Recommended"), hint, 1004);
+   c.Hint('o', Tr("Back"), hint, 1004);
+ }
+ 
++// Fix 149b: a game's subject with sections: one row each, with how many of its options this game has its
++// own value of; under them the options the focused one holds.
++void Launcher::DrawGameSections(Canvas& c, float x, int category) {
++  const auto& options = Options();
++  for (int n = 0; n < int(game_sections_.size()); ++n) {
++    const int section = game_sections_[size_t(n)];
++    const std::vector<int> rows = TreeRows(category, section, true);
++    int own = 0;
++    for (const int row : rows) own += overrides_.count(options[size_t(row)].key) ? 1 : 0;
++    const float y = 384 + n * 56.0f;
++    const bool focused = n == game_section_row_ && g_list_focus_tab == 2;
++    c.Fill(x + 40, y, 780, 50, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
++    if (focused) c.Edge(x + 40, y, 780, 50, kAccent, 0.9f, 10, 2.0f);
++    c.Text(Tr(option_groups::SectionName(section)), x + 64, y + 12, 24, focused ? kText : kBody, 1.0f, 0, 470);
++    std::string detail = std::to_string(rows.size()) + " " + Tr("Options");
++    if (own) detail += " · " + std::to_string(own) + " " + Tr("Customized");
++    c.Text(detail + "  >", x + 796, y + 14, 20, own ? kAccent : kMuted, 1.0f, 2, 290);
++  }
++  if (!game_sections_.empty()) {
++    c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
++    c.Wrapped(SectionSummary(category, game_sections_[size_t(game_section_row_)], true), x + 56, 786, 20, kBody, 750);
++  }
++  float hint = x + 56;
++  if (g_list_focus_tab == 2) hint = c.Hint('x', Tr("Open"), hint, 1004);
++  c.Hint('o', Tr("Back"), hint, 1004);
++}
++
+ // The first page of a game's sheet: the button that starts it, and what it starts with.
+ void Launcher::DrawGamePlay(Canvas& c, float x) {
+   const GameEntry& game = *Selected();
+@@ -4496,8 +4614,13 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+   const float x = 1920 - 860 * sheet_;
+   c.Fill(x, 0, 860, 1080, kSheet, 0.98f);
+   c.Fill(x, 0, 3, 1080, kAccent, 0.9f);
+-  c.Text(Tr("Settings"), x + 56, 52, 24, kMuted);
+-  c.Text(Tr(kOptionCategories[category_]), x + 56, 88, 36, kText);
++  // Fix 149b: where the list is (Settings > page > section), and the list's own name large.
++  const bool open_section = section_ != option_groups::kNoSection;
++  c.Text(option_groups::Path({Tr("Settings"), Tr(kOptionCategories[category_]),
++                              open_section ? std::string(Tr(option_groups::SectionName(section_))) : std::string()}),
++         x + 56, 52, 22, kMuted, 1.0f, 0, 750);
++  c.Text(open_section ? Tr(option_groups::SectionName(section_)) : Tr(kOptionCategories[category_]), x + 56, 88, 36, kText, 1.0f, 0, 750);
++  if (!open_section && option_groups::HasSections(category_)) { DrawSections(c, x); return; }
+   const auto& options = Options();
+   const int rows = int(category_rows_.size());
+   if (!rows) return;
+@@ -4599,29 +4722,78 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+                                                        : Tr("Applies at once, also in a running game (from the guide).");
+   c.Text(when, x + 56, 892, 20, kMuted, 1.0f, 0, 750);
+   if (option.per_game)
+-    c.Text(Tr("Each game can have its own value: open the game and go to its Settings page."), x + 56, 924, 20, kMuted, 1.0f, 0, 750);
++    c.Text(Tr("Each game can have its own value: Settings > Game settings."), x + 56, 924, 20, kMuted, 1.0f, 0, 750);  // fix 149b
+   float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
+   hint = c.Hint('o', Tr("Back"), hint, 1004);
+   c.Hint('v', Tr("Navigate"), hint, 1004);
+ }
+ 
++// Fix 149b: a long page's sections, each with how many of its options are not at the recommended value;
++// under the list the rows the focused one holds.
++void Launcher::DrawSections(Canvas& c, float x) {
++  const std::vector<int> sections = option_groups::SectionsOf(category_);
++  const auto& options = Options();
++  for (int n = 0; n < int(sections.size()); ++n) {
++    int changed = 0;
++    for (const int row : TreeRows(category_, sections[size_t(n)], false))
++      if (row >= 0 && settings_.*(options[size_t(row)].field) != options[size_t(row)].recommended) ++changed;
++    const float y = 156 + n * 56.0f;
++    const bool focused = n == section_row_;
++    c.Fill(x + 40, y, 780, 50, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
++    if (focused) c.Edge(x + 40, y, 780, 50, kAccent, 0.9f, 10, 2.0f);
++    c.Text(Tr(option_groups::SectionName(sections[size_t(n)])), x + 64, y + 12, 24, focused ? kText : kBody, 1.0f, 0, 500);
++    std::string value = ">";
++    if (changed) {
++      char text[48];
++      std::snprintf(text, sizeof(text), Tr("%d changed  >"), changed);
++      value = text;
++    }
++    c.Text(value, x + 796, y + 12, 24, focused ? kAccent : changed ? kWarning : kMuted, 1.0f, 2, 260);
++  }
++  c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
++  if (!sections.empty()) c.Wrapped(SectionSummary(category_, sections[size_t(section_row_)], false), x + 56, 632, 20, kBody, 750);
++  float hint = c.Hint('x', Tr("Open"), x + 56, 1004);
++  hint = c.Hint('o', Tr("Back"), hint, 1004);
++  c.Hint('v', Tr("Navigate"), hint, 1004);
++}
++// Fix 149b: Settings > Library and saves (these four were rows of the top list).
++void Launcher::DrawLibraryMenu(Canvas& c, float x) {
++  struct Row { const char* label; std::string value; const char* about; };
++  const Row rows[] = {
++      {Tr("Download covers"), covers_.Busy() ? Tr("Downloading...") : "", Tr("Download missing covers from XboxUnity, also used by Aurora. Requires internet on PS5. A cover.jpg in the game folder takes priority.")},
++      {Tr("Game folders"), std::to_string(settings_.game_paths.size()), Tr("Add multiple folders, including external devices. Disconnected folders remain saved. Only locations accessible to the application can be read.")},
++      {Tr("Refresh game list"), scan_result_, Tr("Looks again for games, covers and patches in the folders. A game copied to the console also shows up by itself, a few seconds after the copy ends.")},
++      {Tr("Saved data"), "", Tr("View data by game and its storage location. Profiles and achievements are kept with saved games.")}};
++  for (int n = 0; n < 4; ++n) {
++    const float y = 122 + n * 48.0f;
++    const bool focused = n == library_row_;
++    c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
++    if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
++    c.Text(rows[n].label, x + 64, y + 9, 24, focused ? kText : kBody);
++    c.Text(rows[n].value, x + 796, y + 9, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
++  }
++  c.Wrapped(rows[library_row_].about, x + 56, 340, 20, kBody, 750);
++  const std::string covers = covers_.Status();
++  if (library_row_ == 0 && !covers.empty()) c.Text(covers, x + 56, 404, 20, kAccent, 1.0f, 0, 750);
++  float hint = c.Hint('x', library_row_ == 1 || library_row_ == 3 ? Tr("Open") : Tr("Select"), x + 56, 1004);
++  hint = c.Hint('o', Tr("Back"), hint, 1004);
++  c.Hint('v', Tr("Navigate"), hint, 1004);
++}
++
+ void Launcher::DrawSettingsSheet(Canvas& c) {
+   const float x = 1920 - 860 * sheet_;
+   c.Fill(x, 0, 860, 1080, kSheet, 0.98f);
+   c.Fill(x, 0, 3, 1080, kAccent, 0.9f);
+-  c.Text(Tr("Settings"), x + 56, 64, 36, kText);
+-  {
+-    const char* const tabs[] = {"General", "Per game"};
+-    float tab_x = x + 400;
+-    for (int n = 0; n < 2; ++n) {
+-      const float width = c.Width(Tr(tabs[n]), 26);
+-      c.Text(Tr(tabs[n]), tab_x, 72, 26, n == settings_tab_ ? kText : kFaint);
+-      if (n == settings_tab_) c.Fill(tab_x, 106, width, 3, kAccent, 0.9f, 2);
+-      tab_x += width + 36;
+-    }
+-    c.Text("L1 / R1", tab_x, 78, 20, kFaint);
++  // Fix 149b: no tabs; a level below the top says above its name where it is.
++  if (settings_tab_ == 0) {
++    c.Text(Tr("Settings"), x + 56, 64, 36, kText);
++  } else {
++    const char* name = settings_tab_ == 1 ? Tr("Game settings") : Tr("Library and saves");
++    c.Text(option_groups::Path({Tr("Settings"), name}), x + 56, 30, 22, kMuted, 1.0f, 0, 750);
++    c.Text(name, x + 56, 64, 36, kText, 1.0f, 0, 750);
+   }
+   if (settings_tab_ == 1) { DrawPerGame(c, x); return; }
++  if (settings_tab_ == 2) { DrawLibraryMenu(c, x); return; }
+   const char* language = "English";
+   for (const auto& entry : kLanguages) if (entry.id == settings_.interface_language) language = Tr(entry.name);
+   std::string profile = Tr("None");
+@@ -4646,17 +4818,16 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+       {Tr("Controls"), changed(3), Tr("Touchpad click, vibration and stick dead zones.")},
+       {Tr("System"), changed(4), Tr("FPS counter, achievement notifications, Arcade games and logs.")},
+       {Tr("Emulation (advanced)"), changed(option_groups::kEmulation), Tr("How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, the renderer, memory, readbacks, shaders and tests. They can change a game's speed or correctness; change them game by game.")},
+-      {Tr("Download covers"), covers_.Busy() ? Tr("Downloading...") : "", Tr("Download missing covers from XboxUnity, also used by Aurora. Requires internet on PS5. A cover.jpg in the game folder takes priority.")},
+-      {Tr("Game folders"), std::to_string(settings_.game_paths.size()), Tr("Add multiple folders, including external devices. Disconnected folders remain saved. Only locations accessible to the application can be read.")},
+-      {Tr("Refresh game list"), scan_result_, Tr("Looks again for games, covers and patches in the folders. A game copied to the console also shows up by itself, a few seconds after the copy ends.")},
+-      {Tr("Saved data"), "", Tr("View data by game and its storage location. Profiles and achievements are kept with saved games.")},
++      // Fix 149b: one game's settings and the library's rows, each a level of its own.
++      {Tr("Game settings"), ">", Tr("Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings.")},
++      {Tr("Library and saves"), covers_.Busy() ? Tr("Downloading...") : ">", Tr("Covers, game folders, the game list and saved data.")},
+       {Tr("Restore recommended"), restored_ ? Tr("Done") : "", Tr("Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are.")},
+       {Tr("Theme"), dark_theme::AtStart() ? Tr("DARK") : Tr("LIGHT"), Tr("X switches the theme; the emulator restarts")},
+       {Tr("Restart emulator"), "", Tr("Close and reopen the emulator.")},
+       // Fix 93d: set apart below the others (drawn after a divider, with its own mark).
+       {Tr("Problem with a game? Logs for a bug report"), Tr(settings_.bug_report ? "Next game" : "Off||plural"),
+        Tr("The next game you start records more details. Afterwards a screen lists the files to attach to your bug report.")}};
+-  for (int n = 0; n < 14; ++n) {
++  for (int n = 0; n < 12; ++n) {
+     const float y = 122 + n * 38.0f;
+     const bool focused = n == settings_row_;
+     c.Fill(x + 40, y, 780, 36, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+@@ -4664,10 +4835,8 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+     c.Text(rows[n].label, x + 64, y + 6, 24, focused ? kText : kBody);
+     c.Text(rows[n].value, x + 796, y + 6, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
+   }
+-  DrawBugReportRow(c, x, 668, rows[14].label, rows[14].value, settings_row_ == 14, settings_.bug_report != 0);
++  DrawBugReportRow(c, x, 668, rows[12].label, rows[12].value, settings_row_ == 12, settings_.bug_report != 0);
+   c.Wrapped(rows[settings_row_].about, x + 56, 720, 20, kBody, 750);
+-  const std::string covers = covers_.Status();
+-  if (settings_row_ == 7 && !covers.empty()) c.Text(covers, x + 56, 784, 20, kAccent, 1.0f, 0, 750);
+   c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
+   if (web_qr_.size) {
+     // The settings page: its QR code on a white card, the address and the key beside it.
+@@ -4694,7 +4863,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+               " Xenia. " + Tr("RADV graphics (PS5_Vulkan), XMA audio (FFmpeg) and Xenia Canary patches. No games, BIOS or keys are included."),
+               x + 56, 860, 20, kMuted, 750);
+   }
+-  float hint = c.Hint('x', settings_row_ >= 2 && settings_row_ <= 6 ? Tr("Open") : Tr("Change"), x + 56, 1004);
++  float hint = c.Hint('x', settings_row_ >= 2 && settings_row_ <= 8 ? Tr("Open") : Tr("Change"), x + 56, 1004);  // fix 149b
+   hint = c.Hint('o', Tr("Close"), hint, 1004);
+   c.Hint('v', Tr("Navigate"), hint, 1004);
+ }
+@@ -4728,14 +4897,14 @@ void Launcher::DrawPerGame(Canvas& c, float x) {
+     std::snprintf(position, sizeof(position), Tr("%d of %d"), per_game_row_ + 1, rows);
+     c.Text(position, x + 820, 678, 20, kFaint, 1.0f, 2);
+   }
+-  c.Wrapped(Tr("Each game can have its own video, performance, audio and system settings. What it does not change follows the general settings. You can also get here from the shelf: open the game and go to its Settings page."),
++  c.Wrapped(Tr("Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings."),
+             x + 56, 704, 20, kBody, 750);
+   c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
+   const GameEntry& game = games_[size_t(per_game_[size_t(per_game_row_)])];
+   c.Text(game.name, x + 56, 826, 24, kText, 1.0f, 0, 750);
+   c.Text(std::string("ID ") + game.title_id + "   ·   " + game.kind, x + 56, 862, 20, kMuted, 1.0f, 0, 750);
+   float hint = c.Hint('x', Tr("This game's settings"), x + 56, 1004);
+-  hint = c.Hint('o', Tr("Close"), hint, 1004);
++  hint = c.Hint('o', Tr("Back"), hint, 1004);  // fix 149b: one level up
+   c.Hint('v', Tr("Navigate"), hint, 1004);
+ }
+ 

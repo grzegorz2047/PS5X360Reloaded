@@ -429,7 +429,9 @@ void CheckLauncher() {
              Has(press, "game_info_scroll = 0; g_list_focus_tab = -1; game_tab_ = nav.tab;") &&
              Has(press, "g_list_focus_tab = nav.on_bar ? -1 : game_tab_;\n          nav_row = nav.row;"),
          "the game sheet's pad goes through tab_bar::Press (L1/R1 and left/right everywhere, up/down and X on the bar in lists)");
-  Expect(Has(press, "return game_tab_ == 2 && (game_category_open_ || (nav_identified && n == int(game_categories_.size())));") &&
+  // Fix 149b: a subject's list of sections has no values (X opens a section).
+  Expect((Has(press, "return game_tab_ == 2 && (game_category_open_ || (nav_identified && n == int(game_categories_.size())));") ||
+          Has(press, "return game_tab_ == 2 && (game_category_open_ ? !GameSectionList() : nav_identified && n == int(game_categories_.size()));")) &&
              Has(press, "ChangeGameOption(Options()[size_t(game_rows_[size_t(game_option_row_)])], effect.value_step);"),
          "left/right change only a subject's options and the bug report row");
   const size_t nav_at = press.find("      // Fix 109d: the pad of the tab bar the in-game guide shares");

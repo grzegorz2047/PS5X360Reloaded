@@ -154,6 +154,7 @@ checks=(
   check-low-half-size.cpp          # fix 144
   check-video-mode.cpp             # fixes 140 and 140b
   check-option-groups.cpp          # fix 149
+  check-settings-tree.cpp          # fix 149b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -177,6 +178,7 @@ declare -A arguments=(
   [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-guide-measure.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-option-groups.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-settings-tree.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -288,6 +290,7 @@ declare -A fix_of=(
   [check-low-half-size.cpp]=144
   [check-video-mode.cpp]="140 140b"
   [check-option-groups.cpp]=149
+  [check-settings-tree.cpp]=149b
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

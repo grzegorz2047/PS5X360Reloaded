@@ -359,6 +359,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Volta cada opção das páginas Imagem e fluidez, Áudio, Controles, Sistema e Emulação (avançado) ao valor recomendado. As configurações próprias de cada jogo continuam como estão.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Estas opções mudam como o Xbox 360 emulado roda este jogo, não a sua TV. Podem deixá-lo rápido demais, lento demais ou com erros. As mudanças ficam para este jogo.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Mudado só para este jogo. Se agora ele roda rápido demais, lento demais ou com erros, volte o valor.
+Anti-aliasing and sharpness = Suavização e nitidez
+Colors and screen fit = Cores e ajuste à tela
+Frame rate and 120 Hz = Taxa de quadros e 120 Hz
+Detail and resolution = Detalhe e resolução
+Video clock and mode = Relógio e modo de vídeo
+Renderer and accuracy = Renderizador e precisão
+Video memory and readback = Memória de vídeo e leitura de volta
+Shaders and threads = Shaders e threads
+Processor = Processador
+Library and saves = Biblioteca e saves
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = As configurações próprias de cada jogo identificado, nas mesmas páginas destas. O que um jogo não muda segue estas configurações gerais.
+Covers, game folders, the game list and saved data. = Capas, pastas de jogos, a lista de jogos e os saves.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Cada jogo pode ter suas próprias configurações de imagem, áudio, controles, sistema e emulação. O que ele não muda segue as configurações gerais. Na biblioteca, Triângulo em um jogo abre essas mesmas configurações.
+Each game can have its own value: Settings > Game settings. = Cada jogo pode ter seu próprio valor: Configurações > Configurações do jogo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -530,6 +544,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Repõe cada opção das páginas Imagem e fluidez, Áudio, Comandos, Sistema e Emulação (avançado) no valor recomendado. As definições próprias de cada jogo ficam como estão.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Estas opções mudam a forma como o Xbox 360 emulado corre este jogo, não o televisor. Podem pô-lo a correr demasiado depressa, devagar ou com erros. As alterações ficam para este jogo.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Alterado só para este jogo. Se agora corre demasiado depressa, devagar ou com erros, reponha o valor.
+Anti-aliasing and sharpness = Suavização e nitidez
+Colors and screen fit = Cores e ajuste ao ecrã
+Frame rate and 120 Hz = Fotogramas e 120 Hz
+Detail and resolution = Detalhe e resolução
+Video clock and mode = Relógio e modo de vídeo
+Renderer and accuracy = Renderizador e precisão
+Video memory and readback = Memória de vídeo e leitura de volta
+Shaders and threads = Shaders e threads
+Processor = Processador
+Library and saves = Biblioteca e dados guardados
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = As definições próprias de cada jogo identificado, nas mesmas páginas destas. O que um jogo não altera segue estas definições gerais.
+Covers, game folders, the game list and saved data. = Capas, pastas de jogos, a lista de jogos e os dados guardados.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Cada jogo pode ter as suas próprias definições de imagem, áudio, comandos, sistema e emulação. O que não altera segue as definições gerais. Na biblioteca, Triângulo num jogo abre estas mesmas definições.
+Each game can have its own value: Settings > Game settings. = Cada jogo pode ter o seu próprio valor: Definições > Definições do jogo.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -701,6 +729,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Devuelve cada opción de las páginas Imagen y fluidez, Audio, Controles, Sistema y Emulación (avanzado) a su valor recomendado. Los ajustes propios de cada juego se quedan como están.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Estas opciones cambian cómo ejecuta este juego la Xbox 360 emulada, no tu televisor. Pueden hacer que vaya demasiado rápido, demasiado lento o mal. Los cambios se guardan para este juego.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Cambiado solo para este juego. Si ahora va demasiado rápido, demasiado lento o se ve mal, vuelve al valor anterior.
+Anti-aliasing and sharpness = Suavizado y nitidez
+Colors and screen fit = Colores y ajuste a la pantalla
+Frame rate and 120 Hz = Fotogramas y 120 Hz
+Detail and resolution = Detalle y resolución
+Video clock and mode = Reloj y modo de vídeo
+Renderer and accuracy = Renderizador y precisión
+Video memory and readback = Memoria de vídeo y lectura de vuelta
+Shaders and threads = Shaders e hilos
+Processor = Procesador
+Library and saves = Biblioteca y partidas
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Los ajustes propios de cada juego identificado, en las mismas páginas que estos. Lo que un juego no cambia sigue estos ajustes generales.
+Covers, game folders, the game list and saved data. = Carátulas, carpetas de juegos, la lista de juegos y las partidas guardadas.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Cada juego puede tener sus propios ajustes de imagen, audio, controles, sistema y emulación. Lo que no cambia sigue los ajustes generales. En la biblioteca, Triángulo sobre un juego abre estos mismos ajustes.
+Each game can have its own value: Settings > Game settings. = Cada juego puede tener su propio valor: Configuración > Ajustes del juego.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -872,6 +914,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Devuelve cada opción de las páginas Imagen y fluidez, Audio, Controles, Sistema y Emulación (avanzado) a su valor recomendado. La configuración propia de cada juego queda como está.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Estas opciones cambian cómo ejecuta este juego la Xbox 360 emulada, no tu TV. Pueden hacer que vaya demasiado rápido, demasiado lento o mal. Los cambios se guardan para este juego.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Cambiado solo para este juego. Si ahora va demasiado rápido, demasiado lento o se ve mal, vuelve al valor anterior.
+Anti-aliasing and sharpness = Suavizado y nitidez
+Colors and screen fit = Colores y ajuste a la pantalla
+Frame rate and 120 Hz = Fotogramas y 120 Hz
+Detail and resolution = Detalle y resolución
+Video clock and mode = Reloj y modo de video
+Renderer and accuracy = Renderizador y precisión
+Video memory and readback = Memoria de video y lectura de vuelta
+Shaders and threads = Shaders e hilos
+Processor = Procesador
+Library and saves = Biblioteca y partidas
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = La configuración propia de cada juego identificado, en las mismas páginas que esta. Lo que un juego no cambia sigue esta configuración general.
+Covers, game folders, the game list and saved data. = Portadas, carpetas de juegos, la lista de juegos y las partidas guardadas.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Cada juego puede tener su propia configuración de imagen, audio, controles, sistema y emulación. Lo que no cambia sigue la configuración general. En la biblioteca, Triángulo sobre un juego abre esta misma configuración.
+Each game can have its own value: Settings > Game settings. = Cada juego puede tener su propio valor: Configuración > Ajustes del juego.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1043,6 +1099,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Setzt jede Option der Seiten Bild und Flüssigkeit, Audio, Steuerung, System und Emulation (erweitert) auf ihren empfohlenen Wert zurück. Die eigenen Einstellungen jedes Spiels bleiben, wie sie sind.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Diese Optionen ändern, wie die emulierte Xbox 360 dieses Spiel ausführt, nicht den Fernseher. Das Spiel kann dadurch zu schnell, zu langsam oder fehlerhaft laufen. Änderungen gelten für dieses Spiel.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Nur für dieses Spiel geändert. Läuft es jetzt zu schnell, zu langsam oder sieht falsch aus: den Wert zurückstellen.
+Anti-aliasing and sharpness = Kantenglättung und Schärfe
+Colors and screen fit = Farben und Bildanpassung
+Frame rate and 120 Hz = Bildrate und 120 Hz
+Detail and resolution = Details und Auflösung
+Video clock and mode = Bildtakt und Videomodus
+Renderer and accuracy = Renderer und Genauigkeit
+Video memory and readback = Videospeicher und Rücklesen
+Shaders and threads = Shader und Threads
+Processor = Prozessor
+Library and saves = Bibliothek und Spielstände
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Die eigenen Einstellungen jedes erkannten Spiels, auf denselben Seiten wie diese. Was ein Spiel nicht ändert, folgt diesen allgemeinen Einstellungen.
+Covers, game folders, the game list and saved data. = Cover, Spielordner, die Spieleliste und gespeicherte Daten.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Jedes Spiel kann eigene Einstellungen für Bild, Audio, Steuerung, System und Emulation haben. Was es nicht ändert, folgt den allgemeinen Einstellungen. In der Bibliothek öffnet Dreieck auf einem Spiel dieselben Einstellungen.
+Each game can have its own value: Settings > Game settings. = Jedes Spiel kann einen eigenen Wert haben: Einstellungen > Spieleinstellungen.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1214,6 +1284,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Remet chaque option des pages Image et fluidité, Audio, Commandes, Système et Émulation (avancé) à sa valeur recommandée. Les réglages propres à chaque jeu restent tels quels.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Ces options changent la façon dont la Xbox 360 émulée exécute ce jeu, pas votre téléviseur. Le jeu peut tourner trop vite, trop lentement ou mal. Les changements sont gardés pour ce jeu.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Modifié pour ce jeu uniquement. S'il tourne maintenant trop vite, trop lentement ou s'affiche mal, remettez la valeur.
+Anti-aliasing and sharpness = Anticrénelage et netteté
+Colors and screen fit = Couleurs et cadrage
+Frame rate and 120 Hz = Fréquence d'images et 120 Hz
+Detail and resolution = Détails et résolution
+Video clock and mode = Horloge et mode vidéo
+Renderer and accuracy = Moteur de rendu et précision
+Video memory and readback = Mémoire vidéo et relecture
+Shaders and threads = Shaders et threads
+Processor = Processeur
+Library and saves = Bibliothèque et sauvegardes
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Les réglages propres à chaque jeu identifié, dans les mêmes pages que ceux-ci. Ce qu'un jeu ne change pas suit ces réglages généraux.
+Covers, game folders, the game list and saved data. = Jaquettes, dossiers de jeux, liste des jeux et données sauvegardées.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Chaque jeu peut avoir ses propres réglages d'image, d'audio, de commandes, de système et d'émulation. Ce qu'il ne change pas suit les réglages généraux. Dans la bibliothèque, Triangle sur un jeu ouvre ces mêmes réglages.
+Each game can have its own value: Settings > Game settings. = Chaque jeu peut avoir sa propre valeur : Paramètres > Paramètres du jeu.
 
 [added it]
 Console storage = Memoria della console
@@ -1385,6 +1469,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Riporta ogni opzione delle pagine Immagine e fluidità, Audio, Controlli, Sistema ed Emulazione (avanzate) al valore consigliato. Le impostazioni proprie di ogni gioco restano come sono.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Queste opzioni cambiano il modo in cui la Xbox 360 emulata esegue questo gioco, non la tua TV. Possono farlo andare troppo veloce, troppo lento o male. Le modifiche valgono per questo gioco.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Modificato solo per questo gioco. Se ora va troppo veloce, troppo lento o si vede male, ripristina il valore.
+Anti-aliasing and sharpness = Anti-aliasing e nitidezza
+Colors and screen fit = Colori e adattamento allo schermo
+Frame rate and 120 Hz = Fotogrammi e 120 Hz
+Detail and resolution = Dettaglio e risoluzione
+Video clock and mode = Clock e modalità video
+Renderer and accuracy = Renderer e precisione
+Video memory and readback = Memoria video e riletture
+Shaders and threads = Shader e thread
+Processor = Processore
+Library and saves = Libreria e salvataggi
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Le impostazioni proprie di ogni gioco riconosciuto, nelle stesse pagine di queste. Ciò che un gioco non cambia segue queste impostazioni generali.
+Covers, game folders, the game list and saved data. = Copertine, cartelle dei giochi, elenco dei giochi e dati salvati.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Ogni gioco può avere impostazioni proprie di immagine, audio, controlli, sistema ed emulazione. Ciò che non cambia segue le impostazioni generali. Nella libreria, Triangolo su un gioco apre queste stesse impostazioni.
+Each game can have its own value: Settings > Game settings. = Ogni gioco può avere un valore proprio: Impostazioni > Impostazioni del gioco.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1556,6 +1654,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = 「画質となめらかさ」「オーディオ」「コントロール」「システム」「エミュレーション（上級）」の各ページのすべてのオプションを推奨値に戻します。各ゲーム独自の設定はそのまま残ります。
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = これらはテレビではなく、エミュレートされたXbox 360がこのゲームをどう動かすかを変えます。ゲームが速すぎたり、遅すぎたり、正しく動かなくなったりすることがあります。変更はこのゲームに保存されます。
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = このゲームだけで変更しました。速すぎる、遅すぎる、または表示がおかしい場合は元に戻してください。
+Anti-aliasing and sharpness = アンチエイリアスとシャープネス
+Colors and screen fit = 色と画面への合わせ方
+Frame rate and 120 Hz = フレームレートと120 Hz
+Detail and resolution = 精細さと解像度
+Video clock and mode = 映像のクロックとモード
+Renderer and accuracy = レンダラーと正確さ
+Video memory and readback = ビデオメモリーと読み戻し
+Shaders and threads = シェーダーとスレッド
+Processor = プロセッサー
+Library and saves = ライブラリーとセーブ
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = 認識された各ゲーム独自の設定です。ページ構成はこちらと同じです。ゲームが変更しない項目は、この全体の設定に従います。
+Covers, game folders, the game list and saved data. = カバー、ゲームフォルダー、ゲームリスト、セーブデータ。
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = 各ゲームは画質、オーディオ、コントロール、システム、エミュレーションの独自の設定を持てます。変更しない項目は全体の設定に従います。ライブラリーでゲームの上で三角ボタンを押すと、同じ設定が開きます。
+Each game can have its own value: Settings > Game settings. = 各ゲームは独自の値を持てます：設定 > ゲームの設定。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1727,6 +1839,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = '화질 및 부드러움', '오디오', '컨트롤', '시스템', '에뮬레이션(고급)' 페이지의 모든 옵션을 권장값으로 되돌립니다. 각 게임의 개별 설정은 그대로 유지됩니다.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = 이 옵션들은 TV가 아니라 에뮬레이트된 Xbox 360이 이 게임을 실행하는 방식을 바꿉니다. 게임이 너무 빠르거나 느리거나 잘못 실행될 수 있습니다. 변경 사항은 이 게임에 저장됩니다.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = 이 게임에만 변경되었습니다. 지금 너무 빠르거나 느리거나 이상하게 보이면 원래 값으로 되돌리세요.
+Anti-aliasing and sharpness = 안티에일리어싱 및 선명도
+Colors and screen fit = 색상 및 화면 맞춤
+Frame rate and 120 Hz = 프레임 속도 및 120Hz
+Detail and resolution = 디테일 및 해상도
+Video clock and mode = 비디오 클럭 및 모드
+Renderer and accuracy = 렌더러 및 정확도
+Video memory and readback = 비디오 메모리 및 다시 읽기
+Shaders and threads = 셰이더 및 스레드
+Processor = 프로세서
+Library and saves = 라이브러리 및 저장 데이터
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = 인식된 각 게임의 개별 설정으로, 이 설정과 같은 페이지로 구성됩니다. 게임이 바꾸지 않는 항목은 이 일반 설정을 따릅니다.
+Covers, game folders, the game list and saved data. = 표지, 게임 폴더, 게임 목록, 저장된 데이터.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = 각 게임은 화질, 오디오, 컨트롤, 시스템, 에뮬레이션 설정을 따로 가질 수 있습니다. 바꾸지 않은 항목은 일반 설정을 따릅니다. 라이브러리에서 게임에 세모 버튼을 누르면 같은 설정이 열립니다.
+Each game can have its own value: Settings > Game settings. = 각 게임은 자체 값을 가질 수 있습니다: 설정 > 게임 설정.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1898,6 +2024,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Zet elke optie van de pagina's Beeld en vloeiendheid, Audio, Besturing, Systeem en Emulatie (geavanceerd) terug op de aanbevolen waarde. De eigen instellingen van elke game blijven zoals ze zijn.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Deze opties veranderen hoe de geëmuleerde Xbox 360 deze game uitvoert, niet de tv. De game kan daardoor te snel, te traag of verkeerd lopen. Wijzigingen worden voor deze game bewaard.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Alleen voor deze game gewijzigd. Loopt hij nu te snel, te traag of ziet hij er verkeerd uit, zet de waarde dan terug.
+Anti-aliasing and sharpness = Anti-aliasing en scherpte
+Colors and screen fit = Kleuren en schermpassing
+Frame rate and 120 Hz = Beeldfrequentie en 120 Hz
+Detail and resolution = Detail en resolutie
+Video clock and mode = Beeldklok en videomodus
+Renderer and accuracy = Renderer en nauwkeurigheid
+Video memory and readback = Videogeheugen en teruglezen
+Shaders and threads = Shaders en threads
+Processor = Processor
+Library and saves = Bibliotheek en opslag
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = De eigen instellingen van elke herkende game, op dezelfde pagina's als deze. Wat een game niet verandert, volgt deze algemene instellingen.
+Covers, game folders, the game list and saved data. = Hoezen, gamemappen, de gamelijst en opgeslagen gegevens.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Elke game kan eigen instellingen hebben voor beeld, audio, besturing, systeem en emulatie. Wat hij niet verandert, volgt de algemene instellingen. In de bibliotheek opent Driehoek op een game dezelfde instellingen.
+Each game can have its own value: Settings > Game settings. = Elke game kan een eigen waarde hebben: Instellingen > Game-instellingen.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -2069,6 +2209,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Przywraca zalecaną wartość każdej opcji ze stron Obraz i płynność, Dźwięk, Sterowanie, System i Emulacja (zaawansowane). Własne ustawienia każdej gry zostają bez zmian.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Te opcje zmieniają sposób, w jaki emulowany Xbox 360 uruchamia tę grę, nie telewizor. Mogą sprawić, że gra działa za szybko, za wolno lub błędnie. Zmiany są zapisywane dla tej gry.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Zmieniono tylko dla tej gry. Jeśli teraz działa za szybko, za wolno lub wygląda źle, przywróć poprzednią wartość.
+Anti-aliasing and sharpness = Wygładzanie i ostrość
+Colors and screen fit = Kolory i dopasowanie do ekranu
+Frame rate and 120 Hz = Klatki i 120 Hz
+Detail and resolution = Szczegóły i rozdzielczość
+Video clock and mode = Zegar i tryb obrazu
+Renderer and accuracy = Renderer i dokładność
+Video memory and readback = Pamięć wideo i odczyty
+Shaders and threads = Shadery i wątki
+Processor = Procesor
+Library and saves = Biblioteka i zapisy
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Własne ustawienia każdej rozpoznanej gry, w takich samych stronach jak te. Czego gra nie zmienia, to bierze z tych ustawień ogólnych.
+Covers, game folders, the game list and saved data. = Okładki, foldery gier, lista gier i zapisane dane.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Każda gra może mieć własne ustawienia obrazu, dźwięku, sterowania, systemu i emulacji. Czego nie zmienia, to bierze z ustawień ogólnych. W bibliotece Trójkąt na grze otwiera te same ustawienia.
+Each game can have its own value: Settings > Game settings. = Każda gra może mieć własną wartość: Ustawienia > Ustawienia gry.
 
 [added ru]
 Console storage = Память консоли
@@ -2240,6 +2394,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Возвращает каждый параметр разделов «Изображение и плавность», «Звук», «Управление», «Система» и «Эмуляция (расширенные)» к рекомендуемому значению. Собственные настройки каждой игры остаются как есть.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Эти параметры меняют то, как эмулируемая Xbox 360 запускает эту игру, а не телевизор. Игра может работать слишком быстро, слишком медленно или с ошибками. Изменения сохраняются для этой игры.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Изменено только для этой игры. Если теперь она работает слишком быстро, слишком медленно или выглядит неправильно, верните прежнее значение.
+Anti-aliasing and sharpness = Сглаживание и резкость
+Colors and screen fit = Цвета и подгонка под экран
+Frame rate and 120 Hz = Частота кадров и 120 Гц
+Detail and resolution = Детализация и разрешение
+Video clock and mode = Частота и режим видео
+Renderer and accuracy = Рендерер и точность
+Video memory and readback = Видеопамять и обратное чтение
+Shaders and threads = Шейдеры и потоки
+Processor = Процессор
+Library and saves = Библиотека и сохранения
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Собственные настройки каждой распознанной игры, на тех же страницах, что и здесь. То, что игра не меняет, берётся из этих общих настроек.
+Covers, game folders, the game list and saved data. = Обложки, папки с играми, список игр и сохранённые данные.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = У каждой игры могут быть свои настройки изображения, звука, управления, системы и эмуляции. То, что она не меняет, берётся из общих настроек. В библиотеке кнопка «Треугольник» на игре открывает эти же настройки.
+Each game can have its own value: Settings > Game settings. = У каждой игры может быть своё значение: Настройки > Настройки игры.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2411,6 +2579,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = Görüntü ve akıcılık, Ses, Kontroller, Sistem ve Emülasyon (gelişmiş) sayfalarındaki her seçeneği önerilen değerine döndürür. Her oyunun kendi ayarları olduğu gibi kalır.
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = Bunlar TV'yi değil, emüle edilen Xbox 360'ın bu oyunu nasıl çalıştırdığını değiştirir. Oyun fazla hızlı, fazla yavaş veya hatalı çalışabilir. Değişiklikler bu oyun için saklanır.
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = Yalnızca bu oyun için değiştirildi. Şimdi fazla hızlı, fazla yavaş çalışıyor veya yanlış görünüyorsa değeri geri alın.
+Anti-aliasing and sharpness = Kenar yumuşatma ve keskinlik
+Colors and screen fit = Renkler ve ekrana sığdırma
+Frame rate and 120 Hz = Kare hızı ve 120 Hz
+Detail and resolution = Ayrıntı ve çözünürlük
+Video clock and mode = Görüntü saati ve modu
+Renderer and accuracy = Görüntü işleyici ve doğruluk
+Video memory and readback = Video belleği ve geri okuma
+Shaders and threads = Gölgelendiriciler ve iş parçacıkları
+Processor = İşlemci
+Library and saves = Kitaplık ve kayıtlar
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = Tanınan her oyunun kendi ayarları, bunlarla aynı sayfalarda. Bir oyunun değiştirmediği şey bu genel ayarları izler.
+Covers, game folders, the game list and saved data. = Kapaklar, oyun klasörleri, oyun listesi ve kayıtlı veriler.
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = Her oyunun kendi görüntü, ses, kontrol, sistem ve emülasyon ayarları olabilir. Değiştirmediği şey genel ayarları izler. Kitaplıkta bir oyunun üzerinde Üçgen aynı ayarları açar.
+Each game can have its own value: Settings > Game settings. = Her oyunun kendi değeri olabilir: Ayarlar > Oyun ayarları.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2582,6 +2764,20 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = 将“画面与流畅度”、“音频”、“控制”、“系统”和“模拟（高级）”页面中的每个选项恢复为推荐值。每个游戏自己的设置保持不变。
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = 这些选项改变的是模拟的 Xbox 360 运行此游戏的方式，而不是电视。它们可能使游戏运行过快、过慢或出错。更改只保存到此游戏。
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = 仅对此游戏更改。如果现在运行过快、过慢或显示异常，请改回原值。
+Anti-aliasing and sharpness = 抗锯齿与锐度
+Colors and screen fit = 颜色与画面适配
+Frame rate and 120 Hz = 帧率与 120 Hz
+Detail and resolution = 细节与分辨率
+Video clock and mode = 画面时钟与模式
+Renderer and accuracy = 渲染器与准确度
+Video memory and readback = 显存与回读
+Shaders and threads = 着色器与线程
+Processor = 处理器
+Library and saves = 游戏库与存档
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = 每个已识别游戏自己的设置，页面与这里相同。游戏未更改的项目沿用这些通用设置。
+Covers, game folders, the game list and saved data. = 封面、游戏文件夹、游戏列表和存档数据。
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = 每个游戏都可以有自己的画面、音频、控制、系统和模拟设置。未更改的项目沿用通用设置。在游戏库中对游戏按三角键会打开同样的设置。
+Each game can have its own value: Settings > Game settings. = 每个游戏都可以有自己的值：设置 > 游戏设置。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2753,3 +2949,17 @@ How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, 
 Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are. = 將「畫面與流暢度」、「音訊」、「控制」、「系統」和「模擬（進階）」頁面中的每個選項恢復為建議值。每個遊戲自己的設定維持不變。
 These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game. = 這些選項改變的是模擬的 Xbox 360 執行此遊戲的方式，而不是電視。它們可能使遊戲執行過快、過慢或出錯。變更只儲存到此遊戲。
 Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back. = 僅對此遊戲變更。如果現在執行過快、過慢或顯示異常，請改回原值。
+Anti-aliasing and sharpness = 反鋸齒與銳利度
+Colors and screen fit = 色彩與畫面調整
+Frame rate and 120 Hz = 影格率與 120 Hz
+Detail and resolution = 細節與解析度
+Video clock and mode = 畫面時脈與模式
+Renderer and accuracy = 渲染器與準確度
+Video memory and readback = 視訊記憶體與回讀
+Shaders and threads = 著色器與執行緒
+Processor = 處理器
+Library and saves = 遊戲庫與存檔
+Each identified game's own settings, in the same pages as these. What a game does not change follows these general settings. = 每個已識別遊戲自己的設定，頁面與這裡相同。遊戲未變更的項目沿用這些一般設定。
+Covers, game folders, the game list and saved data. = 封面、遊戲資料夾、遊戲清單和存檔資料。
+Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings. = 每個遊戲都可以有自己的畫面、音訊、控制、系統和模擬設定。未變更的項目沿用一般設定。在遊戲庫中對遊戲按三角鍵會開啟同樣的設定。
+Each game can have its own value: Settings > Game settings. = 每個遊戲都可以有自己的值：設定 > 遊戲設定。

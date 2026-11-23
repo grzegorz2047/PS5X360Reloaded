@@ -162,3 +162,54 @@ Build: `1.0.6-work-option-groups` (BUILD_VERSION on the home screen).
    notice and the warning in Polish.
 6. **Nothing else moved**: a game's own values (game-settings) and the general settings.txt keep their
    values; the options apply as before.
+
+## Fix 149b: the settings as a menu of several levels (#57)
+
+Console feedback on `1.0.6-work-fix149` (the user's words): the launcher's settings and a game's
+settings ("Next subject") are unreadable; there must be a menu of several levels, not lists hidden under
+Triangle. The user then chose (all recommended): sub-pages only where a page is long; a visible "Game
+settings" row; in the guide the same pages with the sections as headers; the library's rows grouped.
+
+```
+Settings
+├─ Player profile / Language
+├─ Picture and smoothness  >
+│   ├─ Anti-aliasing and sharpness  >  Anti-aliasing, Image filter, Filter sharpness, Smooth gradients
+│   ├─ Colors and screen fit  >        Color preset, Overscan crop, Picture proportions
+│   ├─ Frame rate and 120 Hz  >        Frame rate limit (screen) [fix 146], Frame generation (test), Frame generation output (test)
+│   └─ Detail and resolution  >        Anisotropic filtering, Resolution scale (test)
+├─ Audio  >  /  Controls  >  /  System  >   (one list each)
+├─ Emulation (advanced)  >
+│   ├─ Video clock and mode  >         Emulated video rate, VSync, Emulated console resolution, Emulated console gamma
+│   ├─ Renderer and accuracy  >        Renderer, Depth precision, Decal fix, Geometry rounding, Visibility queries, FSI (per game), Accurate render targets (FSI, test)
+│   ├─ Video memory and readback  >    Optimized video memory, Optimize dynamic buffers, Memory update window, Image readback, Readback of data made by video, Re-read memory, Draw from released memory
+│   ├─ Shaders and threads  >          Background shaders, Shader preparation threads, Video driver on a second thread
+│   └─ Processor  >                    Fast locks, Yield the processor, Fast dot product, Conservative recompiler, Allow access to address zero
+├─ Game settings  >                    the identified games (the one chosen in the library first) > the same tree, the game's own values
+├─ Library and saves  >                Download covers, Game folders, Refresh game list, Saved data
+├─ Restore recommended / Theme / Restart emulator
+└─ Problem with a game? Logs for a bug report
+```
+
+### Console test plan (1.0.6-work-fix149b)
+
+1. Library, Square (Settings): no "General / Per game" tabs, no "L1 / R1". The rows are as above; Game
+   settings and Library and saves show ">".
+2. Picture and smoothness: four section rows, each with ">" or "N changed  >", and under the list the
+   names of the focused section's options. Above: "Settings  >  Picture and smoothness". X on Colors and
+   screen fit: the title reads "Settings  >  Picture and smoothness  >  Colors and screen fit", three
+   options. Circle: back to the four sections; Circle again: the top list. Square from anywhere closes.
+3. Frame rate and 120 Hz holds Frame generation (test) and Frame generation output (test) (and the frame
+   rate limit when fix 146 is in); Emulation (advanced) > Renderer and accuracy ends with "Accurate render
+   targets (FSI, test)". Changing them works as before.
+4. Audio, Controls, System: open straight to their options.
+5. Game settings: the game focused in the library is first. X: the game's sheet on its Settings tab;
+   subjects, then Picture and smoothness > sections > options with "General: ..."/own values; the hints
+   show no "Next subject"; Circle goes back level by level; back in the list the game is first again.
+6. Library and saves: Download covers (its status line), Game folders, Refresh game list, Saved data
+   work; Circle from Saved data or Game folders returns to Library and saves.
+7. Guide over a game, Settings > Picture and smoothness: grey section names over the rows; the focus never
+   stops on them (Up from the first option goes to the tab bar). Emulation (advanced): the amber notice,
+   Measure performance, then the sections' names over their options.
+8. Phone page: the Picture and smoothness and Emulation (advanced) tabs show the section headings.
+9. Polish interface: "Wygładzanie i ostrość", "Biblioteka i zapisy", the titles translated.

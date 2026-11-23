@@ -177,7 +177,7 @@ void CheckLauncher() {
          "(d) Options() regroups every row through option_groups.hpp");
   Expect(!Has(launcher, "  };\n  return options;\n}"), "(d) the table is not returned unregrouped");
   Expect(Has(launcher, "category_ = option_groups::kOrder[settings_row_ - 2];"), "(d) the settings rows open the pages in kOrder");
-  const std::string sheet = Between(launcher, "// Fix 149: the pages in option_groups::kOrder", "{Tr(\"Download covers\")");
+  const std::string sheet = Between(launcher, "// Fix 149: the pages in option_groups::kOrder", "{Tr(\"Restore recommended\")");
   const char* names[] = {"Picture and smoothness", "Audio", "Controls", "System", "Emulation (advanced)"};
   size_t at = 0;
   for (int n = 0; n < 5; ++n) {
@@ -187,9 +187,16 @@ void CheckLauncher() {
   }
   Expect(!Has(sheet, "{Tr(\"Video\")") && !Has(sheet, "{Tr(\"Performance\")"), "(d) no Video or Performance row any more");
   const std::string rows = Between(launcher, "category_ = option_groups::kOrder[settings_row_ - 2];", "mode_ = Mode::options;");
-  Expect(Has(rows, "if (category_ == option_groups::kPicture) {\n              category_rows_.push_back(kFramegenRow);\n"
-                   "              category_rows_.push_back(kFramegenOutputRow);\n            }") &&
-             Has(rows, "if (category_ == option_groups::kEmulation) category_rows_.push_back(kFsiRow);") && !Has(rows, "category_ == 1"),
+  // Fix 149b: the rows come from the settings tree, where frame generation and its output are rows of
+  // Picture and smoothness's "Frame rate and 120 Hz" and the general FSI switch of Emulation (advanced)'s
+  // "Renderer and accuracy" (check-settings-tree.cpp).
+  const bool tree = Has(rows, "category_rows_ = TreeRows(category_, option_groups::kNoSection, false);") &&
+                    Has(launcher, "if (key == option_groups::kFramegenRowKey) { if (!game) rows.push_back(kFramegenRow); return; }") &&
+                    Has(launcher, "if (key == option_groups::kFsiRowKey) { if (!game) rows.push_back(kFsiRow); return; }");
+  Expect((tree || (Has(rows, "if (category_ == option_groups::kPicture) {\n              category_rows_.push_back(kFramegenRow);\n"
+                             "              category_rows_.push_back(kFramegenOutputRow);\n            }") &&
+                   Has(rows, "if (category_ == option_groups::kEmulation) category_rows_.push_back(kFsiRow);"))) &&
+             !Has(rows, "category_ == 1"),
          "(d) frame generation and its output on Picture and smoothness, the general FSI row on Emulation (advanced)");
   Expect(Has(launcher, "option_groups::SortByOrder(game_categories_);"), "(d) a game's sheet in the pages' order");
   Expect(!Has(launcher, "category == 0 ? \"Graphics\" : kOptionCategories[category]"), "(d) a game's sheet names the pages as the settings do");

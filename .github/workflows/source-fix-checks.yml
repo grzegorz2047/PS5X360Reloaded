@@ -163,6 +163,7 @@ on:
       - 'tools/check-swap-smaa.cpp'
       - 'tools/check-low-half-size.cpp'
       - 'tools/check-option-groups.cpp'
+      - 'tools/check-settings-tree.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
