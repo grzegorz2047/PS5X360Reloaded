@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Formaat\s\s
 Frame\sgeneration\s(test) = Beeldgeneratie\s(test)
 Frame\sgeneration\soutput\s(test) = Uitvoer\svan\sbeeldgeneratie\s(test)
+Frame\srate\slimit\s(screen) = Beeldlimiet\s(scherm)
 Full\s(slow) = Volledig\s(traag)
 Full\sversion = Volledige\sversie
 Game = Game
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Geen\sgame\smet\s"
 No\sgames\sin\sthis\sfilter = Geen\sgames\sin\sdit\sfilter
 No\sgames\syet = Nog\sgeen\sgames
+No\slimit = Geen\slimiet
 No\smatching\sDLC\spackages\sfound. = Geen\spassend\sDLC-pakket\sgevonden.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Geen\snieuwe\sbeelden\s(shaders\scompileren\sof\sladen).\sOPTIONS\s+\stouchpad:\sgids
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Geen\snieuwe\sbeelden\s(shaders\scompileren\sof\sladen).\sTouchpad:\sgids
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = FPS\sin\sde\sgame\stonen
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Toont\sde\sbeelden\sper\sseconde\svan\sde\sgame\sin\sde\shoek\svan\shet\sscherm.
 Show\syour\swhole\sbody\sto\sthe\scamera = Laat\sje\shele\slichaam\saan\sde\scamera\szien
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Toont\seen\sPS5-melding\swanneer\seen\sgame\seen\sXbox\s360-prestatie\sontgrendelt.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Toont\sde\snieuwe\sbeelden\svan\sde\sgame\shooguit\szo\svaak\sper\sseconde,\selk\seven\slang,\svoor\seen\sgelijkmatige\sbeweging\sop\shet\sscherm.\sDe\sgame\szelf\sloopt\szoals\svoorheen\s(snelheid,\sgeluid\sen\sde\sGeëmuleerde\sbeeldfrequentie\sveranderen\sniet),\sen\seen\sgame\sdie\strager\sis\sdan\sde\slimiet\swordt\sgetoond\szoals\shij\sis.\s40\sheeft\sde\s120\sHz-uitvoer\snodig\s(Uitvoer\svan\sbeeldgeneratie:\sTot\s120\sHz);\sbij\s60\sHz\stoont\shij\selk\sbeeld.\sDoet\sniets\szolang\sbeeldgeneratie\saan\sstaat.\sAutomatisch:\szoals\svoorheen.
 Sign\sIn = Aanmelden\smet\seen\sprofiel
 Signing\sout\sof\sonline\splay... = Afmelden\sbij\sonline\sspelen...
 Size:\s%s = Grootte:\s%s

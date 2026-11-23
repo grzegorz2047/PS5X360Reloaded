@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Formato\s\s
 Frame\sgeneration\s(test) = Generazione\sdi\sfotogrammi\s(prova)
 Frame\sgeneration\soutput\s(test) = Uscita\sdella\sgenerazione\sdi\sfotogrammi\s(prova)
+Frame\srate\slimit\s(screen) = Limite\sfotogrammi\s(schermo)
 Full\s(slow) = Completa\s(lenta)
 Full\sversion = Versione\scompleta
 Game = Gioco
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Nessun\sgioco\scon\s"
 No\sgames\sin\sthis\sfilter = Nessun\sgioco\sin\squesto\sfiltro
 No\sgames\syet = Ancora\snessun\sgioco
+No\slimit = Nessun\slimite
 No\smatching\sDLC\spackages\sfound. = Nessun\spacchetto\sDLC\scorrispondente\strovato.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Nessun\snuovo\sfotogramma\s(compilazione\sshader\so\scaricamento).\sOPTIONS\s+\stouchpad:\sguida
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Nessun\snuovo\sfotogramma\s(compilazione\sshader\so\scaricamento).\sTouchpad:\sguida
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = Mostra\sFPS\snel\sgioco
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Mostra\si\sfotogrammi\sal\ssecondo\sdel\sgioco\snell'angolo\sdello\sschermo.
 Show\syour\swhole\sbody\sto\sthe\scamera = Mostra\stutto\sil\scorpo\salla\sfotocamera
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Mostra\suna\snotifica\sPS5\squando\sun\sgioco\ssblocca\sun\sobiettivo\sXbox\s360.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Mostra\sle\snuove\simmagini\sdel\sgioco\sal\smassimo\squesto\snumero\sdi\svolte\sal\ssecondo,\sognuna\sper\slo\sstesso\stempo,\sper\sun\smovimento\suniforme\ssullo\sschermo.\sIl\sgioco\scontinua\scome\sprima\s(velocità,\saudio\se\sFrequenza\svideo\semulata\snon\scambiano),\se\sun\sgioco\spiù\slento\sdel\slimite\sviene\smostrato\scosì\scom'è.\s40\srichiede\sl'uscita\sa\s120\sHz\s(Uscita\sdella\sgenerazione\sdi\sfotogrammi:\sFino\sa\s120\sHz);\sa\s60\sHz\smostra\stutte\sle\simmagini.\sNon\sha\seffetto\scon\sla\sgenerazione\sdi\sfotogrammi\sattiva.\sAutomatico:\scome\sprima.
 Sign\sIn = Accedi\scon\sun\sprofilo
 Signing\sout\sof\sonline\splay... = Uscita\sdal\sgioco\sonline...
 Size:\s%s = Dimensione:\s%s
