@@ -1,0 +1,408 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -36,6 +36,8 @@
+ #include <sstream>  // fix 148h
+ #include <unistd.h>  // fix 148h
+ #include "xbox360ps5/install_notice.hpp"  // fix 148h
++#include "xbox360ps5/write_bench.hpp"  // fix 148i
++#include <thread>  // fix 148i
+ #include <chrono>
+ #include <functional>
+ #include <thread>
+@@ -223,6 +225,8 @@
+ bool g_install_notice_checked = false, g_install_notice_open = false;
+ float g_install_notice_shown = 0.0f;
+ std::string g_install_notice_text;
++// Fix 148i: the write benchmark's thread, started once per start (write_bench.hpp).
++bool g_write_bench_started = false;
+ // Fix 109: the game sheet tab whose list has the pad (a row highlighted, X acts on it); for any
+ // other value the tab bar has it: a sheet or a tab opens with no row highlighted, and Down enters
+ // the list (a single row looked chosen from the start).
+@@ -3291,6 +3295,14 @@
+     c.Hint('o', Tr("Cancel"), hint, y + h - 56);
+     c.alpha = 1.0f;
+   }
++  // Fix 148i: once per start, in a thread of its own: a test file the write benchmark left is
++  // removed, and <data>/write-bench.txt runs the benchmark once (write_bench.hpp).
++  if (!g_write_bench_started) {
++    g_write_bench_started = true;
++    std::thread([] {
++      xbox360ps5::write_bench::Launch(XBOX360PS5_DATA_ROOT, [](const std::string& line) { XELOGW("{}", line); });
++    }).detach();
++  }
+   // Fix 148h: once per start, the notice a game left (<data>/install-notice.txt): what was cut
+   // short and the steps, with the DLCs tab's and the Remove action's own names; the file is removed.
+   if (!g_install_notice_checked) {
+diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/write_bench.hpp
+@@ -0,0 +1,367 @@
++// SPDX-License-Identifier: MIT
++// Fix 148i: a drive write benchmark, to tell why GTA V's install writes at ~1.8 MiB/s.
++//
++// GTA V on 1.0.6-work-fix148h, install from zero: the game's 1 MiB sequential writes took 2-17 ms
++// for the first ~1.2-1.7 GB, then either passed or waited one fixed ~0.93 s quantum, more and more
++// often, until the writing thread was inside pwrite all the time (fix 148g), while an FTP upload to
++// the same ext1 drive ran at 12-16 MB/s. GTA IV's create/rename/delete waits on /data stop at the
++// same ~0.92 s. This writes a test file of its own with each way of writing and logs what each gets:
++//  * switch: <data>/write-bench.txt; the library starts it once in a thread of its own (no game
++//    needed). Optional lines: mib=N (at most 2048, the default), seconds=N (at most 120, the
++//    default), variants=1m,8m,32m,sync32,direct,dontneed (the default: all, in that order),
++//    dir=/data/... or dir=/mnt/... (one per line, at most 8; the default: <data> and each drive's
++//    PS5X360Reloaded folder that has a saves folder, where installs go);
++//  * it writes only <folder>/write-bench.tmp, removes it after each variant, and every start of the
++//    library removes one left behind (a crash, a game started meanwhile);
++//  * <data>/write-bench.ran keeps which switch file ran (its size and time) and whether it finished:
++//    one that finished, or was tried twice, does not run again until the switch file changes;
++//  * each variant's line (log and <data>/write-bench-result.txt): MiB written, seconds, MiB/s, the
++//    writes, how many took over 100 ms, the longest, the syncs and their times, close and remove.
++#pragma once
++#include <fcntl.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <cerrno>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <fstream>
++#include <functional>
++#include <sstream>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::write_bench {
++
++constexpr uint64_t kMiB = uint64_t(1) << 20;
++constexpr uint64_t kMaxMiB = 2048;
++constexpr int kMaxSeconds = 120;
++constexpr double kStallMs = 100.0;
++constexpr size_t kMaxDirs = 8;
++
++struct Variant {
++  const char* name;
++  uint64_t write_mib;       // the size of each pwrite
++  uint64_t sync_every_mib;  // fsync after this many MiB (0: never)
++  bool direct;              // opened with O_DIRECT
++  bool dontneed;            // posix_fadvise(DONTNEED) on each 32 MiB written
++  const char* what;
++};
++inline constexpr Variant kVariants[] = {
++    {"1m", 1, 0, false, false, "1 MiB pwrites"},
++    {"8m", 8, 0, false, false, "8 MiB pwrites"},
++    {"32m", 32, 0, false, false, "32 MiB pwrites"},
++    {"sync32", 1, 32, false, false, "1 MiB pwrites, fsync every 32 MiB"},
++    {"direct", 1, 0, true, false, "1 MiB pwrites, O_DIRECT"},
++    {"dontneed", 1, 0, false, true, "1 MiB pwrites, fadvise DONTNEED every 32 MiB"},
++};
++inline const Variant* FindVariant(const std::string& name) {
++  for (const Variant& v : kVariants)
++    if (name == v.name) return &v;
++  return nullptr;
++}
++
++inline std::string SwitchFile(const std::string& data_root) { return data_root + "/write-bench.txt"; }
++inline std::string RanFile(const std::string& data_root) { return data_root + "/write-bench.ran"; }
++inline std::string ResultFile(const std::string& data_root) { return data_root + "/write-bench-result.txt"; }
++inline std::string TestFile(const std::string& dir) { return dir + "/write-bench.tmp"; }
++
++inline std::string Trim(const std::string& text) {
++  size_t a = 0, b = text.size();
++  while (a < b && (text[a] == ' ' || text[a] == '\t' || text[a] == '\r')) ++a;
++  while (b > a && (text[b - 1] == ' ' || text[b - 1] == '\t' || text[b - 1] == '\r')) --b;
++  return text.substr(a, b - a);
++}
++
++// A folder the switch file may name: under /data/ or /mnt/, absolute, without "..".
++inline bool SafeDir(std::string& dir) {
++  while (dir.size() > 1 && dir.back() == '/') dir.pop_back();
++  if (dir.rfind("/data/", 0) != 0 && dir.rfind("/mnt/", 0) != 0) return false;
++  if (dir.find("/../") != std::string::npos || dir.find("/./") != std::string::npos) return false;
++  if (dir.size() >= 3 && dir.compare(dir.size() - 3, 3, "/..") == 0) return false;
++  return dir.find('\n') == std::string::npos;
++}
++
++struct Config {
++  uint64_t mib = kMaxMiB;
++  int seconds = kMaxSeconds;
++  std::vector<const Variant*> variants;  // empty: all
++  std::vector<std::string> dirs;         // empty: DefaultDirs
++};
++inline Config Parse(const std::string& text) {
++  Config c;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    line = Trim(line);
++    if (line.empty() || line[0] == '#') continue;
++    const size_t eq = line.find('=');
++    if (eq == std::string::npos) continue;
++    const std::string key = Trim(line.substr(0, eq));
++    std::string value = Trim(line.substr(eq + 1));
++    if (key == "mib") {
++      const long long n = std::atoll(value.c_str());
++      c.mib = n < 1 ? 1 : uint64_t(n) > kMaxMiB ? kMaxMiB : uint64_t(n);
++    } else if (key == "seconds") {
++      const long long n = std::atoll(value.c_str());
++      c.seconds = n < 1 ? 1 : n > kMaxSeconds ? kMaxSeconds : int(n);
++    } else if (key == "variants") {
++      c.variants.clear();
++      std::istringstream names(value);
++      std::string name;
++      while (std::getline(names, name, ',')) {
++        const Variant* v = FindVariant(Trim(name));
++        bool known = false;
++        for (const Variant* have : c.variants) known = known || have == v;
++        if (v && !known) c.variants.push_back(v);
++      }
++    } else if (key == "dir") {
++      bool known = false;
++      for (const auto& have : c.dirs) known = known || have == value;
++      if (SafeDir(value) && !known && c.dirs.size() < kMaxDirs) c.dirs.push_back(value);
++    }
++  }
++  if (c.variants.empty())
++    for (const Variant& v : kVariants) c.variants.push_back(&v);
++  return c;
++}
++
++// <data> first, then each drive's PS5X360Reloaded folder that has a saves folder (the bases the
++// storage scan tries, the first found per drive): where installed packages are written.
++inline std::vector<std::string> DefaultDirs(const std::string& data_root,
++                                            const std::function<bool(const std::string&)>& is_dir) {
++  std::vector<std::string> dirs{data_root};
++  for (const char* drive : {"ext0", "ext1", "ext2", "ext3", "usb0", "usb1", "usb2", "usb3", "usb4", "usb5", "usb6",
++                            "usb7"}) {
++    for (const char* base : {"", "homebrew", "xbox360"}) {
++      const std::string folder =
++          std::string("/mnt/") + drive + (*base ? std::string("/") + base : std::string()) + "/PS5X360Reloaded";
++      if (is_dir(folder + "/saves")) {
++        dirs.push_back(folder);
++        break;
++      }
++    }
++  }
++  return dirs;
++}
++inline std::vector<std::string> Targets(const Config& c, const std::string& data_root,
++                                        const std::function<bool(const std::string&)>& is_dir) {
++  return c.dirs.empty() ? DefaultDirs(data_root, is_dir) : c.dirs;
++}
++
++// write-bench.ran: "<switch size>:<switch mtime> <attempts> <done 0|1>".
++struct Ran {
++  std::string stamp;
++  int attempts = 0;
++  bool done = false;
++};
++inline Ran ParseRan(const std::string& text) {
++  Ran r;
++  std::istringstream in(text);
++  int done = 0;
++  if (!(in >> r.stamp >> r.attempts >> done)) return Ran{};
++  r.done = done != 0;
++  return r;
++}
++inline std::string SerializeRan(const Ran& r) {
++  return r.stamp + " " + std::to_string(r.attempts) + " " + (r.done ? "1" : "0") + "\n";
++}
++inline bool ShouldRun(const Ran& ran, const std::string& stamp) {
++  return ran.stamp != stamp || (!ran.done && ran.attempts < 2);
++}
++
++struct Stats {
++  uint64_t bytes = 0, writes = 0, stalls = 0, syncs = 0;
++  double seconds = 0, longest_write_ms = 0, longest_sync_ms = 0, sync_ms = 0, close_ms = 0, remove_ms = 0;
++  std::string stopped;  // "size", "time", or what failed / why skipped
++  std::string note;     // e.g. a failed fadvise
++};
++
++inline std::string ErrorText(const char* what, int error) {
++  return std::string(what) + " failed, errno " + std::to_string(error) + " (" + std::strerror(error) + ")";
++}
++
++inline std::string Describe(const std::string& dir, const Variant& v, const Stats& s) {
++  char line[640];
++  const double mib = double(s.bytes) / double(kMiB);
++  int n = std::snprintf(line, sizeof(line),
++                        "Write bench (fix 148i): %s %s (%s): %.0f MiB in %.1f s, %.2f MiB/s, %llu writes, %llu over "
++                        "100 ms, longest %.1f ms",
++                        dir.c_str(), v.name, v.what, mib, s.seconds, s.seconds > 0 ? mib / s.seconds : 0.0,
++                        (unsigned long long)s.writes, (unsigned long long)s.stalls, s.longest_write_ms);
++  if (s.syncs && n > 0 && size_t(n) < sizeof(line))
++    n += std::snprintf(line + n, sizeof(line) - size_t(n), "; %llu fsyncs, %.1f ms each, longest %.1f ms",
++                       (unsigned long long)s.syncs, s.sync_ms / double(s.syncs), s.longest_sync_ms);
++  if (n > 0 && size_t(n) < sizeof(line))
++    std::snprintf(line + n, sizeof(line) - size_t(n), "; close %.1f ms, remove %.1f ms; stopped by %s%s%s",
++                  s.close_ms, s.remove_ms, s.stopped.c_str(), s.note.empty() ? "" : "; ", s.note.c_str());
++  return line;
++}
++
++using Clock = std::chrono::steady_clock;
++inline double MsSince(Clock::time_point t) {
++  return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
++}
++
++// One variant in `dir`: write `mib` MiB (stopping after `seconds`), then close and remove the file.
++inline Stats Run(const std::string& dir, const Variant& v, uint64_t mib, int seconds) {
++  Stats s;
++  const std::string file = TestFile(dir);
++  ::unlink(file.c_str());
++  int flags = O_WRONLY | O_CREAT | O_TRUNC;
++  if (v.direct) {
++#ifdef O_DIRECT
++    flags |= O_DIRECT;
++#else
++    s.stopped = "skipped: no O_DIRECT here";
++    return s;
++#endif
++  }
++  const uint64_t chunk = v.write_mib * kMiB;
++  std::vector<unsigned char> storage(size_t(chunk) + 4096);
++  unsigned char* buffer = storage.data() + (4096 - reinterpret_cast<uintptr_t>(storage.data()) % 4096) % 4096;
++  for (uint64_t i = 0; i < chunk; ++i) buffer[i] = static_cast<unsigned char>(i * 131 + 7 + (i >> 12));
++  const int fd = ::open(file.c_str(), flags, 0644);
++  if (fd < 0) {
++    s.stopped = ErrorText("open", errno);
++    return s;
++  }
++  const uint64_t total = mib * kMiB;
++  uint64_t since_sync = 0, since_hint = 0;
++  const Clock::time_point start = Clock::now();
++  s.stopped = "size";
++  while (s.bytes < total) {
++    if (MsSince(start) >= seconds * 1000.0) {
++      s.stopped = "time";
++      break;
++    }
++    const size_t length = size_t(total - s.bytes < chunk ? total - s.bytes : chunk);
++    const Clock::time_point t = Clock::now();
++    const ssize_t wrote = ::pwrite(fd, buffer, length, off_t(s.bytes));
++    const double ms = MsSince(t);
++    if (wrote < 0) {
++      if (errno == EINTR) continue;
++      s.stopped = ErrorText("pwrite", errno);
++      break;
++    }
++    if (wrote == 0) {
++      s.stopped = "pwrite wrote nothing";
++      break;
++    }
++    ++s.writes;
++    if (ms > kStallMs) ++s.stalls;
++    if (ms > s.longest_write_ms) s.longest_write_ms = ms;
++    s.bytes += uint64_t(wrote);
++    since_sync += uint64_t(wrote);
++    since_hint += uint64_t(wrote);
++    if (v.sync_every_mib && since_sync >= v.sync_every_mib * kMiB) {
++      const Clock::time_point f = Clock::now();
++      const int synced = ::fsync(fd);
++      const double sync_ms = MsSince(f);
++      ++s.syncs;
++      s.sync_ms += sync_ms;
++      if (sync_ms > s.longest_sync_ms) s.longest_sync_ms = sync_ms;
++      since_sync = 0;
++      if (synced != 0) {
++        s.stopped = ErrorText("fsync", errno);
++        break;
++      }
++    }
++    if (v.dontneed && since_hint >= 32 * kMiB) {
++#ifdef POSIX_FADV_DONTNEED
++      const int advised = ::posix_fadvise(fd, off_t(s.bytes - since_hint), off_t(since_hint), POSIX_FADV_DONTNEED);
++      if (advised != 0 && s.note.empty()) s.note = ErrorText("posix_fadvise", advised);
++#else
++      if (s.note.empty()) s.note = "no posix_fadvise here";
++#endif
++      since_hint = 0;
++    }
++  }
++  s.seconds = MsSince(start) / 1000.0;
++  const Clock::time_point c = Clock::now();
++  ::close(fd);
++  s.close_ms = MsSince(c);
++  const Clock::time_point r = Clock::now();
++  if (::unlink(file.c_str()) != 0 && s.note.empty()) s.note = ErrorText("unlink", errno);
++  s.remove_ms = MsSince(r);
++  return s;
++}
++
++inline bool IsDir(const std::string& path) {
++  struct stat st {};
++  return ::stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
++}
++inline std::string ReadText(const std::string& path) {
++  std::ifstream in(path, std::ios::binary);
++  std::stringstream text;
++  text << in.rdbuf();
++  return text.str();
++}
++inline bool WriteText(const std::string& path, const std::string& text) {
++  std::ofstream out(path, std::ios::binary | std::ios::trunc);
++  out << text;
++  return bool(out);
++}
++
++// Each start of the library: remove a test file left behind, then run the switch file's benchmark
++// when it has not run (or finished) yet. Runs in a thread of its own; `log` takes each line.
++inline void Launch(const std::string& data_root, const std::function<void(const std::string&)>& log) {
++  const std::string switch_file = SwitchFile(data_root);
++  struct stat switch_stat {};
++  const bool wanted = ::stat(switch_file.c_str(), &switch_stat) == 0 && S_ISREG(switch_stat.st_mode);
++  const Config config = wanted ? Parse(ReadText(switch_file)) : Config{};
++  std::vector<std::string> cleanup = DefaultDirs(data_root, IsDir);
++  for (const std::string& dir : config.dirs) {
++    bool known = false;
++    for (const auto& have : cleanup) known = known || have == dir;
++    if (!known) cleanup.push_back(dir);
++  }
++  for (const std::string& dir : cleanup) {
++    const std::string left = TestFile(dir);
++    struct stat left_stat {};
++    if (::stat(left.c_str(), &left_stat) == 0 && S_ISREG(left_stat.st_mode)) {
++      const int removed = ::unlink(left.c_str());
++      log("Write bench (fix 148i): " + left + " left behind (" + std::to_string((long long)left_stat.st_size) +
++          " bytes) " + (removed == 0 ? "removed" : ErrorText("unlink", errno)));
++    }
++  }
++  if (!wanted) return;
++  const std::string stamp =
++      std::to_string((long long)switch_stat.st_size) + ":" + std::to_string((long long)switch_stat.st_mtime);
++  Ran ran = ParseRan(ReadText(RanFile(data_root)));
++  if (!ShouldRun(ran, stamp)) {
++    log("Write bench (fix 148i): " + switch_file + " already " + (ran.done ? "ran" : "tried twice") +
++        "; change or write it again to run again");
++    return;
++  }
++  if (ran.stamp != stamp) ran = Ran{stamp, 0, false};
++  ++ran.attempts;
++  WriteText(RanFile(data_root), SerializeRan(ran));
++  const std::vector<std::string> dirs = Targets(config, data_root, IsDir);
++  std::string names;
++  for (const Variant* v : config.variants) names += std::string(names.empty() ? "" : ",") + v->name;
++  std::string result;
++  auto say = [&](const std::string& line) {
++    log(line);
++    result += line + "\n";
++    WriteText(ResultFile(data_root), result);
++  };
++  say("Write bench (fix 148i): start (attempt " + std::to_string(ran.attempts) + "), " +
++      std::to_string(dirs.size()) + " folder(s), variants " + names + ", at most " + std::to_string(config.mib) +
++      " MiB and " + std::to_string(config.seconds) + " s each");
++  for (const std::string& dir : dirs) {
++    if (!IsDir(dir)) {
++      say("Write bench (fix 148i): " + dir + " is not a folder, skipped");
++      continue;
++    }
++    for (const Variant* v : config.variants) say(Describe(dir, *v, Run(dir, *v, config.mib, config.seconds)));
++  }
++  ran.done = true;
++  WriteText(RanFile(data_root), SerializeRan(ran));
++  say("Write bench (fix 148i): done");
++}
++
++}  // namespace xbox360ps5::write_bench
