@@ -293,3 +293,70 @@ Also read, from the same 30 s block:
 - fix 104's `texture sets`;
 - fix 120's `constant sets`;
 - fix 49's `GPU thread executing`, for the share.
+
+## 12. Results of step 2.0 (fix 142d), and the next step
+
+Console runs (build 45185681740 on `1.0.6_candidate_2`; GTA IV city, RDR town, MW2 mission; logs
+and the coordinator's notes in `research/fix142d/`):
+
+| | GTA IV | RDR | MW2 |
+|---|---|---|---|
+| draws/s | 299,640 | 179,741 | 324,022 |
+| GPU thread executing | 929 ms/s | 992 ms/s | 910 ms/s (+ 84 ms/s memexport readback waits) |
+| `vkUpdateDescriptorSets` | 25.3 ms/s, 144,162 calls/s | 20.4 ms/s | 20.6 ms/s |
+| float constants (VS + PS) | 22.5 ms/s | 10.9 ms/s | 9.5 ms/s |
+| render pass and framebuffer as the previous draw's | **99.4%**, 86-98 ms/s spent when the same | **99.1%**, 43.6 ms/s | **99.9%**, 74.5 ms/s |
+| pipeline as the previous draw's | 63-80%, 11-12.5 ms/s when the same | 73.9%, 6.2 ms/s | 93.1%, 12.4 ms/s |
+| primitive processing as the previous draw's | 22-33% | 35.6% | 39.9% |
+
+**Reading.**
+- **The worker candidates are small.** Descriptor writes (2.1) and float constants (2.2) together
+  are about 3-5% of the thread, and need the per-submission join.
+- **The largest single item is `RenderTargetCache::Update` running for draws whose render pass and
+  framebuffer come out unchanged:** about 9-10% of the GPU thread in GTA IV and MW2, 4-5% in RDR.
+  Section 6's skip comes first.
+- **Unchanged pipelines** add only about 1% (`ConfigurePipeline` is cheap when it hits).
+
+**What `Update` depends on.** This is why the skip is not "same render pass, skip `Update`":
+- **Registers:**
+  - the surface, color and depth infos, the mode;
+  - the window offset and the scissors;
+  - the viewport and `PA_CL_CLIP_CNTL`/`VTE_CNTL`/`SU_*` used by `DrawExtentEstimator`;
+- **Parameters:** `is_rasterization_done`, the normalized depth control and color mask,
+  `window_offset_tiles`;
+- **The draw's estimated height** (`EstimateMaxY`). For clipped draws it comes from the viewport
+  and scissor registers. For unclipped draws with no scissor it comes from running the vertex
+  shader on the CPU, so from the draw's own vertices.
+- **The render target cache's own state:**
+  - the EDRAM ownership map, which `ChangeOwnership` changes over the rows the draw covers;
+  - the render targets accumulated since the pass began;
+  - the render targets' layouts (`TransitionRenderTarget`);
+  - the resolution scale (fixes 117 to 117k).
+
+A draw with the same render pass that reaches further down needs new ownership transfers. A
+resolve between two draws changes ownership and layouts.
+
+**Design of the skip (fix 142e).** A memo of the last successful `Update`. The next `Update`
+returns the memo's result without running when all of these hold:
+1. **A fingerprint matches:** the exact registers above, the parameters, the path, the resolution
+   scale. Drawn from a list checked against the function's text by fingerprint, as fix 142's
+   check does.
+2. **The draw is clipped,** so its height comes from registers only. Unclipped draws always run
+   `Update`.
+3. **The render target cache's state version is unchanged.** It is a counter bumped by every path
+   other than `Update` that changes ownership, render targets or their layouts: resolves, clears,
+   `ClearCache`, trims (fix 117f), EDRAM snapshots, transfers, the interlock path. It is also
+   bumped whenever `Update` itself changed anything.
+4. **The previous `Update` changed nothing:** no transfers and no new accumulated render targets.
+
+**The risk is a missed bump.** A single missed version bump renders wrong, so it comes with a
+verify mode, the "speculate, then validate" idea:
+- `render_target_skip 1`: `Update` still runs every time. When the memo would have skipped, the
+  result is compared with it (render targets, transfers, render pass key, framebuffer), and
+  mismatches are counted and the first few logged with the fingerprint.
+- `2`: the skip itself.
+- `0` (the default): today's path.
+
+Console order: verify across GTA IV, RDR, MW2 and the titles with odd render target use (Tekken
+TT2 at 2x, Kinect Sports' readbacks, BF3). Then skip, only where verify showed zero mismatches.
+Expected gain: up to about 0.25 µs on most draws, about 8% of the GPU thread in GTA IV and MW2.
