@@ -1,0 +1,123 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+@@ -248,10 +248,9 @@ void VdQueryVideoMode(X_VIDEO_MODE* video_mode,
+   // told (it set only GetResolution's size before); the default sets none.
+   // Fix 140b: only modes a real console reports (480p is 640x480 with the
+   // widescreen flag; 540p is not one and stays the console's own).
++  // Fix 140c: the size latched when the game started.
+   const xbox360ps5::video_mode::Mode reported_mode =
+-      xbox360ps5::video_mode::ReportedMode(
+-          cvars::custom_internal_display_resolution_x,
+-          cvars::custom_internal_display_resolution_y);
++      xbox360ps5::video_mode::LaunchMode();
+   const bool custom_mode = reported_mode.reported;
+   if (custom_mode) {
+     resolution = Resolution(uint16_t(reported_mode.size.width),
+@@ -440,10 +439,20 @@ dword_result_t VdInitializeScalerCommandBuffer_entry(
+ 
+   uint32_t fb_x = (scaled_output_wh >> 16) & 0xFFFF;
+   uint32_t fb_y = scaled_output_wh & 0xFFFF;
++#if XE_PLATFORM_PS5
++  // Fix 140c: a 480p game told "widescreen" (640x480, 16:9 anamorphic) is
++  // scaled to 16:9, as VdQueryVideoMode told it.
++  const bool forced_widescreen =
++      (kernel_state()->xconfig()->ReadSetting<uint32_t>(
++           XCONFIG_USER_CATEGORY, XCONFIG_USER_VIDEO_FLAGS) &
++       X_VIDEO_FLAGS::Widescreen) ||
++      xbox360ps5::video_mode::LaunchMode().widescreen_forced;
++#else
+   const bool forced_widescreen =
+       kernel_state()->xconfig()->ReadSetting<uint32_t>(
+           XCONFIG_USER_CATEGORY, XCONFIG_USER_VIDEO_FLAGS) &
+       X_VIDEO_FLAGS::Widescreen;
++#endif
+ 
+   auto aspect = CalculateScaledAspectRatio(fb_x, fb_y, forced_widescreen);
+ 
+diff --git a/include/xbox360ps5/video_mode.hpp b/include/xbox360ps5/video_mode.hpp
+--- a/include/xbox360ps5/video_mode.hpp
++++ b/include/xbox360ps5/video_mode.hpp
+@@ -12,8 +12,15 @@
+ // (the core's own tables, xconfig.h): 1080p is 1920x1080, 480p is 640x480 with the widescreen flag, 540p is not a real
+ // mode and is not reported (the console's own 720p, as before fix 140); 900p stays 1600x900 (a clean 16:9; not on the
+ // real console's list, see the console check). The core's own sizes (the vertical counter's step) stay as before.
++// Fix 140c (review): (1) a 480p game told "widescreen" was scaled as 4:3 by VdInitializeScalerCommandBuffer, which
++// took the widescreen flag from the console's video flags only; the reported mode's flag counts there too. (2) The
++// option applies when the game starts: the size is latched at launch, so a change from the web page, the guide or the
++// library while the game runs (which all re-apply the settings) waits for the next start instead of changing the mode
++// under the game. (3) A 2x threshold or class list measured on a 1280-pixel frame (fix 117) is logged as possibly
++// unsuited when the game is told another mode.
+ #pragma once
+ 
++#include <atomic>
+ #include <cstdint>
+ #include <cstdio>
+ #include <string>
+@@ -61,6 +68,21 @@ inline Mode ReportedMode(uint32_t custom_width, uint32_t custom_height) {
+   return {};  // 960x540 and anything else: not a mode a console reports
+ }
+ 
++// Fix 140c: the custom size when the game started; what it is told until it starts again.
++inline std::atomic<uint32_t> launch_width{0}, launch_height{0};
++inline void LatchAtLaunch(uint32_t custom_width, uint32_t custom_height) {
++  launch_width.store(custom_width, std::memory_order_relaxed);
++  launch_height.store(custom_height, std::memory_order_relaxed);
++}
++inline Mode LaunchMode() {
++  return ReportedMode(launch_width.load(std::memory_order_relaxed), launch_height.load(std::memory_order_relaxed));
++}
++// Fix 140c: the 2x tuning of fix 117 was measured on the 1280-pixel frame (720p).
++inline bool TuningMayNotFit(int internal_resolution, uint32_t scale, bool has_tuning) {
++  return scale > 1 && has_tuning && ReportedMode(ForChoice(internal_resolution).width,
++                                                 ForChoice(internal_resolution).height).reported;
++}
++
+ // Logged once, the first time a game asks.
+ inline std::string Line(Size s, bool hi_def, bool widescreen, bool custom) {
+   char line[200];
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -65,6 +65,8 @@ static std::vector<std::pair<uint32_t, uint32_t>> TakeSaveDriveChoices() {
+ }
+ DECLARE_bool(storage_selection_dialog);
+ DECLARE_uint32(draw_resolution_scale_threshold);  // fix 117e
++DECLARE_uint32(custom_internal_display_resolution_x);  // fix 140c
++DECLARE_uint32(custom_internal_display_resolution_y);  // fix 140c
+ // The core's system windows (where to save, who is playing) in the emulator's language.
+ static const char* CoreUiText(const char* english) {
+   // The core's own English (xam_ui.cc) and the interface's key for it.
+@@ -150,6 +152,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/video_mode.hpp"  // fix 140c
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by holder
+ #include "xbox360ps5/enum_trace.hpp"  // fix 81: the enumerators' lives by kind
+ #include "xbox360ps5/autotest.hpp"
+@@ -3432,6 +3435,14 @@ int main(int argc, char** argv) {
+             XELOGW("{}", xbox360ps5::resolution_scale::NativeClassesLine(classes, settings_title, classes_from));
+           }
+         }
++        // Fix 140c: fix 117's 2x tuning was measured on the 1280-pixel frame.
++        if (xbox360ps5::video_mode::TuningMayNotFit(
++                settings.internal_resolution, xbox360ps5::resolution_scale::ScaleForChoice(settings.draw_scale),
++                cvars::draw_resolution_scale_threshold != 0 || xbox360ps5::resolution_scale::native_class_bits.any())) {
++          XELOGW("Resolution scale (fix 140c): this game's 2x tuning was measured at 720p; with Emulated console "
++                 "resolution {} it may not fit (fix 117h's lines show the surfaces)",
++                 settings.internal_resolution);
++        }
+         // Fix 93: logs for a bug report are for this start; the setting turns itself off now, so
+         // the next start is an ordinary one. A title switch of the session goes on with it.
+         // Fix 93d: the game's own value counts too (its sheet, the guide's restart); both are
+@@ -3448,6 +3459,9 @@ int main(int argc, char** argv) {
+         settings.bug_report = 0;
+         if (xbox360ps5::bug_report::Active()) xbox360ps5::gpu_diag::stages_enabled = true;
+         settings.Apply();
++        // Fix 140c: the video mode the game is told until it starts again.
++        xbox360ps5::video_mode::LatchAtLaunch(cvars::custom_internal_display_resolution_x,
++                                              cvars::custom_internal_display_resolution_y);
+         if (game_log->session.Begin(log_root, chosen.name, log_id, game.string(), XBOX360PS5_VERSION)) {
+           const auto log_path = game_log->session.Path();
+           // Fix 65: why, when it stays in boot.log, and how, when the game log has it.

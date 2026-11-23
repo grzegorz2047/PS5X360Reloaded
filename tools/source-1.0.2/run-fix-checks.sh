@@ -147,7 +147,7 @@ checks=(
   check-async-submit.cpp           # fix 134
   check-resolution-scale.cpp       # fixes 117 to 117k
   check-library-groups.cpp         # fixes 112 to 112f
-  check-video-mode.cpp             # fixes 140 and 140b
+  check-video-mode.cpp             # fixes 140 to 140c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -274,7 +274,7 @@ declare -A fix_of=(
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i 117j 117k"
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
   [check-async-submit.cpp]="134 134b 134c"
-  [check-video-mode.cpp]="140 140b"
+  [check-video-mode.cpp]="140 140b 140c"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

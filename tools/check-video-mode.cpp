@@ -14,6 +14,12 @@
 //  (d) the header: ReportedMode's table (1080p 1920x1080; 480p 640x480 with the widescreen flag; 900p 1600x900;
 //      540p and any other size not reported), each option value through it;
 //  (e) the core: VdQueryVideoMode takes the table's size and its widescreen flag.
+// Fix 140c (140c-video-mode-launch.patch), from the pre-release review:
+//  (f) the header: the size latched at launch and the mode told from it (a later change waits for the next start);
+//      the 2x-tuning warning only at 2x, with tuning, when another mode is reported;
+//  (g) the tree: VdQueryVideoMode and the scaler take the launch mode, the scaler's widescreen flag includes the
+//      reported mode's (480p 16:9), the game start latches the size right after applying the settings, and logs
+//      the tuning warning.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdint>
@@ -122,6 +128,25 @@ void CheckRealModes() {
          "480p: standard definition, 4:3-sized, widescreen by the flag");
 }
 
+void CheckLaunchLatch() {
+  vm::LatchAtLaunch(0, 0);
+  Expect(!vm::LaunchMode().reported, "nothing latched: the console's own");
+  vm::Size core = vm::ForChoice(2);
+  vm::LatchAtLaunch(core.width, core.height);
+  Expect(vm::LaunchMode().reported && Same(vm::LaunchMode().size, 640, 480) && vm::LaunchMode().widescreen_forced,
+         "480p latched at launch: 640x480 with the widescreen flag");
+  // A change while the game runs only writes the core's sizes; the latched mode stays until the next start.
+  core = vm::ForChoice(4);
+  Expect(Same(vm::LaunchMode().size, 640, 480), "a change in the game: the mode stays 480p");
+  vm::LatchAtLaunch(core.width, core.height);
+  Expect(Same(vm::LaunchMode().size, 1600, 900) && !vm::LaunchMode().widescreen_forced, "the next start: 900p");
+  vm::LatchAtLaunch(0, 0);
+  Expect(vm::TuningMayNotFit(4, 2, true) && vm::TuningMayNotFit(1, 2, true) && vm::TuningMayNotFit(2, 2, true),
+         "2x tuning with 900p, 1080p or 480p told: warned");
+  Expect(!vm::TuningMayNotFit(0, 2, true) && !vm::TuningMayNotFit(3, 2, true), "720p and 540p (told 720p): not warned");
+  Expect(!vm::TuningMayNotFit(4, 1, true) && !vm::TuningMayNotFit(4, 2, false), "1x or no tuning: not warned");
+}
+
 void CheckTree() {
   const std::string launcher = Read("src/launcher.cpp");
   Expect(Has(launcher, "{\"720p\", \"1080p\", \"480p (848x480)\", \"540p (960x540)\", \"900p (1600x900)\"}}"),
@@ -150,15 +175,29 @@ void CheckTree() {
   Expect(fn != std::string::npos && console != std::string::npos && custom != std::string::npos &&
              wide != std::string::npos && console < custom && custom < wide,
          "VdQueryVideoMode takes the custom size after the console's, before deciding widescreen");
-  Expect(Has(video, "xbox360ps5::video_mode::ReportedMode(\n"
-                    "          cvars::custom_internal_display_resolution_x,\n"
-                    "          cvars::custom_internal_display_resolution_y);") &&
+  Expect(Has(video, "const xbox360ps5::video_mode::Mode reported_mode =\n"
+                    "      xbox360ps5::video_mode::LaunchMode();") &&
              Has(video, "const bool custom_mode = reported_mode.reported;") &&
              Has(video, "resolution = Resolution(uint16_t(reported_mode.size.width),"),
          "fix 140b: only the table's modes are reported (the default path is the console's own size)");
   Expect(Has(video, "const auto is_widescreen = IsWidescreen(kernel_state(), resolution) ||\n"
                     "                             reported_mode.widescreen_forced;"),
          "fix 140b: the table's widescreen flag (480p 16:9)");
+  // Fix 140c.
+  Expect(Has(video, "       X_VIDEO_FLAGS::Widescreen) ||\n"
+                    "      xbox360ps5::video_mode::LaunchMode().widescreen_forced;"),
+         "fix 140c: the scaler's widescreen flag includes the reported mode's (480p shown 16:9)");
+  const std::string game_main = Read("src/canary_game_main.cpp");
+  Expect(Has(game_main, "        settings.Apply();\n"
+                        "        // Fix 140c: the video mode the game is told until it starts again.\n"
+                        "        xbox360ps5::video_mode::LatchAtLaunch(cvars::custom_internal_display_resolution_x,\n"
+                        "                                              cvars::custom_internal_display_resolution_y);"),
+         "fix 140c: the game start latches the size right after applying the settings");
+  Expect(Has(game_main, "LatchAtLaunch(") && game_main.find("LatchAtLaunch(") == game_main.rfind("LatchAtLaunch("),
+         "fix 140c: latched only at the game start (in-game changes do not)");
+  Expect(Has(game_main, "xbox360ps5::video_mode::TuningMayNotFit(") &&
+             Has(game_main, "Resolution scale (fix 140c): this game's 2x tuning was measured at 720p"),
+         "fix 140c: the tuning warning");
   Expect(logged != std::string::npos && logged > wide && Has(video, "xbox360ps5::video_mode::Line("),
          "the first answer is logged once");
   Expect(Has(video, "DECLARE_uint32(custom_internal_display_resolution_x);") &&
@@ -171,6 +210,7 @@ void CheckTree() {
 int main() {
   CheckHeader();
   CheckRealModes();
+  CheckLaunchLatch();
   CheckTree();
   if (failures) {
     std::printf("check-video-mode: %d failure(s)\n", failures);

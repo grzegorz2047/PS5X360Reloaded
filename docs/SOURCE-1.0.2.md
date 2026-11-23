@@ -293,6 +293,7 @@ also listed here.
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
 | 140 (`140-video-mode-900p`) | "Emulated console resolution" now really sets the video mode the game is told (it was always 720p before), and 900p (1600x900) is added; 720p (the default) is unchanged; if a game misbehaves at another mode, set it back to 720p | host-checked (`tools/check-video-mode.cpp`); console: the `Video mode (fix 140)` line, a game that follows the mode and one that does not, at 720p, 900p and 1080p |
 | 140b (`140b-video-mode-real`) | the game is told only modes a real console reports: 480p as 640x480 widescreen (Minecraft crashed when told 848x480), 540p not at all (720p, as before), 1080p as 1920x1080, 900p as 1600x900 | host-checked (`tools/check-video-mode.cpp`); console: Minecraft at 480p, 900p and 1080p |
+| 140c (`140c-video-mode-launch`) | 480p widescreen shown 16:9 (it was scaled as 4:3); the video mode is fixed when the game starts (changes while it runs apply at the next start); a log line warns when fix 117's 2x tuning meets a mode other than 720p | host-checked (`tools/check-video-mode.cpp`); console: a game at 480p (picture proportions), a change from the web page during play |
 
 ## Comparison with the official executable
 
