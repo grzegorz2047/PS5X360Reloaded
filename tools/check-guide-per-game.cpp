@@ -122,6 +122,9 @@ void CheckGuide() {
          "(d) the log says where the value is kept");
   Expect(Has(main, "              if (changed) {\n                settings.Apply();\n"
                    "                ApplyPicture(settings, emulator.graphics_system()->presenter());\n"
+                   // Fix 137's anti-aliasing (and with it 141's color preset and overscan crop)
+                   // is applied right after the picture; check-vulkan-fxaa.cpp requires that line.
+                   "                ApplySwapPostEffect(settings, emulator.graphics_system());  // fix 137\n"
                    "                publish_web(settings_title, game_name);"),
          "(d) still applied at once and shown on the phone's page");
   Expect(Has(main, "{\"own\", xbox360ps5::LoadGameOverrides(id)}"),
