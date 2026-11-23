@@ -319,6 +319,7 @@ also listed here.
 | 149 (`149-option-groups`) | a player set GTA IV's "Emulated video rate" to 120 Hz taking it for the TV's rate: the settings are split into "Picture and smoothness" (quality and fluidity) and "Emulation (advanced)" (options that change how a game is emulated), each option in one group with short help, and a notice when an advanced option was changed for a game |
 | 149b (`149b-settings-tree`) | the launcher's settings and a game's settings were long flat pages: a multi-level settings menu (categories, then groups, then options) with a help card beside the focused option saying what it changes |
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
+| 152 (`152-ui-loop-no-log-flush`) | GTA IV's screen stood still up to 0.8 s about once in 30 s: with video-memory optimizations on, the 30 s summary flushed the log file on the UI thread while the console drive was busy with the game's slow deletes; the log writer thread already flushes, so the call is gone | host-checked (`tools/check-ui-loop-io.cpp`); console: `1.0.6-work-fix152` |
 
 ## Comparison with the official executable
 
