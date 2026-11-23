@@ -1,16 +1,17 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
-@@ -30,6 +30,8 @@
- #include "third_party/aes_128/aes.h"
- #include <atomic>  // fix 147b
- #include "xbox360ps5/title_keys.hpp"  // fix 147b
+@@ -23,6 +23,9 @@
+ #include "third_party/crypto/sha256.cpp"
+ #include "third_party/crypto/sha256.h"
+ #include "xenia/kernel/xboxkrnl/xecrypt_rsa.h"
++// Fix 147c: C++ headers, outside the extern "C" block below.
 +#include "xbox360ps5/app_identity.hpp"  // fix 147c
 +#include "xbox360ps5/harmonix_keys.hpp"  // fix 147c
- }
  
- namespace xe {
-@@ -1104,12 +1106,36 @@
+ extern "C" {
+ #include "third_party/FFmpeg/libavutil/md5.h"
+@@ -1104,12 +1107,36 @@
  
  dword_result_t XeKeysSetKey_entry(dword_t key_number, lpvoid_t key_ptr,
                                    dword_t key_size) {
