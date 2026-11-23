@@ -537,3 +537,36 @@ Reading:
 - **The frame rate gain is not shown yet.** The runs are different scenes. RDR is at its 30 fps
   cap with the GPU thread near 993 ms/s in all three modes. A same-spot comparison is next:
   switch the file between 0 and 2 every 30 s window while standing still. The file is read live.
+
+### What the skip misses (mode 1 logs), and whether a fix 142f pays
+
+These are medians over the busy seconds (more than 1000 updates/s). "Not skippable" means the
+updates minus the ones that could skip.
+
+| Game | Updates/s | Not skippable/s | Unclipped/s | Changed/s | Rest/s |
+|---|---|---|---|---|---|
+| GTA IV | 275,640 | 38,232 | 22,460 | 4,879 | ~10,900 |
+| RDR | 129,793 | 22,076 | 13,950 | 2,490 | ~5,600 |
+| MW2 | 230,942 | 9,752 | 2,752 | 807 | ~6,200 |
+
+The columns:
+- **Changed** is real work: transfers, transitions and new render targets. It cannot be skipped.
+- **Unclipped** draws never skip in 142e, because `EstimateMaxY` may run their vertices on the
+  CPU. It only does that when the scissor is at least 8192 in both directions, or when
+  `execute_unclipped_draw_vs_on_cpu_with_scissor` is set. Whether it does is decided by
+  registers and settings that can go in the key. So a memo entry can record whether its
+  estimate used the vertices, and an unclipped draw whose key matched an entry that did not
+  can skip. That needs one added flag in `DrawExtentEstimator`.
+- **Rest** are updates that changed nothing but were not predicted, which happens after a change
+  or with a different key. Most are likely draws alternating between a few keys in one pass. The
+  state version makes a memo of several keys just as safe. Every entry recorded at the current
+  version changed nothing, so all of them leave the same outputs. Four entries would catch
+  alternation.
+
+**Bound for 142f.** It covers the unclipped and rest columns, with the real work as the limit:
+- about 33,000 more skips/s in GTA IV, about 19,600 in RDR, about 9,000 in MW2;
+- at roughly 0.3 us each, that is about 10, 6 and 3 ms/s: about 1% of the GPU thread.
+
+That is a fifth of what 142e already saves. Whether it is worth building depends on the
+same-spot GTA IV test: if 142e's 46 ms/s does not show in the frame rate, 10 more will not
+either.
