@@ -672,3 +672,62 @@ Read in fix 142's line:
 - `coherency` per frame (expected about 83) and `drains` per frame (expected about 6);
 - `register waits by register`;
 - `starved` and `executing`.
+
+## 15. Console results of 1.0.5-work-fix142c (runs M-Q): the end of stage 1
+
+GTA IV, the same spot, build run 45148979687, fix 134's worker on. Logs and the coordinator's
+notes are in `research/fix142c/`.
+
+| Run | Settings | Swaps/s | Decode | GPU thread executing | Starved | Coherency/frame | Drains/frame | Decoder woken |
+|---|---|---|---|---|---|---|---|---|
+| M | none | 43-48 | - | 980 | - | - | - | - |
+| N | mode 2 | 40-41 | 156 | 833 (+156 decode) | 0 | 83.0 | 7.1 | 0/s |
+| O | mode 1 | 46-48 | 209 | 950 | 4.2 | 83.1 | 7.9 | 233/s |
+| P | mode 1, sibling 1 | 44 (short) | 264 | 964 | 3.9 | 83.2 | 7.6 | 208/s |
+| Q | mode 1, waits 0 | 43-49 | 229 | 943 | 27.9 | 0 | 90.9 | 1,204/s |
+
+- **The changes did what they were built for.** Ops fell from about 78,800 to about 467 a frame
+  (455 batches, 78,303 records). All 83 register waits were COHER_STATUS_HOST coherency waits and
+  now pass, so drains fell from 91 to 7-8 a frame and the register census is empty.
+- **No stalls.** Forcing the drains back (Q) changes nothing measurable.
+- **Mode 1 now at least matches no split** (O 46-48 against M 43-48).
+
+### Per draw, not per second
+
+The frame rates differ, so the ms/s figures are best compared per draw (draws per frame are about
+the same in every run, about 7,200):
+
+| µs per draw | M (no split) | N (mode 2) | O (mode 1) | P (mode 1, sibling) |
+|---|---|---|---|---|
+| GPU thread busy | 2.97 | 3.28 (2.75 executing + 0.51 decoding) | **2.78** (+0.01 starved) | 3.01 |
+| Packet records with their draws | - | 2.39 | 2.44 | 2.67 |
+| Register records | - | 0.29 | 0.29 | 0.35 |
+| The rest of the batches | - | 0.13 | 0.13 | 0.13 |
+| Draws, own time (fix 73) | 1.70 | 1.70 | 1.70 | 1.90 |
+| Packets, own time (fix 75) | 0.97 | 0.18 | 0.17 | 0.20 |
+
+- **The coordinator's question** (packet records with their draws 110 ms/s higher in mode 1 than
+  in mode 2): per draw it is only 2% higher (2.39 to 2.44 µs). Most of the difference is mode 1's
+  higher draw rate, so the batch data written on another core costs little.
+- **`sibling 1` (P) does cost.** Every draw is 12% slower (1.90 µs against 1.70) because the two
+  threads share one core's execution units, and P is the slowest mode 1 run. The default (the
+  shared CPUs) is right.
+- **The split saves 0.19 µs a draw (6.5%) in O.** That matches +3-7% FPS, inside the scene's
+  noise. The decoder takes 0.97 µs a draw of packet layer off the GPU thread. Applying the
+  register records (0.29), the batches' bookkeeping (0.13) and running the packet records
+  through `ExecutePacket` (about 0.3) give back about 0.7 of it.
+- **What is left on the GPU thread:** about 2.0 µs a draw (72%) is draw translation (fix 73's
+  parts plus the sections inside draws). The split's own cost is about 0.7 µs.
+
+### Conclusion
+
+Stage 1 (decode | translate) works, and it is safe: no hang, stall or visual problem in 17
+console runs over three builds. But in GTA IV it is worth only about 6% of the GPU thread. Even
+with the split's own 0.7 µs a draw removed, the ceiling would be about +30%. The limit is now
+draw translation (2.0 µs a draw), which only stage 2 (option C) addresses:
+- bindings, about 0.53 µs a draw;
+- dynamic state and constants, about 0.10;
+- recording, about 0.05.
+
+That is about 0.7 µs a draw of order-independent work that could move to workers, about a
+quarter of the GPU thread. `gpu_parallel_record` stays off by default.
