@@ -345,6 +345,8 @@ Clean Neutral = Neutro limpo
 Overscan crop = Corte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Corta uma borda fina de cada lado da imagem do jogo e amplia o resto, mantendo as proporções: para jogos que mostram uma faixa ou lixo nas bordas. Só no Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan funcionam apenas com o renderizador Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = A resolução que o Xbox 360 emulado informa ao jogo. Em 480p ou 540p alguns jogos desenham menos pontos e ficam mais leves; em 900p ou 1080p alguns desenham mais (mais nítido, mais pesado). Muitos jogos ignoram e continuam em 720p.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -502,6 +504,8 @@ Clean Neutral = Neutro limpo
 Overscan crop = Corte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Corta uma margem fina de cada lado da imagem do jogo e amplia o resto, mantendo as proporções: para jogos que mostram uma faixa ou lixo nas margens. Só em Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan só funcionam com o renderizador Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = A resolução que o Xbox 360 emulado informa ao jogo. Em 480p ou 540p alguns jogos desenham menos pontos e ficam mais leves; em 900p ou 1080p alguns desenham mais (mais nítido, mais pesado). Muitos jogos ignoram e continuam em 720p.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -659,6 +663,8 @@ Clean Neutral = Neutro limpio
 Overscan crop = Recorte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Recorta un borde fino de cada lado de la imagen del juego y amplía el resto, manteniendo sus proporciones: para juegos que muestran una franja o basura en los bordes. Solo con Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La resolución que la Xbox 360 emulada informa al juego. En 480p o 540p algunos juegos dibujan menos puntos y van más ligeros; en 900p o 1080p algunos dibujan más (más nítido, más pesado). Muchos juegos la ignoran y siguen en 720p.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -816,6 +822,8 @@ Clean Neutral = Neutro limpio
 Overscan crop = Recorte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Recorta un borde delgado de cada lado de la imagen del juego y amplía el resto, manteniendo sus proporciones: para juegos que muestran una franja o basura en los bordes. Solo con Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La resolución que la Xbox 360 emulada informa al juego. En 480p o 540p algunos juegos dibujan menos puntos y van más ligeros; en 900p o 1080p algunos dibujan más (más nítido, más pesado). Muchos juegos la ignoran y siguen en 720p.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -973,6 +981,8 @@ Clean Neutral = Klar neutral
 Overscan crop = Overscan-Beschnitt
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Schneidet an jedem Rand des Spielbilds einen schmalen Streifen ab und vergrößert den Rest, ohne die Proportionen zu ändern: für Spiele mit einem Streifen oder Bildmüll an den Rändern. Nur mit Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Farbvoreinstellungen und Overscan-Beschnitt funktionieren nur mit dem Vulkan-Renderer.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Die Auflösung, die die emulierte Xbox 360 dem Spiel meldet. Bei 480p oder 540p zeichnen manche Spiele weniger Pixel und laufen leichter; bei 900p oder 1080p zeichnen manche mehr (schärfer, schwerer). Viele Spiele ignorieren sie und bleiben bei 720p.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1130,6 +1140,8 @@ Clean Neutral = Neutre net
 Overscan crop = Recadrage overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Retire une fine bordure de chaque bord de l'image du jeu et agrandit le reste en gardant ses proportions : pour les jeux qui affichent une bande ou des artefacts sur les bords. Vulkan uniquement.
 Color presets and overscan crop work with the Vulkan renderer only. = Les préréglages de couleurs et le recadrage overscan ne fonctionnent qu'avec le moteur de rendu Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La résolution que la Xbox 360 émulée annonce au jeu. En 480p ou 540p, certains jeux dessinent moins de pixels et sont plus légers ; en 900p ou 1080p, certains en dessinent plus (plus net, plus lourd). Beaucoup de jeux l'ignorent et restent en 720p.
 
 [added it]
 Console storage = Memoria della console
@@ -1287,6 +1299,8 @@ Clean Neutral = Neutro pulito
 Overscan crop = Ritaglio overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Taglia un bordo sottile da ogni lato dell'immagine del gioco e ingrandisce il resto mantenendo le proporzioni: per i giochi che mostrano una striscia o artefatti ai bordi. Solo Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = I preset colore e il ritaglio overscan funzionano solo con il renderer Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = La risoluzione che la Xbox 360 emulata comunica al gioco. A 480p o 540p alcuni giochi disegnano meno pixel e sono più leggeri; a 900p o 1080p alcuni ne disegnano di più (più nitido, più pesante). Molti giochi la ignorano e restano a 720p.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1444,6 +1458,8 @@ Clean Neutral = ニュートラル
 Overscan crop = オーバースキャン切り取り
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = ゲーム映像の各辺から細い縁を切り取り、縦横比を保ったまま残りを拡大します。端に線やノイズが出るゲーム向けです。Vulkan のみ。
 Color presets and overscan crop work with the Vulkan renderer only. = カラープリセットとオーバースキャン切り取りは Vulkan レンダラーでのみ使えます。
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = エミュレートされた Xbox 360 がゲームに伝える解像度。480p や 540p では一部のゲームが描画するピクセルが減って軽くなり、900p や 1080p では増えます（鮮明になるが重くなる）。多くのゲームは無視して 720p のままです。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1601,6 +1617,8 @@ Clean Neutral = 깔끔한 중립
 Overscan crop = 오버스캔 자르기
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 게임 화면의 각 가장자리에서 얇은 테두리를 잘라내고 비율을 유지한 채 나머지를 확대합니다. 가장자리에 줄이나 깨진 화면이 보이는 게임용입니다. Vulkan 전용.
 Color presets and overscan crop work with the Vulkan renderer only. = 색상 프리셋과 오버스캔 자르기는 Vulkan 렌더러에서만 작동합니다.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 에뮬레이트된 Xbox 360이 게임에 알려 주는 해상도. 480p나 540p에서는 일부 게임이 픽셀을 덜 그려 가벼워지고, 900p나 1080p에서는 더 그립니다(더 선명하지만 무거움). 많은 게임은 무시하고 720p를 유지합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1758,6 +1776,8 @@ Clean Neutral = Helder neutraal
 Overscan crop = Overscan bijsnijden
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Snijdt een smalle rand van elke zijde van het spelbeeld af en vergroot de rest, met behoud van de verhoudingen: voor spellen die een streep of rommel aan de randen tonen. Alleen Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Kleurvoorinstellingen en overscan bijsnijden werken alleen met de Vulkan-renderer.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = De resolutie die de geëmuleerde Xbox 360 aan de game doorgeeft. Bij 480p of 540p tekenen sommige games minder pixels en draaien lichter; bij 900p of 1080p tekenen sommige er meer (scherper, zwaarder). Veel games negeren het en blijven op 720p.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1915,6 +1935,8 @@ Clean Neutral = Czyste neutralne
 Overscan crop = Przycięcie overscanu
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Odcina cienki pasek z każdej krawędzi obrazu gry i powiększa resztę, zachowując proporcje: dla gier, które pokazują pasek lub śmieci na krawędziach. Tylko Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Profile kolorów i przycięcie overscanu działają tylko z rendererem Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Rozdzielczość, którą emulowany Xbox 360 zgłasza grze. W 480p lub 540p niektóre gry rysują mniej pikseli i działają lżej; w 900p lub 1080p niektóre rysują więcej (ostrzej, ciężej). Wiele gier to ignoruje i zostaje przy 720p.
 
 [added ru]
 Console storage = Память консоли
@@ -2072,6 +2094,8 @@ Clean Neutral = Чистый нейтральный
 Overscan crop = Обрезка оверскана
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Обрезает тонкую полоску с каждого края изображения игры и увеличивает остальное с сохранением пропорций: для игр с полосой или мусором по краям. Только Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Цветовые профили и обрезка оверскана работают только с рендерером Vulkan.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Разрешение, которое эмулируемый Xbox 360 сообщает игре. При 480p или 540p некоторые игры рисуют меньше пикселей и работают легче; при 900p или 1080p некоторые рисуют больше (чётче, но тяжелее). Многие игры это игнорируют и остаются в 720p.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2229,6 +2253,8 @@ Clean Neutral = Temiz nötr
 Overscan crop = Overscan kırpma
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Oyun görüntüsünün her kenarından ince bir şerit keser ve oranları koruyarak geri kalanı büyütür: kenarlarda çizgi veya bozuk görüntü gösteren oyunlar için. Yalnızca Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Renk ön ayarları ve overscan kırpma yalnızca Vulkan oluşturucuyla çalışır.
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = Emüle edilen Xbox 360'ın oyuna bildirdiği çözünürlük. 480p veya 540p'de bazı oyunlar daha az piksel çizer ve daha hafif çalışır; 900p veya 1080p'de bazıları daha fazla çizer (daha net, daha ağır). Birçok oyun bunu yok sayar ve 720p'de kalır.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2386,6 +2412,8 @@ Clean Neutral = 清爽中性
 Overscan crop = 过扫描裁切
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 从游戏画面的每条边裁掉一圈细边，并在保持比例的同时放大其余部分：适用于边缘出现条纹或杂乱画面的游戏。仅限 Vulkan。
 Color presets and overscan crop work with the Vulkan renderer only. = 色彩预设和过扫描裁切仅适用于 Vulkan 渲染器。
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 模拟的 Xbox 360 告知游戏的分辨率。480p 或 540p 时，部分游戏绘制的像素更少、运行更轻；900p 或 1080p 时部分游戏绘制更多（更清晰、更重）。许多游戏会忽略此设置，保持 720p。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2543,3 +2571,5 @@ Clean Neutral = 清爽中性
 Overscan crop = 過掃描裁切
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 從遊戲畫面的每條邊裁掉一圈細邊，並在保持比例的同時放大其餘部分：適用於邊緣出現條紋或雜亂畫面的遊戲。僅限 Vulkan。
 Color presets and overscan crop work with the Vulkan renderer only. = 色彩預設和過掃描裁切僅適用於 Vulkan 繪圖器。
+900p (1600x900) = 900p (1600x900)
+The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p. = 模擬的 Xbox 360 告知遊戲的解析度。480p 或 540p 時，部分遊戲繪製的像素更少、執行更輕；900p 或 1080p 時部分遊戲繪製更多（更清晰、更重）。許多遊戲會忽略此設定，保持 720p。

@@ -1,0 +1,70 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+@@ -246,17 +246,25 @@ void VdQueryVideoMode(X_VIDEO_MODE* video_mode,
+ #if XE_PLATFORM_PS5
+   // Fix 140: the "Emulated console resolution" option is what the game is
+   // told (it set only GetResolution's size before); the default sets none.
+-  const bool custom_mode = xbox360ps5::video_mode::IsCustom(
+-      cvars::custom_internal_display_resolution_x,
+-      cvars::custom_internal_display_resolution_y);
++  // Fix 140b: only modes a real console reports (480p is 640x480 with the
++  // widescreen flag; 540p is not one and stays the console's own).
++  const xbox360ps5::video_mode::Mode reported_mode =
++      xbox360ps5::video_mode::ReportedMode(
++          cvars::custom_internal_display_resolution_x,
++          cvars::custom_internal_display_resolution_y);
++  const bool custom_mode = reported_mode.reported;
+   if (custom_mode) {
+-    resolution =
+-        Resolution(uint16_t(cvars::custom_internal_display_resolution_x),
+-                   uint16_t(cvars::custom_internal_display_resolution_y));
++    resolution = Resolution(uint16_t(reported_mode.size.width),
++                            uint16_t(reported_mode.size.height));
+   }
+ #endif
+ 
++#if XE_PLATFORM_PS5
++  const auto is_widescreen = IsWidescreen(kernel_state(), resolution) ||
++                             reported_mode.widescreen_forced;
++#else
+   const auto is_widescreen = IsWidescreen(kernel_state(), resolution);
++#endif
+ 
+   video_mode->display_width = resolution.width_.get();
+   video_mode->display_height = resolution.height_.get();
+diff --git a/include/xbox360ps5/video_mode.hpp b/include/xbox360ps5/video_mode.hpp
+--- a/include/xbox360ps5/video_mode.hpp
++++ b/include/xbox360ps5/video_mode.hpp
+@@ -7,6 +7,11 @@
+ // widescreen unless 4:3, as for the console's own size), and a 1600x900 choice is added as value 4. The default
+ // (720p, value 0) sets no custom size, so the game is told exactly what it was told before. Saved values keep their
+ // meaning; a saved value out of range is the default.
++// Fix 140b: Minecraft (584111F7) crashed at 480p, told 848x480 and not hi-def: 848x480 is a VGA mode only, while a real
++// console's 480p over HDMI is 640x480 with the widescreen flag. The game is now told only modes a real console reports
++// (the core's own tables, xconfig.h): 1080p is 1920x1080, 480p is 640x480 with the widescreen flag, 540p is not a real
++// mode and is not reported (the console's own 720p, as before fix 140); 900p stays 1600x900 (a clean 16:9; not on the
++// real console's list, see the console check). The core's own sizes (the vertical counter's step) stay as before.
+ #pragma once
+ 
+ #include <cstdint>
+@@ -43,6 +48,19 @@ inline bool IsCustom(uint32_t custom_width, uint32_t custom_height) {
+ inline bool HiDef(Size s) { return s.width >= 0x500; }
+ inline bool AspectWide(Size s) { return uint64_t(s.width) * 3 != uint64_t(s.height) * 4; }
+ 
++// Fix 140b: what the game is told for each custom size the option sets; anything else is the console's own.
++struct Mode {
++  Size size;
++  bool reported = false;          // false: the console's own mode
++  bool widescreen_forced = false;  // the widescreen flag on a 4:3-sized mode (16:9 anamorphic 480p)
++};
++inline Mode ReportedMode(uint32_t custom_width, uint32_t custom_height) {
++  if (custom_width == 1920 && custom_height == 1080) return {{1920, 1080}, true, false};
++  if (custom_width == 848 && custom_height == 480) return {{640, 480}, true, true};
++  if (custom_width == 1600 && custom_height == 900) return {{1600, 900}, true, false};
++  return {};  // 960x540 and anything else: not a mode a console reports
++}
++
+ // Logged once, the first time a game asks.
+ inline std::string Line(Size s, bool hi_def, bool widescreen, bool custom) {
+   char line[200];
