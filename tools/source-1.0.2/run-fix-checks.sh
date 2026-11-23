@@ -165,6 +165,7 @@ checks=(
   check-option-groups.cpp          # fix 149
   check-settings-tree.cpp          # fix 149b
   check-readability.cpp            # fix 149c
+  check-hang-watch-sync.cpp        # fix 153
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -313,6 +314,7 @@ declare -A fix_of=(
   [check-option-groups.cpp]=149
   [check-settings-tree.cpp]=149b
   [check-readability.cpp]=149c
+  [check-hang-watch-sync.cpp]=153
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

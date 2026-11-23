@@ -319,6 +319,7 @@ also listed here.
 | 149 (`149-option-groups`) | a player set GTA IV's "Emulated video rate" to 120 Hz taking it for the TV's rate: the settings are split into "Picture and smoothness" (quality and fluidity) and "Emulation (advanced)" (options that change how a game is emulated), each option in one group with short help, and a notice when an advanced option was changed for a game |
 | 149b (`149b-settings-tree`) | the launcher's settings and a game's settings were long flat pages: a multi-level settings menu (categories, then groups, then options) with a help card beside the focused option saying what it changes |
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
+| 153 (`153-hang-watch-no-beat-fsync`) | the hang watch synced its file 8 times a second, and on a busy console drive its beats fell to 7 in 30 s while the game's file operations waited up to 1 s; beats and frequent guest lines are now written without an fsync (reports, process and title ends still sync), `hang-watch-sync.txt` (`beats` / `reports`) switches it live, and an fsync gauge every 10 s measures the drive | host-checked (`tools/check-hang-watch-sync.cpp`); console: `1.0.6-work-fix153` |
 
 ## Comparison with the official executable
 
