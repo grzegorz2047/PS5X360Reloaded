@@ -230,3 +230,19 @@ The 120 Hz metadata works; the KHR_display mode list does not show it.
 Expected next log (`1.0.6-work-fix146c`, same image settings): `40 FPS chosen; applied: each new
 picture shown for 3 refreshes of 119.88 Hz (FIFO); measured from the presents, the display mode
 says 59.94 Hz`, then about 40 new pictures/s with an interval median of 25.0-25.25 ms.
+
+## 10. Fix 146d: a hard bound, and present gaps in the log
+
+The user felt short freezes with the 30 limit (146b, 120 Hz run). In the summaries the shown
+interval's longest was 278 ms and 681 ms while the game's longest was 31-39 ms; with 40 "not
+applied" (where the gate takes every picture it is asked about) one window still had 162.6 ms
+against the game's 43.3 ms. The presents per second of those windows were 118.9, 117.3 and 119.4
+against 119.9 in a window with no freeze: 30, 78 and 15 presents missing, 250, 650 and 125 ms at
+8.34 ms each, about the freezes' length. So the presents stopped (the UI thread or the display),
+and nothing was consumed then; the gate cannot hold a picture while no paint asks it.
+
+146d:
+- a newer picture is shown at the latest two periods after the one on screen, whatever the
+  present count says (the limit itself holds at most one period; the pause rule was 250 ms);
+- the summary's present part ends `longest n ms, m over 100 ms`. A freeze with `m` > 0 is the
+  present path; a long `interval ... longest` with `m` = 0 would be the limit.

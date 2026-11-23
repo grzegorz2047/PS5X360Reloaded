@@ -153,9 +153,7 @@ checks=(
   check-swap-smaa.cpp              # fix 145
   check-low-half-size.cpp          # fix 144
   check-video-mode.cpp             # fixes 140 and 140b
-  check-present-limit.cpp          # fix 146
-  check-present-limit.cpp          # fixes 146 and 146b
-  check-present-limit.cpp          # fixes 146, 146b and 146c
+  check-present-limit.cpp          # fixes 146 to 146d
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -288,9 +286,7 @@ declare -A fix_of=(
   [check-swap-smaa.cpp]=145
   [check-low-half-size.cpp]=144
   [check-video-mode.cpp]="140 140b"
-  [check-present-limit.cpp]=146
-  [check-present-limit.cpp]="146 146b"
-  [check-present-limit.cpp]="146 146b 146c"
+  [check-present-limit.cpp]="146 146b 146c 146d"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

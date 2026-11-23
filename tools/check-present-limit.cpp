@@ -32,6 +32,9 @@
 //      applied (3 presents, 40 a second); a 119.88 Hz mode with paints at 59.94 counts 59.94
 //      (40 not applied); presents that follow no refresh make it timed (about 30 a second, no
 //      picture under 25 ms); the mode list reaches the log;
+//  (k) fix 146d: a newer picture is never held past two periods, even with no present counted
+//      since it was shown; a present gap of 300 ms shows in the summary as the longest present
+//      interval and as one gap over 100 ms;
 //  (h) the assembled tree: the mailbox keeps the acquired picture while the limit holds (under
 //      the consumer lock, before the exchange), the producer notes each picture, the Vulkan
 //      presenter gives the display refresh and notes each paint and logs the lines, nothing in
@@ -491,6 +494,40 @@ void CheckMeasuredRefresh() {
   }
 }
 
+// (k) fix 146d.
+void CheckHardBound() {
+  pl::Gate gate;
+  gate.SetChoice(pl::k30);
+  gate.SetOutputHz(k60);
+  // Six paints a refresh apart; a picture is shown at the last one; then no paint at all.
+  const int64_t start = 1000000000, refresh = 16683350;
+  std::string lines[2];
+  for (int i = 0; i < 6; ++i) gate.NotePaint(start + i * refresh, true, false, 0, lines);
+  const int64_t last = start + 5 * refresh;
+  gate.NoteRefresh(last - 1000000);
+  Expect(gate.Take(last, false), "(k) the first picture is shown at once");
+  gate.NoteRefresh(last + 1000000);
+  int64_t shown_after = 0;
+  for (int64_t t = last + 10000000; t < last + 240000000; t += 5000000)
+    if (gate.Take(t, true)) {
+      shown_after = t - last;
+      break;
+    }
+  Expect(shown_after >= 2 * 33366700 && shown_after <= 2 * 33366700 + 5000000,
+         "(k) with no present counted, a newer picture is shown at two periods (67 ms), not at the "
+         "250 ms pause: after " + std::to_string(shown_after / 1000000) + " ms");
+  // A 300 ms present gap at paint 600.
+  pl::Gate gaps;
+  gaps.SetChoice(pl::k30);
+  const Game one_gap{[](uint64_t n, std::mt19937&) { return int64_t(n == 600 ? 300000000 : 16683350); }};
+  const Result result = Run(gaps, k60, 31, Steady(60), 43, false, 1000000000, 0, 0, 0, one_gap.frame);
+  std::string summary;
+  for (const std::string& line : result.lines)
+    if (Has(line, "new pictures/s")) summary = line;
+  Expect(Has(summary, "longest 300.0 ms, 1 over 100 ms") || Has(summary, "longest 299.9 ms, 1 over 100 ms"),
+         "(k) the present gap is in the summary: " + summary);
+}
+
 // (h) the assembled tree.
 void CheckTree() {
   const std::string header = Read("include/xbox360ps5/present_limit.hpp");
@@ -571,6 +608,7 @@ int main() {
   CheckReport();
   CheckConsoleCases();
   CheckMeasuredRefresh();
+  CheckHardBound();
   CheckTree();
   if (failures) {
     std::printf("check-present-limit: %d failure(s)\n", failures);

@@ -1,0 +1,83 @@
+diff --git a/include/xbox360ps5/present_limit.hpp b/include/xbox360ps5/present_limit.hpp
+--- a/include/xbox360ps5/present_limit.hpp
++++ b/include/xbox360ps5/present_limit.hpp
+@@ -37,6 +37,14 @@
+ // last 64 present intervals, when it is the mode's refresh, twice it or half of it (within 6%)
+ // for 120 paints in a row, is the refresh the plan uses (40 is then applied at 119.88 Hz too);
+ // presents that follow no refresh make the limit timed, as without FIFO.
++//
++// Fix 146d: a hard bound. A newer picture is never held once the one on screen has been there two
++// periods (the limit's own most is one period; this guards any count that went wrong). On the
++// console with the 146b limit, single pictures stayed 162-681 ms while the game's own longest
++// gap was 31-43 ms, also with the limit not applied. The presents missing in those windows
++// (0.5-2.7 a second of 120) match those times, so the presents themselves stopped (the UI thread
++// or the display), which no gate can show through. The summary now gives the longest present
++// interval and how many were over 100 ms, so the next log tells the two apart.
+ #pragma once
+ 
+ #include <algorithm>
+@@ -246,6 +254,9 @@ class Gate {
+     }
+     if (last_paint_ && now > last_paint_) {
+       present_intervals_.Add(now - last_paint_);
++      // Fix 146d: present gaps (the UI thread or the display stopped).
++      longest_present_ = std::max(longest_present_, now - last_paint_);
++      if (now - last_paint_ > kPresentGapNs) ++present_gaps_;
+       recent_[recent_count_++ % kRecent] = now - last_paint_;
+       Measure(mode_hz);
+     }
+@@ -317,13 +328,14 @@ class Gate {
+     const int64_t elapsed = now - last_taken_;
+     // Timed (no FIFO, or presents that follow no refresh): the period less a quarter of the
+     // presents' own interval (fix 146c; 146b allowed half a refresh, up to 40 a second for 30).
+-    if (!plan_.fifo)
++    if (!plan_.fifo || elapsed >= 2 * plan_.period_ns)
+       return elapsed >= plan_.period_ns - (median_present_ns_ ? median_present_ns_ / 4 : plan_.slack_ns);
+     // NotePaint counted this paint already: the picture taken at paint P has been presented
+     // `paints_ - paints_at_take_` times when paint P + n consumes.
+     // A refresh without a present (a slow paint) still counts when the time says so: one
+     // present short and the whole time but a quarter of a refresh passed.
+     const uint64_t presents = paints_ - paints_at_take_;
++    if (elapsed >= 2 * plan_.period_ns) return true;  // fix 146d: never held more than 2 periods
+     return presents >= plan_.refreshes ||
+            (presents + 1 >= plan_.refreshes && elapsed >= plan_.period_ns - plan_.slack_ns / 2);
+   }
+@@ -345,6 +357,8 @@ class Gate {
+                vblanks, limit_dropped_.load(std::memory_order_relaxed)};
+     intervals_.Clear();
+     present_intervals_.Clear();
++    longest_present_ = 0;
++    present_gaps_ = 0;
+     longest_gap_ = 0;
+     IntervalHistogram discard;
+     game_intervals_.Take(discard);
+@@ -396,7 +410,8 @@ class Gate {
+                   "%.1f presents/s, %.1f vblanks/s; held %.1f/s, repeated %.1f/s, dropped %.1f/s "
+                   "(%.1f/s by the limit); waited %.1f ms/s (%.1f ms a picture); interval median "
+                   "%.2f ms, p95 %.2f ms, longest %.1f ms; game interval median %.2f ms, p95 "
+-                  "%.2f ms, longest %.1f ms; present interval median %.2f ms, p95 %.2f ms",
++                  "%.2f ms, longest %.1f ms; present interval median %.2f ms, p95 %.2f ms, "
++                  "longest %.1f ms, %u over 100 ms",
+                   target, double(taken) / seconds, double(arrived) / seconds,
+                   double(paints) / seconds, double(vblanks - window_.vblanks) / seconds,
+                   double(held) / seconds,
+@@ -406,7 +421,8 @@ class Gate {
+                   taken ? waited_ms / double(taken) : 0.0, intervals_.PercentileMs(0.5),
+                   intervals_.PercentileMs(0.95), double(longest_gap_) / 1e6,
+                   game.PercentileMs(0.5), game.PercentileMs(0.95), double(game_longest) / 1e6,
+-                  present_intervals_.PercentileMs(0.5), present_intervals_.PercentileMs(0.95));
++                  present_intervals_.PercentileMs(0.5), present_intervals_.PercentileMs(0.95),
++                  double(longest_present_) / 1e6, present_gaps_);
+     return text;
+   }
+ 
+@@ -419,6 +435,9 @@ class Gate {
+   int plan_choice_ = kAutomatic;
+   bool planned_ = false;
+   int64_t last_taken_ = 0, report_at_ = 0, last_paint_ = 0, longest_gap_ = 0;
++  static constexpr int64_t kPresentGapNs = 100000000;  // fix 146d: a present gap worth counting
++  int64_t longest_present_ = 0;
++  unsigned present_gaps_ = 0;
+   // Fix 146c: the measured refresh.
+   std::array<int64_t, kRecent> recent_{};
+   size_t recent_count_ = 0;

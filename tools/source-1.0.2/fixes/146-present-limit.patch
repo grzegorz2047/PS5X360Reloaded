@@ -93,7 +93,7 @@ diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
 --- a/include/xbox360ps5/launcher.hpp
 +++ b/include/xbox360ps5/launcher.hpp
 @@ -81,6 +81,9 @@ struct Settings {
-   int internal_resolution = 0;  // The emulated console's display mode: 0 720p, 1 1080p, 2 848x480, 3 960x540.
+   int internal_resolution = 0;  // The emulated console's display mode: 0 720p, 1 1080p, 2 848x480, 3 960x540, 4 1600x900 (fix 140).
    int stretch = 0;              // The picture fills the screen instead of keeping its proportions.
    int video_clock = 0;          // The emulated console's refresh: 0 60 Hz, 1 120 Hz.
 +  // Fix 146: how often the screen takes a new picture: 0 Automatic (as before), 1 No limit,
@@ -407,10 +407,10 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
  #include "xbox360ps5/bug_report.hpp"  // fix 93
  #include "xbox360ps5/resolution_scale.hpp"  // fix 117
 +#include "xbox360ps5/present_limit.hpp"  // fix 146
+ #include "xbox360ps5/video_mode.hpp"  // fix 140
  #include "xenia/base/cvar.h"
  #include "xenia/base/logging.h"
- #include <algorithm>
-@@ -471,6 +472,11 @@ const std::vector<Option>& Options() {
+@@ -475,6 +476,11 @@ const std::vector<Option>& Options() {
         {"60 Hz", "120 Hz (test)"}},
        {"vsync", &S::vsync, 0, W::start, 1, true, "VSync",
         "Controls the emulated vertical sync. On: games show at most 60 frames per second, so games with a 60 FPS patch do not speed up. Off: no frame cap.", off_on},
@@ -422,7 +422,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
        {"gamma", &S::gamma, 0, W::launch, 0, true, "Emulated console gamma",
         "The kind of display the emulated console reports to the game. Some games get lighter or darker shadows depending on the choice. HDTV is the Xbox 360's default.",
         {"HDTV", "sRGB", "Linear"}},
-@@ -741,6 +747,8 @@ void Settings::Load() {
+@@ -747,6 +753,8 @@ void Settings::Load() {
      // test is the draw_scale option, with its own key: this one is 1 in every file.
      // Fix 141: an unknown colour preset or crop is the default (Off, 0%), not the nearest choice.
      else if ((key == "color_preset" || key == "overscan_crop") && (value < 0 || value > 3)) {}
@@ -431,7 +431,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      else if (const Option* option = FindOption(key))
        this->*option->field = std::clamp(value, 0, int(option->choices.size()) - 1);
    }
-@@ -812,6 +820,7 @@ void Settings::Apply() const {
+@@ -820,6 +828,7 @@ void Settings::Apply() const {
    // Read each time they matter.
    cvars::framerate_limit = video_clock ? 120 : 60;
    cvars::present_letterbox = stretch == 0;
