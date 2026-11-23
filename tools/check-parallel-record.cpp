@@ -47,6 +47,15 @@
 //      passed and not yet executed drains with waits 1 and not with waits 2; the equivalence of
 //      (c) with waits 0, 1 and 2; MatchValueAndRef and GpuSwap against their sources in the tree;
 //      the line's new parts.
+// Fix 142c: with 142b GTA IV's mode 1 only equalled fix 134 alone (about 80,000 ops a frame cost the
+// GPU thread as much as the packet layer they replaced), and 83 of its 89 waits a frame polled a
+// register.
+//  (k) batches: a draw's register runs and packets in one kOpBatch op of records (ForEachRecord);
+//      far fewer ops for the same stream; a failing packet ends its batch; the equivalence of (c)
+//      with batches; a COHER_STATUS_HOST wait with a mask within the status bit and a condition
+//      true for 0 passes as "coherency" (MakeCoherent in the model as in the tree), one with
+//      another mask drains; the drained register waits counted by register; fingerprints of
+//      MakeCoherent and HandleSpecialRegisterWrite; the line's op path and census.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
@@ -278,6 +287,7 @@ struct Model {
   void WriteRegister(uint32_t index, uint32_t value) {
     if (index >= kRegisters) return;
     regs[index] = value;
+    if (index == pr::kCoherStatusHost) regs[index] |= 0x80000000u;  // HandleSpecialRegisterWrite
     if (index >= kScratchFirst && index < kScratchFirst + 8) {
       events.push_back("scratch " + std::to_string(index) + "=" + std::to_string(value));
     }
@@ -368,6 +378,9 @@ struct Model {
         const uint32_t info = r.Read(), poll = r.Read(), ref = r.Read(), mask = r.Read();
         r.Read();
         // As the handler: the dword as it is in memory, swapped by the endianness in poll's low bits.
+        if (!(info & 0x10) && poll == pr::kCoherStatusHost && (regs[poll] & 0x80000000u)) {
+          regs[poll] = 0;  // MakeCoherent
+        }
         uint32_t value = regs[poll % kRegisters];
         if (info & 0x10) {
           uint32_t raw = 0;
@@ -551,6 +564,20 @@ struct Model {
           WriteRegister(op.arg + i, Be(raw));
         }
         break;
+      case pr::kOpBatch:
+        pr::ForEachRecord(
+            payload, op.bytes,
+            [&](const uint8_t* data, uint32_t bytes) {
+              Reader r{data, bytes, 0, bytes};
+              do {
+                if (!Packet(r)) return false;
+              } while (r.remaining);
+              return true;
+            },
+            [&](uint32_t base, const uint32_t* values, uint32_t count) {
+              for (uint32_t i = 0; i < count; ++i) WriteRegister(base + i, Be(values[i]));
+            });
+        break;
       case pr::kOpPrimaryBegin:
         events.push_back("begin");
         break;
@@ -686,6 +713,12 @@ void RandomPacket(Rng& rng, Stream& s, Generated& g, uint32_t& ib_next, int dept
     s.Type3(pr::pm4::kEventWriteExt, {0, kWriteArea + 0x1000 + (rng() % 16) * 16});
   } else if (pick < 65) {
     s.Type3(pr::pm4::kRegToMem, {0x4000 + rng() % 16, kWriteArea + (rng() % 64) * 4});
+  } else if (pick < 66) {
+    // Fix 142c: D3D's coherency: COHER_* written, then a wait on COHER_STATUS_HOST's status bit
+    // (sometimes with a mask beyond it, which drains).
+    s.Type0(0x0A2F, {0x100000, 0x1000});  // COHER_SIZE_HOST, COHER_BASE_HOST
+    s.Type0(pr::kCoherStatusHost, {0x03000000});
+    s.Type3(pr::pm4::kWaitRegMem, {0x3, pr::kCoherStatusHost, 0, rng() % 4 ? 0x80000000u : 0xFFFFFFFFu, 0x10});
   } else if (pick < 68) {
     // A wait on a fence the stream may have written.
     s.Type3(pr::pm4::kWaitRegMem, {0x13, (kWriteArea + (rng() % 64) * 4) | 2, rng() % 100, 0xFFFFFFFFu, 1});
@@ -853,7 +886,7 @@ RunResult RunSplit(const Generated& g, uint32_t start_index, bool filter, bool t
 }
 
 void CheckEquivalence() {
-  uint64_t dropped = 0, written = 0, ib_writes = 0, waits = 0, passed = 0, predicated = 0, failed = 0;
+  uint64_t dropped = 0, written = 0, ib_writes = 0, waits = 0, passed = 0, coherent = 0, predicated = 0, failed = 0;
   int mismatches = 0;
   for (uint32_t seed = 1; seed <= 160; ++seed) {
     const Generated g = Generate(seed, 600 + (seed % 7) * 500);
@@ -885,6 +918,7 @@ void CheckEquivalence() {
         ib_writes += split.stats.serialize[pr::kSerializeIbWrite];
         waits += split.stats.serialize[pr::kSerializeWait];
         passed += split.stats.waits[pr::kWaitPassed];
+        coherent += split.stats.waits[pr::kWaitCoherent];
         predicated += split.stats.predicated_out;
         failed += split.stats.failed;
       }
@@ -896,6 +930,7 @@ void CheckEquivalence() {
               (unsigned long long)ib_writes, (unsigned long long)predicated,
               (unsigned long long)failed);
   Expect(dropped > written / 50, "the generated streams have many unchanged constants");
+  Expect(coherent > 0, "fix 142c: the streams covered coherency waits passed");
   Expect(waits > 0 && passed > 0 && ib_writes > 0 && predicated > 0 && failed > 0,
          "the streams covered waits, ib-write serializations, predication and buffer ends");
 }
@@ -1003,6 +1038,54 @@ void CheckOrdering() {
            "fix 142b: an indirect buffer after a wait passed early drains with waits 1, not 2 (waits " +
                std::to_string(waits) + ")");
   }
+  // Fix 142c: batches. 300 draws, each after three register runs (as GTA IV's): one op per
+  // record before, a few batches now; the same events and registers.
+  {
+    Stream s;
+    for (uint32_t n = 0; n < 300; ++n) {
+      s.Type0(0x4000 + (n % 16) * 4, {n, n + 1, n + 2, n + 3});
+      s.Type0(0x2100, {n});
+      s.Type3(pr::pm4::kSetConstant, {(1u << 16) | (n % 8), n, n + 1});
+      s.Type3(pr::pm4::kDrawIndx2, {4u | (2u << 6)});
+    }
+    Generated g;
+    g.ring_dwords = s.dwords;
+    g.parts = {uint32_t(s.dwords.size())};
+    const RunResult reference = RunReference(g, 0);
+    const RunResult split = RunSplit(g, 0, true, false);
+    const uint64_t records = split.stats.register_runs + 300;
+    Expect(split.events == reference.events && split.regs == reference.regs,
+           "fix 142c: batches do what the interpreter did");
+    Expect(split.stats.ops * 20 < records,
+           "fix 142c: " + std::to_string(split.stats.ops) + " ops for " + std::to_string(records) +
+               " records (a batch holds many)");
+  }
+  // Fix 142c: coherency waits. The status bit set by the write, then a wait on it: passed with a
+  // mask within the status bit, drained (and counted by register) with a wider one.
+  for (int wide = 0; wide < 2; ++wide) {
+    Stream s;
+    s.Type0(0x0A2F, {0x100000, 0x1000});
+    s.Type0(pr::kCoherStatusHost, {0x03000000});
+    s.Type3(pr::pm4::kWaitRegMem, {0x3, pr::kCoherStatusHost, 0, wide ? 0xFFFFFFFFu : 0x80000000u, 0x10});
+    s.Type3(pr::pm4::kDrawIndx2, {4u | (2u << 6)});
+    Generated g;
+    g.ring_dwords = s.dwords;
+    g.parts = {uint32_t(s.dwords.size())};
+    const RunResult reference = RunReference(g, 0);
+    const RunResult split = RunSplit(g, 0, true, false);
+    bool met = false;
+    for (const auto& e : reference.events) met |= e.rfind("wait 0 met", 0) == 0;
+    Expect(met, "the model's MakeCoherent clears COHER_STATUS_HOST at the wait");
+    Expect(split.events == reference.events && split.regs == reference.regs &&
+               split.stats.waits[pr::kWaitCoherent] == uint64_t(!wide) &&
+               split.stats.waits[pr::kWaitRegister] == uint64_t(wide) &&
+               split.stats.serialize[pr::kSerializeWait] == uint64_t(wide) &&
+               split.stats.serialize[pr::kSerializeIbAfterWait] == 0 &&
+               (!wide || (split.stats.wait_register_ids[0] == pr::kCoherStatusHost &&
+                          split.stats.wait_register_counts[0] == 1)),
+           wide ? "fix 142c: a COHER_STATUS_HOST wait with a wider mask drains, counted by register"
+                : "fix 142c: a COHER_STATUS_HOST wait on its status bit passes without a drain");
+  }
   // MatchValueAndRef and GpuSwap: every function and endianness.
   Expect(pr::MatchValueAndRef(1, 2, 1) && !pr::MatchValueAndRef(2, 2, 1) && pr::MatchValueAndRef(2, 2, 2) &&
              pr::MatchValueAndRef(2, 2, 3) && !pr::MatchValueAndRef(2, 2, 4) && pr::MatchValueAndRef(3, 2, 4) &&
@@ -1065,6 +1148,16 @@ void CheckLine() {
   fc::parallel_drain_woken_ns.fetch_add(1000 * 25000ull);
   fc::parallel_drain_woken.fetch_add(1000);
   fc::parallel_wakes.fetch_add(30 * 400);
+  fc::parallel_waits[4].fetch_add(1500 * 83);
+  fc::parallel_wait_register_ids[0].store(0x0A31);
+  fc::parallel_wait_register_counts[0].fetch_add(1500 * 2);
+  fc::parallel_wait_register_counts[4].fetch_add(1500);
+  fc::parallel_op_batches.fetch_add(1500 * 700);
+  fc::parallel_op_records.fetch_add(1500 * 60000);
+  fc::parallel_op_timed.fetch_add(1500 * 700 / 16);
+  fc::parallel_op_ticks_registers.fetch_add(18750000);  // 10 ms/s at one tick a ns, scaled by 16
+  fc::parallel_op_ticks_packets.fetch_add(562500000);   // 300 ms/s
+  fc::parallel_op_ticks_batch.fetch_add(618750000);     // and 20 ms/s besides
   fc::parallel_ahead_sum.fetch_add(10 * 65536);
   fc::parallel_ahead_samples.fetch_add(10);
   fc::parallel_ahead_max.store(256 * 1024);
@@ -1079,10 +1172,14 @@ void CheckLine() {
   Expect(line.find("serialized per frame: wait 1.00, room 0.00, ib-write 2.00, ib-after-wait 0.50") !=
              std::string::npos,
          "serializations by reason");
-  Expect(line.find("; waits 1, per frame: passed early 80.00, register 0.00, unmet 0.00, write pending 9.00; "
-                   "drains 10.00 per frame, backlog avg 32.0 KiB, woken after avg 25.0 us; decoder woken 400/s") !=
-             std::string::npos,
-         "fix 142b: the waits and the drains: " + line);
+  Expect(line.find("; waits 1, per frame: passed early 80.00, coherency 83.00, register 0.00, unmet 0.00, write "
+                   "pending 9.00; drains 10.00 per frame, backlog avg 32.0 KiB, woken after avg 25.0 us; decoder woken "
+                   "400/s") != std::string::npos,
+         "fix 142b/142c: the waits and the drains: " + line);
+  Expect(line.find("; register waits by register (per frame): 0A31 2.00, others 1.00; op path (GPU thread, 1 batch in "
+                   "16 timed): batches 700.0, records 60000 per frame; register records 10.0 ms/s, packet records "
+                   "with their draws 300.0 ms/s, the rest of the batches 20.0 ms/s") != std::string::npos,
+         "fix 142c: the census and the op path: " + line);
   Expect(line.find("ahead avg 64.0 KiB, max 256.0 KiB") != std::string::npos, "how far ahead");
   const std::string next = reporter.Line(30, 1500);
   Expect(next.find("decode 0.0 ms/s") != std::string::npos && next.find("max 0.0 KiB") != std::string::npos,
@@ -1322,6 +1419,11 @@ const Mirrored kMirrored[] = {
      "Decoder::WaitHolds (fix 142b): the polled dword, its endianness, the condition", "baaf46fe126afacb"},
     {".deps/xenia-canary/src/xenia/gpu/xenos.h", "static uint32_t GpuSwapInline(uint32_t value, Endian endianness) {",
      "parallel_record::GpuSwap, the decoder's copy (fix 142b)", "6891297f9193849f"},
+    {".deps/xenia-canary/src/xenia/gpu/command_processor.cc", "void CommandProcessor::MakeCoherent() {",
+     "Decoder::WaitOutcomeOf's coherency waits (fix 142c): COHER_STATUS_HOST without its status bit after it", "babb2e96eb6db906"},
+    {".deps/xenia-canary/src/xenia/gpu/command_processor.cc", "void CommandProcessor::HandleSpecialRegisterWrite(",
+     "the coherency waits (fix 142c: COHER_STATUS_HOST's status bit set when written) and the scratch "
+     "registers' memory writes (fix 142b's unknown writes)", "07788cd146d3ece8"},
     {".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc",
      "void VulkanCommandProcessor::WriteRegistersSwapped(",
      "kOpRegisters: the runs applied with fix 103's path", "a70978bd15a99aab"},

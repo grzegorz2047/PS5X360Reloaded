@@ -275,7 +275,7 @@ declare -A fix_of=(
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i 117j 117k"
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
   [check-async-submit.cpp]="134 134b 134c"
-  [check-parallel-record.cpp]="142 142b"
+  [check-parallel-record.cpp]="142 142b 142c"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -353,8 +353,8 @@ done
 # drains and the waits for room), the model part only; sanitized runs go without address
 # randomization (setarch -R), as fix 31's.
 echo "=== check-parallel-record.cpp (tsan)"
-if [[ " $skipped_fixes " == *" 142 "* || " $skipped_fixes " == *" 142b "* ]]; then
-  echo "skip check-parallel-record.cpp (tsan) (fix 142 or 142b left out of this build)"
+if [[ " $skipped_fixes " == *" 142 "* || " $skipped_fixes " == *" 142b "* || " $skipped_fixes " == *" 142c "* ]]; then
+  echo "skip check-parallel-record.cpp (tsan) (fix 142, 142b or 142c left out of this build)"
 elif (cd "$tree" && "$cxx" -std=c++20 -O1 -g -pthread -march=znver2 -Wall -Wno-unused-function \
         -fsanitize=thread -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
         tools/check-parallel-record.cpp -o "$tree/build/fix-checks/check-parallel-record-tsan" &&

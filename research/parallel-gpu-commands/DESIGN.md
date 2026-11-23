@@ -626,3 +626,48 @@ Two costs that are not this:
 - **A lead for the single thread, unrelated to the split:** in B, INDIRECT_BUFFER's own time is
   118 ms/s for 3,448 buffers/s, about 34 µs each, outside the packets inside them. It is not yet
   explained: possibly the prefetch of the whole buffer, or how fix 75 attributes nested time.
+
+## 14. Fix 142c: fewer, bigger ops, and the coherency waits
+
+Fix 142c (`142c-parallel-record-batches.patch`, label `1.0.5-work-fix142c`) follows section 13
+with three changes.
+
+1. **Batches.** The decoder puts a draw's register runs and packets into one `kOpBatch` op of
+   records. Each record has an 8-byte header and holds either whole packets or a register base
+   and its values. The batch is published a few KiB at a time. In GTA IV that should mean about
+   700 ops a frame instead of about 80,000, so `Front`/`Pop` and the store to the shared `retired`
+   happen about 100× less often. Records are executed as the separate ops were, and a failing
+   packet still ends its batch.
+2. **Coherency waits.** D3D's coherency writes `COHER_BASE/SIZE/STATUS_HOST` and then waits on
+   `COHER_STATUS_HOST`. The handler calls `MakeCoherent`, which clears the register when its
+   status bit (31) is set and leaves it without that bit otherwise. So a wait whose mask lies
+   within bit 31, and whose condition holds for 0, is met by its own handler, whatever the guest
+   does. The decoder goes on past it with no drain, and it arms no `ib-after-wait` (nothing
+   written by the guest is awaited); `waits 0` still drains it. If GTA IV's 83 register waits a
+   frame are these, its drains fall to about 6 a frame. The other register waits are counted by
+   the register they poll.
+3. **A timer on the op path.** One batch in 16 on the GPU thread is timed and scaled: its
+   register records, its packet records (the draws inside them) and the rest. Together with fix
+   73's draws, this shows whether the per-op cost is gone.
+
+New in fix 142's 30 s line:
+- `coherency` among the waits;
+- `; register waits by register (per frame): 0A31 n, ...`;
+- `; op path (GPU thread, 1 batch in 16 timed): batches b, records r per frame; register records x ms/s, packet records with their draws y ms/s, the rest of the batches z ms/s`.
+
+Next console runs, GTA IV, the same spot, `async-submit.txt` = mode 1, restart between settings:
+
+| Run | `parallel-record.txt` | Question |
+|---|---|---|
+| M | none | B again: the baseline on this build (no split) |
+| N | `mode 2` | ops on one thread: is "everything else" (8.8 ms a frame in H) gone? |
+| O | `mode 1` | the split: above M? |
+| P | `mode 1`<br>`sibling 1` | placement |
+| Q | `mode 1`<br>`waits 0` | the coherency waits' share (drains back to about 90 a frame) |
+
+Read in fix 142's line:
+- `batches` per frame (about 700) and `records` per frame;
+- the op path's `the rest of the batches` (should be small);
+- `coherency` per frame (expected about 83) and `drains` per frame (expected about 6);
+- `register waits by register`;
+- `starved` and `executing`.

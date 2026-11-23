@@ -1,0 +1,490 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
+index 252856c..759df3d 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
+@@ -39,6 +39,19 @@
+ // handler). An indirect buffer entered while such a wait is not yet executed drains first (the
+ // guest may fill a buffer once the flag is set); "waits 2" leaves that out (to measure), "waits 0"
+ // drains at every WAIT_REG_MEM as 142 did.
++//
++// Fix 142c: with 142b, Grand Theft Auto IV ran mode 1 at 40-45 swaps/s, the same as fix 134 alone.
++// Per frame the GPU command thread spent about 8.8 ms on the ops besides draws and their packets,
++// as much as the packet layer they replaced: about 80,000 ops a frame (some 7 register runs and a
++// packet op per draw), each with its header, Front/Pop and a store to the shared `retired`. Now a
++// draw's runs and packets go into one batch op as records (kOpBatch), so the ops are a few hundred a
++// frame; one batch in 16 is timed on the GPU command thread (its register records, its packet
++// records with the draws inside, the rest). And 83 of its 89 WAIT_REG_MEMs a frame polled a
++// register: a wait on COHER_STATUS_HOST whose mask lies within the status bit and whose condition
++// holds for 0 is met once its handler has run MakeCoherent (which clears the register when the
++// status bit is set, and leaves it without the bit otherwise), whatever the guest does, so the
++// decoder goes on past it (no ib-after-wait either: nothing the guest writes is awaited). The
++// registers the other register waits poll are counted.
+ #ifndef XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
+ #define XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
+ 
+@@ -171,6 +184,8 @@ constexpr uint32_t kFloatFirst = 0x4000, kFloatLast = 0x47FF;
+ constexpr uint32_t kFetchFirst = 0x4800, kFetchLast = 0x48BF;
+ constexpr uint32_t kBoolLoopFirst = 0x4900, kBoolLoopLast = 0x4927;
+ constexpr uint32_t kShadowFirst = kFloatFirst, kShadowCount = kBoolLoopLast + 1 - kFloatFirst;
++// Fix 142c: COHER_STATUS_HOST (register_table.inc; checked in vulkan_command_processor.cc).
++constexpr uint32_t kCoherStatusHost = 0x0A31;
+ inline bool Filterable(uint32_t index) {
+   return (index >= kFloatFirst && index <= kFloatLast) ||
+          (index >= kFetchFirst && index <= kFetchLast) ||
+@@ -227,6 +242,7 @@ enum OpKind : uint32_t {
+   kOpPrimaryBegin,    // a part of the ring starts (ExecutePrimaryBuffer's prologue)
+   kOpPrimaryEnd,      // ... ends (OnPrimaryBufferEnd)
+   kOpReadPointer,     // the ring's read pointer `arg` is written back for the guest
++  kOpBatch,           // fix 142c: records of packets and register runs, in order
+   kOpKinds
+ };
+ struct OpHeader {
+@@ -240,6 +256,36 @@ inline uint32_t OpSpan(uint32_t payload_bytes) {
+   return uint32_t(sizeof(OpHeader)) + ((payload_bytes + 7) & ~uint32_t(7));
+ }
+ 
++// Fix 142c: a kOpBatch payload is records, each an 8-byte header (the kind in the top 4 bits and
++// the payload's dword count below, then a register base or 0) and its dwords: whole PM4 packets in
++// guest byte order (for ExecutePacket), or a run of register values in guest byte order (for fix
++// 103's WriteRegistersSwapped).
++enum RecordKind : uint32_t { kRecPackets = 1, kRecRegisters = 2 };
++constexpr uint32_t kRecordHeader = 8;
++// Calls packets(data, bytes) -> bool (false: the rest of the batch is not executed, as a failing
++// packet ended its buffer) and registers(base, values, count) for each record in order. Returns
++// whether every record was executed.
++template <class Packets, class Registers>
++inline bool ForEachRecord(const uint8_t* payload, uint32_t bytes, Packets&& packets,
++                          Registers&& registers) {
++  uint32_t at = 0;
++  while (at + kRecordHeader <= bytes) {
++    uint32_t word0, base;
++    std::memcpy(&word0, payload + at, 4);
++    std::memcpy(&base, payload + at + 4, 4);
++    const uint32_t kind = word0 >> 28, dwords = word0 & 0x0FFFFFFF;
++    const uint8_t* data = payload + at + kRecordHeader;
++    at += kRecordHeader + dwords * 4;
++    if (at > bytes) return false;  // never with the decoder's batches
++    if (kind == kRecPackets) {
++      if (!packets(data, dwords * 4)) return false;
++    } else if (kind == kRecRegisters) {
++      registers(base, reinterpret_cast<const uint32_t*>(data), dwords);
++    }
++  }
++  return true;
++}
++
+ class OpRing {
+  public:
+   // The largest payload: a type 3 packet (0x4000 dwords and its header) or a run of 0x4000.
+@@ -442,9 +488,15 @@ struct DecodeStats {
+   uint64_t serialize[kSerializeReasons] = {};
+   // Fix 142b: the WAIT_REG_MEMs by what the decoder did: passed early (memory, met, nothing pending
+   // could change it), drained on a register, drained unmet, drained with a write pending.
+-  uint64_t waits[4] = {};
++  uint64_t waits[5] = {};
++  // Fix 142c: the registers the drained register waits poll (four, then the rest in [4]).
++  uint32_t wait_register_ids[4] = {};
++  uint64_t wait_register_counts[5] = {};
++};
++// Fix 142c adds kWaitCoherent: a COHER_STATUS_HOST wait its handler's MakeCoherent meets.
++enum WaitOutcome : uint32_t {
++  kWaitPassed = 0, kWaitRegister, kWaitUnmet, kWaitPending, kWaitCoherent, kWaitOutcomes
+ };
+-enum WaitOutcome : uint32_t { kWaitPassed = 0, kWaitRegister, kWaitUnmet, kWaitPending, kWaitOutcomes };
+ 
+ // The owner's side of the decoder: the guest's memory and the waits for the GPU command thread.
+ class Host {
+@@ -632,16 +684,16 @@ class Decoder {
+         // stream wrote, and the guest may be waiting for the GPU to get here. Fix 142b: unless it
+         // waits on memory whose condition holds already and no write still to execute could
+         // change that dword; then the GPU command thread executes it, met, and the decoder goes on.
+-        const bool passed = waits_ != 0 && count >= 5 && WaitHolds(reader);
++        const uint32_t outcome = waits_ != 0 && count >= 5 ? WaitOutcomeOf(reader) : kWaitOutcomes;
+         Forward(reader, 1 + count);
+-        if (passed) {
+-          ++stats_.waits[kWaitPassed];
++        if (outcome == kWaitPassed) {
+           if (open_) {
+             ahead_wait_ = true;
+             ahead_wait_position_ = ring_.write_position();  // where the open op starts
+           }
+           return true;
+         }
++        if (outcome == kWaitCoherent) return true;  // fix 142c: met by its own handler
+         Drain(kSerializeWait);
+         return true;
+       }
+@@ -801,28 +853,50 @@ class Decoder {
+   bool UnknownWritePending() const {
+     return unknown_write_ && unknown_write_position_ >= ring_.retired();
+   }
+-  // The WAIT_REG_MEM at the reader: whether its condition holds now and nothing still to execute
+-  // could change it (the handler's reading, GpuSwap and MatchValueAndRef).
+-  bool WaitHolds(const GuestReader& reader) {
++  // The WAIT_REG_MEM at the reader, counted by outcome: kWaitPassed when it waits on memory whose
++  // condition holds now and nothing still to execute could change it (the handler's reading,
++  // GpuSwap and MatchValueAndRef); kWaitCoherent when it waits on COHER_STATUS_HOST for what its
++  // handler's MakeCoherent makes true (fix 142c); else why it is drained.
++  uint32_t WaitOutcomeOf(const GuestReader& reader) {
+     const uint32_t wait_info = reader.Peek(1), poll = reader.Peek(2), ref = reader.Peek(3),
+                    mask = reader.Peek(4);
++    uint32_t outcome;
+     if (!(wait_info & 0x10)) {
+-      ++stats_.waits[kWaitRegister];  // registers are the GPU command thread's
+-      return false;
+-    }
+-    const uint32_t address = poll & ~uint32_t(3);
+-    if (UnknownWritePending() || OverlapsPendingWrite(address, 4)) {
+-      ++stats_.waits[kWaitPending];
+-      return false;
++      // Registers are the GPU command thread's. MakeCoherent leaves COHER_STATUS_HOST without its
++      // status bit (bit 31): a mask within that bit reads 0 there.
++      if (poll == kCoherStatusHost && !(mask & 0x7FFFFFFFu) && MatchValueAndRef(0, ref, wait_info)) {
++        outcome = kWaitCoherent;
++      } else {
++        outcome = kWaitRegister;
++        NoteWaitRegister(poll);
++      }
++    } else {
++      const uint32_t address = poll & ~uint32_t(3);
++      if (UnknownWritePending() || OverlapsPendingWrite(address, 4)) {
++        outcome = kWaitPending;
++      } else {
++        const volatile uint32_t* word =
++            reinterpret_cast<const volatile uint32_t*>(host_.Translate(address));
++        const uint32_t value = GpuSwap(*word, poll & 3);
++        outcome = MatchValueAndRef(value & mask, ref, wait_info) ? kWaitPassed : kWaitUnmet;
++      }
+     }
+-    const volatile uint32_t* word =
+-        reinterpret_cast<const volatile uint32_t*>(host_.Translate(address));
+-    const uint32_t value = GpuSwap(*word, poll & 3);
+-    if (!MatchValueAndRef(value & mask, ref, wait_info)) {
+-      ++stats_.waits[kWaitUnmet];
+-      return false;
++    ++stats_.waits[outcome];
++    return outcome;
++  }
++  void NoteWaitRegister(uint32_t index) {
++    for (uint32_t n = 0; n < 4; ++n) {
++      if (stats_.wait_register_counts[n] && stats_.wait_register_ids[n] == index) {
++        ++stats_.wait_register_counts[n];
++        return;
++      }
++      if (!stats_.wait_register_counts[n]) {
++        stats_.wait_register_ids[n] = index;
++        ++stats_.wait_register_counts[n];
++        return;
++      }
+     }
+-    return true;
++    ++stats_.wait_register_counts[4];
+   }
+ 
+   // A packet whose handler returns false: handed over, last in its op (the GPU thread stops
+@@ -863,6 +937,7 @@ class Decoder {
+     if (!open_) return;
+     ring_.Commit();
+     open_ = nullptr;
++    packets_record_ = kNoRecord;
+   }
+   void EmitSimple(uint32_t kind, uint32_t arg) {
+     ClosePackets();
+@@ -872,31 +947,51 @@ class Decoder {
+     ++stats_.ops;
+     stats_.op_bytes += OpSpan(0);
+   }
+-  // `dwords` raw dwords at the reader (whole packets) into the open packets op.
+-  void Forward(GuestReader& reader, uint32_t dwords) {
+-    const uint32_t bytes = dwords * 4;
+-    ++stats_.forwarded_packets;
+-    if (open_ && open_->bytes + bytes > kPacketsOpBytes) {
+-      Publish();
+-    }
++  // Fix 142c: room in the open batch for `bytes` more (a record, or a packets record's growth);
++  // a batch that would pass kPacketsOpBytes is ended and another begun. False: aborted.
++  bool BatchRoom(uint32_t bytes) {
++    if (open_ && open_->bytes + bytes > kPacketsOpBytes) Publish();
+     if (!open_) {
+       // Room for the largest this op can grow to.
+       const uint32_t limit = std::max(bytes, kPacketsOpBytes);
+-      if (!Reserve(limit)) {
++      if (!Reserve(limit)) return false;
++      open_ = ring_.Begin(kOpBatch, limit);
++      packets_record_ = kNoRecord;
++      ++stats_.ops;
++    }
++    return true;
++  }
++  void WriteRecordHeader(uint32_t at, uint32_t kind, uint32_t dwords, uint32_t base) {
++    const uint32_t word0 = (kind << 28) | dwords;
++    std::memcpy(ring_.Payload(open_) + at, &word0, 4);
++    std::memcpy(ring_.Payload(open_) + at + 4, &base, 4);
++  }
++  // `dwords` raw dwords at the reader (whole packets) into the open batch: onto its last record
++  // when that is packets, else a new packets record.
++  void Forward(GuestReader& reader, uint32_t dwords) {
++    const uint32_t bytes = dwords * 4;
++    ++stats_.forwarded_packets;
++    const bool grow = open_ && packets_record_ != kNoRecord &&
++                      open_->bytes + bytes <= kPacketsOpBytes;
++    if (!grow) {
++      if (!BatchRoom(kRecordHeader + bytes)) {
+         reader.Skip(dwords);
+         return;
+       }
+-      open_ = ring_.Begin(kOpPackets, limit);
+-      ++stats_.ops;
++      packets_record_ = open_->bytes;
++      packets_record_dwords_ = 0;
++      ring_.Grow(kRecordHeader);
++      stats_.op_bytes += kRecordHeader;
+     }
+     reader.CopyRaw(ring_.Payload(open_) + open_->bytes, dwords);
+     ring_.Grow(bytes);
++    packets_record_dwords_ += dwords;
++    WriteRecordHeader(packets_record_, kRecPackets, packets_record_dwords_, 0);
+     stats_.op_bytes += bytes;
+   }
+   // A run of `count` register values at the reader from register `base`: the unchanged shader
+   // constants are dropped, the rest handed over in runs.
+   void Registers(GuestReader& reader, uint32_t base, uint32_t count) {
+-    ClosePackets();
+     stats_.registers_written += count;
+     uint32_t index = base;
+     uint32_t left = count;
+@@ -913,13 +1008,14 @@ class Decoder {
+         }
+         if (!left) break;
+       }
+-      // A run up to the next unchanged constant.
+-      if (!Reserve(left * 4)) {
++      // A run up to the next unchanged constant: a registers record in the open batch.
++      if (!BatchRoom(kRecordHeader + left * 4)) {
+         reader.Skip(left);
+         return;
+       }
+-      OpHeader* op = ring_.Begin(kOpRegisters, left * 4, index);
+-      uint8_t* out = ring_.Payload(op);
++      const uint32_t record = open_->bytes;
++      const uint32_t first = index;
++      uint8_t* out = ring_.Payload(open_) + record + kRecordHeader;
+       uint32_t run = 0;
+       while (left) {
+         const uint32_t raw = reader.PeekRaw(0);
+@@ -931,12 +1027,12 @@ class Decoder {
+         --left;
+         ++run;
+       }
+-      ring_.Grow(run * 4);
+-      if (index - run <= kScratchLast && index - 1 >= kScratchFirst) NoteUnknownWrite();
+-      ring_.Commit();
+-      ++stats_.ops;
++      WriteRecordHeader(record, kRecRegisters, run, first);
++      ring_.Grow(kRecordHeader + run * 4);
++      packets_record_ = kNoRecord;  // the next packets start a record after this one
++      if (first <= kScratchLast && index - 1 >= kScratchFirst) NoteUnknownWrite();
+       ++stats_.register_runs;
+-      stats_.op_bytes += OpSpan(run * 4);
++      stats_.op_bytes += kRecordHeader + run * 4;
+     }
+   }
+   bool Unchanged(uint32_t index, uint32_t raw) const {
+@@ -990,6 +1086,9 @@ class Decoder {
+   bool unknown_write_ = false, ahead_wait_ = false;
+   uint64_t unknown_write_position_ = 0, ahead_wait_position_ = 0;
+   OpHeader* open_ = nullptr;
++  // Fix 142c: where the open batch's last record starts when it is packets (kNoRecord otherwise).
++  static constexpr uint32_t kNoRecord = 0xFFFFFFFFu;
++  uint32_t packets_record_ = kNoRecord, packets_record_dwords_ = 0;
+   bool aborted_ = false;
+   uint64_t publishes_ = 0;
+   uint32_t shadow_[kShadowCount] = {};
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 4b1cc6c..195ef88 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1781,6 +1781,10 @@ static_assert(parallel_record::kFloatFirst == XE_GPU_REG_SHADER_CONSTANT_000_X &
+                   parallel_record::kBoolLoopFirst == XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031 &&
+                   parallel_record::kBoolLoopLast == XE_GPU_REG_SHADER_CONSTANT_LOOP_31,
+               "fix 142: the constant ranges of register_table.inc");
++static_assert(parallel_record::kCoherStatusHost == XE_GPU_REG_COHER_STATUS_HOST,
++              "fix 142c: COHER_STATUS_HOST of register_table.inc");
++static_assert(parallel_record::kWaitOutcomes == xbox360ps5::frame_cost::kParallelWaitOutcomes,
++              "fix 142c: the wait outcomes of the log line");
+ static_assert(parallel_record::kSerializeReasons ==
+                   xbox360ps5::frame_cost::kParallelSerializeReasons,
+               "fix 142: the serialization reasons of the log line");
+@@ -2068,6 +2072,48 @@ void VulkanCommandProcessor::ExecuteParallelOp(const parallel_record::OpHeader&
+     case parallel_record::kOpRegisters:
+       WriteRegistersSwapped(op.arg, reinterpret_cast<const uint32_t*>(payload), op.bytes / 4);
+       break;
++    case parallel_record::kOpBatch: {
++      // Fix 142c: a draw's register runs and packets in one op. One batch in 16 is timed: its
++      // register records, its packet records (the draws inside them) and the whole batch.
++      namespace fc = xbox360ps5::frame_cost;
++      static uint32_t batch_number = 0;
++      const bool timed = (++batch_number & 15) == 0;
++      uint64_t registers_ticks = 0, packets_ticks = 0, records = 0;
++      const uint64_t batch_start = timed ? fc::Ticks() : 0;
++      parallel_record::ForEachRecord(
++          payload, op.bytes,
++          [&](const uint8_t* data, uint32_t bytes) {
++            ++records;
++            const uint64_t start = timed ? fc::Ticks() : 0;
++            RingBuffer old_reader = reader_;
++            new (&reader_) RingBuffer(const_cast<uint8_t*>(data), bytes);
++            reader_.set_write_offset(bytes);
++            bool all = true;
++            do {
++              if (!ExecutePacket()) {
++                all = false;  // the decoder ended its batch after this packet too
++                break;
++              }
++            } while (reader_.read_count());
++            reader_ = old_reader;
++            if (timed) packets_ticks += fc::Ticks() - start;
++            return all;
++          },
++          [&](uint32_t base, const uint32_t* values, uint32_t count) {
++            ++records;
++            const uint64_t start = timed ? fc::Ticks() : 0;
++            WriteRegistersSwapped(base, values, count);
++            if (timed) registers_ticks += fc::Ticks() - start;
++          });
++      fc::parallel_op_batches.fetch_add(1, std::memory_order_relaxed);
++      fc::parallel_op_records.fetch_add(records, std::memory_order_relaxed);
++      if (timed) {
++        fc::parallel_op_timed.fetch_add(1, std::memory_order_relaxed);
++        fc::parallel_op_ticks_batch.fetch_add(fc::Ticks() - batch_start, std::memory_order_relaxed);
++        fc::parallel_op_ticks_registers.fetch_add(registers_ticks, std::memory_order_relaxed);
++        fc::parallel_op_ticks_packets.fetch_add(packets_ticks, std::memory_order_relaxed);
++      }
++    } break;
+     case parallel_record::kOpPrimaryBegin:
+       ++xbox360ps5::frame_cost::command_chunk_epoch;  // fix 87
+       CheckContentUnits();                            // fix 125
+@@ -2159,6 +2205,16 @@ void VulkanCommandProcessor::FlushParallelStats() {
+   for (uint32_t n = 0; n < parallel_record::kWaitOutcomes; ++n) {  // fix 142b
+     add(fc::parallel_waits[n], now.waits[n], last.waits[n]);
+   }
++  // Fix 142c: the registers the drained register waits poll.
++  for (uint32_t n = 0; n < 4; ++n) {
++    if (now.wait_register_counts[n]) {
++      fc::parallel_wait_register_ids[n].store(now.wait_register_ids[n], std::memory_order_relaxed);
++    }
++  }
++  for (uint32_t n = 0; n < 5; ++n) {
++    add(fc::parallel_wait_register_counts[n], now.wait_register_counts[n],
++        last.wait_register_counts[n]);
++  }
+   static uint64_t wakes_flushed = 0;
+   const uint64_t wakes = parallel_ring_->wakes();
+   fc::parallel_wakes.fetch_add(wakes - wakes_flushed, std::memory_order_relaxed);
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+index e9a45e1..c2fa5ac 100644
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1193,6 +1193,12 @@ class AsyncSubmitReporter {
+ // still to execute when it began, and the time from the GPU thread reaching its position to the
+ // decoder running again).
+ constexpr uint32_t kParallelSerializeReasons = 4;
++// Fix 142c adds the waits COHER_STATUS_HOST's handler meets ("coherency"), the registers the
++// drained register waits poll ("; register waits by register: 0A31 n, ... per frame") and the op
++// path on the GPU thread, one batch in 16 timed and scaled ("; op path (GPU thread): batches b,
++// records r per frame; register records x ms/s, packet records with their draws y ms/s, the rest
++// of the batches z ms/s").
++constexpr uint32_t kParallelWaitOutcomes = 5;
+ inline std::atomic<uint64_t> parallel_decode_ns{0}, parallel_ring_wait_ns{0}, parallel_room_wait_ns{0},
+     parallel_drain_wait_ns{0}, parallel_execute_ns{0}, parallel_starved_ns{0}, parallel_idle_ns{0};
+ inline std::atomic<uint64_t> parallel_packets{0}, parallel_forwarded{0}, parallel_predicated{0}, parallel_runs{0},
+@@ -1201,7 +1207,11 @@ inline std::atomic<uint64_t> parallel_packets{0}, parallel_forwarded{0}, paralle
+ inline std::array<std::atomic<uint64_t>, kParallelSerializeReasons> parallel_serialize{};
+ inline std::atomic<uint64_t> parallel_ahead_sum{0}, parallel_ahead_samples{0}, parallel_ahead_max{0};
+ inline std::atomic<uint32_t> parallel_mode_now{0}, parallel_fifo_kib_now{0}, parallel_filter_now{0};
+-inline std::array<std::atomic<uint64_t>, 4> parallel_waits{};
++inline std::array<std::atomic<uint64_t>, kParallelWaitOutcomes> parallel_waits{};
++inline std::array<std::atomic<uint32_t>, 4> parallel_wait_register_ids{};
++inline std::array<std::atomic<uint64_t>, 5> parallel_wait_register_counts{};
++inline std::atomic<uint64_t> parallel_op_batches{0}, parallel_op_records{0}, parallel_op_timed{0},
++    parallel_op_ticks_batch{0}, parallel_op_ticks_registers{0}, parallel_op_ticks_packets{0};
+ inline std::atomic<uint64_t> parallel_drains{0}, parallel_drain_backlog{0}, parallel_drain_woken_ns{0},
+     parallel_drain_woken{0}, parallel_wakes{0};
+ inline std::atomic<uint32_t> parallel_waits_now{0};
+@@ -1221,7 +1231,11 @@ class ParallelRecordReporter {
+         &parallel_forwarded, &parallel_predicated, &parallel_resets, &parallel_failed,
+         &parallel_serialize[3], &parallel_waits[0], &parallel_waits[1], &parallel_waits[2],
+         &parallel_waits[3], &parallel_drains, &parallel_drain_backlog, &parallel_drain_woken_ns,
+-        &parallel_drain_woken, &parallel_wakes};
++        &parallel_drain_woken, &parallel_wakes,
++        &parallel_waits[4], &parallel_wait_register_counts[0], &parallel_wait_register_counts[1],
++        &parallel_wait_register_counts[2], &parallel_wait_register_counts[3], &parallel_wait_register_counts[4],
++        &parallel_op_batches, &parallel_op_records, &parallel_op_timed, &parallel_op_ticks_batch,
++        &parallel_op_ticks_registers, &parallel_op_ticks_packets};
+     double d[kCounters];
+     for (int n = 0; n < kCounters; ++n) {
+       const uint64_t now = counters[n]->load(std::memory_order_relaxed);
+@@ -1245,20 +1259,54 @@ class ParallelRecordReporter {
+                   d[13] > 0 ? 100.0 * d[14] / d[13] : 0.0, d[15] / f, d[16] / f, d[17] / f, d[24] / f,
+                   d[19] > 0 ? d[18] / d[19] / 1024.0 : 0.0, ahead_max / 1024.0, d[20] / s, d[21] / s,
+                   d[22] / s, d[23]);
+-    // Fix 142b: the waits and the drains.
+-    char drains[320];
++    // Fix 142b: the waits and the drains (fix 142c: and the coherency waits).
++    char drains[352];
+     std::snprintf(drains, sizeof(drains),
+-                  "; waits %u, per frame: passed early %.2f, register %.2f, unmet %.2f, write pending %.2f; "
+-                  "drains %.2f per frame, backlog avg %.1f KiB, woken after avg %.1f us; decoder woken %.0f/s",
+-                  parallel_waits_now.load(std::memory_order_relaxed), d[25] / f, d[26] / f, d[27] / f, d[28] / f,
+-                  d[29] / f, d[29] > 0 ? d[30] / d[29] / 1024.0 : 0.0, d[32] > 0 ? d[31] / d[32] / 1000.0 : 0.0,
+-                  d[33] / s);
+-    return std::string(text) + drains;
++                  "; waits %u, per frame: passed early %.2f, coherency %.2f, register %.2f, unmet %.2f, write "
++                  "pending %.2f; drains %.2f per frame, backlog avg %.1f KiB, woken after avg %.1f us; decoder "
++                  "woken %.0f/s",
++                  parallel_waits_now.load(std::memory_order_relaxed), d[25] / f, d[34] / f, d[26] / f, d[27] / f,
++                  d[28] / f, d[29] / f, d[29] > 0 ? d[30] / d[29] / 1024.0 : 0.0,
++                  d[32] > 0 ? d[31] / d[32] / 1000.0 : 0.0, d[33] / s);
++    // Fix 142c: the registers the drained register waits poll.
++    std::string registers;
++    for (size_t n = 0; n < 5; ++n) {
++      const double count = d[35 + n];
++      if (count <= 0) continue;
++      char item[48];
++      if (n < 4) {
++        std::snprintf(item, sizeof(item), "%s%04X %.2f", registers.empty() ? "" : ", ",
++                      parallel_wait_register_ids[n].load(std::memory_order_relaxed), count / f);
++      } else {
++        std::snprintf(item, sizeof(item), "%sothers %.2f", registers.empty() ? "" : ", ", count / f);
++      }
++      registers += item;
++    }
++    // Fix 142c: the op path, one batch in 16 timed, scaled by the batches executed.
++    const uint64_t ticks_now = Ticks(), ns_now = NowNs();
++    double ns_per_tick = last_ns_per_tick_ > 0 ? last_ns_per_tick_ : 1.0;
++    if (last_ticks_ && ticks_now > last_ticks_ && ns_now > last_ns_)
++      ns_per_tick = double(ns_now - last_ns_) / double(ticks_now - last_ticks_);
++    last_ns_per_tick_ = ns_per_tick;
++    last_ticks_ = ticks_now;
++    last_ns_ = ns_now;
++    const double scale = d[42] > 0 ? d[40] / d[42] : 0.0;  // batches / timed batches
++    const double to_ms = ns_per_tick * scale / 1e6 / s;
++    char ops[256];
++    std::snprintf(ops, sizeof(ops),
++                  "; register waits by register (per frame): %s; op path (GPU thread, 1 batch in 16 timed): "
++                  "batches %.1f, records %.0f per frame; register records %.1f ms/s, packet records with their "
++                  "draws %.1f ms/s, the rest of the batches %.1f ms/s",
++                  registers.empty() ? "none" : registers.c_str(), d[40] / f, d[41] / f, d[44] * to_ms, d[45] * to_ms,
++                  (d[43] - d[44] - d[45]) * to_ms);
++    return std::string(text) + drains + ops;
+   }
+ 
+  private:
+-  static constexpr int kCounters = 34;
++  static constexpr int kCounters = 46;
+   uint64_t last_[kCounters] = {};
++  uint64_t last_ticks_ = 0, last_ns_ = 0;
++  double last_ns_per_tick_ = 0;
+ };
+ 
+ // "Frame time uploads (GPU thread): ..." since its previous line.
