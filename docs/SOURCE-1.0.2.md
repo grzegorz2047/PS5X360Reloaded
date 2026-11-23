@@ -321,6 +321,7 @@ also listed here.
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
 | 150 (`150-vfs-background-delete`) | a 1.0.6 stutter fix: Grand Theft Auto IV paused for a fraction of a second when it deleted one of its files on a slow drive; the file is now deleted in the background (`vfs-delete.txt` `inline` restores the old way), and slow file operations and long pauses between the game's frames are logged | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.6-work-fix150` |
 | 146f (`146f-present-stall-loop`) | a diagnostic: 146e showed the stalls outside the paint, in the UI loop; the loop's parts (pad, guide and library, settings page, input, tick, every second) and the UI thread's log writes (and waits for the log's lock) are now in the stall line | host-checked (`tools/check-present-limit.cpp`); console: `1.0.6-work-fix146f` |
+| 152 (`152-ui-loop-no-log-flush`) | GTA IV's screen stood still up to 0.8 s about once in 30 s: with video-memory optimizations on, the 30 s summary flushed the log file on the UI thread while the console drive was busy with the game's slow deletes; the log writer thread already flushes, so the call is gone | host-checked (`tools/check-ui-loop-io.cpp`); console: `1.0.6-work-fix152` |
 
 ## Comparison with the official executable
 

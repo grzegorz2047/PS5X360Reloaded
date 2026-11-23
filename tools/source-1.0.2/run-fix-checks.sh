@@ -167,6 +167,7 @@ checks=(
   check-readability.cpp            # fix 149c
   check-video-mode.cpp             # fixes 140 and 140b
   check-present-limit.cpp          # fixes 146 to 146f
+  check-ui-loop-io.cpp             # fix 152
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -317,6 +318,7 @@ declare -A fix_of=(
   [check-readability.cpp]=149c
   [check-video-mode.cpp]="140 140b"
   [check-present-limit.cpp]="146 146b 146c 146d 146e 146f"
+  [check-ui-loop-io.cpp]=152
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
