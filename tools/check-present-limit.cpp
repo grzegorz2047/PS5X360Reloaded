@@ -26,6 +26,12 @@
 //      none dropped by the limit on both outputs; a game at 37-43 or 45-55 capped at 30 shows
 //      30 a second, each picture at least 2 presents (4 at 120 Hz); a game alternating 26.7 and
 //      40 ms (30 on average) loses at most a tenth;
+//  (j) fix 146c, the console with the title's 120 Hz metadata: the display mode says 59.94 Hz but
+//      the FIFO presents come every 8.34 ms. The limit measures 119.88 Hz from the presents and
+//      says so: 30 is 4 presents (30 a second of GTA IV's 37-43, not 45-50 as in 146b), 40 is
+//      applied (3 presents, 40 a second); a 119.88 Hz mode with paints at 59.94 counts 59.94
+//      (40 not applied); presents that follow no refresh make it timed (about 30 a second, no
+//      picture under 25 ms); the mode list reaches the log;
 //  (h) the assembled tree: the mailbox keeps the acquired picture while the limit holds (under
 //      the consumer lock, before the exchange), the producer notes each picture, the Vulkan
 //      presenter gives the display refresh and notes each paint and logs the lines, nothing in
@@ -137,21 +143,26 @@ struct Game {
 };
 Result Run(pl::Gate& gate, double output_hz, int64_t seconds, const Game& game, uint32_t seed,
            bool framegen = false, int64_t start = 1000000000, int64_t early = 0,
-           int64_t late = 700000) {
+           int64_t late = 700000, double mode_hz = 0,
+           std::function<int64_t(uint64_t, std::mt19937&)> paint_gap = nullptr) {
   Result result;
   std::mt19937 random(seed);
   // A paint wakes up to 0.7 ms late (fix 146b's cases: up to 3 ms early or late).
   std::uniform_int_distribution<int64_t> jitter(-early, late);
   const double refresh = 1e9 / output_hz;
-  gate.SetOutputHz(output_hz);
+  // The display mode's refresh: the paints' own rate unless a case says otherwise (fix 146c).
+  gate.SetOutputHz(mode_hz ? mode_hz : output_hz);
   int64_t next_frame = start;
   uint64_t ready = 0, acquired = 0;  // picture numbers; 0: nothing
   int64_t last_shown = 0;
   uint64_t last_shown_paint = 0;
   const int64_t end = start + seconds * 1000000000;
   uint64_t vblanks = 0;
+  int64_t irregular_at = start;
   for (uint64_t refresh_index = 0;; ++refresh_index) {
-    const int64_t vblank = start + int64_t(double(refresh_index) * refresh);
+    // Fix 146c: paints that follow no refresh, when a case gives their gaps.
+    const int64_t vblank = paint_gap ? (irregular_at += refresh_index ? paint_gap(refresh_index, random) : 0)
+                                     : start + int64_t(double(refresh_index) * refresh);
     if (vblank >= end) break;
     // The game publishes every picture due before this paint (it never waits for the screen).
     while (next_frame <= vblank) {
@@ -409,6 +420,77 @@ void CheckConsoleCases() {
   }
 }
 
+// (j) fix 146c.
+// New pictures a second once the refresh is measured (the first `skip` pictures left out: about
+// 1.5 s of 64 + 120 presents before the measurement holds).
+double SteadyRate(const Result& result, size_t skip) {
+  int64_t total = 0;
+  for (size_t i = skip; i < result.intervals.size(); ++i) total += result.intervals[i];
+  return total ? double(result.intervals.size() - skip) * 1e9 / double(total) : 0;
+}
+void CheckMeasuredRefresh() {
+  constexpr int64_t kEarly = 1000000, kLate = 1000000;
+  {
+    // The mode says 59.94, the presents come at 119.88: 30 is 4 presents.
+    pl::Gate gate;
+    gate.SetChoice(pl::k30);
+    const Result result = Run(gate, k120, 40, Uneven(37, 43), 31, false, 1000000000, kEarly, kLate, k60);
+    const double rate = SteadyRate(result, 120);
+    Expect(rate > 29.3 && rate < 30.1, "(j) 37-43 under 30, mode 59.94, presents 119.88: 30 a second, got " +
+                                           std::to_string(rate));
+    Expect(std::fabs(gate.measured_hz() - k120) < 0.01, "(j) the refresh measured is 119.88, got " +
+                                                            std::to_string(gate.measured_hz()));
+    bool said = false, report = false;
+    for (const std::string& line : result.lines) {
+      said = said || (Has(line, "30 FPS chosen; applied: each new picture shown for 4 refreshes of 119.88 Hz (FIFO); "
+                                "measured from the presents, the display mode says 59.94 Hz"));
+      report = report || Has(line, "target 30 FPS (4 refreshes of 119.88 Hz, measured)");
+    }
+    Expect(said, "(j) the plan line says the refresh is measured: " +
+                     (result.lines.empty() ? std::string() : result.lines.back()));
+    Expect(report, "(j) the summary says the refresh is measured");
+    uint64_t short_ones = 0;
+    for (size_t i = 120; i < result.presents.size(); ++i)
+      if (result.presents[i] < 4) ++short_ones;
+    Expect(short_ones == 0, "(j) every picture 4 presents or more once measured, " +
+                                std::to_string(short_ones) + " shorter");
+  }
+  {
+    // 40 is applied there too.
+    pl::Gate gate;
+    gate.SetChoice(pl::k40);
+    const Result result = Run(gate, k120, 40, Uneven(45, 55), 33, false, 1000000000, kEarly, kLate, k60);
+    const double rate = SteadyRate(result, 120);
+    Expect(rate > 39.0 && rate < 40.1, "(j) 45-55 under 40, mode 59.94, presents 119.88: 40 a second, got " +
+                                           std::to_string(rate));
+    Expect(gate.plan().applied && gate.plan().refreshes == 3, "(j) 40 is 3 measured refreshes");
+  }
+  {
+    // A 119.88 Hz mode with paints at 59.94: 40 is not applied, 30 is 2 presents.
+    pl::Gate gate;
+    gate.SetChoice(pl::k40);
+    Run(gate, k60, 10, Steady(55), 35, false, 1000000000, kEarly, kLate, k120);
+    Expect(std::fabs(gate.measured_hz() - k60) < 0.01 && !gate.plan().applied,
+           "(j) mode 119.88, paints 59.94: measured 59.94 and 40 not applied");
+  }
+  {
+    // Presents that follow no refresh (5 to 12 ms apart): timed, about 30 a second.
+    pl::Gate gate;
+    gate.SetChoice(pl::k30);
+    const Game gaps = Uneven(1000.0 / 12, 1000.0 / 5);
+    const Result result = Run(gate, k60, 40, Uneven(45, 55), 37, false, 1000000000, 0, 0, k60, gaps.frame);
+    const double rate = SteadyRate(result, 200);
+    Expect(gate.measured_hz() == 0 && Has(gate.plan().reason, "timed only: the presents follow no refresh"),
+           std::string("(j) irregular presents: timed (") + gate.plan().reason + ")");
+    Expect(rate > 27.0 && rate < 30.1, "(j) irregular presents under 30: about 30 a second, got " +
+                                           std::to_string(rate));
+    uint64_t short_ones = 0;
+    for (size_t i = 200; i < result.intervals.size(); ++i)
+      if (result.intervals[i] < 25000000) ++short_ones;
+    Expect(short_ones == 0, "(j) irregular presents: no picture under 25 ms, " + std::to_string(short_ones));
+  }
+}
+
 // (h) the assembled tree.
 void CheckTree() {
   const std::string header = Read("include/xbox360ps5/present_limit.hpp");
@@ -442,6 +524,12 @@ void CheckTree() {
   Expect(Has(vulkan, "present_limit::Instance().SetOutputHz(double(selected_refresh) / 1000.0)"),
          "(h) the KHR_display surface gives the limit its refresh");
   const std::string paint = Body(vulkan, "Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(");
+  Expect(Has(vulkan, "XELOGW(\"PS5 KHR_display modes (fix 146c): {}\", xbox360ps5::DisplayModeList());"),
+         "(j) the presenter logs the display modes the driver lists");
+  const std::string platform = Read("platform/ps5/vulkan_platform.cpp");
+  Expect(Has(platform, "const std::string& DisplayModeList() { return ModeListText(); }") &&
+             Has(platform, "listed += \" \" + std::to_string(mode.parameters.visibleRegion.width)"),
+         "(j) CreateDisplaySurface keeps every listed mode for the log");
   Expect(Has(paint, "present_limit::Instance().NotePaint(") && Has(paint, "paint_context_.swapchain_is_fifo") &&
              Has(paint, "ps5x360::framegen::source_ticks") && Has(paint, "XELOGW(\"{}\""),
          "(h) each paint notes the output, frame generation and vblanks, and logs the lines");
@@ -482,6 +570,7 @@ int main() {
   CheckChanges();
   CheckReport();
   CheckConsoleCases();
+  CheckMeasuredRefresh();
   CheckTree();
   if (failures) {
     std::printf("check-present-limit: %d failure(s)\n", failures);

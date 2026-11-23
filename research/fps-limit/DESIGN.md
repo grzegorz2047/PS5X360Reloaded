@@ -201,3 +201,32 @@ Reading the next console log (`1.0.6-work-fix146b`):
   game's own bursts; the limit cannot show two pictures inside one period;
 - `present interval` p95 well over a refresh (16.7 ms at 60 Hz): late paints (the UI thread); new
   pictures follow the presents.
+
+## 9. Fix 146c: the refresh measured from the presents
+
+Console (`1.0.6-work-fix146b` with param.json `attribute3` 524352 = 0x80040, "Up to 120 Hz";
+logs in `research/fix146b-120/` outside the repo; issue #49):
+`Framegen output: asked for 120 Hz, selected_hz=59.94 (no 120 Hz mode offered ...)`, yet every
+summary had 117-120 presents/s with a present interval median of 8.50 ms (FIFO). With
+`attribute3` 0 (146's run) presents were 59.9/s at 16.75 ms. A FIFO present cannot come faster
+than the screen refreshes, so the screen ran at 119.88 Hz and the mode's own number was wrong.
+The 120 Hz metadata works; the KHR_display mode list does not show it.
+
+146b counted presents, so "2 refreshes of 59.94 Hz" for 30 was 2 presents of 8.34 ms, a 60 cap
+(45-50 new pictures/s of GTA IV), and 40 was "not a whole number of refreshes".
+
+146c:
+- the gate measures the refresh: the median of the last 64 present intervals, snapped to the
+  mode's rate, twice it or half of it (6%), taken after 120 paints in a row agree (about 1.5 s;
+  until then the mode's rate). The plan uses it: 30 is 4 presents and 40 is applied at 3. The plan
+  line ends `measured from the presents, the display mode says 59.94 Hz`; the summary target says
+  `, measured`;
+- presents that follow no refresh (no snap) make the limit timed: the period less a quarter of
+  the median present interval;
+- `CreateDisplaySurface` records every listed mode and the presenter logs
+  `PS5 KHR_display modes (fix 146c): display 0: ...; chosen WxH@Hz`, to show whether the driver
+  ever lists a 120 Hz mode.
+
+Expected next log (`1.0.6-work-fix146c`, same image settings): `40 FPS chosen; applied: each new
+picture shown for 3 refreshes of 119.88 Hz (FIFO); measured from the presents, the display mode
+says 59.94 Hz`, then about 40 new pictures/s with an interval median of 25.0-25.25 ms.
