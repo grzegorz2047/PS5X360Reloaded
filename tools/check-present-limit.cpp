@@ -34,7 +34,10 @@
 //      picture under 25 ms); the mode list reaches the log;
 //  (k) fix 146d: a newer picture is never held past two periods, even with no present counted
 //      since it was shown; a present gap of 300 ms shows in the summary as the longest present
-//      interval and as one gap over 100 ms;
+//      interval and as one gap over 100 ms; GTA IV's own times at 120 Hz (the 1.0.6-work-fix146c
+//      console run: game intervals 18-36 ms, mode 59.94, presents 119.88) capped at 40 and 30 never
+//      keep a picture past two periods while paints go on (the console's 0.2-0.9 s holds came
+//      with as many presents missing, so with no paint to take a picture);
 //  (h) the assembled tree: the mailbox keeps the acquired picture while the limit holds (under
 //      the consumer lock, before the exchange), the producer notes each picture, the Vulkan
 //      presenter gives the display refresh and notes each paint and logs the lines, nothing in
@@ -526,6 +529,20 @@ void CheckHardBound() {
     if (Has(line, "new pictures/s")) summary = line;
   Expect(Has(summary, "longest 300.0 ms, 1 over 100 ms") || Has(summary, "longest 299.9 ms, 1 over 100 ms"),
          "(k) the present gap is in the summary: " + summary);
+
+  // The 146c console run: GTA IV between 18 and 36 ms a picture, presents at 119.88 on a mode
+  // that says 59.94, paints up to 1 ms off. No picture stays past two periods.
+  for (const auto& [choice, period] : {std::pair<int, double>{pl::k40, 25.03}, {pl::k30, 33.37}}) {
+    pl::Gate gta;
+    gta.SetChoice(choice);
+    const Result run = Run(gta, k120, 60, Uneven(1000.0 / 36, 1000.0 / 18), 47, false, 1000000000,
+                           1000000, 1000000, k60);
+    int64_t longest = 0;
+    for (size_t i = 200; i < run.intervals.size(); ++i) longest = std::max(longest, run.intervals[i]);
+    Expect(double(longest) / 1e6 <= 2 * period + 1.0,
+           std::string("(k) GTA IV's times at ") + pl::ChoiceText(choice) + " on 120 Hz: longest picture " +
+               std::to_string(double(longest) / 1e6) + " ms, at most two periods");
+  }
 }
 
 // (h) the assembled tree.
