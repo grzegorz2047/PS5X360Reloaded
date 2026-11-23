@@ -443,8 +443,10 @@ void CheckTree() {
   Expect(note_sets != std::string::npos && note_sets < cp.find("if (written.Matches(frame_current_", note_sets),
          "the texture sets noted before fix 104's check");
   const size_t write_register = cp.find("void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {");
-  Expect(cp.find("if (!fix142f_in_run) {", write_register) < cp.find("CommandProcessor::WriteRegister(index, value);", write_register),
-         "a single register write classified before it is made");
+  Expect(cp.find("if (!fix142f_in_run) {", write_register) < cp.find("CommandProcessor::WriteRegister(index, value);", write_register) &&
+             cp.find("if (!fix142f_in_run) {", write_register) > cp.find("// Fix 105:", write_register) &&
+             cp.find("if (!fix142f_in_run) {", write_register) < cp.find("// Only plain shader constants are eligible.", write_register),
+         "a single register write classified after fix 105's fetch skip, before the float skip");
   const size_t swapped = cp.find("void VulkanCommandProcessor::WriteRegistersSwapped(");
   Expect(cp.find("Fix142fClassifyFloatConstants(register_file_->values, start_index, source", swapped) <
              cp.find("register_run::Write(", swapped) &&

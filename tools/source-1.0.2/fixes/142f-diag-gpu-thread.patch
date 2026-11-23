@@ -220,7 +220,7 @@ index 956d984..7d0cc8c 100644
      --count;
      if (*(source++) == reset_index_guest_endian) {
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 8df3a5e..8192a73 100644
+index 8df3a5e..4b44293 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -65,20 +65,27 @@
@@ -251,7 +251,7 @@ index 8df3a5e..8192a73 100644
  DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
                "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
                "GPU");
-@@ -1924,21 +1931,48 @@ void VulkanCommandProcessor::ShutdownContext() {
+@@ -1924,33 +1931,60 @@ void VulkanCommandProcessor::ShutdownContext() {
    for (VkSemaphore semaphore : semaphores_free_) {
      dfn.vkDestroySemaphore(device, semaphore, nullptr);
    }
@@ -283,13 +283,6 @@ index 8df3a5e..8192a73 100644
 +}
 +#endif
  void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {
-+#if XE_PLATFORM_PS5
-+  if (!fix142f_in_run) {  // fix 142f-diag
-+    Fix142fClassifyFloatConstants(register_file_->values, index, &value, 1, false,
-+                                  current_float_constant_map_vertex_,
-+                                  current_float_constant_map_pixel_);
-+  }
-+#endif
  #if XE_PLATFORM_PS5
    // Fix 105: a fetch constant written with the bits it has changes nothing
    // the texture cache or the fetch constant buffer hold (a binding is derived
@@ -300,6 +293,25 @@ index 8df3a5e..8192a73 100644
        index >= XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 &&
        index <= XE_GPU_REG_SHADER_CONSTANT_FETCH_31_5 &&
        register_file_->values[index] == value) {
+     return;
+   }
++#endif
++#if XE_PLATFORM_PS5
++  if (!fix142f_in_run) {  // fix 142f-diag
++    Fix142fClassifyFloatConstants(register_file_->values, index, &value, 1, false,
++                                  current_float_constant_map_vertex_,
++                                  current_float_constant_map_pixel_);
++  }
+ #endif
+   // Only plain shader constants are eligible. Fetch writes may notify the
+   // texture cache even when their bits match; scratch, coherence and gamma
+   // registers also have write side effects and must always reach the base.
+   // Compare integer bits, preserving NaN payloads and signed zero.
+   if (cvars::vulkan_skip_redundant_constants &&
+       index >= XE_GPU_REG_SHADER_CONSTANT_000_X &&
+       index <= XE_GPU_REG_SHADER_CONSTANT_511_W &&
+       register_file_->values[index] == value) {
+     return;
 @@ -2074,20 +2108,27 @@ void VulkanCommandProcessor::WriteRegistersSwapped(uint32_t start_index,
        register_file_->values,
        cvars::vulkan_skip_redundant_constants,
