@@ -570,3 +570,29 @@ The columns:
 That is a fifth of what 142e already saves. Whether it is worth building depends on the
 same-spot GTA IV test: if 142e's 46 ms/s does not show in the frame rate, 10 more will not
 either.
+
+### Same-spot A/B in GTA IV (mode 0 and 2, switched live)
+
+The player stood still and the file was switched over FTP every 35 s. Swaps/s come from the hang
+watcher's swap counter, with the first 3 s after each switch left out.
+
+| Block | Mode | Swaps/s |
+|---|---|---|
+| 19:03:30-19:04:02 | 0 | 45.70 |
+| 19:04:05-19:04:38 | 2 | 43.97 |
+| 19:04:41-19:05:13 | 0 | 46.25 |
+| 19:05:16-19:05:36 | 2 | 50.42 (19 s) |
+
+- **Frame rate.** Mode 0 averages 46.0 and mode 2 averages 46.6, within the noise.
+- **GPU thread executing.** 992-994 ms/s in every block.
+- **Render targets per draw.** 0.269 us in a mode 0 block, 0.215 and 0.177 in blocks that were
+  mostly mode 2.
+
+Mode 2 is correct and cheaper, but at this spot it gives no measurable frame rate.
+
+The GPU thread's "executing" stays at 992-994 ms/s while its work per draw drops. So the time
+saved most likely goes into waiting for the guest. On this branch, fix 73's "executing" still
+counts the WAIT_REG_MEM sleeps as busy time: fix 138, which separates them, is on
+`fix/frame-cost-guest-wait` and not in 1.0.6. A GPU thread that "executes" 993 ms/s while
+sleeping on the guest is not the bottleneck at this spot. Before more work comes off it, fix
+138's split (or a port of it) has to show how much of "executing" is real work.
