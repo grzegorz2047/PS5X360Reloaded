@@ -260,6 +260,8 @@ Host checks, as for stage 1 (`tools/check-*.cpp`, `run-fix-checks.sh`):
 - **Base:** `fix/1.0.6-perf` at 77868b0 (`1.0.6_candidate_2`).
 - **Branch:** `fix/parallel-gpu-record-106`.
 - **Label:** `1.0.6-work-fix142d`.
+- **Build run:** 45185681740, green, at `bf7c4b2` (artifact
+  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks: run 45185681739, green.
 - **Independent of stage 1:** fixes 142 to 142c are not in this branch; their material is on
   `fix/parallel-gpu-record`.
 - **Diagnostic only:** the patch only adds lines.
