@@ -180,6 +180,7 @@ declare -A arguments=(
   [check-guide-measure.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-option-groups.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-settings-tree.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-readability.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"

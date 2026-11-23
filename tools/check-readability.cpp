@@ -11,9 +11,15 @@
 //  (c) sizes: the settings' option rows 24 px, their help 22 px (the user's "larger fonts"); the guide's
 //      rows 30 px and its help card 22 to 26 px as they were;
 //  (d) a row's name has the room its value leaves, and the whole name is shown over the help when the row
-//      had to cut it.
-// Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
+//      had to cut it;
+//  (e) the button hints at 22 px (the user's "Tak, 22 px"): hint_row.hpp's rule (a hint that would pass the
+//      screen's edge starts a second line), Canvas::Hint through it, and the real legends measured with the
+//      launcher's font (assets/fonts/NotoSans-Regular.ttf, through ImGui's own stb_truetype) in each of the
+//      16 language files of the argument's folder: one line in English and Polish, at most two anywhere.
+// Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh), with
+// tools/source-1.0.2/english/lang as its argument.
 #undef NDEBUG
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -24,7 +30,11 @@
 #include <sstream>
 #include <string>
 
+#include "xbox360ps5/hint_row.hpp"
 #include "xbox360ps5/tab_bar.hpp"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "third_party/imgui/imstb_truetype.h"
+#include <vector>
 
 namespace {
 namespace fs = std::filesystem;
@@ -168,13 +178,122 @@ void CheckSizes() {
   Expect(short_value > 440.0 && long_value >= 380.0, "(d) the room a name gets");
 }
 
+// The launcher's text widths as ImGui measures them: the font's advances at ScaleForPixelHeight(size).
+struct Measure {
+  std::vector<unsigned char> data;
+  stbtt_fontinfo info{};
+  bool ok = false;
+  explicit Measure(const fs::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    ok = !data.empty() && stbtt_InitFont(&info, data.data(), stbtt_GetFontOffsetForIndex(data.data(), 0));
+  }
+  float Width(const std::string& text, float size) const {
+    const float scale = stbtt_ScaleForPixelHeight(&info, size);
+    float width = 0;
+    for (size_t i = 0; i < text.size();) {  // UTF-8
+      unsigned c = (unsigned char)text[i];
+      int n = c < 0x80 ? 1 : c < 0xE0 ? 2 : c < 0xF0 ? 3 : 4;
+      unsigned cp = n == 1 ? c : n == 2 ? c & 0x1F : n == 3 ? c & 0x0F : c & 0x07;
+      for (int k = 1; k < n && i + k < text.size(); ++k) cp = (cp << 6) | ((unsigned char)text[i + k] & 0x3F);
+      i += size_t(n);
+      int advance = 0, bearing = 0;
+      stbtt_GetCodepointHMetrics(&info, int(cp), &advance, &bearing);
+      width += float(advance) * scale;
+    }
+    return width;
+  }
+};
+std::map<std::string, std::string> Language(const fs::path& path) {
+  std::map<std::string, std::string> table;
+  std::istringstream lines(Read(path));
+  for (std::string line; std::getline(lines, line);) {
+    const size_t split = line.find(" = ");
+    if (split == std::string::npos || line[0] == '#') continue;
+    std::string key = line.substr(0, split), value = line.substr(split + 3);
+    for (std::string* s : {&key, &value})
+      for (size_t at = s->find("\\s"); at != std::string::npos; at = s->find("\\s", at)) s->replace(at, 2, " ");
+    table[key] = value;
+  }
+  return table;
+}
+
+void CheckHints(const fs::path& lang) {
+  namespace hr = xbox360ps5::hint_row;
+  // The rule, with made-up widths.
+  hr::Row row;
+  auto a = hr::Next(row, 1116, 1004, 300), b = hr::Next(row, a.next, 1004, 300), c = hr::Next(row, b.next, 1004, 300);
+  Expect(a.x == 1116 && a.y == 1004 && b.x == a.next && b.y == 1004, "(e) hints follow each other on one line");
+  Expect(c.x == 1116 && c.y == 1004 + hr::kLineStep && c.next == 1116 + hr::kIcon + 300 + hr::kGap,
+         "(e) the one that would pass the edge starts a second line at the legend's start");
+  auto d = hr::Next(row, c.next, 1004, 100);
+  Expect(d.y == 1004 + hr::kLineStep && d.x == c.next, "(e) the next one stays on the second line");
+  auto e = hr::Next(row, 96, 990, 900);
+  Expect(e.x == 96 && e.y == 990, "(e) a new legend starts on its own line again");
+  hr::Row wide;
+  auto f = hr::Next(wide, 1800, 1004, 400);
+  Expect(f.x == 1800 && f.y == 1004, "(e) never an empty first line");
+  // Canvas::Hint.
+  const std::string launcher = Read("src/launcher.cpp");
+  const std::string hint = Between(launcher, "  float Hint(char button, const std::string& label, float x, float y) const {", "\n  }\n");
+  Expect(Has(hint, "const hint_row::Place place = hint_row::Next(hint_row_, x, y, Width(label, hint_row::kSize));") &&
+             Has(hint, "Text(label, x + 38, y + 1, hint_row::kSize, kMuted);") && Has(hint, "return place.next;") &&
+             !Has(hint, ", 20, kMuted"),
+         "(e) Canvas::Hint: 22 px through hint_row");
+  Expect(hr::kSize == 22 && hr::kIcon + hr::kGap == 82, "(e) 22 px, the spacing as before");
+  // The real legends: a sheet's start (1920 - 860 + 56) to the edge.
+  const Measure font("assets/fonts/NotoSans-Regular.ttf");
+  Expect(font.ok, "(e) the launcher's font is read");
+  if (!font.ok) return;
+  Expect(std::fabs(font.Width("Navigate", 22) - font.Width("Navigate", 20) * 1.1f) < 0.5f, "(e) widths scale with the size");
+  const std::vector<std::vector<std::string>> legends = {
+      {"Change", "Recommended", "Back"},
+      {"Turn off", "Remove", "Navigate", "Reload list", "Back"},
+      {"Use this profile", "Back", "Remove profile", "Avatar", "Navigate"},
+      {"Change", "Back", "Restore recommended", "Navigate"},
+      {"Type", "Delete", "Create profile", "Cancel"},
+      {"Enable or disable", "Close", "Navigate"},
+      {"This game's settings", "Back", "Navigate"},
+      {"Continue", "Choose the disc", "Back"},
+      {"Open", "Use folder", "Cancel"},
+  };
+  int files = 0, wrapped = 0;
+  for (const auto& entry : fs::directory_iterator(lang)) {
+    if (entry.path().extension() != ".txt") continue;
+    ++files;
+    const std::string code = entry.path().stem().string();
+    const auto table = Language(entry.path());
+    for (const auto& legend : legends) {
+      hr::Row line;
+      float lowest = 1004, right = 0;
+      for (const std::string& key : legend) {
+        const auto found = table.find(key);
+        const std::string text = found == table.end() ? key : found->second;
+        const auto place = hr::Next(line, line.next < 0 ? 1116 : line.next, 1004, font.Width(text, hr::kSize));
+        lowest = std::max(lowest, place.y);
+        right = std::max(right, place.x + hr::kIcon + font.Width(text, hr::kSize));
+      }
+      Expect(right <= hr::kRight, code + ": a legend ends inside the screen (" + legend[0] + ")");
+      Expect(lowest <= 1004 + hr::kLineStep, code + ": a legend fits in two lines (" + legend[0] + ")");
+      if (lowest > 1004) {
+        ++wrapped;
+        Expect(code != "en" && code != "pl", code + ": one line (" + legend[0] + ")");
+      }
+    }
+  }
+  Expect(files == 16, "(e) the 16 language files");
+  std::printf("    hints: %d legend(s) take a second line across the languages\n", wrapped);
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
   CheckSelf();
   CheckLauncher();
   CheckGuide();
   CheckSizes();
+  if (argc > 1) CheckHints(argv[1]);
+  else Expect(false, "(e) the language folder is the argument");
   if (failures) {
     std::printf("%d failure(s)\n", failures);
     return 1;

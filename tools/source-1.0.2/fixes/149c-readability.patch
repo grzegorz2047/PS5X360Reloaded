@@ -1,3 +1,52 @@
+diff --git a/include/xbox360ps5/hint_row.hpp b/include/xbox360ps5/hint_row.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/hint_row.hpp
+@@ -0,0 +1,44 @@
++// SPDX-License-Identifier: MIT
++// Fix 149c: the launcher's button hints (Launcher::Canvas::Hint) at 22 px (20 before), the user's choice
++// after 1.0.6-work-fix149b (#57). At 22 px the longest legend (a profile's: Use this profile, Back, Remove
++// profile, Avatar, Navigate) is wider than its 860 px sheet in German, French, Italian, Dutch and Russian,
++// so a hint that would pass the right edge starts a second line under the first, at the legend's start.
++// The sheets are flush with the screen's right edge, so one edge serves them all.
++#ifndef XBOX360PS5_HINT_ROW_HPP_
++#define XBOX360PS5_HINT_ROW_HPP_
++
++namespace xbox360ps5::hint_row {
++
++inline constexpr float kSize = 22;       // the label's size
++inline constexpr float kRight = 1896;    // the screen's right edge (1920) less a margin
++inline constexpr float kLineStep = 34;   // the second line, under the first
++inline constexpr float kIcon = 38;       // the button's circle and the space after it
++inline constexpr float kGap = 44;        // between one hint and the next
++
++// One legend, as the hints are drawn: each call passes the x the previous one returned and the same y.
++struct Row {
++  float start = 0, next = -1, y = -1, shift = 0;
++};
++struct Place {
++  float x, y;  // where this hint goes
++  float next;  // where the next one goes (Hint returns it)
++};
++// Where a hint whose label is `label` px wide goes when its caller asks for (x, y).
++inline Place Next(Row& row, float x, float y, float label) {
++  if (x != row.next || y != row.y) {  // a new legend
++    row.start = x;
++    row.y = y;
++    row.shift = 0;
++  }
++  const float width = kIcon + label;
++  if (x + width > kRight && x > row.start) {  // never an empty first line
++    x = row.start;
++    row.shift += kLineStep;
++  }
++  row.next = x + width + kGap;
++  return {x, y + row.shift, row.next};
++}
++
++}  // namespace xbox360ps5::hint_row
++
++#endif  // XBOX360PS5_HINT_ROW_HPP_
 diff --git a/reconstructed/xbox360ps5/tab_bar.hpp b/reconstructed/xbox360ps5/tab_bar.hpp
 --- a/reconstructed/xbox360ps5/tab_bar.hpp
 +++ b/reconstructed/xbox360ps5/tab_bar.hpp
@@ -58,7 +107,15 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 diff --git a/src/launcher.cpp b/src/launcher.cpp
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
-@@ -184,7 +184,7 @@ bool SetFsiRequested(bool enabled) {
+@@ -20,6 +20,7 @@
+ #include "framegen_config.hpp"
+ #include "net_conf.hpp"  // fix 29: network.conf written with its folder
+ #include "xbox360ps5/option_groups.hpp"  // fix 149
++#include "xbox360ps5/hint_row.hpp"  // fix 149c
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/canary_audio.hpp"
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+@@ -184,7 +185,7 @@ bool SetFsiRequested(bool enabled) {
  // Colours: graphite surfaces, near-white type and one emerald accent.
  uint32_t kInk = 0x0a0c11, kSheet = 0x12161d, kSurface = 0x1a1f28, kSurfaceHigh = 0x252c38,
           kAccent = 0x35d07f, kText = 0xf3f5f8, kBody = 0xd5dae2, kMuted = 0x9aa3b2,
@@ -67,7 +124,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
  constexpr uint32_t kWhite = 0xffffff, kCaseGreen = 0x8cc63f;
  // The Kinect-era dashboard's colours: light grey panels, dark type, its green.
  void ApplyTheme(bool dashboard) {
-@@ -192,11 +192,13 @@ void ApplyTheme(bool dashboard) {
+@@ -192,11 +193,13 @@ void ApplyTheme(bool dashboard) {
    // calls ApplyTheme(NxeUi() && !dark) at each of its three call sites).
    dashboard = dashboard && !dark_theme::AtStart();
    if (dashboard) {
@@ -84,7 +141,37 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    }
  }
  // The keys of the gamertag keyboard: four rows of nine.
-@@ -4462,7 +4464,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -2712,6 +2715,7 @@ struct Launcher::Canvas {
+   float scale, alpha, dt;
+   const Launcher::Fonts* fonts;
+   float offset_y = 0.0f;
++  mutable hint_row::Row hint_row_;  // fix 149c: the legend Hint is drawing
+   ImU32 Color(uint32_t rgb, float a = 1.0f) const {
+     return IM_COL32(rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255, int(255 * std::clamp(a * alpha, 0.0f, 1.0f)));
+   }
+@@ -2764,6 +2768,10 @@ struct Launcher::Canvas {
+   }
+   // A pad button drawn from lines, then its label. Returns where the next one goes.
+   float Hint(char button, const std::string& label, float x, float y) const {
++    // Fix 149c: 22 px (20 before); a hint that would pass the screen's edge starts a second line.
++    const hint_row::Place place = hint_row::Next(hint_row_, x, y, Width(label, hint_row::kSize));
++    x = place.x;
++    y = place.y;
+     const ImVec2 centre = At(x + 14, y + 14);
+     const float r = 13 * scale, g = 6 * scale;
+     const uint32_t face_rgb = button == 'x' ? kinect_ui::HintRgb(kinect_ui::FaceButton::cross)
+@@ -2798,8 +2806,8 @@ struct Launcher::Canvas {
+                                   ImVec2(centre.x + w, centre.y + side * a), ink);
+       }
+     }
+-    Text(label, x + 38, y + 2, 20, kMuted);
+-    return x + 38 + Width(label, 20) + 44;
++    Text(label, x + 38, y + 1, hint_row::kSize, kMuted);
++    return place.next;
+   }
+   // Fix 109d: a filled triangle, for the painter of the tab bar the in-game guide shares
+   // (xbox360ps5/tab_bar.hpp: Fill, Text, Width and Triangle).
+@@ -4462,7 +4470,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
                         Tr(armed ? "Next start" : "Off||plural"), row_focused, armed);
        if (row_focused)
          c.Wrapped(Tr("This game's next start records more details. Afterwards a screen lists the files to attach to your bug report."),
@@ -93,7 +180,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      }
      if (g_list_focus_tab == 2)  // fix 109: once a row is chosen
        hint = c.Hint('x', game_category_ == int(game_categories_.size()) ? Tr("Change") : Tr("Open"), hint, 1004);
-@@ -4488,7 +4490,6 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -4488,7 +4496,6 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
      const bool focused = n == game_option_row_ && g_list_focus_tab == 2;  // fix 109d
      c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
      if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
@@ -101,7 +188,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      // The game's own value stands out; one it does not change shows the general value.
      const auto found = overrides_.find(option.key);
      const auto recommended = preset.find(option.key);
-@@ -4497,7 +4498,9 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -4497,7 +4504,9 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
      std::string text = Tr(option.choices[size_t(value)]);
      if (!own) text = std::string(preset_here ? Tr("Recommended: ") : Tr("General: ")) + text;
      // Fix 109d: "< value >" (tab_bar::DrawValue): left and right change it.
@@ -112,7 +199,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    }
    const Option& option = options[size_t(game_rows_[size_t(game_option_row_)])];
    c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
-@@ -4509,7 +4512,10 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+@@ -4509,7 +4518,10 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
      c.Text(std::string(Tr("Code: ")) + web_key_, x + 212, 782, 34, kAccent);
      c.Wrapped(CameraQrText(), x + 212, 828, 18, kBody, 594);
    } else {
@@ -124,7 +211,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    }
    c.list->PopClipRect();
    const char* when = option.when == OptionWhen::start ? Tr("The emulator restarts by itself when this game is opened.")
-@@ -4544,7 +4550,7 @@ void Launcher::DrawGameSections(Canvas& c, float x, int category) {
+@@ -4544,7 +4556,7 @@ void Launcher::DrawGameSections(Canvas& c, float x, int category) {
    }
    if (!game_sections_.empty()) {
      c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
@@ -133,7 +220,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    }
    float hint = x + 56;
    if (g_list_focus_tab == 2) hint = c.Hint('x', Tr("Open"), hint, 1004);
-@@ -4638,43 +4644,45 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+@@ -4638,43 +4650,45 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
        c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
        if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
        c.Text(Tr("Accurate render targets (FSI, test)"),
@@ -188,7 +275,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      c.Text(std::string(Tr("Recommended: ")) + Tr("Off||feminine"), x + 56, 860, 20, kAccent, 1.0f, 0, 750);
      c.Text(Tr("The emulator restarts to apply it when settings close."), x + 56, 892, 20, kMuted, 1.0f, 0, 750);
      float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
-@@ -4685,7 +4693,7 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+@@ -4685,7 +4699,7 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
    if (category_rows_[size_t(option_row_)] == kFramegenRow) {
      c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
      c.Wrapped(Tr("Creates in-between frames from two game frames. 2x: one frame (30 FPS is shown at 60). 3x and 4x: two or three frames, for 120 Hz displays; each extra frame adds latency. Automatic picks from the game's pace and the display, and also works when the game's rate is uneven (40 FPS, 31 to 47). It does not speed up the game and can blur the HUD and fast motion. The FPS counter shows Game, Output and FG."),
@@ -197,7 +284,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      c.Text(std::string(Tr("Recommended: ")) + Tr("Off||feminine"), x + 56, 860, 20, kAccent, 1.0f, 0, 750);
      c.Text(Tr("The emulator restarts to apply it when settings close."), x + 56, 892, 20, kMuted, 1.0f, 0, 750);
      float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
-@@ -4696,7 +4704,7 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+@@ -4696,7 +4710,7 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
    if (category_rows_[size_t(option_row_)] == kFramegenOutputRow) {
      c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
      c.Wrapped(Tr("The rate asked of the PS5 video output. Up to 120 Hz lets 3x and 4x show one frame per refresh on a 120 Hz display, and a 60 FPS game be shown at 120. It only works if this installation declares 120 Hz (param.json) and the display accepts it; otherwise the output stays at 60 Hz by itself."),
@@ -206,7 +293,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      c.Text(std::string(Tr("Recommended: ")) + "60 Hz", x + 56, 860, 20, kAccent, 1.0f, 0, 750);
      c.Text(Tr("The emulator restarts to apply it when settings close."), x + 56, 892, 20, kMuted, 1.0f, 0, 750);
      float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
-@@ -4720,13 +4728,16 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+@@ -4720,13 +4734,16 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
        c.Wrapped(text, x + 56, y, size, rgb, 750);
        y += c.Font(size)->CalcTextSizeA(size * c.scale, 4096.0f, 750 * c.scale, text.c_str()).y / c.scale + 8;
      };
@@ -227,7 +314,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
      c.list->PopClipRect();
    }
    // What is recommended, and when a change takes effect.
-@@ -4765,7 +4776,7 @@ void Launcher::DrawSections(Canvas& c, float x) {
+@@ -4765,7 +4782,7 @@ void Launcher::DrawSections(Canvas& c, float x) {
      c.Text(value, x + 796, y + 12, 24, focused ? kAccent : changed ? kWarning : kMuted, 1.0f, 2, 260);
    }
    c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
@@ -236,7 +323,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    float hint = c.Hint('x', Tr("Open"), x + 56, 1004);
    hint = c.Hint('o', Tr("Back"), hint, 1004);
    c.Hint('v', Tr("Navigate"), hint, 1004);
-@@ -4786,7 +4797,7 @@ void Launcher::DrawLibraryMenu(Canvas& c, float x) {
+@@ -4786,7 +4803,7 @@ void Launcher::DrawLibraryMenu(Canvas& c, float x) {
      c.Text(rows[n].label, x + 64, y + 9, 24, focused ? kText : kBody);
      c.Text(rows[n].value, x + 796, y + 9, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
    }
@@ -245,7 +332,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    const std::string covers = covers_.Status();
    if (library_row_ == 0 && !covers.empty()) c.Text(covers, x + 56, 404, 20, kAccent, 1.0f, 0, 750);
    float hint = c.Hint('x', library_row_ == 1 || library_row_ == 3 ? Tr("Open") : Tr("Select"), x + 56, 1004);
-@@ -4850,7 +4861,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+@@ -4850,7 +4867,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
      c.Text(rows[n].value, x + 796, y + 6, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
    }
    DrawBugReportRow(c, x, 668, rows[12].label, rows[12].value, settings_row_ == 12, settings_.bug_report != 0);
@@ -254,7 +341,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
    c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
    if (web_qr_.size) {
      // The settings page: its QR code on a white card, the address and the key beside it.
-@@ -4912,7 +4923,7 @@ void Launcher::DrawPerGame(Canvas& c, float x) {
+@@ -4912,7 +4929,7 @@ void Launcher::DrawPerGame(Canvas& c, float x) {
      c.Text(position, x + 820, 678, 20, kFaint, 1.0f, 2);
    }
    c.Wrapped(Tr("Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings."),

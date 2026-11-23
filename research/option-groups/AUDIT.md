@@ -234,6 +234,7 @@ launcher". Measured at 1080p (WCAG 2.1 contrast, text on its real background):
 | Light kMuted / kFaint / kWarning / kAccent | 1.9-4.1:1 | 4.3-5.7:1 (0x555a60, 0x5e6369, 0x9a3a10, 0x336f16) |
 | Guide: white on the focus green / open tab | 2.3-3.9:1 | 4.8-6.3:1 |
 | Guide: value grey / section names | 4.5 / 3.6:1 | 5.9 / 4.9:1 |
+| Button hints (bottom legend) | 20 px | 22 px; a legend wider than the screen's edge wraps to a second line (8 legends in de/fr/it/nl/ru/..., none in en/pl) |
 | Long row names cut at 440 px | yes | room = 732 px less the value; the whole name over the help when cut |
 
 Not changed (the user's choice): a value that differs from the recommended one is still marked by its
@@ -249,4 +250,6 @@ on/off values are words.
 3. A game's settings (Triangle): rows 24 px, the long names whole where the value is short.
 4. Light theme (Settings > Theme): grey hints and "General: ..." darker and readable; the green values
    darker; the Play button still readable.
-5. Guide: the focus bar and the open tab a darker green, white text on them clearly readable.
+5. German or Russian interface, Settings > Player profile: the hints at the bottom in two lines, nothing cut
+   or off screen; Polish: one line.
+6. Guide: the focus bar and the open tab a darker green, white text on them clearly readable.
