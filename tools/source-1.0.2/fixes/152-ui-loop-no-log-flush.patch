@@ -1,0 +1,17 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -4264,7 +4264,12 @@ int main(int argc, char** argv) {
+                   }
+                 }
+               }
+-              if (xbox360ps5::gpu_diag::enabled) xe::FlushLog();
++              // Fix 152: no xe::FlushLog() here. Every 30 s (with video-memory optimizations on,
++              // as for GTA IV) it slept 10 ms and flushed the log file on this, the UI thread,
++              // behind the log writer's own writes; with the console drive busy (the game's slow
++              // deletes and renames) that held the screen 0.13-0.78 s. The core logger's writer
++              // thread already flushes after each batch of lines (flush_log), so the lines reach
++              // the file as before.
+               samples = 0; fps_sum = swaps_sum = 0.0f; fps_low = 1e9f;
+             }
+           }

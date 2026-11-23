@@ -162,6 +162,7 @@ on:
       - 'tools/check-swap-effects.cpp'
       - 'tools/check-swap-smaa.cpp'
       - 'tools/check-low-half-size.cpp'
+      - 'tools/check-ui-loop-io.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
