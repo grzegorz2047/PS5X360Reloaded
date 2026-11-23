@@ -96,7 +96,9 @@ void CheckTimer() {
 void CheckTree() {
   const std::string vk = Read(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc");
   const size_t fn = vk.find("bool VulkanCommandProcessor::EndSubmission(bool is_swap) {");
-  const std::string body = fn != std::string::npos ? vk.substr(fn, 14000) : "";
+  // The whole function (fixes 142e to 142g add lines to it; a fixed length cut it short).
+  const size_t fn_end = fn != std::string::npos ? vk.find("\n}\n", fn) : std::string::npos;
+  const std::string body = fn_end != std::string::npos ? vk.substr(fn, fn_end - fn) : "";
   const char* const order[] = {
       "xbox360ps5::frame_cost::SubmitTimer frame_cost_submit;",
       "EndRenderPass();",
