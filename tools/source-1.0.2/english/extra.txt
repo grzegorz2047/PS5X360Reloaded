@@ -343,6 +343,15 @@ Clean Neutral = Neutro limpo
 Overscan crop = Corte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Corta uma borda fina de cada lado da imagem do jogo e amplia o resto, mantendo as proporções: para jogos que mostram uma faixa ou lixo nas bordas. Só no Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan funcionam apenas com o renderizador Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Chaves de música necessárias
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Escaneie para adicionar as chaves de música da Harmonix (HvKeys). Depois reinicie o jogo.
+Where to get them: = Onde obtê-las:
+Harmonix music keys = Chaves de música da Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = A música deste jogo é criptografada com chaves da Harmonix, que não estão incluídas. Cole o array HvKeys de keys.h (ou uma chave por linha) e salve.
+Save = Salvar
+Keys saved: %u of %u. Restart the game to use them. = Chaves salvas: %u de %u. Reinicie o jogo para usá-las.
+Keys refused (no fingerprint matches): %u = Chaves recusadas (nenhuma impressão digital confere): %u
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -498,6 +507,15 @@ Clean Neutral = Neutro limpo
 Overscan crop = Corte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Corta uma margem fina de cada lado da imagem do jogo e amplia o resto, mantendo as proporções: para jogos que mostram uma faixa ou lixo nas margens. Só em Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = As predefinições de cores e o corte de overscan só funcionam com o renderizador Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Chaves de música necessárias
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Leia o código para adicionar as chaves de música da Harmonix (HvKeys). Depois reinicie o jogo.
+Where to get them: = Onde obtê-las:
+Harmonix music keys = Chaves de música da Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = A música deste jogo está cifrada com chaves da Harmonix, que não estão incluídas. Cole o array HvKeys de keys.h (ou uma chave por linha) e guarde.
+Save = Guardar
+Keys saved: %u of %u. Restart the game to use them. = Chaves guardadas: %u de %u. Reinicie o jogo para as usar.
+Keys refused (no fingerprint matches): %u = Chaves recusadas (nenhuma impressão digital corresponde): %u
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -653,6 +671,15 @@ Clean Neutral = Neutro limpio
 Overscan crop = Recorte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Recorta un borde fino de cada lado de la imagen del juego y amplía el resto, manteniendo sus proporciones: para juegos que muestran una franja o basura en los bordes. Solo con Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Se necesitan las claves de música
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Escanéalo para añadir las claves de música de Harmonix (HvKeys). Después reinicia el juego.
+Where to get them: = Dónde conseguirlas:
+Harmonix music keys = Claves de música de Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = La música de este juego está cifrada con claves de Harmonix, que no se incluyen. Pega el array HvKeys de keys.h (o una clave por línea) y guarda.
+Save = Guardar
+Keys saved: %u of %u. Restart the game to use them. = Claves guardadas: %u de %u. Reinicia el juego para usarlas.
+Keys refused (no fingerprint matches): %u = Claves rechazadas (ninguna huella coincide): %u
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -808,6 +835,15 @@ Clean Neutral = Neutro limpio
 Overscan crop = Recorte de overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Recorta un borde delgado de cada lado de la imagen del juego y amplía el resto, manteniendo sus proporciones: para juegos que muestran una franja o basura en los bordes. Solo con Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Los ajustes de color y el recorte de overscan solo funcionan con el renderizador Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Se necesitan las claves de música
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Escanéalo para agregar las claves de música de Harmonix (HvKeys). Después reinicia el juego.
+Where to get them: = Dónde conseguirlas:
+Harmonix music keys = Claves de música de Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = La música de este juego está cifrada con claves de Harmonix, que no se incluyen. Pega el array HvKeys de keys.h (o una clave por línea) y guarda.
+Save = Guardar
+Keys saved: %u of %u. Restart the game to use them. = Claves guardadas: %u de %u. Reinicia el juego para usarlas.
+Keys refused (no fingerprint matches): %u = Claves rechazadas (ninguna huella coincide): %u
 
 [added de]
 Console storage = Konsolenspeicher
@@ -963,6 +999,15 @@ Clean Neutral = Klar neutral
 Overscan crop = Overscan-Beschnitt
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Schneidet an jedem Rand des Spielbilds einen schmalen Streifen ab und vergrößert den Rest, ohne die Proportionen zu ändern: für Spiele mit einem Streifen oder Bildmüll an den Rändern. Nur mit Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Farbvoreinstellungen und Overscan-Beschnitt funktionieren nur mit dem Vulkan-Renderer.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Musikschlüssel benötigt
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Scannen, um die Harmonix-Musikschlüssel (HvKeys) hinzuzufügen. Danach das Spiel neu starten.
+Where to get them: = Wo es sie gibt:
+Harmonix music keys = Harmonix-Musikschlüssel
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = Die Musik dieses Spiels ist mit Harmonix-Schlüsseln verschlüsselt, die nicht enthalten sind. Füge das HvKeys-Array aus keys.h (oder einen Schlüssel pro Zeile) ein und speichere.
+Save = Speichern
+Keys saved: %u of %u. Restart the game to use them. = Gespeicherte Schlüssel: %u von %u. Starte das Spiel neu, um sie zu verwenden.
+Keys refused (no fingerprint matches): %u = Abgelehnte Schlüssel (kein Fingerabdruck passt): %u
 
 [added fr]
 Console storage = Stockage de la console
@@ -1118,6 +1163,15 @@ Clean Neutral = Neutre net
 Overscan crop = Recadrage overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Retire une fine bordure de chaque bord de l'image du jeu et agrandit le reste en gardant ses proportions : pour les jeux qui affichent une bande ou des artefacts sur les bords. Vulkan uniquement.
 Color presets and overscan crop work with the Vulkan renderer only. = Les préréglages de couleurs et le recadrage overscan ne fonctionnent qu'avec le moteur de rendu Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Clés de musique nécessaires
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Scannez pour ajouter les clés de musique Harmonix (HvKeys). Redémarrez ensuite le jeu.
+Where to get them: = Où les trouver :
+Harmonix music keys = Clés de musique Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = La musique de ce jeu est chiffrée avec des clés Harmonix, qui ne sont pas incluses. Collez le tableau HvKeys de keys.h (ou une clé par ligne) et enregistrez.
+Save = Enregistrer
+Keys saved: %u of %u. Restart the game to use them. = Clés enregistrées : %u sur %u. Redémarrez le jeu pour les utiliser.
+Keys refused (no fingerprint matches): %u = Clés refusées (aucune empreinte ne correspond) : %u
 
 [added it]
 Console storage = Memoria della console
@@ -1273,6 +1327,15 @@ Clean Neutral = Neutro pulito
 Overscan crop = Ritaglio overscan
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Taglia un bordo sottile da ogni lato dell'immagine del gioco e ingrandisce il resto mantenendo le proporzioni: per i giochi che mostrano una striscia o artefatti ai bordi. Solo Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = I preset colore e il ritaglio overscan funzionano solo con il renderer Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Servono le chiavi della musica
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Scansiona per aggiungere le chiavi della musica Harmonix (HvKeys). Poi riavvia il gioco.
+Where to get them: = Dove trovarle:
+Harmonix music keys = Chiavi della musica Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = La musica di questo gioco è cifrata con chiavi Harmonix, che non sono incluse. Incolla l'array HvKeys da keys.h (o una chiave per riga) e salva.
+Save = Salva
+Keys saved: %u of %u. Restart the game to use them. = Chiavi salvate: %u di %u. Riavvia il gioco per usarle.
+Keys refused (no fingerprint matches): %u = Chiavi rifiutate (nessuna impronta corrisponde): %u
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1428,6 +1491,15 @@ Clean Neutral = ニュートラル
 Overscan crop = オーバースキャン切り取り
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = ゲーム映像の各辺から細い縁を切り取り、縦横比を保ったまま残りを拡大します。端に線やノイズが出るゲーム向けです。Vulkan のみ。
 Color presets and overscan crop work with the Vulkan renderer only. = カラープリセットとオーバースキャン切り取りは Vulkan レンダラーでのみ使えます。
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = 音楽キーが必要です
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = スキャンしてHarmonixの音楽キー（HvKeys）を追加し、ゲームを再起動してください。
+Where to get them: = 入手先：
+Harmonix music keys = Harmonixの音楽キー
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = このゲームの音楽はHarmonixのキーで暗号化されていますが、キーは同梱されていません。keys.hのHvKeys配列（または1行に1つのキー）を貼り付けて保存してください。
+Save = 保存
+Keys saved: %u of %u. Restart the game to use them. = 保存されたキー：%u / %u。使うにはゲームを再起動してください。
+Keys refused (no fingerprint matches): %u = 拒否されたキー（一致する指紋なし）：%u
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1583,6 +1655,15 @@ Clean Neutral = 깔끔한 중립
 Overscan crop = 오버스캔 자르기
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 게임 화면의 각 가장자리에서 얇은 테두리를 잘라내고 비율을 유지한 채 나머지를 확대합니다. 가장자리에 줄이나 깨진 화면이 보이는 게임용입니다. Vulkan 전용.
 Color presets and overscan crop work with the Vulkan renderer only. = 색상 프리셋과 오버스캔 자르기는 Vulkan 렌더러에서만 작동합니다.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = 음악 키가 필요합니다
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = 스캔하여 Harmonix 음악 키(HvKeys)를 추가한 뒤 게임을 다시 시작하세요.
+Where to get them: = 받을 수 있는 곳:
+Harmonix music keys = Harmonix 음악 키
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = 이 게임의 음악은 Harmonix 키로 암호화되어 있으며 키는 포함되어 있지 않습니다. keys.h의 HvKeys 배열(또는 한 줄에 키 하나)을 붙여 넣고 저장하세요.
+Save = 저장
+Keys saved: %u of %u. Restart the game to use them. = 저장된 키: %u / %u. 사용하려면 게임을 다시 시작하세요.
+Keys refused (no fingerprint matches): %u = 거부된 키(일치하는 지문 없음): %u
 
 [added nl]
 Console storage = Consoleopslag
@@ -1738,6 +1819,15 @@ Clean Neutral = Helder neutraal
 Overscan crop = Overscan bijsnijden
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Snijdt een smalle rand van elke zijde van het spelbeeld af en vergroot de rest, met behoud van de verhoudingen: voor spellen die een streep of rommel aan de randen tonen. Alleen Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Kleurvoorinstellingen en overscan bijsnijden werken alleen met de Vulkan-renderer.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Muzieksleutels nodig
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Scan om de Harmonix-muzieksleutels (HvKeys) toe te voegen. Start daarna de game opnieuw.
+Where to get them: = Waar je ze vindt:
+Harmonix music keys = Harmonix-muzieksleutels
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = De muziek van deze game is versleuteld met Harmonix-sleutels, die niet zijn meegeleverd. Plak de HvKeys-array uit keys.h (of één sleutel per regel) en sla op.
+Save = Opslaan
+Keys saved: %u of %u. Restart the game to use them. = Opgeslagen sleutels: %u van %u. Start de game opnieuw om ze te gebruiken.
+Keys refused (no fingerprint matches): %u = Geweigerde sleutels (geen vingerafdruk komt overeen): %u
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -1893,6 +1983,15 @@ Clean Neutral = Czyste neutralne
 Overscan crop = Przycięcie overscanu
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Odcina cienki pasek z każdej krawędzi obrazu gry i powiększa resztę, zachowując proporcje: dla gier, które pokazują pasek lub śmieci na krawędziach. Tylko Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Profile kolorów i przycięcie overscanu działają tylko z rendererem Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Potrzebne klucze muzyki
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Zeskanuj, aby dodać klucze muzyki Harmonix (HvKeys). Potem uruchom grę ponownie.
+Where to get them: = Gdzie je znaleźć:
+Harmonix music keys = Klucze muzyki Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = Muzyka tej gry jest zaszyfrowana kluczami Harmonix, które nie są dołączone. Wklej tablicę HvKeys z keys.h (albo jeden klucz w wierszu) i zapisz.
+Save = Zapisz
+Keys saved: %u of %u. Restart the game to use them. = Zapisane klucze: %u z %u. Uruchom grę ponownie, aby ich użyć.
+Keys refused (no fingerprint matches): %u = Odrzucone klucze (żaden odcisk się nie zgadza): %u
 
 [added ru]
 Console storage = Память консоли
@@ -2048,6 +2147,15 @@ Clean Neutral = Чистый нейтральный
 Overscan crop = Обрезка оверскана
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Обрезает тонкую полоску с каждого края изображения игры и увеличивает остальное с сохранением пропорций: для игр с полосой или мусором по краям. Только Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Цветовые профили и обрезка оверскана работают только с рендерером Vulkan.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Нужны ключи музыки
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Отсканируйте, чтобы добавить ключи музыки Harmonix (HvKeys). Затем перезапустите игру.
+Where to get them: = Где их взять:
+Harmonix music keys = Ключи музыки Harmonix
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = Музыка этой игры зашифрована ключами Harmonix, которые не входят в комплект. Вставьте массив HvKeys из keys.h (или по одному ключу в строке) и сохраните.
+Save = Сохранить
+Keys saved: %u of %u. Restart the game to use them. = Сохранено ключей: %u из %u. Перезапустите игру, чтобы использовать их.
+Keys refused (no fingerprint matches): %u = Отклонено ключей (нет совпадающего отпечатка): %u
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2203,6 +2311,15 @@ Clean Neutral = Temiz nötr
 Overscan crop = Overscan kırpma
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = Oyun görüntüsünün her kenarından ince bir şerit keser ve oranları koruyarak geri kalanı büyütür: kenarlarda çizgi veya bozuk görüntü gösteren oyunlar için. Yalnızca Vulkan.
 Color presets and overscan crop work with the Vulkan renderer only. = Renk ön ayarları ve overscan kırpma yalnızca Vulkan oluşturucuyla çalışır.
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = Müzik anahtarları gerekli
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = Harmonix müzik anahtarlarını (HvKeys) eklemek için tarayın. Ardından oyunu yeniden başlatın.
+Where to get them: = Nereden bulunur:
+Harmonix music keys = Harmonix müzik anahtarları
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = Bu oyunun müziği Harmonix anahtarlarıyla şifrelenmiştir ve anahtarlar dahil değildir. keys.h içindeki HvKeys dizisini (veya satır başına bir anahtar) yapıştırıp kaydedin.
+Save = Kaydet
+Keys saved: %u of %u. Restart the game to use them. = Kaydedilen anahtarlar: %u / %u. Kullanmak için oyunu yeniden başlatın.
+Keys refused (no fingerprint matches): %u = Reddedilen anahtarlar (eşleşen parmak izi yok): %u
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2358,6 +2475,15 @@ Clean Neutral = 清爽中性
 Overscan crop = 过扫描裁切
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 从游戏画面的每条边裁掉一圈细边，并在保持比例的同时放大其余部分：适用于边缘出现条纹或杂乱画面的游戏。仅限 Vulkan。
 Color presets and overscan crop work with the Vulkan renderer only. = 色彩预设和过扫描裁切仅适用于 Vulkan 渲染器。
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = 需要音乐密钥
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = 扫描以添加 Harmonix 音乐密钥（HvKeys），然后重新启动游戏。
+Where to get them: = 获取位置：
+Harmonix music keys = Harmonix 音乐密钥
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = 本游戏的音乐使用 Harmonix 密钥加密，密钥未包含在内。请粘贴 keys.h 中的 HvKeys 数组（或每行一个密钥）并保存。
+Save = 保存
+Keys saved: %u of %u. Restart the game to use them. = 已保存的密钥：%u / %u。重新启动游戏后生效。
+Keys refused (no fingerprint matches): %u = 被拒绝的密钥（无匹配的指纹）：%u
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2513,3 +2639,12 @@ Clean Neutral = 清爽中性
 Overscan crop = 過掃描裁切
 Cuts a thin border off each edge of the game's picture and enlarges the rest, keeping its proportions: for games that show a stripe or garbage at the edges. Vulkan only. = 從遊戲畫面的每條邊裁掉一圈細邊，並在保持比例的同時放大其餘部分：適用於邊緣出現條紋或雜亂畫面的遊戲。僅限 Vulkan。
 Color presets and overscan crop work with the Vulkan renderer only. = 色彩預設和過掃描裁切僅適用於 Vulkan 繪圖器。
+# Fix 147c: the Harmonix music keys (overlay and the /keys page).
+Music keys needed = 需要音樂金鑰
+Scan to add the Harmonix music keys (HvKeys). Restart the game after. = 掃描以新增 Harmonix 音樂金鑰（HvKeys），然後重新啟動遊戲。
+Where to get them: = 取得位置：
+Harmonix music keys = Harmonix 音樂金鑰
+This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save. = 本遊戲的音樂使用 Harmonix 金鑰加密，金鑰並未包含在內。請貼上 keys.h 中的 HvKeys 陣列（或每行一個金鑰）並儲存。
+Save = 儲存
+Keys saved: %u of %u. Restart the game to use them. = 已儲存的金鑰：%u / %u。重新啟動遊戲後生效。
+Keys refused (no fingerprint matches): %u = 遭拒絕的金鑰（沒有相符的指紋）：%u

@@ -166,6 +166,7 @@ on:
       - 'tools/check-disc-name-tags.cpp'
       - 'tools/check-package-io.cpp'
       - 'tools/check-file-io.cpp'
+      - 'tools/check-harmonix-keys.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

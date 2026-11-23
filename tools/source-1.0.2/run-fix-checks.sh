@@ -157,9 +157,11 @@ checks=(
   check-disc-name-tags.cpp         # fix 148b
   check-package-io.cpp             # fix 148c
   check-file-io.cpp                # fix 148d
+  check-harmonix-keys.cpp          # fix 147c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-harmonix-keys.cpp]="$repo"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -293,6 +295,7 @@ declare -A fix_of=(
   [check-disc-name-tags.cpp]=148b
   [check-package-io.cpp]=148c
   [check-file-io.cpp]=148d
+  [check-harmonix-keys.cpp]=147c
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
