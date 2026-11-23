@@ -370,7 +370,8 @@ void CheckGuestCalls() {
   Expect(shim.find("xbox360ps5::hang_watch::NoteGuestCall(export_entry->name);") != std::string::npos,
          "every export's trampoline notes its call");
   const std::string main_text = Read("src/canary_game_main.cpp");
-  Expect(main_text.find("Emit(hw::GuestLine(double(now - start) / 1000.0, guest_calls_before_, 0.25));") !=
+  // Fix 153: with the heartbeat, in one light write.
+  Expect(main_text.find("hw::GuestLine(double(now - start) / 1000.0, guest_calls_before_, 0.25));") !=
              std::string::npos,
          "the beat writes the guest line");
 }
@@ -475,7 +476,8 @@ void CheckTree() {
   }
   ExpectIn(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc",
            {"\"GUEST DbgPrint: \" + std::string(string_util::rtrim(data.str()));",
-            "if (ps5_dbgprints.fetch_add(1, std::memory_order_relaxed) < 64) {", "xbox360ps5::hang_watch::Raw(text);"});
+            "if (ps5_dbgprints.fetch_add(1, std::memory_order_relaxed) < 64) {",
+            "xbox360ps5::hang_watch::RawLight(text);  // fix 153: no fsync on the guest's thread"});
   const std::string xam = Read(".deps/xenia-canary/src/xenia/kernel/xam/xam_info.cc");
   Expect(xam.find("Ps5TitleEnd(\"XamLoaderTerminateTitle\", std::string(), 0);") != std::string::npos &&
              xam.find("Ps5TitleEnd(\"XamLoaderTerminateTitle\"") > xam.find("void XamLoaderTerminateTitle_entry() {"),

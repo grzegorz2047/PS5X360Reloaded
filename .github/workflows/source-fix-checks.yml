@@ -175,6 +175,7 @@ on:
       - 'tools/check-settings-tree.cpp'
       - 'tools/check-readability.cpp'
       - 'tools/check-ui-loop-io.cpp'
+      - 'tools/check-hang-watch-sync.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

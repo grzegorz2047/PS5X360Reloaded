@@ -1,0 +1,262 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_io.cc
+@@ -171,8 +171,9 @@ dword_result_t NtCreateFile_entry(lpdword_t handle_out, dword_t desired_access,
+     static std::atomic<uint32_t> recorded{0};
+     if (recorded.fetch_add(1, std::memory_order_relaxed) < 64) {
+       char text[1024];
++      // Fix 153: written without an fsync (StageLight), on the guest's thread.
+       std::snprintf(text, sizeof(text), "BULLYTRACE open-failed status=%08X access=%08X disposition=%u root=%08X path=%s", uint32_t(result), uint32_t(desired_access), uint32_t(creation_disposition), uint32_t(object_attrs->root_directory), target_path.c_str());
+-      xbox360ps5::Stage(text);
++      xbox360ps5::StageLight(text);
+     }
+   }
+   object_ref<XFile> file = nullptr;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+@@ -574,7 +574,7 @@ void MmSetAddressProtect_entry(lpvoid_t base_address, dword_t region_size,
+   const auto note = [&](const char* outcome) {
+     if (!xbox360ps5::hang_watch::TakeRareLine(xbox360ps5::hang_watch::protect_lines, "protect")) return;
+     auto* thread = XThread::GetCurrentThread();
+-    xbox360ps5::hang_watch::Raw(xbox360ps5::hang_watch::ProtectLine(
++    xbox360ps5::hang_watch::RawLight(xbox360ps5::hang_watch::ProtectLine(  // fix 153
+         thread ? thread->handle() : 0, base_address.guest_address(), uint32_t(region_size),
+         uint32_t(protect_bits), outcome, xbox360ps5::hang_watch::HostStackPart()));
+   };
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_strings.cc
+@@ -653,7 +653,7 @@ dword_result_t DbgPrint_entry(lpstring_t format, const ppc_context_t& ctx) {
+     const std::string text =
+         "GUEST DbgPrint: " + std::string(string_util::rtrim(data.str()));
+     XELOGW("{}", text);
+-    xbox360ps5::hang_watch::Raw(text);
++    xbox360ps5::hang_watch::RawLight(text);  // fix 153: no fsync on the guest's thread
+     return X_STATUS_SUCCESS;
+   }
+ #endif
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+@@ -344,7 +344,7 @@ void KeSetCurrentStackPointers_entry(lpvoid_t stack_ptr,
+ #if XE_PLATFORM_PS5
+   // Fix 61: written before the jump below, which does not come back.
+   if (xbox360ps5::hang_watch::TakeRareLine(xbox360ps5::hang_watch::stack_switch_lines, "stack switch")) {
+-    xbox360ps5::hang_watch::Raw(xbox360ps5::hang_watch::StackSwitchLine(
++    xbox360ps5::hang_watch::RawLight(xbox360ps5::hang_watch::StackSwitchLine(  // fix 153
+         current_thread ? current_thread->handle() : 0, stack_ptr.guest_address(),
+         stack_base.guest_address(), stack_limit.guest_address(), uint32_t(thread->fiber_ptr),
+         thread->fiber_ptr && current_thread &&
+diff --git a/include/xbox360ps5/crash_report.hpp b/include/xbox360ps5/crash_report.hpp
+--- a/include/xbox360ps5/crash_report.hpp
++++ b/include/xbox360ps5/crash_report.hpp
+@@ -56,6 +56,8 @@ bool SampleThread(void* thread, ThreadSample* out);
+ bool HostReadable(const void* address, size_t bytes);
+ // One synchronous line in the kernel log and in the report file.
+ void Stage(const char* text);
++// Fix 153: the same line written without an fsync (frequent guest-thread lines: BULLYTRACE).
++void StageLight(const char* text);
+ // Fix 93f: lines (each without "[X360] " and the line break; they are added) as Stage writes them,
+ // in one write to the boot log, and fsync only when `sync`. Stage's fsync per line cost about
+ // 60 ms a line right after a game's caches were written: the 160 memory map lines of a start
+diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.hpp
+--- a/include/xbox360ps5/hang_watch.hpp
++++ b/include/xbox360ps5/hang_watch.hpp
+@@ -32,6 +32,7 @@
+ #include <chrono>
+ #include <cstdarg>
+ #include <cstdint>
++#include <cctype>  // fix 153: ParseSyncSwitch
+ #include <cstdio>
+ #include <string>
+ #include <utility>
+@@ -141,6 +142,60 @@ inline void Raw(const std::string& text) {
+   if (RawSink sink = raw_sink.load(std::memory_order_acquire)) sink(text.data(), text.size());
+ }
+ 
++// Fix 153: the hang watch without an fsync per beat. On the console (GTA IV, 1.0.6-work-fix146f
++// and 142e) its beats fell from 110 to 7 in 30 s, gaps up to 1.93 s, and every slow file
++// operation of the game on the console drive (create, rename, delete) topped out at 0.94-1.0 s:
++// the watch's own fsync, 8 a second (a beat and its guest line every 250 ms, each written and
++// synced), queued behind the drive's flushes and may have forced them. Now the beats, and the
++// frequent lines guest threads write (DbgPrint, the guest's own reports, protect and stack
++// switch lines), are written without an fsync (RawLight); HANG/STALL reports, process ends and
++// every other Raw line still sync. The words of hang-watch-sync.txt in the app folder
++// (XBOX360PS5_DATA_ROOT) switch it while a game runs, read every 2 s by the watch: "beats" syncs
++// every line again (as before), "reports" (the default, also when the file is missing) only
++// those. Every 10 s the watch times one fsync of its file and writes it as a line: a gauge of
++// how long the drive takes to flush.
++enum SyncPolicy : int { kSyncReports = 0, kSyncEveryLine = 1 };
++inline std::atomic<int> sync_policy{kSyncReports};
++inline std::atomic<RawSink> raw_light_sink{nullptr};
++// A frequent line: no fsync unless hang-watch-sync.txt says "beats". Without a light sink (the
++// watch not running) it is a Raw line.
++inline void RawLight(const std::string& text) {
++  if (RawSink sink = raw_light_sink.load(std::memory_order_acquire)) {
++    sink(text.data(), text.size());
++    return;
++  }
++  Raw(text);
++}
++// The words of hang-watch-sync.txt: the first word "beats" (or "every", "all", "sync") is every
++// line; "reports" or anything else, a missing or empty file too, is reports only.
++inline int ParseSyncSwitch(const std::string& content) {
++  size_t start = 0;
++  while (start < content.size() && (content[start] == ' ' || content[start] == '\t' ||
++                                    content[start] == '\r' || content[start] == '\n'))
++    ++start;
++  size_t end = start;
++  while (end < content.size() && content[end] != ' ' && content[end] != '\t' && content[end] != '\r' &&
++         content[end] != '\n')
++    ++end;
++  std::string word = content.substr(start, end - start);
++  for (char& c : word) c = char(std::tolower(static_cast<unsigned char>(c)));
++  return word == "beats" || word == "every" || word == "all" || word == "sync" ? kSyncEveryLine
++                                                                             : kSyncReports;
++}
++inline std::string SyncPolicyLine(int policy, bool file_found) {
++  return std::string("HANG watch sync (fix 153): ") +
++         (policy == kSyncEveryLine ? "every line synced (hang-watch-sync.txt says beats)"
++                                   : file_found ? "only reports synced (hang-watch-sync.txt says reports)"
++                                                : "only reports synced (no hang-watch-sync.txt: the default)");
++}
++// The 10 s gauge: one fsync of the watch's file, timed.
++inline std::string FsyncGaugeLine(double seconds, double fsync_ms, int policy) {
++  char text[160];
++  std::snprintf(text, sizeof(text), "HANG fsync gauge +%.2f s (fix 153): %.1f ms for one fsync of this file (%s)",
++                seconds, fsync_ms, policy == kSyncEveryLine ? "every line synced" : "only reports synced");
++  return text;
++}
++
+ // The emulator's log (xenia/base/logging.cc): lines handed to its writer thread and lines it
+ // wrote to its sinks (the game log file and the TCP stream).
+ inline std::atomic<uint64_t> log_appended{0}, log_written{0};
+diff --git a/platform/ps5/crash_report.cpp b/platform/ps5/crash_report.cpp
+--- a/platform/ps5/crash_report.cpp
++++ b/platform/ps5/crash_report.cpp
+@@ -544,6 +544,19 @@ void Stage(const char* text) {
+   if (report_file >= 0) { (void)!write(report_file, buffer, size); fsync(report_file); }
+   Mirror(buffer, size);
+ }
++// Fix 153: Stage's line without an fsync of the report file or of its mirror (hang-watch.txt).
++void StageLight(const char* text) {
++  char buffer[200];
++  size_t size = 0;
++  for (const char* prefix = "[X360] "; *prefix; ++prefix) buffer[size++] = *prefix;
++  for (; *text && size + 2 < sizeof(buffer); ++text) buffer[size++] = *text;
++  buffer[size++] = '\n'; buffer[size] = 0;
++  sceKernelDebugOutText(0, buffer);
++  NetLog(buffer, size);
++  if (report_file >= 0) (void)!write(report_file, buffer, size);
++  const int mirror = mirror_file.load(std::memory_order_relaxed);
++  if (mirror >= 0) (void)!write(mirror, buffer, size);
++}
+ void StageBlock(const char* const* lines, size_t count, bool sync) {
+   std::string block;
+   for (size_t n = 0; n < count; ++n) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -1805,6 +1805,23 @@ void HangWatchRaw(const char* text, size_t size) {
+   sceKernelDebugOutText(0, line);
+   xbox360ps5::NetLogTry(line, bytes);
+ }
++// Fix 153: a frequent line (a beat, a guest thread's line): written, synced only when
++// hang-watch-sync.txt says "beats" (xbox360ps5/hang_watch.hpp).
++void HangWatchRawLight(const char* text, size_t size) {
++  // Not cut at 380 characters: a beat's two lines go in one write.
++  std::string line = "[X360] ";
++  line.append(text, size);
++  line += '\n';
++  const int fd = hang_watch_fd.load();
++  if (fd >= 0) {
++    (void)!::write(fd, line.data(), line.size());
++    if (xbox360ps5::hang_watch::sync_policy.load(std::memory_order_relaxed) ==
++        xbox360ps5::hang_watch::kSyncEveryLine)
++      ::fsync(fd);
++  }
++  sceKernelDebugOutText(0, line.c_str());
++  xbox360ps5::NetLogTry(line.data(), line.size());
++}
+ // Candidate 8: a report's lines in one write and one fsync (128 work lines).
+ void HangWatchRawBatch(const std::vector<std::string>& lines) {
+   if (lines.empty()) return;
+@@ -1898,6 +1915,7 @@ class HangWatchThread {
+     hang_watch_fd.store(fd_);
+     xbox360ps5::SetCrashReportMirror(fd_);
+     xbox360ps5::hang_watch::raw_sink.store(&HangWatchRaw, std::memory_order_release);
++    xbox360ps5::hang_watch::raw_light_sink.store(&HangWatchRawLight, std::memory_order_release);  // fix 153
+     static const bool exit_handlers = [] {
+       std::atexit(HangWatchAtExit);
+       std::at_quick_exit(HangWatchAtQuickExit);
+@@ -1922,6 +1940,31 @@ class HangWatchThread {
+   // One line to hang-watch.txt (written and synced), the kernel log, and the TCP stream if its
+   // lock is free at once.
+   void Emit(const std::string& text) { HangWatchRaw(text.data(), text.size()); }
++  // Fix 153: a beat's lines, without an fsync unless hang-watch-sync.txt says "beats".
++  void EmitLight(const std::string& text) { HangWatchRawLight(text.data(), text.size()); }
++  // Fix 153: hang-watch-sync.txt, read every 2 s; a line when what it says changes.
++  void ReadSyncSwitch(bool first) {
++    namespace hw = xbox360ps5::hang_watch;
++    std::string content;
++    bool found = false;
++    for (const char* path : {XBOX360PS5_DATA_ROOT "/hang-watch-sync.txt", "/download0/xbox360ps5/hang-watch-sync.txt"}) {
++      const int fd = ::open(path, O_RDONLY);
++      if (fd < 0) continue;
++      char buffer[64];
++      const ssize_t got = ::read(fd, buffer, sizeof(buffer));
++      ::close(fd);
++      if (got > 0) content.assign(buffer, size_t(got));
++      found = true;
++      break;
++    }
++    const int policy = hw::ParseSyncSwitch(content);
++    if (first || policy != hw::sync_policy.load(std::memory_order_relaxed) || found != sync_file_found_) {
++      hw::sync_policy.store(policy, std::memory_order_relaxed);
++      sync_file_found_ = found;
++      Emit(hw::SyncPolicyLine(policy, found));
++    }
++  }
++  bool sync_file_found_ = false;
+   void Run() {
+     namespace hw = xbox360ps5::hang_watch;
+     namespace ct = xbox360ps5::cp_trace;
+@@ -1935,6 +1978,8 @@ class HangWatchThread {
+                      (folder_ / file_name_).string(), fd_ >= 0 ? "open" : "not open",
+                      sceKernelGetDirectMemorySize() >> 20, configured >> 20, unsigned(rc_configured)));
+     uint64_t next_observe = start + 1000, next_beat = start + 250;
++    ReadSyncSwitch(true);  // fix 153
++    uint64_t next_switch = start + 2000, next_gauge = start + 10000;
+     while (!stop_.load()) {
+       // A plain sleep: candidate 1 waited on a condition variable here. Every 50 ms
+       // (candidate 8): Ninja Gaiden II's process ended about a second after its stop began.
+@@ -1950,11 +1995,25 @@ class HangWatchThread {
+         in.swaps = processor_ ? processor_->swap_count() : 0;
+         in.ring_read = ct::Global().ReadPointer();
+         in.ring_write = ct::Global().WritePointer();
+-        Emit(hw::HeartbeatLine(in));
+-        // Candidate 21: what the guest asked the kernel for since the last beat.
+-        Emit(hw::GuestLine(double(now - start) / 1000.0, guest_calls_before_, 0.25));
++        // Fix 153: the beat's two lines in one write, synced only when the switch says "beats".
++        EmitLight(hw::HeartbeatLine(in) + "\n[X360] " +
++                  hw::GuestLine(double(now - start) / 1000.0, guest_calls_before_, 0.25));
+         guest_calls_before_ = hw::guest_calls.load(std::memory_order_relaxed);
+       }
++      if (now >= next_switch) {
++        next_switch = now + 2000;
++        ReadSyncSwitch(false);  // fix 153
++      }
++      if (now >= next_gauge && fd_ >= 0) {
++        // Fix 153: one timed fsync of this file every 10 s, as a gauge of the drive.
++        next_gauge = now + 10000;
++        const auto before = std::chrono::steady_clock::now();
++        ::fsync(fd_);
++        const double fsync_ms =
++            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - before).count();
++        EmitLight(hw::FsyncGaugeLine(double(now - start) / 1000.0, fsync_ms,
++                                     hw::sync_policy.load(std::memory_order_relaxed)));
++      }
+       if (now < next_observe) continue;
+       next_observe = now + 50;
+       auto step = watcher.Observe(now);
