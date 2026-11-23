@@ -214,6 +214,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = 形式\s\s
 Frame\sgeneration\s(test) = フレーム生成（テスト）
 Frame\sgeneration\soutput\s(test) = フレーム生成の出力（テスト）
+Frame\srate\slimit\s(screen) = フレームレート上限（画面）
 Full\s(slow) = 完全（遅い）
 Full\sversion = 製品版
 Game = ゲーム
@@ -327,6 +328,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = 次を含むゲームはありません:\s"
 No\sgames\sin\sthis\sfilter = このフィルターにゲームはありません
 No\sgames\syet = まだゲームがありません
+No\slimit = 制限なし
 No\smatching\sDLC\spackages\sfound. = 一致する\sDLC\sパッケージが見つかりません。
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = 新しいフレームがありません（シェーダーのコンパイル中または読み込み中）。OPTIONS\s＋\sタッチパッド：ガイド
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = 新しいフレームがありません（シェーダーのコンパイル中または読み込み中）。タッチパッド：ガイド
@@ -472,6 +474,7 @@ Show\sFPS\sin\sgame = ゲーム中に\sFPS\sを表示
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = ゲームの毎秒フレーム数を画面の隅に表示します。
 Show\syour\swhole\sbody\sto\sthe\scamera = 全身をカメラに映してください
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = ゲームが\sXbox\s360\sの実績を解除したときに\sPS5\sの通知を表示します。
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = ゲームの新しい画像を1秒間に最大この回数だけ、それぞれ同じ時間ずつ表示し、画面上の動きを均一にします。ゲーム自体はこれまでどおり動作し（速度、音声、エミュレートされた映像のレートは変わりません）、上限より遅いゲームはそのまま表示されます。40には120\sHz出力が必要です（フレーム生成の出力：最大\s120\sHz）。60\sHzではすべての画像を表示します。フレーム生成がオンの間は何もしません。自動：これまでどおり。
 Sign\sIn = プロファイルでサインイン
 Signing\sout\sof\sonline\splay... = オンラインプレイからサインアウトしています...
 Size:\s%s = サイズ:\s%s

@@ -214,6 +214,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Format\s\s
 Frame\sgeneration\s(test) = Génération\sd'images\s(test)
 Frame\sgeneration\soutput\s(test) = Sortie\sde\sla\sgénération\sd'images\s(test)
+Frame\srate\slimit\s(screen) = Limite\sd'images\s(écran)
 Full\s(slow) = Complète\s(lente)
 Full\sversion = Version\scomplète
 Game = Jeu
@@ -327,6 +328,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Aucun\sjeu\savec\s"
 No\sgames\sin\sthis\sfilter = Aucun\sjeu\sdans\sce\sfiltre
 No\sgames\syet = Aucun\sjeu\spour\sle\smoment
+No\slimit = Sans\slimite
 No\smatching\sDLC\spackages\sfound. = Aucun\spaquet\sDLC\scorrespondant\strouvé.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Plus\sde\snouvelles\simages\s(compilation\sdes\sshaders\sou\schargement).\sOPTIONS\s+\spavé\stactile\s:\sguide
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Plus\sde\snouvelles\simages\s(compilation\sdes\sshaders\sou\schargement).\sPavé\stactile\s:\sguide
@@ -472,6 +474,7 @@ Show\sFPS\sin\sgame = Afficher\sles\sIPS\sen\sjeu
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Affiche\sles\simages\spar\sseconde\sdu\sjeu\sdans\sle\scoin\sde\sl'écran.
 Show\syour\swhole\sbody\sto\sthe\scamera = Montrez\stout\svotre\scorps\sà\sla\scaméra
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Affiche\sune\snotification\sPS5\squand\sun\sjeu\sdébloque\sun\ssuccès\sXbox\s360.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Affiche\sles\snouvelles\simages\sdu\sjeu\sau\splus\sce\snombre\sde\sfois\spar\sseconde,\schacune\spendant\sla\smême\sdurée,\spour\sun\smouvement\srégulier\sà\sl'écran.\sLe\sjeu\slui-même\stourne\scomme\savant\s(sa\svitesse,\sson\sson\set\sla\sFréquence\svidéo\sémulée\sne\schangent\spas),\set\sun\sjeu\splus\slent\sque\sla\slimite\sest\saffiché\stel\squel.\s40\snécessite\sla\ssortie\s120\sHz\s(Sortie\sde\sla\sgénération\sd'images\s:\sJusqu'à\s120\sHz)\s;\sà\s60\sHz,\stoutes\sles\simages\ssont\saffichées.\sSans\seffet\squand\sla\sgénération\sd'images\sest\sactivée.\sAutomatique\s:\scomme\savant.
 Sign\sIn = Se\sconnecter\savec\sun\sprofil
 Signing\sout\sof\sonline\splay... = Déconnexion\sdu\sjeu\sen\sligne...
 Size:\s%s = Taille\s:\s%s

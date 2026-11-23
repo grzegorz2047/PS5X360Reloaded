@@ -207,6 +207,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Formato\s\s
 Frame\sgeneration\s(test) = Generación\sde\sfotogramas\s(prueba)
 Frame\sgeneration\soutput\s(test) = Salida\sde\svídeo\sde\sla\sgeneración\s(prueba)
+Frame\srate\slimit\s(screen) = Límite\sde\sfotogramas\s(pantalla)
 Full\s(slow) = Completa\s(lenta)
 Full\sversion = Versión\scompleta
 Game = Juego
@@ -315,6 +316,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Ningún\sjuego\scon\s"
 No\sgames\sin\sthis\sfilter = No\shay\sjuegos\sen\seste\sfiltro
 No\sgames\syet = Aún\sno\shay\sjuegos
+No\slimit = Sin\slímite
 No\smatching\sDLC\spackages\sfound. = No\sse\sencontraron\spaquetes\sDLC\scompatibles.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Sin\snuevos\sfotogramas\s(compilando\sshaders\so\scargando).\sOPTIONS\s+\stouchpad:\sguía
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Sin\snuevos\sfotogramas\s(compilando\sshaders\so\scargando).\sTouchpad:\sguía
@@ -451,6 +453,7 @@ Show\sFPS\sin\sgame = Mostrar\sFPS\sen\sel\sjuego
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Muestra\slos\sfotogramas\spor\ssegundo\sen\sla\sesquina\sde\sla\spantalla.
 Show\syour\swhole\sbody\sto\sthe\scamera = Muestra\stodo\sel\scuerpo\sa\sla\scámara
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Muestra\suna\snotificación\sde\sPS5\scuando\sun\sjuego\sdesbloquea\sun\slogro\sde\sXbox\s360.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Muestra\slas\simágenes\snuevas\sdel\sjuego\scomo\smucho\seste\snúmero\sde\sveces\spor\ssegundo,\scada\suna\sdurante\sel\smismo\stiempo,\spara\sun\smovimiento\suniforme\sen\spantalla.\sEl\sjuego\ssigue\sfuncionando\scomo\santes\s(su\svelocidad,\ssu\ssonido\sy\sel\sRitmo\sdel\svídeo\semulado\sno\scambian),\sy\sun\sjuego\smás\slento\sque\sel\slímite\sse\smuestra\stal\scual.\s40\snecesita\sla\ssalida\sde\s120\sHz\s(Salida\sde\svídeo\sde\sla\sgeneración:\sHasta\s120\sHz);\sa\s60\sHz\smuestra\stodas\slas\simágenes.\sNo\shace\snada\scon\sla\sgeneración\sde\sfotogramas\sactivada.\sAutomático:\scomo\santes.
 Sign\sIn = Iniciar\ssesión\scon\sun\sperfil
 Signing\sout\sof\sonline\splay... = Cerrando\sla\ssesión\sdel\sjuego\sen\slínea...
 Size:\s%s = Tamaño:\s%s

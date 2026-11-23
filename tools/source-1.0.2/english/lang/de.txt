@@ -214,6 +214,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = Format\s\s
 Frame\sgeneration\s(test) = Bildgenerierung\s(Test)
 Frame\sgeneration\soutput\s(test) = Ausgabe\sder\sBildgenerierung\s(Test)
+Frame\srate\slimit\s(screen) = Bildratenlimit\s(Bildschirm)
 Full\s(slow) = Vollständig\s(langsam)
 Full\sversion = Vollversion
 Game = Spiel
@@ -327,6 +328,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = Kein\sSpiel\smit\s"
 No\sgames\sin\sthis\sfilter = Keine\sSpiele\sin\sdiesem\sFilter
 No\sgames\syet = Noch\skeine\sSpiele
+No\slimit = Kein\sLimit
 No\smatching\sDLC\spackages\sfound. = Kein\spassendes\sDLC-Paket\sgefunden.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = Keine\sneuen\sBilder\s(Shader-Kompilierung\soder\sLaden).\sOPTIONS\s+\sTouchpad:\sGuide
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = Keine\sneuen\sBilder\s(Shader-Kompilierung\soder\sLaden).\sTouchpad:\sGuide
@@ -472,6 +474,7 @@ Show\sFPS\sin\sgame = FPS\sim\sSpiel\sanzeigen
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = Zeigt\sdie\sBilder\spro\sSekunde\sdes\sSpiels\sin\sder\sBildschirmecke.
 Show\syour\swhole\sbody\sto\sthe\scamera = Zeig\sder\sKamera\sdeinen\sganzen\sKörper
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = Zeigt\seine\sPS5-Benachrichtigung,\swenn\sein\sSpiel\seinen\sXbox\s360-Erfolg\sfreischaltet.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = Zeigt\sneue\sBilder\sdes\sSpiels\shöchstens\sso\soft\spro\sSekunde,\sjedes\sgleich\slange,\sfür\seine\sgleichmäßige\sBewegung\sauf\sdem\sBildschirm.\sDas\sSpiel\sselbst\släuft\swie\sbisher\s(Tempo,\sTon\sund\sdie\sEmulierte\sBildrate\sändern\ssich\snicht),\sund\sein\sSpiel,\sdas\slangsamer\sals\sdas\sLimit\sist,\swird\sso\sgezeigt,\swie\ses\sist.\s40\sbraucht\sdie\s120-Hz-Ausgabe\s(Ausgabe\sder\sBildgenerierung:\sBis\szu\s120\sHz);\sbei\s60\sHz\szeigt\ses\sjedes\sBild.\sBei\seingeschalteter\sBildgenerierung\swirkt\ses\snicht.\sAutomatisch:\swie\sbisher.
 Sign\sIn = Mit\seinem\sProfil\sanmelden
 Signing\sout\sof\sonline\splay... = Abmelden\svom\sOnline-Spiel...
 Size:\s%s = Größe:\s%s
