@@ -330,7 +330,9 @@ Weight = Peso
 A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Antisserrilhamento
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza as bordas serrilhadas da imagem do jogo antes de ela ser ajustada à tela. FXAA: leve, mantém o texto nítido. FXAA Extremo: bordas mais suaves, imagem um pouco mais suave. Só no Vulkan; custa pouco.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Suaviza as bordas serrilhadas da imagem do jogo antes de ela ser ajustada à tela. FXAA: leve, mantém o texto nítido. FXAA Extremo: bordas mais suaves, imagem um pouco mais suave. Só no Vulkan; custa pouco. SMAA 1x: bordas mais limpas que o FXAA, com menos desfoque, um pouco mais pesado.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = O antisserrilhamento funciona apenas com o renderizador Vulkan.
@@ -485,7 +487,9 @@ Weight = Peso
 A thinner or heavier build. = Uma constituição mais magra ou mais robusta.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Suavização de arestas
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza as arestas serrilhadas da imagem do jogo antes de esta ser ajustada ao ecrã. FXAA: leve, mantém o texto nítido. FXAA Extremo: arestas mais suaves, imagem um pouco mais suave. Só em Vulkan; custa pouco.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Suaviza as arestas serrilhadas da imagem do jogo antes de esta ser ajustada ao ecrã. FXAA: leve, mantém o texto nítido. FXAA Extremo: arestas mais suaves, imagem um pouco mais suave. Só em Vulkan; custa pouco. SMAA 1x: arestas mais limpas que o FXAA, com menos desfoque, um pouco mais pesado.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = A suavização de arestas só funciona com o renderizador Vulkan.
@@ -640,7 +644,9 @@ Weight = Peso
 A thinner or heavier build. = Una complexión más delgada o más robusta.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Suavizado de bordes
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza los bordes dentados de la imagen del juego antes de escalarla a la pantalla. FXAA: ligero, mantiene el texto nítido. FXAA Extremo: bordes más suaves, imagen algo más blanda. Solo con Vulkan; cuesta poco.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Suaviza los bordes dentados de la imagen del juego antes de escalarla a la pantalla. FXAA: ligero, mantiene el texto nítido. FXAA Extremo: bordes más suaves, imagen algo más blanda. Solo con Vulkan; cuesta poco. SMAA 1x: bordes más limpios que FXAA y con menos desenfoque, algo más exigente.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
@@ -795,7 +801,9 @@ Weight = Peso
 A thinner or heavier build. = Una complexión más delgada o más robusta.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Suavizado de bordes
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Suaviza los bordes dentados de la imagen del juego antes de escalarla a la pantalla. FXAA: ligero, mantiene el texto nítido. FXAA Extremo: bordes más suaves, imagen un poco más suave. Solo con Vulkan; cuesta poco.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Suaviza los bordes dentados de la imagen del juego antes de escalarla a la pantalla. FXAA: ligero, mantiene el texto nítido. FXAA Extremo: bordes más suaves, imagen un poco más suave. Solo con Vulkan; cuesta poco. SMAA 1x: bordes más limpios que FXAA y con menos desenfoque, un poco más exigente.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extremo
 Anti-aliasing works with the Vulkan renderer only. = El suavizado de bordes solo funciona con el renderizador Vulkan.
@@ -950,7 +958,9 @@ Weight = Gewicht
 A thinner or heavier build. = Ein schlankerer oder kräftigerer Körperbau.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Kantenglättung
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Glättet die gezackten Kanten des Spielbilds, bevor es auf den Bildschirm skaliert wird. FXAA: leicht, Text bleibt scharf. FXAA Extrem: glattere Kanten, etwas weicheres Bild. Nur mit Vulkan; kostet wenig.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Glättet die gezackten Kanten des Spielbilds, bevor es auf den Bildschirm skaliert wird. FXAA: leicht, Text bleibt scharf. FXAA Extrem: glattere Kanten, etwas weicheres Bild. Nur mit Vulkan; kostet wenig. SMAA 1x: sauberere Kanten als FXAA mit weniger Unschärfe, etwas aufwendiger.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extrem
 Anti-aliasing works with the Vulkan renderer only. = Kantenglättung funktioniert nur mit dem Vulkan-Renderer.
@@ -1105,7 +1115,9 @@ Weight = Corpulence
 A thinner or heavier build. = Une silhouette plus mince ou plus forte.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Anticrénelage
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Adoucit les bords crénelés de l'image du jeu avant sa mise à l'échelle à l'écran. FXAA : léger, garde le texte net. FXAA Extrême : bords plus lisses, image un peu plus douce. Vulkan uniquement ; coûte peu.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Adoucit les bords crénelés de l'image du jeu avant sa mise à l'échelle à l'écran. FXAA : léger, garde le texte net. FXAA Extrême : bords plus lisses, image un peu plus douce. Vulkan uniquement ; coûte peu. SMAA 1x : bords plus nets qu'avec FXAA et moins de flou, un peu plus exigeant.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extrême
 Anti-aliasing works with the Vulkan renderer only. = L'anticrénelage ne fonctionne qu'avec le moteur de rendu Vulkan.
@@ -1260,7 +1272,9 @@ Weight = Peso
 A thinner or heavier build. = Una corporatura più magra o più robusta.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Anti-aliasing
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Smussa i bordi seghettati dell'immagine del gioco prima che venga adattata allo schermo. FXAA: leggero, mantiene il testo nitido. FXAA Estremo: bordi più morbidi, immagine leggermente più morbida. Solo Vulkan; costa poco.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Smussa i bordi seghettati dell'immagine del gioco prima che venga adattata allo schermo. FXAA: leggero, mantiene il testo nitido. FXAA Estremo: bordi più morbidi, immagine leggermente più morbida. Solo Vulkan; costa poco. SMAA 1x: bordi più puliti di FXAA con meno sfocatura, un po' più pesante.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Estremo
 Anti-aliasing works with the Vulkan renderer only. = L'anti-aliasing funziona solo con il renderer Vulkan.
@@ -1415,7 +1429,9 @@ Weight = 体重
 A thinner or heavier build. = 細め、またはがっしりした体格にします。
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = アンチエイリアス
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 画面に合わせて拡大する前に、ゲーム映像のギザギザした輪郭をなめらかにします。FXAA：軽く、文字はくっきりしたままです。FXAA エクストリーム：輪郭がよりなめらかになり、映像が少し柔らかくなります。Vulkan のみ。負荷はわずかです。
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = 画面に合わせて拡大する前に、ゲーム映像のギザギザした輪郭をなめらかにします。FXAA：軽く、文字はくっきりしたままです。FXAA エクストリーム：輪郭がよりなめらかになり、映像が少し柔らかくなります。Vulkan のみ。負荷はわずかです。SMAA 1x：FXAA よりぼやけが少なく輪郭がきれいですが、少し負荷が増えます。
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA エクストリーム
 Anti-aliasing works with the Vulkan renderer only. = アンチエイリアスは Vulkan レンダラーでのみ使えます。
@@ -1570,7 +1586,9 @@ Weight = 체중
 A thinner or heavier build. = 더 마르거나 더 건장한 체격입니다.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = 안티에일리어싱
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 게임 화면을 화면 크기에 맞추기 전에 들쭉날쭉한 가장자리를 부드럽게 합니다. FXAA: 가볍고 글자가 선명하게 유지됩니다. FXAA 익스트림: 가장자리가 더 매끄럽고 화면이 약간 더 부드러워집니다. Vulkan 전용이며 부담이 적습니다.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = 게임 화면을 화면 크기에 맞추기 전에 들쭉날쭉한 가장자리를 부드럽게 합니다. FXAA: 가볍고 글자가 선명하게 유지됩니다. FXAA 익스트림: 가장자리가 더 매끄럽고 화면이 약간 더 부드러워집니다. Vulkan 전용이며 부담이 적습니다. SMAA 1x: FXAA보다 흐림이 적고 가장자리가 더 깔끔하지만 조금 더 무겁습니다.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA 익스트림
 Anti-aliasing works with the Vulkan renderer only. = 안티에일리어싱은 Vulkan 렌더러에서만 작동합니다.
@@ -1725,7 +1743,9 @@ Weight = Gewicht
 A thinner or heavier build. = Een slankere of zwaardere bouw.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Anti-aliasing
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Maakt de gekartelde randen van het spelbeeld glad voordat het naar het scherm wordt geschaald. FXAA: licht, tekst blijft scherp. FXAA Extreem: gladdere randen, een iets zachter beeld. Alleen Vulkan; kost weinig.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Maakt de gekartelde randen van het spelbeeld glad voordat het naar het scherm wordt geschaald. FXAA: licht, tekst blijft scherp. FXAA Extreem: gladdere randen, een iets zachter beeld. Alleen Vulkan; kost weinig. SMAA 1x: schonere randen dan FXAA met minder vervaging, iets zwaarder.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extreem
 Anti-aliasing works with the Vulkan renderer only. = Anti-aliasing werkt alleen met de Vulkan-renderer.
@@ -1880,7 +1900,9 @@ Weight = Waga
 A thinner or heavier build. = Szczuplejsza lub tęższa sylwetka.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Wygładzanie krawędzi
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Wygładza poszarpane krawędzie obrazu gry, zanim zostanie on dopasowany do ekranu. FXAA: lekkie, tekst zostaje ostry. FXAA Extreme: gładsze krawędzie, nieco bardziej miękki obraz. Tylko Vulkan; kosztuje niewiele.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Wygładza poszarpane krawędzie obrazu gry, zanim zostanie on dopasowany do ekranu. FXAA: lekkie, tekst zostaje ostry. FXAA Extreme: gładsze krawędzie, nieco bardziej miękki obraz. Tylko Vulkan; kosztuje niewiele. SMAA 1x: czystsze krawędzie niż FXAA i mniej rozmycia, nieco cięższe.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Extreme
 Anti-aliasing works with the Vulkan renderer only. = Wygładzanie krawędzi działa tylko z rendererem Vulkan.
@@ -2035,7 +2057,9 @@ Weight = Вес
 A thinner or heavier build. = Более худое или более плотное телосложение.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Сглаживание
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Сглаживает зубчатые края изображения игры перед масштабированием на экран. FXAA: лёгкое, текст остаётся чётким. FXAA Экстрим: более гладкие края, чуть более мягкое изображение. Только Vulkan; почти не нагружает.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Сглаживает зубчатые края изображения игры перед масштабированием на экран. FXAA: лёгкое, текст остаётся чётким. FXAA Экстрим: более гладкие края, чуть более мягкое изображение. Только Vulkan; почти не нагружает. SMAA 1x: более чистые края, чем у FXAA, и меньше размытия, чуть тяжелее.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Экстрим
 Anti-aliasing works with the Vulkan renderer only. = Сглаживание работает только с рендерером Vulkan.
@@ -2190,7 +2214,9 @@ Weight = Kilo
 A thinner or heavier build. = Daha zayıf veya daha iri bir yapı.
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = Kenar yumuşatma
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = Oyun görüntüsü ekrana ölçeklenmeden önce tırtıklı kenarlarını yumuşatır. FXAA: hafif, yazılar net kalır. FXAA Ekstrem: daha yumuşak kenarlar, biraz daha yumuşak bir görüntü. Yalnızca Vulkan; maliyeti düşüktür.
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = Oyun görüntüsü ekrana ölçeklenmeden önce tırtıklı kenarlarını yumuşatır. FXAA: hafif, yazılar net kalır. FXAA Ekstrem: daha yumuşak kenarlar, biraz daha yumuşak bir görüntü. Yalnızca Vulkan; maliyeti düşüktür. SMAA 1x: FXAA'dan daha temiz kenarlar ve daha az bulanıklık, biraz daha ağır.
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA Ekstrem
 Anti-aliasing works with the Vulkan renderer only. = Kenar yumuşatma yalnızca Vulkan oluşturucuyla çalışır.
@@ -2345,7 +2371,9 @@ Weight = 体重
 A thinner or heavier build. = 更瘦或更壮的体格。
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = 抗锯齿
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 在游戏画面缩放到屏幕之前，平滑其锯齿状边缘。FXAA：轻量，文字保持清晰。FXAA 极致：边缘更平滑，画面略为柔和。仅限 Vulkan，性能开销很小。
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = 在游戏画面缩放到屏幕之前，平滑其锯齿状边缘。FXAA：轻量，文字保持清晰。FXAA 极致：边缘更平滑，画面略为柔和。仅限 Vulkan，性能开销很小。SMAA 1x：边缘比 FXAA 更干净、模糊更少，开销略高。
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA 极致
 Anti-aliasing works with the Vulkan renderer only. = 抗锯齿仅适用于 Vulkan 渲染器。
@@ -2500,7 +2528,9 @@ Weight = 體重
 A thinner or heavier build. = 更瘦或更壯的體格。
 # Fix 137: anti-aliasing (FXAA) in the Vulkan swap (launcher option antialiasing).
 Anti-aliasing = 反鋸齒
-Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. = 在遊戲畫面縮放至螢幕之前，平滑其鋸齒狀邊緣。FXAA：輕量，文字保持清晰。FXAA 極致：邊緣更平滑，畫面略為柔和。僅限 Vulkan，效能負擔很小。
+Smooths the jagged edges of the game's picture before it is scaled to the screen. FXAA: light, keeps text sharp. FXAA Extreme: smoother edges, a slightly softer picture. Vulkan only; it costs little. SMAA 1x: cleaner edges than FXAA with less blur, a little heavier. = 在遊戲畫面縮放至螢幕之前，平滑其鋸齒狀邊緣。FXAA：輕量，文字保持清晰。FXAA 極致：邊緣更平滑，畫面略為柔和。僅限 Vulkan，效能負擔很小。SMAA 1x：邊緣比 FXAA 更乾淨、模糊更少，負擔略高。
+# Fix 145: SMAA 1x, the fourth anti-aliasing choice.
+SMAA 1x = SMAA 1x
 FXAA = FXAA
 FXAA Extreme = FXAA 極致
 Anti-aliasing works with the Vulkan renderer only. = 反鋸齒僅適用於 Vulkan 繪圖器。

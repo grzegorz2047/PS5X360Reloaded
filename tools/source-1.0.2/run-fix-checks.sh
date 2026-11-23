@@ -150,6 +150,7 @@ checks=(
   check-guide-per-game.cpp         # fix 143
   check-vulkan-fxaa.cpp            # fixes 137 and 137b
   check-swap-effects.cpp           # fixes 141 and 141b
+  check-swap-smaa.cpp              # fix 145
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -279,6 +280,7 @@ declare -A fix_of=(
   [check-guide-per-game.cpp]=143
   [check-vulkan-fxaa.cpp]="137 137b"
   [check-swap-effects.cpp]="141 141b"
+  [check-swap-smaa.cpp]=145
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -313,7 +315,7 @@ done
 # as XeniaHelpers.cmake runs it at the compile), where glslangValidator, spirv-opt and spirv-dis are on
 # the PATH (the source build installs the Vulkan SDK's before these checks); a shader error then shows
 # here instead of in the compile.
-echo "=== fix 137 and 141 shaders (glslangValidator)"
+echo "=== fix 137, 141 and 145 shaders (glslangValidator)"
 if [[ " $skipped_fixes " == *" 137 "* ]]; then
   echo "skip fix 137 shaders (fix 137 left out of this build)"
 elif ! command -v glslangValidator > /dev/null || ! command -v spirv-opt > /dev/null || ! command -v spirv-dis > /dev/null; then
@@ -325,6 +327,10 @@ else
   # Fix 141: the effect path's pass without AA (and its colour preset in swap_post.glsli).
   if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.ps.glsl" ]]; then
     shader_list+=" swap_post.ps.glsl"
+  fi
+  # Fix 145: SMAA 1x's three passes (with the pinned third_party/smaa/SMAA.hlsl).
+  if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/smaa_edge.ps.glsl" ]]; then
+    shader_list+=" smaa_edge.ps.glsl smaa_weight.ps.glsl smaa_blend.ps.glsl"
   fi
   for shader in $shader_list; do
     # fxaa.ps.glsl -> fxaa_ps.h, as XeniaHelpers.cmake names it.
