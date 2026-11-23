@@ -32,10 +32,10 @@ index ab9e068..2cc1ca4 100644
    // rarely needed, most register writes have no special logic here
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
 new file mode 100644
-index 0000000..87083f7
+index 0000000..2524d6e
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
-@@ -0,0 +1,867 @@
+@@ -0,0 +1,865 @@
 +// SPDX-License-Identifier: MIT
 +// Xbox360PS5, fix 142: the GPU command processing of a frame split over two threads (prototype).
 +//
@@ -136,42 +136,40 @@ index 0000000..87083f7
 +// The PM4 type 3 opcodes the packet handlers know (xenos.h; vulkan_command_processor.cc checks
 +// them against it at compile time).
 +namespace pm4 {
-+enum : uint32_t {
-+  kNop = 0x10,
-+  kRegRmw = 0x21,
-+  kDrawIndx = 0x22,
-+  kVizQuery = 0x23,
-+  kWaitForIdle = 0x26,
-+  kImLoad = 0x27,
-+  kImLoadImmediate = 0x2b,
-+  kSetConstant = 0x2d,
-+  kLoadAluConstant = 0x2f,
-+  kDrawIndx2 = 0x36,
-+  kIndirectBufferPfd = 0x37,
-+  kInvalidateState = 0x3b,
-+  kWaitRegMem = 0x3c,
-+  kMemWrite = 0x3d,
-+  kRegToMem = 0x3e,
-+  kIndirectBuffer = 0x3f,
-+  kCondWrite = 0x45,
-+  kEventWrite = 0x46,
-+  kMeInit = 0x48,
-+  kSetBinMask = 0x50,
-+  kSetBinSelect = 0x51,
-+  kInterrupt = 0x54,
-+  kSetConstant2 = 0x55,
-+  kSetShaderConstants = 0x56,
-+  kEventWriteShd = 0x58,
-+  kEventWriteExt = 0x5a,
-+  kEventWriteZpd = 0x5b,
-+  kWaitIbPfdComplete = 0x5d,
-+  kContextUpdate = 0x5e,
-+  kSetBinMaskLo = 0x60,
-+  kSetBinMaskHi = 0x61,
-+  kSetBinSelectLo = 0x62,
-+  kSetBinSelectHi = 0x63,
-+  kXeSwap = 0x64,
-+};
++constexpr uint32_t kNop = 0x10;
++constexpr uint32_t kRegRmw = 0x21;
++constexpr uint32_t kDrawIndx = 0x22;
++constexpr uint32_t kVizQuery = 0x23;
++constexpr uint32_t kWaitForIdle = 0x26;
++constexpr uint32_t kImLoad = 0x27;
++constexpr uint32_t kImLoadImmediate = 0x2b;
++constexpr uint32_t kSetConstant = 0x2d;
++constexpr uint32_t kLoadAluConstant = 0x2f;
++constexpr uint32_t kDrawIndx2 = 0x36;
++constexpr uint32_t kIndirectBufferPfd = 0x37;
++constexpr uint32_t kInvalidateState = 0x3b;
++constexpr uint32_t kWaitRegMem = 0x3c;
++constexpr uint32_t kMemWrite = 0x3d;
++constexpr uint32_t kRegToMem = 0x3e;
++constexpr uint32_t kIndirectBuffer = 0x3f;
++constexpr uint32_t kCondWrite = 0x45;
++constexpr uint32_t kEventWrite = 0x46;
++constexpr uint32_t kMeInit = 0x48;
++constexpr uint32_t kSetBinMask = 0x50;
++constexpr uint32_t kSetBinSelect = 0x51;
++constexpr uint32_t kInterrupt = 0x54;
++constexpr uint32_t kSetConstant2 = 0x55;
++constexpr uint32_t kSetShaderConstants = 0x56;
++constexpr uint32_t kEventWriteShd = 0x58;
++constexpr uint32_t kEventWriteExt = 0x5a;
++constexpr uint32_t kEventWriteZpd = 0x5b;
++constexpr uint32_t kWaitIbPfdComplete = 0x5d;
++constexpr uint32_t kContextUpdate = 0x5e;
++constexpr uint32_t kSetBinMaskLo = 0x60;
++constexpr uint32_t kSetBinMaskHi = 0x61;
++constexpr uint32_t kSetBinSelectLo = 0x62;
++constexpr uint32_t kSetBinSelectHi = 0x63;
++constexpr uint32_t kXeSwap = 0x64;
 +// Whether ExecutePacketType3's switch has a case for the opcode (any other ends the buffer).
 +inline bool Known(uint32_t opcode) {
 +  switch (opcode) {
