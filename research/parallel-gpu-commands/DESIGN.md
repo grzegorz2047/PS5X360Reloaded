@@ -476,7 +476,8 @@ Kinect Sports (boxing: Kinect, readbacks and queries).
 ## 11. Builds
 
 - Branch: `fix/parallel-gpu-record`
-- `BUILD_VERSION`: `1.0.5-work-fix142`
+- `BUILD_VERSION`: `1.0.5-work-fix142b` (fix 142b, section 12; fix 142 alone was
+  `1.0.5-work-fix142`)
 - Build run to test (Rebuild v1.0.2 from source drops): **45126559706**, green, at `e33de55`
   (artifact `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks of the same commit: run
   45126560622, green.
@@ -487,3 +488,67 @@ Kinect Sports (boxing: Kinect, readbacks and queries).
   which `-Werror` makes fatal. `c9d7652` made them `constexpr uint32_t`.
 - As with any test build of the source rebuild, the package needs `src102-out/lang/*.txt` in place
   of `PPSA50011/assets/lang/*.txt` (fixes README, "Language files").
+
+## 12. Console results of 1.0.5-work-fix142, and fix 142b
+
+GTA IV, the same city spot, build run 45126559706. Logs and the coordinator's notes are in
+`research/fix142/`.
+
+| Run | Settings | Swaps/s | GPU thread executing | Fix 142's line |
+|---|---|---|---|---|
+| A | off, async 0 | 47.7 (short) | 691 ms/s | off |
+| B | off, async 1 | 42-45 | 987-990 | off |
+| C | mode 2 | 38-40 | 819 | decode 166, drains 621, wait 89.2/frame |
+| D | mode 1 | **12-13** | 988 | decode 82, drains 916, starved 6.9 |
+| E | mode 1, sibling 1 | **12-13** | 989 | decode 90, drains 908 |
+| F | mode 1, filter 0 | **13-14** | 989 | decode 71, drains 928 |
+| G | mode 1, async 0 | **12-13** | 988 | drains 918 |
+
+What the logs show:
+- **No hang, no deadlock, no visual problem.** Mode 2 is correct.
+- **The decoder's share is about 17%** (C: 166 of 985 ms/s), so mode 1 can gain at most about 20%
+  in this scene.
+- **Mode 1 was 3× slower**, whatever the placement (E), the filter (F) or fix 134's worker (G).
+- **The 89 WAIT_REG_MEMs a frame never waited** (fix 77: "0/s waited"). Each still drained the
+  FIFO.
+- **The GPU thread's "executing" in D held only about 220 ms/s of real work** (draws 196 ms/s,
+  packets 21) out of 988. The rest came from `OpRing::Pop`. While the decoder slept in a drain,
+  `Pop` took the mutex and notified it after every op: 87,681 ops a frame, about 1.1 million
+  wakes a second on the GPU thread. Mode 2 has no second thread and never paid this, which matches
+  it being only 10% slower.
+
+**Fix 142b** (`142b-parallel-record-waits.patch`, label `1.0.5-work-fix142b`) makes three changes.
+
+1. **One wake per wait.** `Pop` wakes a sleeping producer only once `retired` reaches the
+   position it waits for.
+2. **`gpu_parallel_record_waits` / `waits` (default 1): a met memory wait doesn't drain.** The
+   decoder reads the wait's condition as the handler does (the dword, `GpuSwap` by the poll
+   address's endianness, `MatchValueAndRef`). If it already holds, and no write still to execute
+   could change that dword, the decoder goes on. Such writes are a pending explicit write over it,
+   or any write whose address the decoder doesn't know (scratch registers, ZPD reports, REG_RMW,
+   COND_WRITE). The GPU thread still executes the packet with the original handler.
+   - An indirect buffer entered while such a wait is not yet executed still drains
+     (`ib-after-wait`): the guest might fill a buffer once the flag is set.
+   - `waits 2` leaves out that safety net, to measure what it costs. `waits 0` is 142's behaviour.
+3. **The per-drain timing the coordinator asked for**, added to the 30 s line:
+   - waits per frame by outcome (passed early, register, unmet, write pending);
+   - drains per frame, the backlog at each drain's start;
+   - the time from the GPU thread reaching the drain's position to the decoder running again;
+   - decoder wakes per second.
+
+Next console runs, GTA IV, the same spot, game restarted between settings:
+
+| Run | `parallel-record.txt` | `async-submit.txt` | Question |
+|---|---|---|---|
+| H | `mode 2` | `mode 1` | as C; the waits passed early, in one thread |
+| I | `mode 1` | `mode 1` | the fix: back near C or above B? |
+| J | `mode 1`<br>`waits 0` | `mode 1` | the single wake alone (drains kept) |
+| K | `mode 1`<br>`waits 2` | `mode 1` | the cost of `ib-after-wait` |
+| L | `mode 1`<br>`sibling 1` | `mode 1` | placement, now that the wakes are gone |
+
+Read in each run's fix 142 line:
+- `decoder woken` should be about one per drain, not about a million a second;
+- `drains` per frame and `woken after` should be small;
+- `passed early` should be close to 89 a frame;
+- `ib-after-wait` per frame;
+- `starved` versus `executing`.

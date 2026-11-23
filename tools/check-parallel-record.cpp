@@ -37,6 +37,16 @@
 //      writes the filter relies on) still have the text they had when fix 142 was written: a
 //      fingerprint of each (whitespace collapsed); a change fails here with what to update.
 //      "--print-sync" prints the current fingerprints.
+// Fix 142b: GTA IV ran mode 1 at 12-13 frames a second against 38-40 in mode 2. Its 89
+// WAIT_REG_MEMs a frame never waited but each drained the FIFO, and the GPU thread woke the
+// sleeping decoder after every op.
+//  (j) "waits 0|1|2"; the consumer wakes a sleeping producer once, when its position is retired;
+//      a WAIT_REG_MEM on memory already met with nothing pending is passed without a drain, one
+//      on a register, unmet, or behind a write still to execute (a known address that overlaps,
+//      or a scratch register, ZPD, REG_RMW or COND_WRITE) drains; an indirect buffer after a wait
+//      passed and not yet executed drains with waits 1 and not with waits 2; the equivalence of
+//      (c) with waits 0, 1 and 2; MatchValueAndRef and GpuSwap against their sources in the tree;
+//      the line's new parts.
 // The tree part runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <atomic>
@@ -84,15 +94,16 @@ void CheckParse() {
          "the defaults: off, 4096 KiB, filter on, shared CPUs");
   Expect(std::string(pr::ModeName(0)) == "off", "mode 0 is named off");
   Expect(pr::Parse("", s) == 0 && s == pr::Settings(), "an empty file changes nothing");
-  Expect(pr::Parse("mode 1\nfifo 1024\nfilter 0\nsibling 1\n", s) == 0 && s.mode == 1 &&
-             s.fifo_kib == 1024 && s.filter == 0 && s.sibling == 1,
-         "mode, fifo, filter, sibling");
+  Expect(pr::Parse("mode 1\nfifo 1024\nfilter 0\nsibling 1\nwaits 2\n", s) == 0 && s.mode == 1 &&
+             s.fifo_kib == 1024 && s.filter == 0 && s.sibling == 1 && s.waits == 2,
+         "mode, fifo, filter, sibling, waits");
+  Expect(pr::Settings().waits == 1, "fix 142b: waits 1 by default");
   pr::Settings t;
   Expect(pr::Parse("# comment\n  mode 2   # inline\n\n", t) == 0 && t.mode == 2,
          "comments and spaces");
   pr::Settings u;
-  Expect(pr::Parse("mode 3\nfifo 100\nfifo 70000\nfilter 2\nsibling -1\nmode\nmode 1 2\nchunk 4\n",
-                   u) == 8 &&
+  Expect(pr::Parse("mode 3\nfifo 100\nfifo 70000\nfilter 2\nsibling -1\nmode\nmode 1 2\nchunk 4\nwaits 3\n",
+                   u) == 9 &&
              u == pr::Settings(),
          "out of range, missing or extra values and unknown keys are not understood");
 }
@@ -212,6 +223,25 @@ void CheckRing() {
   shared.Wake();
   consumer.join();
   Expect(bad == 0 && seen == 200000, "two threads: every op once, in order, intact");
+
+  // Fix 142b: a producer asleep until 2,000 ops are retired is woken once, not once an op.
+  {
+    pr::OpRing ring(1024 * 1024);
+    for (uint32_t n = 0; n < 2000; ++n) {
+      ring.Begin(pr::kOpRegisters, 64, n);
+      ring.Grow(64);
+      ring.Commit();
+    }
+    ring.Publish();
+    std::thread slow([&] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));  // the producer is asleep by now
+      while (ring.Front()) ring.Pop();
+    });
+    ring.WaitRetired(ring.published(), [] { return false; });
+    slow.join();
+    Expect(ring.retired() == ring.published() && ring.wakes() == 1,
+           "the producer woken once, at its position (" + std::to_string(ring.wakes()) + ")");
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -337,8 +367,16 @@ struct Model {
       case pr::pm4::kWaitRegMem: {
         const uint32_t info = r.Read(), poll = r.Read(), ref = r.Read(), mask = r.Read();
         r.Read();
-        const uint32_t value = (info & 0x10) ? Load(poll & ~3u) : regs[poll % kRegisters];
-        events.push_back("wait " + std::to_string(value) + ((value & mask) == ref ? " met" : " unmet"));
+        // As the handler: the dword as it is in memory, swapped by the endianness in poll's low bits.
+        uint32_t value = regs[poll % kRegisters];
+        if (info & 0x10) {
+          uint32_t raw = 0;
+          const uint32_t address = (poll & ~3u) & 0x1FFFFFFF;
+          if (address + 4 <= kMemory) std::memcpy(&raw, &memory[address], 4);
+          value = pr::GpuSwap(raw, poll & 3);
+        }
+        events.push_back("wait " + std::to_string(value) +
+                         (pr::MatchValueAndRef(value & mask, ref, info) ? " met" : " unmet"));
         return true;
       }
       case pr::pm4::kRegRmw: {
@@ -650,7 +688,7 @@ void RandomPacket(Rng& rng, Stream& s, Generated& g, uint32_t& ib_next, int dept
     s.Type3(pr::pm4::kRegToMem, {0x4000 + rng() % 16, kWriteArea + (rng() % 64) * 4});
   } else if (pick < 68) {
     // A wait on a fence the stream may have written.
-    s.Type3(pr::pm4::kWaitRegMem, {0x13, kWriteArea + (rng() % 64) * 4, rng() % 100, 0xFFFFFFFFu, 1});
+    s.Type3(pr::pm4::kWaitRegMem, {0x13, (kWriteArea + (rng() % 64) * 4) | 2, rng() % 100, 0xFFFFFFFFu, 1});
   } else if (pick < 79) {
     const bool dma = rng() % 2;
     const uint32_t initiator = 4 | (dma ? 0 : (2u << 6));
@@ -774,12 +812,13 @@ RunResult RunReference(const Generated& g, uint32_t start_index) {
   return {model.events, model.regs, model.memory, {}};
 }
 
-RunResult RunSplit(const Generated& g, uint32_t start_index, bool filter, bool threaded) {
+RunResult RunSplit(const Generated& g, uint32_t start_index, bool filter, bool threaded,
+                   uint32_t waits = 1) {
   Model model;
   Load(model, g, start_index);
   pr::OpRing ring(256 * 1024);
   TestHost host(model, ring, threaded);
-  pr::Decoder decoder(ring, host, filter, model.bin_mask, model.bin_select);
+  pr::Decoder decoder(ring, host, filter, model.bin_mask, model.bin_select, waits);
   std::atomic<bool> done{false};
   std::thread consumer;
   if (threaded) {
@@ -814,16 +853,18 @@ RunResult RunSplit(const Generated& g, uint32_t start_index, bool filter, bool t
 }
 
 void CheckEquivalence() {
-  uint64_t dropped = 0, written = 0, ib_writes = 0, waits = 0, predicated = 0, failed = 0;
+  uint64_t dropped = 0, written = 0, ib_writes = 0, waits = 0, passed = 0, predicated = 0, failed = 0;
   int mismatches = 0;
   for (uint32_t seed = 1; seed <= 160; ++seed) {
     const Generated g = Generate(seed, 600 + (seed % 7) * 500);
     const uint32_t start = (kRingBytes / 4) - (seed * 37) % 3000;  // wraps the ring
     const RunResult reference = RunReference(g, start);
-    for (int variant = 0; variant < 3; ++variant) {
+    for (int variant = 0; variant < 5; ++variant) {
+      // filter on/off, one thread or two, waits 0/1/2 (fix 142b).
       const bool filter = variant != 1;
-      const bool threaded = variant == 2;
-      const RunResult split = RunSplit(g, start, filter, threaded);
+      const bool threaded = variant >= 2;
+      const uint32_t waits_mode = variant == 1 ? 0 : variant == 3 ? 2 : variant == 4 ? 0 : 1;
+      const RunResult split = RunSplit(g, start, filter, threaded, waits_mode);
       const bool same = split.events == reference.events && split.regs == reference.regs &&
                         split.memory == reference.memory;
       if (!same && mismatches++ < 3) {
@@ -843,18 +884,19 @@ void CheckEquivalence() {
         written += split.stats.registers_written;
         ib_writes += split.stats.serialize[pr::kSerializeIbWrite];
         waits += split.stats.serialize[pr::kSerializeWait];
+        passed += split.stats.waits[pr::kWaitPassed];
         predicated += split.stats.predicated_out;
         failed += split.stats.failed;
       }
     }
   }
-  std::printf("equivalence: %llu of %llu register writes dropped unchanged, %llu waits, %llu ib-write "
-              "serializations, %llu predicated out, %llu buffers ended early\n",
-              (unsigned long long)dropped, (unsigned long long)written, (unsigned long long)waits,
+  std::printf("equivalence: %llu of %llu register writes dropped unchanged, %llu waits drained, %llu "
+              "passed early, %llu ib-write serializations, %llu predicated out, %llu buffers ended early\n",
+              (unsigned long long)dropped, (unsigned long long)written, (unsigned long long)waits, (unsigned long long)passed,
               (unsigned long long)ib_writes, (unsigned long long)predicated,
               (unsigned long long)failed);
   Expect(dropped > written / 50, "the generated streams have many unchanged constants");
-  Expect(waits > 0 && ib_writes > 0 && predicated > 0 && failed > 0,
+  Expect(waits > 0 && passed > 0 && ib_writes > 0 && predicated > 0 && failed > 0,
          "the streams covered waits, ib-write serializations, predication and buffer ends");
 }
 
@@ -864,7 +906,7 @@ void CheckOrdering() {
   {
     Stream s;
     s.Type3(pr::pm4::kEventWriteShd, {0, kWriteArea, 42});
-    s.Type3(pr::pm4::kWaitRegMem, {0x13, kWriteArea, 42, 0xFFFFFFFFu, 1});
+    s.Type3(pr::pm4::kWaitRegMem, {0x13, kWriteArea | 2, 42, 0xFFFFFFFFu, 1});
     Generated g;
     g.ring_dwords = s.dwords;
     g.parts = {uint32_t(s.dwords.size())};
@@ -896,6 +938,80 @@ void CheckOrdering() {
     Expect(split.stats.serialize[pr::kSerializeIbWrite] == uint64_t(changed),
            changed ? "one ib-write serialization" : "no ib-write serialization");
   }
+  // Fix 142b: what the decoder does at a WAIT_REG_MEM.
+  struct WaitCase {
+    const char* what;
+    uint32_t preset;            // the polled dword in memory before the stream
+    bool fence_before;          // an EVENT_WRITE_SHD to it before the wait (pending)
+    bool scratch_before;        // a scratch register written before the wait (unknown address)
+    bool on_register;           // a register wait
+    uint32_t waits;
+    uint32_t outcome;           // the expected WaitOutcome
+    uint64_t drains;            // wait serializations
+  };
+  const WaitCase cases[] = {
+      {"met, nothing pending: passed", 42, false, false, false, 1, pr::kWaitPassed, 0},
+      {"met, waits 0: drained as in 142", 42, false, false, false, 0, pr::kWaitOutcomes, 1},
+      {"unmet: drained", 7, false, false, false, 1, pr::kWaitUnmet, 1},
+      {"a fence to it still to execute: drained", 7, true, false, false, 1, pr::kWaitPending, 1},
+      {"a scratch register still to execute: drained", 42, false, true, false, 1, pr::kWaitPending, 1},
+      {"on a register: drained", 42, false, false, true, 1, pr::kWaitRegister, 1},
+  };
+  for (const WaitCase& c : cases) {
+    Stream s;
+    if (c.fence_before) s.Type3(pr::pm4::kEventWriteShd, {0, kWriteArea, 42});
+    if (c.scratch_before) s.Type0(kScratchFirst, {1});
+    s.Type3(pr::pm4::kWaitRegMem, {c.on_register ? 0x3u : 0x13u, c.on_register ? 0x2100u : kWriteArea | 2, 42,
+                                    0xFFFFFFFFu, 1});
+    // Preset the polled dword: a MEM_WRITE in a first part, executed before the second part
+    // (RunSplit executes everything between parts in mode 2).
+    Stream preset;
+    preset.Type3(pr::pm4::kMemWrite, {kWriteArea, c.preset});
+    Generated g2;
+    g2.ring_dwords = preset.dwords;
+    g2.ring_dwords.insert(g2.ring_dwords.end(), s.dwords.begin(), s.dwords.end());
+    g2.parts = {uint32_t(preset.dwords.size()), uint32_t(s.dwords.size())};
+    const RunResult reference = RunReference(g2, 0);
+    const RunResult split = RunSplit(g2, 0, true, false, c.waits);
+    const uint64_t outcome_count =
+        c.outcome < pr::kWaitOutcomes ? split.stats.waits[c.outcome] : 0;
+    uint64_t total = 0;
+    for (uint64_t n : split.stats.waits) total += n;
+    Expect(split.events == reference.events && split.regs == reference.regs &&
+               (c.outcome < pr::kWaitOutcomes ? outcome_count == 1 && total == 1 : total == 0) &&
+               split.stats.serialize[pr::kSerializeWait] == c.drains,
+           std::string("fix 142b, WAIT_REG_MEM ") + c.what);
+  }
+  // An indirect buffer after a wait passed early and not yet executed: drained with waits 1 only.
+  for (uint32_t waits = 1; waits <= 2; ++waits) {
+    Stream ib;
+    ib.Type0(0x4003, {6});
+    Stream preset, s;
+    preset.Type3(pr::pm4::kMemWrite, {kWriteArea, 42});
+    s.Type3(pr::pm4::kWaitRegMem, {0x13, kWriteArea | 2, 42, 0xFFFFFFFFu, 1});
+    s.Type3(pr::pm4::kIndirectBuffer, {kIbArea, uint32_t(ib.dwords.size())});
+    Generated g;
+    g.ring_dwords = preset.dwords;
+    g.ring_dwords.insert(g.ring_dwords.end(), s.dwords.begin(), s.dwords.end());
+    g.ibs.push_back({kIbArea, ib.dwords});
+    g.parts = {uint32_t(preset.dwords.size()), uint32_t(s.dwords.size())};
+    const RunResult reference = RunReference(g, 0);
+    const RunResult split = RunSplit(g, 0, true, false, waits);
+    Expect(split.events == reference.events && split.regs == reference.regs &&
+               split.stats.waits[pr::kWaitPassed] == 1 &&
+               split.stats.serialize[pr::kSerializeIbAfterWait] == (waits == 1 ? 1u : 0u),
+           "fix 142b: an indirect buffer after a wait passed early drains with waits 1, not 2 (waits " +
+               std::to_string(waits) + ")");
+  }
+  // MatchValueAndRef and GpuSwap: every function and endianness.
+  Expect(pr::MatchValueAndRef(1, 2, 1) && !pr::MatchValueAndRef(2, 2, 1) && pr::MatchValueAndRef(2, 2, 2) &&
+             pr::MatchValueAndRef(2, 2, 3) && !pr::MatchValueAndRef(2, 2, 4) && pr::MatchValueAndRef(3, 2, 4) &&
+             pr::MatchValueAndRef(2, 2, 5) && pr::MatchValueAndRef(3, 2, 6) && !pr::MatchValueAndRef(2, 2, 6) &&
+             pr::MatchValueAndRef(0, 9, 7) && !pr::MatchValueAndRef(0, 9, 0),
+         "MatchValueAndRef: never, <, <=, ==, !=, >=, >, always");
+  Expect(pr::GpuSwap(0x11223344u, 0) == 0x11223344u && pr::GpuSwap(0x11223344u, 1) == 0x22114433u &&
+             pr::GpuSwap(0x11223344u, 2) == 0x44332211u && pr::GpuSwap(0x11223344u, 3) == 0x33441122u,
+         "GpuSwap by endianness");
 }
 
 // (e) The filter alone.
@@ -940,6 +1056,15 @@ void CheckLine() {
   fc::parallel_dropped.fetch_add(30 * 250000);
   fc::parallel_serialize[0].fetch_add(1500);
   fc::parallel_serialize[2].fetch_add(3000);
+  fc::parallel_serialize[3].fetch_add(750);
+  fc::parallel_waits_now.store(1);
+  fc::parallel_waits[0].fetch_add(1500 * 80);
+  fc::parallel_waits[3].fetch_add(1500 * 9);
+  fc::parallel_drains.fetch_add(1500 * 10);
+  fc::parallel_drain_backlog.fetch_add(1500 * 10 * 32768ull);
+  fc::parallel_drain_woken_ns.fetch_add(1000 * 25000ull);
+  fc::parallel_drain_woken.fetch_add(1000);
+  fc::parallel_wakes.fetch_add(30 * 400);
   fc::parallel_ahead_sum.fetch_add(10 * 65536);
   fc::parallel_ahead_samples.fetch_add(10);
   fc::parallel_ahead_max.store(256 * 1024);
@@ -951,8 +1076,13 @@ void CheckLine() {
   Expect(line.find("draws 4400") != std::string::npos, "draws per frame");
   Expect(line.find("registers 1000000/s, dropped unchanged 250000/s (25.0%)") != std::string::npos,
          "registers dropped");
-  Expect(line.find("serialized per frame: wait 1.00, room 0.00, ib-write 2.00") != std::string::npos,
+  Expect(line.find("serialized per frame: wait 1.00, room 0.00, ib-write 2.00, ib-after-wait 0.50") !=
+             std::string::npos,
          "serializations by reason");
+  Expect(line.find("; waits 1, per frame: passed early 80.00, register 0.00, unmet 0.00, write pending 9.00; "
+                   "drains 10.00 per frame, backlog avg 32.0 KiB, woken after avg 25.0 us; decoder woken 400/s") !=
+             std::string::npos,
+         "fix 142b: the waits and the drains: " + line);
   Expect(line.find("ahead avg 64.0 KiB, max 256.0 KiB") != std::string::npos, "how far ahead");
   const std::string next = reporter.Line(30, 1500);
   Expect(next.find("decode 0.0 ms/s") != std::string::npos && next.find("max 0.0 KiB") != std::string::npos,
@@ -1184,6 +1314,14 @@ const Mirrored kMirrored[] = {
     {".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc",
      "void VulkanCommandProcessor::WriteRegister(uint32_t index, uint32_t value) {",
      "the filter: dropping an unchanged constant equals vulkan_skip_redundant_constants' early return", "b0b1323f67ad1db9"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "static bool MatchValueAndRef(uint32_t value, uint32_t ref, uint32_t wait_info) {",
+     "parallel_record::MatchValueAndRef, the decoder's copy (fix 142b)", "4ec1d22a1ea4e750"},
+    {".deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h",
+     "bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(",
+     "Decoder::WaitHolds (fix 142b): the polled dword, its endianness, the condition", "baaf46fe126afacb"},
+    {".deps/xenia-canary/src/xenia/gpu/xenos.h", "static uint32_t GpuSwapInline(uint32_t value, Endian endianness) {",
+     "parallel_record::GpuSwap, the decoder's copy (fix 142b)", "6891297f9193849f"},
     {".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc",
      "void VulkanCommandProcessor::WriteRegistersSwapped(",
      "kOpRegisters: the runs applied with fix 103's path", "a70978bd15a99aab"},

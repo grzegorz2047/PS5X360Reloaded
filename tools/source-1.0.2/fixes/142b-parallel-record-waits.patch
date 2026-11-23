@@ -1,0 +1,473 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
+index 5065160..252856c 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/parallel_record.h
+@@ -27,6 +27,18 @@
+ // Modes (gpu_parallel_record, or "mode" in parallel-record.txt, read at start): 0 off, exactly as
+ // before; 1 the decode thread; 2 the same ops decoded and executed by the GPU command thread alone
+ // (the decoder's and the ops' correctness and cost without a second thread).
++//
++// Fix 142b: Grand Theft Auto IV on the console (1.0.5-work-fix142) ran mode 1 at 12-13 frames a
++// second against 38-40 in mode 2 and 42-45 without the split. Its 89 WAIT_REG_MEMs a frame never
++// waited, yet each drained the FIFO, and while the decoder slept in a drain the GPU command thread
++// woke it after every op (a mutex and a notify, about a million a second): of its 988 ms/s
++// "executing", draws and packets took about 220. Now the GPU command thread wakes the decoder only
++// once the position it waits for is retired, and a WAIT_REG_MEM on memory whose condition already
++// holds, with no write before it that could change that dword still to execute, is decoded past
++// without a drain ("waits 1", the default; the GPU command thread still executes it with its
++// handler). An indirect buffer entered while such a wait is not yet executed drains first (the
++// guest may fill a buffer once the flag is set); "waits 2" leaves that out (to measure), "waits 0"
++// drains at every WAIT_REG_MEM as 142 did.
+ #ifndef XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
+ #define XENIA_GPU_VULKAN_PARALLEL_RECORD_H_
+ 
+@@ -58,14 +70,16 @@ struct Settings {
+   uint32_t fifo_kib = 4096;  // the FIFO of ops between the threads
+   uint32_t filter = 1;       // unchanged shader constant writes dropped by the decoder
+   uint32_t sibling = 0;      // the decode thread on the other half of the GPU thread's core
++  uint32_t waits = 1;        // fix 142b: 0 drain at every WAIT_REG_MEM, 1 pass met memory waits, 2
++                             // also without draining at indirect buffers after them
+   bool operator==(const Settings& other) const {
+     return mode == other.mode && fifo_kib == other.fifo_kib && filter == other.filter &&
+-           sibling == other.sibling;
++           sibling == other.sibling && waits == other.waits;
+   }
+ };
+ 
+ // parallel-record.txt: "mode 0|1|2", "fifo <KiB>" (256 to 65536), "filter 0|1", "sibling 0|1",
+-// "#" comments. What a line does not set keeps the value it had (the cvars). Returns the lines not
++// "waits 0|1|2" (fix 142b), "#" comments. What a line does not set keeps the value it had (the cvars). Returns the lines not
+ // understood.
+ inline int Parse(const std::string& text, Settings& settings) {
+   int not_understood = 0;
+@@ -88,6 +102,8 @@ inline int Parse(const std::string& text, Settings& settings) {
+       settings.filter = uint32_t(value);
+     } else if (key == "sibling" && (value == 0 || value == 1)) {
+       settings.sibling = uint32_t(value);
++    } else if (key == "waits" && value >= 0 && value <= 2) {
++      settings.waits = uint32_t(value);
+     } else {
+       ++not_understood;
+     }
+@@ -169,6 +185,28 @@ inline uint32_t Swap(uint32_t value) {
+ #endif
+ }
+ 
++// xenos::GpuSwap (Endian kNone, k8in16, k8in32, k16in32) and the WAIT_REG_MEM handler's
++// MatchValueAndRef, for the decoder's look at a wait's condition (fix 142b).
++inline uint32_t GpuSwap(uint32_t value, uint32_t endian) {
++  switch (endian & 3) {
++    case 1: return ((value << 8) & 0xFF00FF00) | ((value >> 8) & 0x00FF00FF);
++    case 2: return Swap(value);
++    case 3: return ((value >> 16) & 0xFFFF) | (value << 16);
++    default: return value;
++  }
++}
++inline bool MatchValueAndRef(uint32_t value, uint32_t ref, uint32_t wait_info) {
++  return ((((value < ref) << 1) | ((value <= ref) << 2) | ((value == ref) << 3) |
++           ((value != ref) << 4) | ((value >= ref) << 5) | ((value > ref) << 6) | (1 << 7)) >>
++          (wait_info & 7)) &
++         1;
++}
++inline uint64_t SteadyNs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
+ inline void Relax() {
+ #if defined(__x86_64__) || defined(_M_X64)
+   __builtin_ia32_pause();
+@@ -281,6 +319,8 @@ class OpRing {
+       Relax();
+     }
+     std::unique_lock<std::mutex> lock(mutex_);
++    // Fix 142b: the consumer wakes the producer only once this position is retired.
++    producer_wait_for_.store(position, std::memory_order_seq_cst);
+     producer_sleeping_.store(true, std::memory_order_seq_cst);
+     while (retired_.load(std::memory_order_seq_cst) < position && !stop()) {
+       changed_.wait_for(lock, std::chrono::milliseconds(1));
+@@ -308,8 +348,13 @@ class OpRing {
+     const OpHeader* header = reinterpret_cast<const OpHeader*>(&data_[read_ % capacity_]);
+     read_ += OpSpan(header->bytes);
+     retired_.store(read_, std::memory_order_seq_cst);
+-    if (producer_sleeping_.load(std::memory_order_seq_cst)) {
++    // Fix 142b: 142 woke a sleeping producer after every op (a mutex and a notify each); now only
++    // when the position it waits for is reached.
++    if (producer_sleeping_.load(std::memory_order_seq_cst) &&
++        read_ >= producer_wait_for_.load(std::memory_order_seq_cst)) {
+       std::lock_guard<std::mutex> lock(mutex_);
++      reached_ns_.store(SteadyNs(), std::memory_order_relaxed);
++      ++wakes_;
+       changed_.notify_all();
+     }
+   }
+@@ -334,6 +379,9 @@ class OpRing {
+   }
+   uint64_t published() const { return published_.load(std::memory_order_acquire); }
+   uint64_t retired() const { return retired_.load(std::memory_order_acquire); }
++  // Fix 142b: when the consumer last woke the producer (SteadyNs), and how often it did.
++  uint64_t reached_ns() const { return reached_ns_.load(std::memory_order_relaxed); }
++  uint64_t wakes() const { return wakes_.load(std::memory_order_relaxed); }
+ 
+  private:
+   // With `retired` read once: what must be retired beyond it (never more than was written, as an
+@@ -355,6 +403,8 @@ class OpRing {
+   alignas(64) std::atomic<uint64_t> retired_{0};
+   alignas(64) std::atomic<bool> consumer_sleeping_{false};
+   std::atomic<bool> producer_sleeping_{false};
++  std::atomic<uint64_t> producer_wait_for_{0};
++  std::atomic<uint64_t> reached_ns_{0}, wakes_{0};
+   std::mutex mutex_;
+   std::condition_variable changed_;
+ };
+@@ -365,10 +415,11 @@ enum SerializeReason : uint32_t {
+   kSerializeWait = 0,  // WAIT_REG_MEM: executed before decoding past it
+   kSerializeRoom,      // the FIFO was full
+   kSerializeIbWrite,   // an indirect buffer overlaps a memory write not yet executed
++  kSerializeIbAfterWait,  // fix 142b: an indirect buffer after a wait passed early, not executed
+   kSerializeReasons
+ };
+ inline const char* SerializeReasonName(uint32_t reason) {
+-  static const char* const names[] = {"wait", "room", "ib-write"};
++  static const char* const names[] = {"wait", "room", "ib-write", "ib-after-wait"};
+   return reason < kSerializeReasons ? names[reason] : "?";
+ }
+ 
+@@ -389,7 +440,11 @@ struct DecodeStats {
+   uint64_t ops = 0;
+   uint64_t op_bytes = 0;
+   uint64_t serialize[kSerializeReasons] = {};
++  // Fix 142b: the WAIT_REG_MEMs by what the decoder did: passed early (memory, met, nothing pending
++  // could change it), drained on a register, drained unmet, drained with a write pending.
++  uint64_t waits[4] = {};
+ };
++enum WaitOutcome : uint32_t { kWaitPassed = 0, kWaitRegister, kWaitUnmet, kWaitPending, kWaitOutcomes };
+ 
+ // The owner's side of the decoder: the guest's memory and the waits for the GPU command thread.
+ class Host {
+@@ -456,8 +511,10 @@ class Decoder {
+   // Decoded bytes after which a draw publishes them.
+   static constexpr uint32_t kPublishBytes = 4 * 1024;
+ 
+-  Decoder(OpRing& ring, Host& host, bool filter, uint64_t bin_mask, uint64_t bin_select)
+-      : ring_(ring), host_(host), filter_(filter), bin_mask_(bin_mask), bin_select_(bin_select) {
++  Decoder(OpRing& ring, Host& host, bool filter, uint64_t bin_mask, uint64_t bin_select,
++          uint32_t waits = 0)
++      : ring_(ring), host_(host), filter_(filter), waits_(waits), bin_mask_(bin_mask),
++        bin_select_(bin_select) {
+     ResetShadow();
+   }
+   DecodeStats& stats() { return stats_; }
+@@ -510,7 +567,9 @@ class Decoder {
+     }
+     if (type == 1) {
+       if (reader.remaining < 12) return false;
++      const uint32_t a = packet & 0x7FF, b = (packet >> 11) & 0x7FF;
+       Forward(reader, 3);  // two registers below 0x800, never constants
++      if (Scratch(a) || Scratch(b)) NoteUnknownWrite();
+       return true;
+     }
+     const uint32_t count = ((packet >> 16) & 0x3FFF) + 1;
+@@ -525,6 +584,7 @@ class Decoder {
+         // Every value to one register: rare, handed over as it is.
+         if (base >= kShadowFirst && base < kShadowFirst + kShadowCount) Forget(base, 1);
+         Forward(reader, 1 + count);
++        if (Scratch(base)) NoteUnknownWrite();
+         return true;
+       }
+       reader.Skip(1);
+@@ -550,6 +610,8 @@ class Decoder {
+         if (list_length) {
+           if (OverlapsPendingWrite(list_ptr, list_length * 4)) {
+             Drain(kSerializeIbWrite);
++          } else if (waits_ == 1 && ahead_wait_ && ahead_wait_position_ >= ring_.retired()) {
++            Drain(kSerializeIbAfterWait);
+           }
+           GuestReader indirect;
+           indirect.base = host_.Translate(list_ptr);
+@@ -565,12 +627,24 @@ class Decoder {
+         if (count > 2) Forward(reader, count - 2);
+         return true;
+       }
+-      case pm4::kWaitRegMem:
++      case pm4::kWaitRegMem: {
+         // Executed before anything after it is decoded: its condition may depend on what the
+-        // stream wrote, and the guest may be waiting for the GPU to get here.
++        // stream wrote, and the guest may be waiting for the GPU to get here. Fix 142b: unless it
++        // waits on memory whose condition holds already and no write still to execute could
++        // change that dword; then the GPU command thread executes it, met, and the decoder goes on.
++        const bool passed = waits_ != 0 && count >= 5 && WaitHolds(reader);
+         Forward(reader, 1 + count);
++        if (passed) {
++          ++stats_.waits[kWaitPassed];
++          if (open_) {
++            ahead_wait_ = true;
++            ahead_wait_position_ = ring_.write_position();  // where the open op starts
++          }
++          return true;
++        }
+         Drain(kSerializeWait);
+         return true;
++      }
+       case pm4::kSetBinMaskLo:
+         bin_mask_ = (bin_mask_ & 0xFFFFFFFF00000000ull) | reader.Peek(1);
+         break;
+@@ -619,7 +693,13 @@ class Decoder {
+         // May write any register: the shadow constants are forgotten.
+         ResetShadow();
+         ++stats_.shadow_resets;
+-        break;
++        Forward(reader, 1 + count);
++        NoteUnknownWrite();  // a scratch register writes memory (fix 142b)
++        return true;
++      case pm4::kEventWriteZpd:
++        Forward(reader, 1 + count);
++        NoteUnknownWrite();  // the report goes to RB_SAMPLE_COUNT_ADDR (fix 142b)
++        return true;
+       case pm4::kCondWrite:
+       case pm4::kMemWrite:
+       case pm4::kRegToMem:
+@@ -643,6 +723,7 @@ class Decoder {
+         }
+         Forward(reader, 1 + count);
+         if (known) NotePendingWrite(address, bytes);
++        if (opcode == pm4::kCondWrite) NoteUnknownWrite();  // or a register (fix 142b)
+         return true;
+       }
+       case pm4::kDrawIndx:
+@@ -708,6 +789,42 @@ class Decoder {
+     return false;
+   }
+ 
++  // Fix 142b. The scratch registers write memory when written (HandleSpecialRegisterWrite).
++  static constexpr uint32_t kScratchFirst = 0x578, kScratchLast = 0x57F;
++  static bool Scratch(uint32_t index) { return index >= kScratchFirst && index <= kScratchLast; }
++  // A write to memory at an address the decoder does not know (a scratch register, a ZPD report,
++  // REG_RMW, COND_WRITE) in the open op, or the next: no wait is passed early until it executes.
++  void NoteUnknownWrite() {
++    unknown_write_ = true;
++    unknown_write_position_ = ring_.write_position();
++  }
++  bool UnknownWritePending() const {
++    return unknown_write_ && unknown_write_position_ >= ring_.retired();
++  }
++  // The WAIT_REG_MEM at the reader: whether its condition holds now and nothing still to execute
++  // could change it (the handler's reading, GpuSwap and MatchValueAndRef).
++  bool WaitHolds(const GuestReader& reader) {
++    const uint32_t wait_info = reader.Peek(1), poll = reader.Peek(2), ref = reader.Peek(3),
++                   mask = reader.Peek(4);
++    if (!(wait_info & 0x10)) {
++      ++stats_.waits[kWaitRegister];  // registers are the GPU command thread's
++      return false;
++    }
++    const uint32_t address = poll & ~uint32_t(3);
++    if (UnknownWritePending() || OverlapsPendingWrite(address, 4)) {
++      ++stats_.waits[kWaitPending];
++      return false;
++    }
++    const volatile uint32_t* word =
++        reinterpret_cast<const volatile uint32_t*>(host_.Translate(address));
++    const uint32_t value = GpuSwap(*word, poll & 3);
++    if (!MatchValueAndRef(value & mask, ref, wait_info)) {
++      ++stats_.waits[kWaitUnmet];
++      return false;
++    }
++    return true;
++  }
++
+   // A packet whose handler returns false: handed over, last in its op (the GPU thread stops
+   // executing its op there, as ExecutePrimaryBuffer and ExecuteIndirectBuffer stopped), and the
+   // buffer ends here too.
+@@ -815,6 +932,7 @@ class Decoder {
+         ++run;
+       }
+       ring_.Grow(run * 4);
++      if (index - run <= kScratchLast && index - 1 >= kScratchFirst) NoteUnknownWrite();
+       ring_.Commit();
+       ++stats_.ops;
+       ++stats_.register_runs;
+@@ -867,7 +985,10 @@ class Decoder {
+   OpRing& ring_;
+   Host& host_;
+   bool filter_;
++  uint32_t waits_;
+   uint64_t bin_mask_, bin_select_;
++  bool unknown_write_ = false, ahead_wait_ = false;
++  uint64_t unknown_write_position_ = 0, ahead_wait_position_ = 0;
+   OpHeader* open_ = nullptr;
+   bool aborted_ = false;
+   uint64_t publishes_ = 0;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 873db83..4b1cc6c 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -94,6 +94,13 @@ DEFINE_bool(gpu_parallel_record_sibling, false,
+             "With gpu_parallel_record 1, the decode thread runs on the other half of the GPU "
+             "command thread's core (CPU 3) instead of the CPUs the other threads share.",
+             "GPU");
++// Xbox360PS5, fix 142b: whether the decode thread waits for the GPU command thread at a
++// WAIT_REG_MEM whose memory condition already holds.
++DEFINE_uint32(gpu_parallel_record_waits, 1,
++              "With gpu_parallel_record: 0 the decode thread waits for every WAIT_REG_MEM to be "
++              "executed; 1 it goes on past one on memory whose condition already holds (and waits "
++              "at the next indirect buffer until it is executed); 2 the same without that wait.",
++              "GPU");
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -1803,6 +1810,7 @@ bool VulkanCommandProcessor::RunParallelRecord() {
+       std::min<uint32_t>(std::max<uint32_t>(cvars::gpu_parallel_record_fifo_kib, 256), 65536);
+   settings.filter = cvars::gpu_parallel_record_filter ? 1 : 0;
+   settings.sibling = cvars::gpu_parallel_record_sibling ? 1 : 0;
++  settings.waits = std::min<uint32_t>(cvars::gpu_parallel_record_waits, 2);  // fix 142b
+   const char* const path = XBOX360PS5_DATA_ROOT "/parallel-record.txt";
+   int not_understood = 0;
+   bool from_file = false;
+@@ -1823,6 +1831,7 @@ bool VulkanCommandProcessor::RunParallelRecord() {
+   fc::parallel_mode_now.store(settings.mode, std::memory_order_relaxed);
+   fc::parallel_fifo_kib_now.store(settings.fifo_kib, std::memory_order_relaxed);
+   fc::parallel_filter_now.store(filter ? 1 : 0, std::memory_order_relaxed);
++  fc::parallel_waits_now.store(settings.waits, std::memory_order_relaxed);  // fix 142b
+   XELOGW(
+       "Parallel record (fix 142): mode {} ({}), FIFO {} KiB, unchanged constants {}, decode "
+       "thread {}, from {}{}",
+@@ -1833,11 +1842,16 @@ bool VulkanCommandProcessor::RunParallelRecord() {
+                                                 : "on the shared CPUs",
+       from_file ? path : "the settings",
+       not_understood ? fmt::format(", {} lines not understood", not_understood) : std::string());
++  XELOGW("Parallel record (fix 142b): WAIT_REG_MEM {}",
++         settings.waits == 0   ? "always waited for (waits 0)"
++         : settings.waits == 1 ? "on memory already met passed early, indirect buffers after it "
++                                 "wait for it (waits 1)"
++                               : "on memory already met passed early (waits 2)");
+   parallel_ring_ =
+       std::make_unique<parallel_record::OpRing>(size_t(settings.fifo_kib) * 1024);
+   parallel_host_ = std::make_unique<ParallelRecordHost>(*this);
+   parallel_decoder_ = std::make_unique<parallel_record::Decoder>(
+-      *parallel_ring_, *parallel_host_, filter, bin_mask_, bin_select_);
++      *parallel_ring_, *parallel_host_, filter, bin_mask_, bin_select_, settings.waits);
+   if (settings.mode == parallel_record::kThread) {
+     parallel_front_thread_ = kernel::object_ref<kernel::XHostThread>(new kernel::XHostThread(
+         kernel_state_, 256 * 1024, 0,
+@@ -2077,11 +2091,24 @@ void VulkanCommandProcessor::ExecuteParallelOp(const parallel_record::OpHeader&
+ void VulkanCommandProcessor::ParallelDrain(uint32_t reason) {
+   namespace fc = xbox360ps5::frame_cost;
+   const uint64_t start = fc::NowNs();
++  // Fix 142b: each drain's cost: what was still to execute, and the time from the GPU thread
++  // reaching the drain's position (its wake) to the decoder running again.
++  fc::parallel_drains.fetch_add(1, std::memory_order_relaxed);
++  fc::parallel_drain_backlog.fetch_add(parallel_ring_->published() - parallel_ring_->retired(),
++                                       std::memory_order_relaxed);
+   if (parallel_settings_.mode == parallel_record::kInline) {
+     ExecuteParallelOps();
+   } else {
++    const uint64_t woken_before = parallel_ring_->wakes();
+     parallel_ring_->WaitRetired(parallel_ring_->published(),
+                                 [this]() { return !worker_running_; });
++    if (parallel_ring_->wakes() != woken_before) {
++      const uint64_t now = parallel_record::SteadyNs(), reached = parallel_ring_->reached_ns();
++      if (now >= reached) {
++        fc::parallel_drain_woken_ns.fetch_add(now - reached, std::memory_order_relaxed);
++        fc::parallel_drain_woken.fetch_add(1, std::memory_order_relaxed);
++      }
++    }
+   }
+   const uint64_t waited = fc::NowNs() - start;
+   parallel_front_waited_ns_ += waited;
+@@ -2129,6 +2156,13 @@ void VulkanCommandProcessor::FlushParallelStats() {
+   for (uint32_t n = 0; n < parallel_record::kSerializeReasons; ++n) {
+     add(fc::parallel_serialize[n], now.serialize[n], last.serialize[n]);
+   }
++  for (uint32_t n = 0; n < parallel_record::kWaitOutcomes; ++n) {  // fix 142b
++    add(fc::parallel_waits[n], now.waits[n], last.waits[n]);
++  }
++  static uint64_t wakes_flushed = 0;
++  const uint64_t wakes = parallel_ring_->wakes();
++  fc::parallel_wakes.fetch_add(wakes - wakes_flushed, std::memory_order_relaxed);
++  wakes_flushed = wakes;
+   static uint64_t publishes_flushed = 0;
+   const uint64_t publishes = parallel_decoder_->publishes();
+   fc::parallel_publishes.fetch_add(publishes - publishes_flushed, std::memory_order_relaxed);
+diff --git a/include/xbox360ps5/frame_cost.hpp b/include/xbox360ps5/frame_cost.hpp
+index 9340ecf..e9a45e1 100644
+--- a/include/xbox360ps5/frame_cost.hpp
++++ b/include/xbox360ps5/frame_cost.hpp
+@@ -1187,7 +1187,12 @@ class AsyncSubmitReporter {
+ // dropped unchanged v/s (q%); serialized per frame: wait a, room b, ib-write c; ahead avg A KiB,
+ // max M KiB; packets handed over h/s, predicated out t/s, shadow resets j/s, buffers ended early
+ // g". Off: "Frame time parallel record (fix 142): off".
+-constexpr uint32_t kParallelSerializeReasons = 3;
++// Fix 142b adds "ib-after-wait" to the serializations and "; waits w, per frame: passed early a,
++// register b, unmet c, write pending d; drains n per frame, backlog avg K KiB, woken after avg U us;
++// decoder woken k/s": the WAIT_REG_MEMs by what the decoder did, and each drain's cost (what was
++// still to execute when it began, and the time from the GPU thread reaching its position to the
++// decoder running again).
++constexpr uint32_t kParallelSerializeReasons = 4;
+ inline std::atomic<uint64_t> parallel_decode_ns{0}, parallel_ring_wait_ns{0}, parallel_room_wait_ns{0},
+     parallel_drain_wait_ns{0}, parallel_execute_ns{0}, parallel_starved_ns{0}, parallel_idle_ns{0};
+ inline std::atomic<uint64_t> parallel_packets{0}, parallel_forwarded{0}, parallel_predicated{0}, parallel_runs{0},
+@@ -1196,6 +1201,10 @@ inline std::atomic<uint64_t> parallel_packets{0}, parallel_forwarded{0}, paralle
+ inline std::array<std::atomic<uint64_t>, kParallelSerializeReasons> parallel_serialize{};
+ inline std::atomic<uint64_t> parallel_ahead_sum{0}, parallel_ahead_samples{0}, parallel_ahead_max{0};
+ inline std::atomic<uint32_t> parallel_mode_now{0}, parallel_fifo_kib_now{0}, parallel_filter_now{0};
++inline std::array<std::atomic<uint64_t>, 4> parallel_waits{};
++inline std::atomic<uint64_t> parallel_drains{0}, parallel_drain_backlog{0}, parallel_drain_woken_ns{0},
++    parallel_drain_woken{0}, parallel_wakes{0};
++inline std::atomic<uint32_t> parallel_waits_now{0};
+ class ParallelRecordReporter {
+  public:
+   std::string Line(double seconds, uint64_t frames) {
+@@ -1209,7 +1218,10 @@ class ParallelRecordReporter {
+         &parallel_primaries, &parallel_draws, &parallel_indirect, &parallel_ops,
+         &parallel_op_bytes, &parallel_registers, &parallel_dropped, &parallel_serialize[0],
+         &parallel_serialize[1], &parallel_serialize[2], &parallel_ahead_sum, &parallel_ahead_samples,
+-        &parallel_forwarded, &parallel_predicated, &parallel_resets, &parallel_failed};
++        &parallel_forwarded, &parallel_predicated, &parallel_resets, &parallel_failed,
++        &parallel_serialize[3], &parallel_waits[0], &parallel_waits[1], &parallel_waits[2],
++        &parallel_waits[3], &parallel_drains, &parallel_drain_backlog, &parallel_drain_woken_ns,
++        &parallel_drain_woken, &parallel_wakes};
+     double d[kCounters];
+     for (int n = 0; n < kCounters; ++n) {
+       const uint64_t now = counters[n]->load(std::memory_order_relaxed);
+@@ -1218,26 +1230,34 @@ class ParallelRecordReporter {
+     }
+     const double ahead_max = double(parallel_ahead_max.exchange(0, std::memory_order_relaxed));
+     const char* const mode_name = mode == 1 ? "a decode thread" : "decoded on the GPU thread";
+-    char text[768];
++    char text[832];
+     std::snprintf(text, sizeof(text),
+                   "Frame time parallel record (fix 142, mode %u (%s), FIFO %u KiB, filter %u): decode %.1f ms/s, "
+                   "waiting for the ring %.1f, room %.1f, drains %.1f; GPU thread executing %.1f ms/s, starved %.1f, "
+                   "idle %.1f; per frame: batches %.1f, ring parts %.1f, draws %.0f, indirect buffers %.1f, ops %.0f "
+                   "(%.1f KiB); registers %.0f/s, dropped unchanged %.0f/s (%.1f%%); serialized per frame: wait %.2f, "
+-                  "room %.2f, ib-write %.2f; ahead avg %.1f KiB, max %.1f KiB; packets handed over %.0f/s, "
+-                  "predicated out %.0f/s, shadow resets %.0f/s, buffers ended early %.0f",
++                  "room %.2f, ib-write %.2f, ib-after-wait %.2f; ahead avg %.1f KiB, max %.1f KiB; packets handed "
++                  "over %.0f/s, predicated out %.0f/s, shadow resets %.0f/s, buffers ended early %.0f",
+                   mode, mode_name, parallel_fifo_kib_now.load(std::memory_order_relaxed),
+                   parallel_filter_now.load(std::memory_order_relaxed), d[0] / 1e6 / s, d[1] / 1e6 / s,
+                   d[2] / 1e6 / s, d[3] / 1e6 / s, d[4] / 1e6 / s, d[5] / 1e6 / s, d[6] / 1e6 / s, d[7] / f,
+                   d[8] / f, d[9] / f, d[10] / f, d[11] / f, d[12] / 1024.0 / f, d[13] / s, d[14] / s,
+-                  d[13] > 0 ? 100.0 * d[14] / d[13] : 0.0, d[15] / f, d[16] / f, d[17] / f,
++                  d[13] > 0 ? 100.0 * d[14] / d[13] : 0.0, d[15] / f, d[16] / f, d[17] / f, d[24] / f,
+                   d[19] > 0 ? d[18] / d[19] / 1024.0 : 0.0, ahead_max / 1024.0, d[20] / s, d[21] / s,
+                   d[22] / s, d[23]);
+-    return text;
++    // Fix 142b: the waits and the drains.
++    char drains[320];
++    std::snprintf(drains, sizeof(drains),
++                  "; waits %u, per frame: passed early %.2f, register %.2f, unmet %.2f, write pending %.2f; "
++                  "drains %.2f per frame, backlog avg %.1f KiB, woken after avg %.1f us; decoder woken %.0f/s",
++                  parallel_waits_now.load(std::memory_order_relaxed), d[25] / f, d[26] / f, d[27] / f, d[28] / f,
++                  d[29] / f, d[29] > 0 ? d[30] / d[29] / 1024.0 : 0.0, d[32] > 0 ? d[31] / d[32] / 1000.0 : 0.0,
++                  d[33] / s);
++    return std::string(text) + drains;
+   }
+ 
+  private:
+-  static constexpr int kCounters = 24;
++  static constexpr int kCounters = 34;
+   uint64_t last_[kCounters] = {};
+ };
+ 
