@@ -152,7 +152,6 @@ checks=(
   check-swap-effects.cpp           # fixes 141 and 141b
   check-swap-smaa.cpp              # fix 145
   check-low-half-size.cpp          # fix 144
-  check-video-mode.cpp             # fixes 140 and 140b
   check-video-mode.cpp             # fixes 140 to 140c
   check-present-limit.cpp          # fixes 146 to 146e
   check-exception-loop-entry.cpp   # fix 147
@@ -301,7 +300,7 @@ declare -A fix_of=(
   [check-swap-effects.cpp]="141 141b"
   [check-swap-smaa.cpp]=145
   [check-low-half-size.cpp]=144
-  [check-video-mode.cpp]="140 140b"
+  [check-video-mode.cpp]="140 140b 140c"
   [check-present-limit.cpp]="146 146b 146c 146d 146e"
   [check-exception-loop-entry.cpp]=147
   [check-disc-content.cpp]=148
