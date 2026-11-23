@@ -164,6 +164,7 @@ on:
       - 'tools/check-low-half-size.cpp'
       - 'tools/check-option-groups.cpp'
       - 'tools/check-settings-tree.cpp'
+      - 'tools/check-readability.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

@@ -1,0 +1,265 @@
+diff --git a/reconstructed/xbox360ps5/tab_bar.hpp b/reconstructed/xbox360ps5/tab_bar.hpp
+--- a/reconstructed/xbox360ps5/tab_bar.hpp
++++ b/reconstructed/xbox360ps5/tab_bar.hpp
+@@ -44,8 +44,9 @@ constexpr uint32_t kPillFill = 0xF5F6F8;
+ constexpr uint32_t kPillInk = 0x1E2125;
+ constexpr uint32_t kOpen = 0xFFFFFF;
+ constexpr uint32_t kClosed = 0xA9AFB7;
+-constexpr uint32_t kGreen = 0x76BC3E;  // the guide's and the library's focus colour
+-constexpr uint32_t kGreenDark = 0x4C9222;
++// Fix 149c: darker, as the guide's focus bar: the open tab's white name on it reads (2.3 -> 4.8:1).
++constexpr uint32_t kGreen = 0x3C821C;  // the guide's and the library's focus colour
++constexpr uint32_t kGreenDark = 0x2E6E12;
+ 
+ // Where things go in a bar from x0 to x1 (top y), given each text's width (Width(text, size)).
+ struct Box {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -716,7 +716,7 @@ void DrawHelpCard(ImDrawList* list, ImFont* text_font, ImFont* title_font, float
+     list->AddRectFilled(at(x - 2.0f * float(n), y0 - float(n) + 6), at(x + width + 2.0f * float(n), y0 + height + 3.0f * float(n) + 6),
+                         colour(0, 0, 0, 34), (10.0f + 2.0f * float(n)) * scale);
+   list->AddRectFilled(at(x, y0), at(x + width, y0 + height), colour(242, 243, 244), 12 * scale);
+-  list->AddRectFilled(at(x, y0), at(x + 6, y0 + height), risk ? colour(222, 150, 40) : colour(118, 188, 62), 12 * scale,
++  list->AddRectFilled(at(x, y0), at(x + 6, y0 + height), risk ? colour(222, 150, 40) : colour(60, 130, 28), 12 * scale,
+                       ImDrawFlags_RoundCornersLeft);
+   float y = y0 + pad;
+   const auto text = [&](ImFont* font, float size, ImU32 ink, const char* s) {
+@@ -1110,8 +1110,9 @@ class Guide final : public xe::ui::ImGuiDialog {
+     else state_.focus_y += (focus_target - state_.focus_y) * std::min(1.0f, frame_time * 20.0f);
+     if (row_focus && state_.row >= first_row && state_.row < last_row)
+       list->AddRectFilledMultiColor(at(page_left + strip + slide_x, state_.focus_y), at(page_right + slide_x, state_.focus_y + 62),
+-                                    fade(118, 188, 62, int(255 * content)), fade(118, 188, 62, int(255 * content)),
+-                                    fade(76, 146, 34, int(255 * content)), fade(76, 146, 34, int(255 * content)));
++                                    // Fix 149c: a darker green, so the white text on it reads (2.3 -> 4.8:1 and more).
++                                    fade(60, 130, 28, int(255 * content)), fade(60, 130, 28, int(255 * content)),
++                                    fade(46, 110, 18, int(255 * content)), fade(46, 110, 18, int(255 * content)));
+     for (int n = first_row; n < last_row; ++n) {
+       const float y = list_top + (n - first_row) * 63.0f;
+       const bool focused = row_focus && n == state_.row;
+@@ -1131,7 +1132,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+       if (items[size_t(n)].action == GuideAction::section) {
+         // Fix 149b: a section's name over its rows: smaller and grey on a thin line; the focus never lands on it.
+         list->AddLine(at(page_left + strip + 24 + slide_x, y + 58), at(page_right - 24 + slide_x, y + 58), fade(150, 156, 164, a), 1.0f * scale);
+-        list->AddText(medium, 24 * scale, at(page_left + strip + 24 + slide_x, y + 26), fade(104, 110, 118, a), items[size_t(n)].label.c_str());
++        list->AddText(medium, 24 * scale, at(page_left + strip + 24 + slide_x, y + 26), fade(84, 90, 98, a), items[size_t(n)].label.c_str());  // fix 149c: 3.6 -> 4.9:1
+         continue;
+       }
+       list->AddLine(at(page_left + strip + slide_x, y + 62), at(page_right + slide_x, y + 62), fade(170, 175, 181, a), 1.5f * scale);
+@@ -1142,7 +1143,7 @@ class Guide final : public xe::ui::ImGuiDialog {
+         // Fix 115c: "< value >" on a row whose value left and right change.
+         GuidePainter painter{list, medium, scale, reveal};
+         tb::DrawValue(painter, items[size_t(n)].value.c_str(), page_right - 24 + slide_x, y + 16, 28,
+-                      lit ? 0xFFFFFFu : 0x5A6068u, content, GuideRowHasValue(items[size_t(n)]));
++                      lit ? 0xFFFFFFu : 0x484E56u, content, GuideRowHasValue(items[size_t(n)]));  // fix 149c: 4.5 -> 5.9:1
+       }
+     }
+     if (button_shown) {
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -184,7 +184,7 @@ bool SetFsiRequested(bool enabled) {
+ // Colours: graphite surfaces, near-white type and one emerald accent.
+ uint32_t kInk = 0x0a0c11, kSheet = 0x12161d, kSurface = 0x1a1f28, kSurfaceHigh = 0x252c38,
+          kAccent = 0x35d07f, kText = 0xf3f5f8, kBody = 0xd5dae2, kMuted = 0x9aa3b2,
+-         kFaint = 0x6f7888, kWarning = 0xf0a67a;
++         kFaint = 0x8a93a3, kWarning = 0xf0a67a;  // fix 149c: kFaint 4.1 -> 5.9:1 on the sheet
+ constexpr uint32_t kWhite = 0xffffff, kCaseGreen = 0x8cc63f;
+ // The Kinect-era dashboard's colours: light grey panels, dark type, its green.
+ void ApplyTheme(bool dashboard) {
+@@ -192,11 +192,13 @@ void ApplyTheme(bool dashboard) {
+   // calls ApplyTheme(NxeUi() && !dark) at each of its three call sites).
+   dashboard = dashboard && !dark_theme::AtStart();
+   if (dashboard) {
+-    kSheet = 0xe8e9ea; kSurface = 0xd6d9dc; kSurfaceHigh = 0xc4e0a6; kAccent = 0x5aa02c;
+-    kText = 0x262626; kBody = 0x3a3d40; kMuted = 0x6c7177; kFaint = 0x969ba1; kWarning = 0xc0501e;
++    kSheet = 0xe8e9ea; kSurface = 0xd6d9dc; kSurfaceHigh = 0xc4e0a6; kAccent = 0x336f16;
++    // Fix 149c: muted, faint and warning text and the accent reach 4.5:1 on the light sheet (they had 4.1,
++    // 2.3, 3.9 and 2.7); the accent is still a green the Play button's dark ink reads on (3.3:1, large).
++    kText = 0x262626; kBody = 0x3a3d40; kMuted = 0x555a60; kFaint = 0x5e6369; kWarning = 0x9a3a10;
+   } else {
+     kSheet = 0x12161d; kSurface = 0x1a1f28; kSurfaceHigh = 0x252c38; kAccent = 0x35d07f;
+-    kText = 0xf3f5f8; kBody = 0xd5dae2; kMuted = 0x9aa3b2; kFaint = 0x6f7888; kWarning = 0xf0a67a;
++    kText = 0xf3f5f8; kBody = 0xd5dae2; kMuted = 0x9aa3b2; kFaint = 0x8a93a3; kWarning = 0xf0a67a;
+   }
+ }
+ // The keys of the gamertag keyboard: four rows of nine.
+@@ -4462,7 +4464,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+                        Tr(armed ? "Next start" : "Off||plural"), row_focused, armed);
+       if (row_focused)
+         c.Wrapped(Tr("This game's next start records more details. Afterwards a screen lists the files to attach to your bug report."),
+-                  x + 56, y + 56, 20, kBody, 750);
++                  x + 56, y + 56, 22, kBody, 750);  // fix 149c: 22 px (was 20)
+     }
+     if (g_list_focus_tab == 2)  // fix 109: once a row is chosen
+       hint = c.Hint('x', game_category_ == int(game_categories_.size()) ? Tr("Change") : Tr("Open"), hint, 1004);
+@@ -4488,7 +4490,6 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+     const bool focused = n == game_option_row_ && g_list_focus_tab == 2;  // fix 109d
+     c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+     if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
+-    c.Text(Tr(option.label), x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 420);
+     // The game's own value stands out; one it does not change shows the general value.
+     const auto found = overrides_.find(option.key);
+     const auto recommended = preset.find(option.key);
+@@ -4497,7 +4498,9 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+     std::string text = Tr(option.choices[size_t(value)]);
+     if (!own) text = std::string(preset_here ? Tr("Recommended: ") : Tr("General: ")) + text;
+     // Fix 109d: "< value >" (tab_bar::DrawValue): left and right change it.
+-    tab_bar::DrawValue(c, text.c_str(), x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);
++    // Fix 149c: 24 px (was 22); the name has the room its value leaves ("< >" takes about 40 px more).
++    c.Text(Tr(option.label), x + 64, y + 9, 24, focused ? kText : kBody, 1.0f, 0, (732.0f - std::min(c.Width(text, 24), 420.0f) - 28.0f) - 40);
++    tab_bar::DrawValue(c, text.c_str(), x + 796, y + 9, 24, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);
+   }
+   const Option& option = options[size_t(game_rows_[size_t(game_option_row_)])];
+   c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
+@@ -4509,7 +4512,10 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+     c.Text(std::string(Tr("Code: ")) + web_key_, x + 212, 782, 34, kAccent);
+     c.Wrapped(CameraQrText(), x + 212, 828, 18, kBody, 594);
+   } else {
+-    c.Wrapped(Tr(option.about), x + 56, 786, 20, kBody, 750);
++    // Fix 149c: 22 px (was 20); the whole name first when its row had to cut it.
++    const bool cut = c.Width(Tr(option.label), 24) > 420;
++    if (cut) c.Text(Tr(option.label), x + 56, 784, 24, kText, 1.0f, 0, 750);
++    c.Wrapped(Tr(option.about), x + 56, cut ? 818 : 786, 22, kBody, 750);
+   }
+   c.list->PopClipRect();
+   const char* when = option.when == OptionWhen::start ? Tr("The emulator restarts by itself when this game is opened.")
+@@ -4544,7 +4550,7 @@ void Launcher::DrawGameSections(Canvas& c, float x, int category) {
+   }
+   if (!game_sections_.empty()) {
+     c.Fill(x + 40, 774, 780, 1, kWhite, 0.10f);
+-    c.Wrapped(SectionSummary(category, game_sections_[size_t(game_section_row_)], true), x + 56, 786, 20, kBody, 750);
++    c.Wrapped(SectionSummary(category, game_sections_[size_t(game_section_row_)], true), x + 56, 786, 22, kBody, 750);
+   }
+   float hint = x + 56;
+   if (g_list_focus_tab == 2) hint = c.Hint('x', Tr("Open"), hint, 1004);
+@@ -4638,43 +4644,45 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+       c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+       if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
+       c.Text(Tr("Accurate render targets (FSI, test)"),
+-             x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 440);
++             x + 64, y + 9, 24, focused ? kText : kBody, 1.0f, 0, 440);  // fix 149c: 24 px
+       const bool on = FsiChoice();
+       c.Text(on ? Tr("On||feminine") : Tr("Off||feminine"),
+-             x + 796, y + 10, 22, focused ? kAccent : on ? kWarning : kMuted, 1.0f, 2, 320);
++             x + 796, y + 9, 24, focused ? kAccent : on ? kWarning : kMuted, 1.0f, 2, 320);
+       continue;
+     }
+     if (category_rows_[size_t(n)] == kFramegenRow) {
+       c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+       if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
+       c.Text(Tr("Frame generation (test)"),
+-             x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 440);
++             x + 64, y + 9, 24, focused ? kText : kBody, 1.0f, 0, 440);  // fix 149c: 24 px
+       const int mode = FramegenMode();
+-      c.Text(FramegenModeName(mode), x + 796, y + 10, 22, focused ? kAccent : mode ? kWarning : kMuted, 1.0f, 2, 320);
++      c.Text(FramegenModeName(mode), x + 796, y + 9, 24, focused ? kAccent : mode ? kWarning : kMuted, 1.0f, 2, 320);
+       continue;
+     }
+     if (category_rows_[size_t(n)] == kFramegenOutputRow) {
+       c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+       if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
+       c.Text(Tr("Frame generation output (test)"),
+-             x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 440);
++             x + 64, y + 9, 24, focused ? kText : kBody, 1.0f, 0, 440);  // fix 149c: 24 px
+       const bool high = FramegenHighOutput();
+       c.Text(high ? Tr("Up to 120 Hz") : "60 Hz",
+-             x + 796, y + 10, 22, focused ? kAccent : high ? kWarning : kMuted, 1.0f, 2, 320);
++             x + 796, y + 9, 24, focused ? kAccent : high ? kWarning : kMuted, 1.0f, 2, 320);
+       continue;
+     }
+     const Option& option = options[size_t(category_rows_[size_t(n)])];
+     c.Fill(x + 40, y, 780, 44, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 10);
+     if (focused) c.Edge(x + 40, y, 780, 44, kAccent, 0.9f, 10, 2.0f);
+-    c.Text(Tr(option.label), x + 64, y + 10, 22, focused ? kText : kBody, 1.0f, 0, 440);
++    // Fix 149c: 24 px (was 22); the name has the room its value leaves.
+     const int value = settings_.*option.field;
+-    c.Text(Tr(option.choices[size_t(value)]), x + 796, y + 10, 22,
++    const std::string shown = Tr(option.choices[size_t(value)]);
++    c.Text(Tr(option.label), x + 64, y + 9, 24, focused ? kText : kBody, 1.0f, 0, (732.0f - std::min(c.Width(shown, 24), 320.0f) - 28.0f));
++    c.Text(shown, x + 796, y + 9, 24,
+            focused ? kAccent : value == option.recommended ? kMuted : kWarning, 1.0f, 2, 320);
+   }
+   if (category_rows_[size_t(option_row_)] == kFsiRow) {
+     c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
+     c.Wrapped(Tr("Emulates the Xbox 360 image memory inside the shaders (Xenia's ROV mode on PC). More faithful particles, transparency and rare color formats; heavier. Applies to every game while on; if the PS5 video driver lacks the feature, the normal mode stays."),
+-        x + 56, 632, 20, kBody, 750);
++        x + 56, 632, 22, kBody, 750);
+     c.Text(std::string(Tr("Recommended: ")) + Tr("Off||feminine"), x + 56, 860, 20, kAccent, 1.0f, 0, 750);
+     c.Text(Tr("The emulator restarts to apply it when settings close."), x + 56, 892, 20, kMuted, 1.0f, 0, 750);
+     float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
+@@ -4685,7 +4693,7 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+   if (category_rows_[size_t(option_row_)] == kFramegenRow) {
+     c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
+     c.Wrapped(Tr("Creates in-between frames from two game frames. 2x: one frame (30 FPS is shown at 60). 3x and 4x: two or three frames, for 120 Hz displays; each extra frame adds latency. Automatic picks from the game's pace and the display, and also works when the game's rate is uneven (40 FPS, 31 to 47). It does not speed up the game and can blur the HUD and fast motion. The FPS counter shows Game, Output and FG."),
+-        x + 56, 632, 20, kBody, 750);
++        x + 56, 632, 22, kBody, 750);
+     c.Text(std::string(Tr("Recommended: ")) + Tr("Off||feminine"), x + 56, 860, 20, kAccent, 1.0f, 0, 750);
+     c.Text(Tr("The emulator restarts to apply it when settings close."), x + 56, 892, 20, kMuted, 1.0f, 0, 750);
+     float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
+@@ -4696,7 +4704,7 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+   if (category_rows_[size_t(option_row_)] == kFramegenOutputRow) {
+     c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
+     c.Wrapped(Tr("The rate asked of the PS5 video output. Up to 120 Hz lets 3x and 4x show one frame per refresh on a 120 Hz display, and a 60 FPS game be shown at 120. It only works if this installation declares 120 Hz (param.json) and the display accepts it; otherwise the output stays at 60 Hz by itself."),
+-        x + 56, 632, 20, kBody, 750);
++        x + 56, 632, 22, kBody, 750);
+     c.Text(std::string(Tr("Recommended: ")) + "60 Hz", x + 56, 860, 20, kAccent, 1.0f, 0, 750);
+     c.Text(Tr("The emulator restarts to apply it when settings close."), x + 56, 892, 20, kMuted, 1.0f, 0, 750);
+     float hint = c.Hint('x', Tr("Change"), x + 56, 1004);
+@@ -4720,13 +4728,16 @@ void Launcher::DrawOptionsSheet(Canvas& c) {
+       c.Wrapped(text, x + 56, y, size, rgb, 750);
+       y += c.Font(size)->CalcTextSizeA(size * c.scale, 4096.0f, 750 * c.scale, text.c_str()).y / c.scale + 8;
+     };
+-    if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 22, kText);
++    // Fix 149c: the whole name first when its row had to cut it; the help a size larger.
++    if (c.Width(Tr(option.label), 24) > (732.0f - std::min(c.Width(Tr(option.choices[size_t(settings_.*option.field)]), 24), 320.0f) - 28.0f))
++      wrapped(Tr(option.label), 24, kText);
++    if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 24, kText);
+     std::vector<std::string> choices;
+     for (const char* choice : option.choices) choices.push_back(Tr(choice));
+-    wrapped(option_groups::JoinChoices(choices), 20, kMuted);
+-    if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 20, kWarning);
++    wrapped(option_groups::JoinChoices(choices), 22, kMuted);
++    if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 22, kWarning);
+     c.list->PushClipRect(c.At(x + 40, 620), c.At(x + 820, 852), true);
+-    c.Wrapped(Tr(option.about), x + 56, y + 4, 20, kBody, 750);
++    c.Wrapped(Tr(option.about), x + 56, y + 4, 22, kBody, 750);
+     c.list->PopClipRect();
+   }
+   // What is recommended, and when a change takes effect.
+@@ -4765,7 +4776,7 @@ void Launcher::DrawSections(Canvas& c, float x) {
+     c.Text(value, x + 796, y + 12, 24, focused ? kAccent : changed ? kWarning : kMuted, 1.0f, 2, 260);
+   }
+   c.Fill(x + 40, 612, 780, 1, kWhite, 0.10f);
+-  if (!sections.empty()) c.Wrapped(SectionSummary(category_, sections[size_t(section_row_)], false), x + 56, 632, 20, kBody, 750);
++  if (!sections.empty()) c.Wrapped(SectionSummary(category_, sections[size_t(section_row_)], false), x + 56, 632, 22, kBody, 750);
+   float hint = c.Hint('x', Tr("Open"), x + 56, 1004);
+   hint = c.Hint('o', Tr("Back"), hint, 1004);
+   c.Hint('v', Tr("Navigate"), hint, 1004);
+@@ -4786,7 +4797,7 @@ void Launcher::DrawLibraryMenu(Canvas& c, float x) {
+     c.Text(rows[n].label, x + 64, y + 9, 24, focused ? kText : kBody);
+     c.Text(rows[n].value, x + 796, y + 9, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
+   }
+-  c.Wrapped(rows[library_row_].about, x + 56, 340, 20, kBody, 750);
++  c.Wrapped(rows[library_row_].about, x + 56, 340, 22, kBody, 750);
+   const std::string covers = covers_.Status();
+   if (library_row_ == 0 && !covers.empty()) c.Text(covers, x + 56, 404, 20, kAccent, 1.0f, 0, 750);
+   float hint = c.Hint('x', library_row_ == 1 || library_row_ == 3 ? Tr("Open") : Tr("Select"), x + 56, 1004);
+@@ -4850,7 +4861,7 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+     c.Text(rows[n].value, x + 796, y + 6, 24, focused ? kAccent : kMuted, 1.0f, 2, 420);
+   }
+   DrawBugReportRow(c, x, 668, rows[12].label, rows[12].value, settings_row_ == 12, settings_.bug_report != 0);
+-  c.Wrapped(rows[settings_row_].about, x + 56, 720, 20, kBody, 750);
++  c.Wrapped(rows[settings_row_].about, x + 56, 720, 22, kBody, 750);  // fix 149c: 22 px (was 20)
+   c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
+   if (web_qr_.size) {
+     // The settings page: its QR code on a white card, the address and the key beside it.
+@@ -4912,7 +4923,7 @@ void Launcher::DrawPerGame(Canvas& c, float x) {
+     c.Text(position, x + 820, 678, 20, kFaint, 1.0f, 2);
+   }
+   c.Wrapped(Tr("Each game can have its own picture, audio, controls, system and emulation settings. What it does not change follows the general settings. In the library, Triangle on a game opens the same settings."),
+-            x + 56, 704, 20, kBody, 750);
++            x + 56, 704, 22, kBody, 750);
+   c.Fill(x + 40, 808, 780, 1, kWhite, 0.10f);
+   const GameEntry& game = games_[size_t(per_game_[size_t(per_game_row_)])];
+   c.Text(game.name, x + 56, 826, 24, kText, 1.0f, 0, 750);

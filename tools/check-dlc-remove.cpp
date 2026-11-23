@@ -450,7 +450,9 @@ void CheckLauncher() {
                                 "const bool selected = n == dlc_row_ && g_list_focus_tab == 4;",
                                 "const bool selected = n == sheet.row && g_list_focus_tab == 5;"})
     Expect(Has(launcher, highlight), std::string("a row is highlighted only once its list has the pad: ") + highlight);
-  Expect(Has(launcher, "tab_bar::DrawValue(c, text.c_str(), x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);") &&
+  // Fix 149c: the game's option rows at 24 px (22 before).
+  Expect((Has(launcher, "tab_bar::DrawValue(c, text.c_str(), x + 796, y + 10, 22, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);") ||
+          Has(launcher, "tab_bar::DrawValue(c, text.c_str(), x + 796, y + 9, 24, own ? kAccent : preset_here ? kBody : kFaint, 1.0f, true);")) &&
              Has(launcher, "tab_bar::DrawValue(c, value.c_str(), x + 796, y + 8, 24, on ? kWarning : focused ? kAccent : kMuted, 1.0f, true);"),
          "a subject's options and the bug report row show < value >");
 }

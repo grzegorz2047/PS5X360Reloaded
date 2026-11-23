@@ -251,9 +251,13 @@ void CheckHelp() {
          "(g) beside the guide, outside its clip, unfolding with it");
   Expect(Has(main, "list->AddText(large, 30 * scale, at(left + 78, bottom - 57), fade(60, 44, 10, a), Tr(xbox360ps5::option_groups::kGuideChanged));"),
          "(g) the warning after a change: one line, large");
-  Expect(Has(launcher, "if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 22, kText);") &&
-             Has(launcher, "wrapped(option_groups::JoinChoices(choices), 20, kMuted);") &&
-             Has(launcher, "if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 20, kWarning);") &&
+  // Fix 149c: a size larger (24, 22, 22).
+  Expect((Has(launcher, "if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 22, kText);") ||
+          Has(launcher, "if (const char* brief = option_groups::BriefOf(option.key)) wrapped(Tr(brief), 24, kText);")) &&
+             (Has(launcher, "wrapped(option_groups::JoinChoices(choices), 20, kMuted);") ||
+              Has(launcher, "wrapped(option_groups::JoinChoices(choices), 22, kMuted);")) &&
+             (Has(launcher, "if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 20, kWarning);") ||
+              Has(launcher, "if (option_groups::ChangesHowGameRuns(option.key)) wrapped(Tr(option_groups::kRiskLine), 22, kWarning);")) &&
              Has(launcher, "c.list->PushClipRect(c.At(x + 40, 620), c.At(x + 820, 852), true);"),
          "(g) the launcher's help: short text, choices, risk, then the long help cut above the recommended value");
 }

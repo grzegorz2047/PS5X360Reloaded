@@ -219,3 +219,34 @@ Settings
 10. Launcher, an option focused: its help starts with the short text (white), the choices (grey) and, for
    emulation options, the risk (orange); the long help follows and never covers "Recommended: ...".
 11. Polish interface: "Wygładzanie i ostrość", "Biblioteka i zapisy", the titles translated.
+
+## Fix 149c: a light readability pass (#57)
+
+The user on 1.0.6-work-fix149b: "overall OK; maybe larger fonts; check a light WCAG, no big changes in the
+launcher". Measured at 1080p (WCAG 2.1 contrast, text on its real background):
+
+| Finding | Before | 149c |
+|---|---|---|
+| Launcher option rows | 22 px | 24 px |
+| Launcher help texts (option, page, game) | 20 px | 22 px |
+| Guide rows / help card / warnings / overlays | 22-30 px | unchanged |
+| Dark kFaint ("3 of 12", "General: ...") | 3.2-4.1:1 | 5.6-5.9:1 (0x8a93a3) |
+| Light kMuted / kFaint / kWarning / kAccent | 1.9-4.1:1 | 4.3-5.7:1 (0x555a60, 0x5e6369, 0x9a3a10, 0x336f16) |
+| Guide: white on the focus green / open tab | 2.3-3.9:1 | 4.8-6.3:1 |
+| Guide: value grey / section names | 4.5 / 3.6:1 | 5.9 / 4.9:1 |
+| Long row names cut at 440 px | yes | room = 732 px less the value; the whole name over the help when cut |
+
+Not changed (the user's choice): a value that differs from the recommended one is still marked by its
+colour only (the help shows "Recommended: ..."). Focus: rows have an outline or a bar, not colour alone;
+on/off values are words.
+
+### Console test plan (1.0.6-work-fix149c)
+
+1. Settings > Picture and smoothness > a section: rows and values visibly larger, the help under them a
+   size larger; nothing overlaps "Recommended: ..." or the hints.
+2. Polish interface, Emulation (advanced) > Video clock and mode: "Emulowana częstotliwość obrazu (zegar
+   gry, nie TV)" whole or nearly whole in its row; focused, the whole name over the help.
+3. A game's settings (Triangle): rows 24 px, the long names whole where the value is short.
+4. Light theme (Settings > Theme): grey hints and "General: ..." darker and readable; the green values
+   darker; the Play button still readable.
+5. Guide: the focus bar and the open tab a darker green, white text on them clearly readable.
