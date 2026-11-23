@@ -93,7 +93,9 @@ void Decisions() {
   Expect(sf::EffectFromSetting(1) == sf::Effect::kFxaa, "1 is FXAA");
   Expect(sf::EffectFromSetting(2) == sf::Effect::kFxaaExtreme, "2 is FXAA Extreme");
   Expect(sf::EffectFromSetting(-1) == sf::Effect::kNone, "-1 is Off");
-  Expect(sf::EffectFromSetting(3) == sf::Effect::kNone, "3 is Off");
+  // Fix 145 makes 3 SMAA 1x (check-swap-smaa.cpp); without it, 3 is Off.
+  if (Read(".deps/xenia-canary/src/xenia/gpu/vulkan/swap_smaa.h").empty())
+    Expect(sf::EffectFromSetting(3) == sf::Effect::kNone, "3 is Off");
   Expect(sf::EffectFromSetting(99) == sf::Effect::kNone, "99 is Off");
   // CommandProcessor::SwapPostEffect's numbers.
   Expect(uint32_t(sf::Effect::kNone) == 0 && uint32_t(sf::Effect::kFxaa) == 1 &&
@@ -347,7 +349,8 @@ void Tree() {
   Expect(InOrder(launcher,
                  {"{\"image_filter\", &S::image_filter, 0, W::live,",
                   "{\"antialiasing\", &S::antialiasing, 0, W::live, 0, true, \"Anti-aliasing\",",
-                  "{\"Off\", \"FXAA\", \"FXAA Extreme\"}},",
+                  // Fix 145 adds "SMAA 1x" as the fourth choice.
+                  "{\"Off\", \"FXAA\", \"FXAA Extreme\"",
                   "{\"sharpness\", &S::sharpness,"}),
          "the option: Video, live, per game, Off recommended, after Image filter");
   const std::string for_game = Between(launcher, "Settings ForGame(", "\n}\n");

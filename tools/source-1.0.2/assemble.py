@@ -504,7 +504,11 @@ def apply_fixes(out, report, with_core, skip=()):
             cmd.append('--exclude=.deps/*')
         print('+', ' '.join(cmd), patch.name, flush=True)
         subprocess.run(cmd + [str(patch)], cwd=out, env=env, check=True)
-        files = sorted({line[6:].strip() for line in patch.read_text(encoding='utf-8').splitlines()
+        # Only the file names (ASCII) are read; a fix may add an upstream file byte for byte that is
+        # not UTF-8 (fix 145: iryoku/smaa's SMAA.hlsl has Latin-1 box drawing in a comment), as
+        # rekey.py reads the patches.
+        files = sorted({line[6:].strip()
+                        for line in patch.read_text(encoding='utf-8', errors='replace').splitlines()
                         if line.startswith('+++ b/')})
         for rel in files:
             if rel in manifest:

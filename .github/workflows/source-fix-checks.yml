@@ -159,6 +159,7 @@ on:
       - 'tools/check-guide-per-game.cpp'
       - 'tools/check-vulkan-fxaa.cpp'
       - 'tools/check-swap-effects.cpp'
+      - 'tools/check-swap-smaa.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
