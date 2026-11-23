@@ -53,18 +53,24 @@ size_t Count(const std::string& text, const std::string& part) {
 void CheckGuide() {
   const std::string main = Read("src/canary_game_main.cpp");
   const std::string launcher_hpp = Read("include/xbox360ps5/launcher.hpp");
-  Expect(Has(launcher_hpp, "kOptionCategories[] = {\"Video\", \"Performance\", \"Audio\", \"Controls\", \"System\"};"),
-         "the categories: Performance is one of them");
+  // Fix 149 renamed the Performance page Emulation (advanced) (option_groups.hpp: category 1 either way).
+  const bool groups = Has(launcher_hpp, "kOptionCategories[] = {\"Picture and smoothness\", \"Emulation (advanced)\", \"Audio\", \"Controls\", \"System\"};");
+  Expect(groups || Has(launcher_hpp, "kOptionCategories[] = {\"Video\", \"Performance\", \"Audio\", \"Controls\", \"System\"};"),
+         "the categories: Performance (fix 149: Emulation (advanced)) is one of them");
   const std::string items = Between(main, "std::vector<GuideItem> GuideItems(int page,", "\n}\n");
   // (a)
   const std::string categories = Between(items, "  if (category < 0) {", "    return items;\n  }");
   Expect(!categories.empty() && !Has(categories, "GuideAction::measure"), "(a) not in the list of categories any more");
-  const std::string row = "  if (std::strcmp(xbox360ps5::kOptionCategories[category], \"Performance\") == 0)\n"
-                          "    items.push_back({GuideAction::measure, Tr(\"Measure performance (10 s)\"), \"\"});";
+  // Fix 149: on the Emulation (advanced) page, after the notice row that only tells.
+  const std::string row = groups ? "  if (category == xbox360ps5::option_groups::kEmulation) {\n"
+                                   "    items.push_back({GuideAction::notice, Tr(xbox360ps5::option_groups::kGuideNotice), \"\"});\n"
+                                   "    items.push_back({GuideAction::measure, Tr(\"Measure performance (10 s)\"), \"\"});"
+                                 : "  if (std::strcmp(xbox360ps5::kOptionCategories[category], \"Performance\") == 0)\n"
+                                   "    items.push_back({GuideAction::measure, Tr(\"Measure performance (10 s)\"), \"\"});";
   const size_t measure = items.find(row);
   const size_t options = items.find("  for (const auto& option : xbox360ps5::Options()) {\n    if (!shown(option) || option.category != category) continue;");
   Expect(measure != std::string::npos && options != std::string::npos && measure < options,
-         "(a) the Performance category's first row, before its options");
+         "(a) the Performance category's first row (fix 149: after the notice), before its options");
   Expect(Count(main, "GuideAction::measure, Tr(") == 1, "(a) in one place only");
   // (b)
   Expect(Has(main, "return item.action == GuideAction::option || item.action == GuideAction::network;"),

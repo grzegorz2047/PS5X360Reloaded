@@ -1,0 +1,408 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -144,7 +144,10 @@ struct Option {
+   std::vector<const char*> choices;  // The value is the index.
+ };
+ const std::vector<Option>& Options();
+-inline constexpr const char* kOptionCategories[] = {"Video", "Performance", "Audio", "Controls", "System"};
++// Fix 149: Video is Picture and smoothness (only the finished picture) and Performance is Emulation
++// (advanced) (how the emulated console runs the game); option_groups.hpp gives each option its group
++// and the order the pages are shown in.
++inline constexpr const char* kOptionCategories[] = {"Picture and smoothness", "Emulation (advanced)", "Audio", "Controls", "System"};
+ // What one game changes: option key to value, in game-settings/<TITLE ID>.txt.
+ using GameOverrides = std::map<std::string, int>;
+ GameOverrides LoadGameOverrides(const std::string& title_id);
+diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_groups.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/option_groups.hpp
+@@ -0,0 +1,159 @@
++// SPDX-License-Identifier: MIT
++// Fix 149: the options in two groups players cannot take for each other (research/option-groups/AUDIT.md).
++//  - Picture and smoothness (category 0, was "Video"): how the finished picture looks or how smoothly
++//    it is shown. The game itself runs the same: its speed, its timing and what it is told do not change.
++//  - Emulation (advanced) (category 1, was "Performance"): how the emulated Xbox 360 behaves for the
++//    game. It can change the game's speed, timing or correctness; it is changed game by game.
++// Why: a player set GTA IV's "Emulated video rate" to 120 Hz in the guide, taking it for the TV's
++// rate. It is the emulated console's vblank clock (cvars::framerate_limit), and some games run fast
++// with it; the TV's rate is "Frame generation output (test)". The guide listed it under Video, next
++// to the picture options, with no help text.
++// The category numbers stay (the other fixes' rows say 0 or 1, a game's file holds keys only): this
++// table moves an option to its group's page, and kOrder is the order the pages are shown in, with
++// Emulation (advanced) last. Every option of the launcher's table has an entry here, and
++// tools/check-option-groups.cpp fails on one without: a new option is given its group when it is added.
++#ifndef XBOX360PS5_OPTION_GROUPS_HPP_
++#define XBOX360PS5_OPTION_GROUPS_HPP_
++
++#include <algorithm>
++#include <iterator>
++#include <string_view>
++#include <vector>
++
++namespace xbox360ps5::option_groups {
++
++enum class Group { picture, emulation, other };
++
++inline constexpr int kPicture = 0;    // kOptionCategories[0]: "Picture and smoothness"
++inline constexpr int kEmulation = 1;  // kOptionCategories[1]: "Emulation (advanced)"
++// The pages in the order they are shown: the launcher's settings, a game's sheet, the guide and the
++// phone page. Audio (2), Controls (3) and System (4) keep their place between the two groups.
++inline constexpr int kOrder[] = {kPicture, 2, 3, 4, kEmulation};
++
++// Where a category is shown (its index in kOrder); -1 (no category: the bug report row) stays -1.
++inline int Position(int category) {
++  for (int n = 0; n < int(std::size(kOrder)); ++n)
++    if (kOrder[n] == category) return n;
++  return -1;
++}
++// Categories in the order they are shown.
++inline void SortByOrder(std::vector<int>& categories) {
++  std::stable_sort(categories.begin(), categories.end(), [](int a, int b) { return Position(a) < Position(b); });
++}
++
++struct Entry {
++  const char* key;
++  Group group;
++  const char* label;  // nullptr: the table's own
++  const char* about;  // nullptr: the table's own
++};
++
++// Labels and help texts players took for the TV's own settings.
++inline constexpr const char* kVideoRateLabel = "Emulated video rate (game clock, not your TV)";
++inline constexpr const char* kVideoRateAbout =
++    "The emulated Xbox 360's own clock: how many times a second it tells the game a new frame is due. It is not your TV's refresh rate (that is Frame generation output, under Picture and smoothness). At 120 Hz some games held at 30 frames go to 60, but others run too fast. A test, game by game.";
++inline constexpr const char* kVsyncLabel = "VSync (emulated, game speed)";
++inline constexpr const char* kVsyncAbout =
++    "The emulated console's vertical sync, not your TV's. On: games show at most 60 frames a second, so games with a 60 FPS patch do not speed up. Off: no cap, and some games run too fast.";
++inline constexpr const char* kResolutionAbout =
++    "The resolution the emulated Xbox 360 reports to the game; it is not your TV's resolution. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p.";
++
++// Every option of the launcher's table (src/launcher.cpp, Options()), with its group.
++inline constexpr Entry kEntries[] = {
++    // Picture and smoothness: the finished picture only.
++    {"image_filter", Group::picture, nullptr, nullptr},
++    {"antialiasing", Group::picture, nullptr, nullptr},
++    {"color_preset", Group::picture, nullptr, nullptr},
++    {"overscan_crop", Group::picture, nullptr, nullptr},
++    {"sharpness", Group::picture, nullptr, nullptr},
++    {"dither", Group::picture, nullptr, nullptr},
++    {"stretch", Group::picture, nullptr, nullptr},
++    {"anisotropic", Group::picture, nullptr, nullptr},
++    {"present_limit", Group::picture, nullptr, nullptr},  // fix 146, when it is in the tree
++    {"draw_scale", Group::picture, nullptr, nullptr},
++    // Emulation (advanced): what the game is told, its clock, and how faithfully it is emulated.
++    {"renderer", Group::emulation, nullptr, nullptr},
++    {"internal_resolution", Group::emulation, nullptr, kResolutionAbout},
++    {"video_clock", Group::emulation, kVideoRateLabel, kVideoRateAbout},
++    {"vsync", Group::emulation, kVsyncLabel, kVsyncAbout},
++    {"gamma", Group::emulation, nullptr, nullptr},
++    {"depth_precision", Group::emulation, nullptr, nullptr},
++    {"decal_bias", Group::emulation, nullptr, nullptr},
++    {"mulsc", Group::emulation, nullptr, nullptr},
++    {"fast_locks", Group::emulation, nullptr, nullptr},
++    {"memory_boost", Group::emulation, nullptr, nullptr},
++    {"dynamic_buffers", Group::emulation, nullptr, nullptr},
++    {"memory_window", Group::emulation, nullptr, nullptr},
++    {"occlusion", Group::emulation, nullptr, nullptr},
++    {"readback", Group::emulation, nullptr, nullptr},
++    {"memexport", Group::emulation, nullptr, nullptr},
++    {"async_shaders", Group::emulation, nullptr, nullptr},
++    {"clear_pages", Group::emulation, nullptr, nullptr},
++    {"released_memory", Group::emulation, nullptr, nullptr},
++    {"guest_yield", Group::emulation, nullptr, nullptr},
++    {"threaded_driver", Group::emulation, nullptr, nullptr},
++    {"pipeline_threads", Group::emulation, nullptr, nullptr},
++    {"fast_dot", Group::emulation, nullptr, nullptr},
++    {"no_promotion", Group::emulation, nullptr, nullptr},
++    {"zero_page", Group::emulation, nullptr, nullptr},
++    {"fsi", Group::emulation, nullptr, nullptr},
++    // Neither: sound, controls and the system stay on their own pages. The two sound decoder options
++    // and the Arcade licence are emulation by nature, but are read only as a game starts (the guide
++    // never shows them) and players look for them there.
++    {"mute", Group::other, nullptr, nullptr},
++    {"volume", Group::other, nullptr, nullptr},
++    {"ui_sounds", Group::other, nullptr, nullptr},
++    {"ui_sound_volume", Group::other, nullptr, nullptr},
++    {"xma_decoder", Group::other, nullptr, nullptr},
++    {"xma_inline", Group::other, nullptr, nullptr},
++    {"touchpad_menu", Group::other, nullptr, nullptr},
++    {"vibration", Group::other, nullptr, nullptr},
++    {"deadzone_left", Group::other, nullptr, nullptr},
++    {"deadzone_right", Group::other, nullptr, nullptr},
++    {"motion_phone", Group::other, nullptr, nullptr},
++    {"motion_panel", Group::other, nullptr, nullptr},
++    {"motion_picture", Group::other, nullptr, nullptr},
++    {"show_fps", Group::other, nullptr, nullptr},
++    {"achievement_toasts", Group::other, nullptr, nullptr},
++    {"web_page", Group::other, nullptr, nullptr},
++    {"arcade_full", Group::other, nullptr, nullptr},
++    {"save_drive", Group::other, nullptr, nullptr},
++    {"detailed_logs", Group::other, nullptr, nullptr},
++    {"bug_report", Group::other, nullptr, nullptr},
++};
++
++inline const Entry* Find(std::string_view key) {
++  for (const Entry& entry : kEntries)
++    if (key == entry.key) return &entry;
++  return nullptr;
++}
++// The page an option is shown on: its group's, or for the others (and an option this table does not
++// know) the one its row gives.
++inline int Category(std::string_view key, int table_category) {
++  const Entry* entry = Find(key);
++  if (!entry || entry->group == Group::other) return table_category;
++  return entry->group == Group::picture ? kPicture : kEmulation;
++}
++inline const char* Label(std::string_view key, const char* table_label) {
++  const Entry* entry = Find(key);
++  return entry && entry->label ? entry->label : table_label;
++}
++inline const char* About(std::string_view key, const char* table_about) {
++  const Entry* entry = Find(key);
++  return entry && entry->about ? entry->about : table_about;
++}
++
++// The guide (src/canary_game_main.cpp). On the Emulation (advanced) page, a notice is its first row
++// (the focus lands on it as the page opens); after one of its options is changed, kChanged is shown
++// over the list's bottom for kChangedSeconds.
++inline constexpr const char* kGuideNotice =
++    "These change how the emulated Xbox 360 runs this game, not your TV. They can make it run too fast, too slow or wrong. Changes are kept for this game.";
++inline constexpr const char* kGuideChanged =
++    "Changed for this game only. If it now runs too fast, too slow or looks wrong, set it back.";
++inline constexpr float kChangedSeconds = 8.0f;
++// The time left for kGuideChanged after a frame of `dt` seconds.
++inline float ChangedLeft(float left, float dt) { return left > dt ? left - dt : 0.0f; }
++
++}  // namespace xbox360ps5::option_groups
++
++#endif  // XBOX360PS5_OPTION_GROUPS_HPP_
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -192,6 +192,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/vfs/entry_io.h"  // fix 129: the summary line
+ #include "xbox360ps5/guide_quick.hpp"  // fix 115: the guide's quick actions
+ #include "xbox360ps5/tab_bar.hpp"  // fix 115c: the guide's tab bar and its pad
++#include "xbox360ps5/option_groups.hpp"  // fix 149: the Emulation (advanced) page's notice
+ #include "third_party/imgui/imgui.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -674,6 +675,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+ // panel that unfolds from the middle of the screen, a page of actions and a page
+ // of settings. The loop that reads the pad drives it; the dialog only draws.
+ enum class GuideAction { resume, library, shelf, back_button, quit, category, option, measure, capture, network, restart_game,  // fix 115
++                         notice,  // fix 149: a row that only tells (the Emulation (advanced) page's first)
+                          bug_report_restart };  // fix 93d
+ struct GuideItem {
+   GuideAction action;
+@@ -722,6 +724,7 @@ struct GuideState {
+   float blade = 1.0f;  // 1: the other page's blade on the right (page 0 open), 0: on the left.
+   float focus_y = -1.0f;
+   float hint = 7.0f;  // Seconds the reminder of how to open it stays up.
++  float group_changed = 0.0f;  // Fix 149: seconds the warning after an emulation option's change stays up.
+ };
+ constexpr const char* kGuidePages[] = {"Game", "Settings"};
+ constexpr int kGuideRows = 6;  // Rows of the settings page on screen at once.
+@@ -759,7 +762,8 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+     items.push_back({GuideAction::network, Tr("Network"), std::string(Tr(net::RowKey())) + (net::Busy() ? " ..." : "")});
+     // The categories that have something to change while the game runs.
+     const int categories = int(sizeof(xbox360ps5::kOptionCategories) / sizeof(xbox360ps5::kOptionCategories[0]));
+-    for (int c = 0; c < categories; ++c) {
++    for (int position = 0; position < categories; ++position) {
++      const int c = xbox360ps5::option_groups::kOrder[position];  // fix 149: Emulation (advanced) last
+       int count = 0;
+       for (const auto& option : xbox360ps5::Options()) count += shown(option) && option.category == c;
+       if (!count) continue;
+@@ -773,8 +777,12 @@ std::vector<GuideItem> GuideItems(int page, const xbox360ps5::Settings& settings
+   // Fix 115e: "Measure performance" opens the Performance category, with the options it measures
+   // (it was the last row of the list of categories; the user asked for it there, for consistency).
+   // An action row: Cross only, no value.
+-  if (std::strcmp(xbox360ps5::kOptionCategories[category], "Performance") == 0)
++  // Fix 149: Performance is Emulation (advanced); its page opens with a notice that these options
++  // change how the game runs (the focus lands on it), then the measurement.
++  if (category == xbox360ps5::option_groups::kEmulation) {
++    items.push_back({GuideAction::notice, Tr(xbox360ps5::option_groups::kGuideNotice), ""});
+     items.push_back({GuideAction::measure, Tr("Measure performance (10 s)"), ""});  // fix 54: was 5 s
++  }
+   for (const auto& option : xbox360ps5::Options()) {
+     if (!shown(option) || option.category != category) continue;
+     items.push_back({GuideAction::option, Tr(option.label), Tr(option.choices[size_t(settings.*option.field)]), &option});
+@@ -1055,6 +1063,16 @@ class Guide final : public xe::ui::ImGuiDialog {
+       // The text turns white once the bar is under it.
+       const bool lit = focused && std::fabs(state_.focus_y - y) < 20.0f;
+       const int a = int(255 * content);
++      if (items[size_t(n)].action == GuideAction::notice) {
++        // Fix 149: the notice in amber over its whole row, in two lines; focused, a dark outline.
++        const ImVec2 from = at(page_left + strip + slide_x, y), to = at(page_right + slide_x, y + 62);
++        list->AddRectFilled(from, to, fade(255, 214, 120, a));
++        if (focused) list->AddRect(from, to, fade(70, 56, 20, a), 0.0f, 0, 3.0f * scale);
++        list->AddText(large, 32 * scale, at(page_left + strip + 22 + slide_x, y + 12), fade(150, 90, 0, a), "!");
++        list->AddText(medium, 20 * scale, at(page_left + strip + 52 + slide_x, y + 7), fade(60, 44, 10, a),
++                      items[size_t(n)].label.c_str(), nullptr, (page_right - page_left - strip - 76) * scale);
++        continue;
++      }
+       list->AddLine(at(page_left + strip + slide_x, y + 62), at(page_right + slide_x, y + 62), fade(170, 175, 181, a), 1.5f * scale);
+       const ImU32 ink = lit ? fade(255, 255, 255, a) : fade(44, 48, 54, a);
+       list->AddText(large, (state_.page == 0 ? 34 : 30) * scale,
+@@ -1099,6 +1117,17 @@ class Guide final : public xe::ui::ImGuiDialog {
+       list->AddRectFilledMultiColor(at(left, bottom - 22), at(right, bottom), fade(0, 0, 0, 0), fade(0, 0, 0, 0),
+                                     fade(0, 0, 0, 70), fade(0, 0, 0, 70));
+     list->PopClipRect();
++    // Fix 149: after an Emulation (advanced) option is changed, the warning over the list's bottom for a
++    // few seconds (the notice row may have scrolled away), fading out in its last half second.
++    state_.group_changed = xbox360ps5::option_groups::ChangedLeft(state_.group_changed, frame_time);
++    if (state_.group_changed > 0.0f) {
++      const int a = int(255 * std::min(1.0f, state_.group_changed / 0.5f));
++      list->AddRectFilled(at(left + 24, bottom - 76), at(right - 24, bottom - 10), fade(255, 214, 120, a), 12 * scale);
++      list->AddRect(at(left + 24, bottom - 76), at(right - 24, bottom - 10), fade(150, 90, 0, a), 12 * scale, 0, 2.0f * scale);
++      list->AddText(large, 32 * scale, at(left + 44, bottom - 62), fade(150, 90, 0, a), "!");
++      list->AddText(medium, 21 * scale, at(left + 74, bottom - 68), fade(60, 44, 10, a), Tr(xbox360ps5::option_groups::kGuideChanged),
++                    nullptr, (right - left - 122) * scale);
++    }
+     {
+       // Fix 115d: "row / rows" on the tab bar, left of R1, large and light on the dark bar, the same
+       // place on both tabs ("- / rows" while the bar has the pad), after an up and a down arrow, lit
+@@ -1195,15 +1224,18 @@ std::string WebState(const xbox360ps5::Settings& global, std::vector<std::pair<s
+   if (running_name.empty()) json += "null";
+   else json += "{\"id\":" + JsonText(running_id) + ",\"name\":" + JsonText(running_name) + "}";
+   json += ",\"categories\":[";
+-  for (size_t n = 0; n < std::size(xbox360ps5::kOptionCategories); ++n)
+-    json += std::string(n ? "," : "") + JsonText(Tr(xbox360ps5::kOptionCategories[n]));
++  // Fix 149: in the order the pages are shown (Emulation (advanced) last); an option's "category" is
++  // its page's place in that list.
++  namespace groups = xbox360ps5::option_groups;
++  for (size_t n = 0; n < std::size(groups::kOrder); ++n)
++    json += std::string(n ? "," : "") + JsonText(Tr(xbox360ps5::kOptionCategories[groups::kOrder[n]]));
+   json += "],\"options\":[";
+   bool first = true;
+   for (const auto& option : xbox360ps5::Options()) {
+     const char* when = option.when == xbox360ps5::OptionWhen::live ? "live"
+                      : option.when == xbox360ps5::OptionWhen::launch ? "launch" : "start";
+     json += std::string(first ? "" : ",") + "{\"key\":" + JsonText(option.key) + ",\"label\":" + JsonText(Tr(option.label)) +
+-            ",\"about\":" + JsonText(Tr(option.about)) + ",\"category\":" + std::to_string(option.category) + ",\"when\":\"" + when +
++            ",\"about\":" + JsonText(Tr(option.about)) + ",\"category\":" + std::to_string(groups::Position(option.category)) + ",\"when\":\"" + when +
+             "\",\"recommended\":" + std::to_string(option.recommended) + ",\"perGame\":" + (option.per_game ? "true" : "false") +
+             ",\"value\":" + std::to_string(global.*option.field) + ",\"choices\":[";
+     for (size_t n = 0; n < option.choices.size(); ++n) json += std::string(n ? "," : "") + JsonText(Tr(option.choices[n]));
+@@ -3849,6 +3881,7 @@ int main(int argc, char** argv) {
+                   changed = false;
+                   break;
+                 case GuideAction::quit: quit = true; changed = false; break;
++                case GuideAction::notice: changed = false; break;  // fix 149: it only tells
+                 case GuideAction::back_button:
+                   guide.open = false;
+                   changed = false;
+@@ -3874,6 +3907,11 @@ int main(int argc, char** argv) {
+                   if (option.field == &xbox360ps5::Settings::touchpad_menu) trigger_was = true;
+                   XELOGW("Guide: {} set to {} at {:.1f} FPS, kept for {}", option.key, option.choices[size_t(value)], fps,
+                          for_game ? settings_title : std::string("every game"));
++                  // Fix 149: an Emulation (advanced) option changes how the game runs: the warning over the list.
++                  if (option.category == xbox360ps5::option_groups::kEmulation) {
++                    guide.group_changed = xbox360ps5::option_groups::kChangedSeconds;
++                    XELOGW("Guide: {} is an emulation option (fix 149): the game may now run faster, slower or wrong", option.key);
++                  }
+                   break;
+                 }
+                 case GuideAction::capture:
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -19,6 +19,7 @@
+ #include "update_manager.hpp"
+ #include "framegen_config.hpp"
+ #include "net_conf.hpp"  // fix 29: network.conf written with its folder
++#include "xbox360ps5/option_groups.hpp"  // fix 149
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/canary_audio.hpp"
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+@@ -587,7 +588,19 @@ const std::vector<Option>& Options() {
+       {"fsi", &S::fsi, 1, W::launch, 1, true, "FSI (per game)",
+        "Accurate render targets (FSI) for a game. Standard: the game's preset, or without one the general FSI switch below. Off or On forces the choice; on the general settings page it applies to every game without its own value. FSI gives more faithful particles and transparency, but shaders compile longer and the game runs slower. Applies from the next launch of the game (the emulator restarts by itself).", {"Off||feminine", "Standard", "On||feminine"}},
+   };
+-  return options;
++  // Fix 149: each option's page (Picture and smoothness or Emulation (advanced)) and the clearer names
++  // of the ones players took for TV settings come from option_groups.hpp's one table; the rows above
++  // stay as the fixes that added them wrote them.
++  static const std::vector<Option> grouped = [] {
++    std::vector<Option> list = options;
++    for (auto& option : list) {
++      option.category = option_groups::Category(option.key, option.category);
++      option.label = option_groups::Label(option.key, option.label);
++      option.about = option_groups::About(option.key, option.about);
++    }
++    return list;
++  }();
++  return grouped;
+ }
+ namespace {
+ // "key=value" lines; anything else is skipped.
+@@ -1883,6 +1896,7 @@ void Launcher::OpenGameSheet(int tab) {
+   for (int category = 0; category < int(std::size(kOptionCategories)); ++category)
+     for (const auto& option : Options())
+       if (option.per_game && option.category == category) { game_categories_.push_back(category); break; }
++  option_groups::SortByOrder(game_categories_);  // fix 149: Emulation (advanced) last
+   FillGameRows();
+   game_return_ = Mode::shelf;
+   mode_ = Mode::game;
+@@ -2380,16 +2394,18 @@ void Launcher::Press(Key key) {
+         } else if (settings_row_ >= 2 && settings_row_ <= 6) {
+           // A sub-menu: the options of one subject.
+           if (key != Key::left) {
+-            category_ = settings_row_ - 2;
++            category_ = option_groups::kOrder[settings_row_ - 2];  // fix 149: the rows in the pages' order
+             option_row_ = 0;
+             category_rows_.clear();
+             for (int n = 0; n < int(Options().size()); ++n)
+               if (Options()[size_t(n)].category == category_) category_rows_.push_back(n);
+-            if (category_ == 1) {
++            // Fix 149: frame generation and its output (the rate sent to the TV) change only what is
++            // shown; the general FSI switch is emulation.
++            if (category_ == option_groups::kPicture) {
+               category_rows_.push_back(kFramegenRow);
+               category_rows_.push_back(kFramegenOutputRow);
+-              category_rows_.push_back(kFsiRow);
+             }
++            if (category_ == option_groups::kEmulation) category_rows_.push_back(kFsiRow);
+             mode_ = Mode::options;
+           }
+         }
+@@ -4341,7 +4357,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+       const bool focused = n == game_category_ && g_list_focus_tab == 2;  // fix 109
+       c.Fill(x + 40, y, 780, 76, focused ? kSurfaceHigh : kSurface, focused ? 1.0f : 0.6f, 12);
+       if (focused) c.Edge(x + 40, y, 780, 76, kAccent, 0.9f, 12, 2.0f);
+-      c.Text(Tr(category == 0 ? "Graphics" : kOptionCategories[category]), x + 64, y + 12, 26, focused ? kText : kBody);
++      c.Text(Tr(kOptionCategories[category]), x + 64, y + 12, 26, focused ? kText : kBody);  // fix 149
+       std::string detail = std::to_string(count) + " " + Tr("Options");
+       if (own) detail += " · " + std::to_string(own) + " " + Tr("Customized");
+       c.Text(detail, x + 64, y + 44, 19, own ? kAccent : kMuted);
+@@ -4366,7 +4382,7 @@ void Launcher::DrawGameOptions(Canvas& c, float x) {
+     return;
+   }
+   const int category = game_categories_[size_t(game_category_)];
+-  c.Text(Tr(category == 0 ? "Graphics" : kOptionCategories[category]), x + 56, 334, 28, kText);
++  c.Text(Tr(kOptionCategories[category]), x + 56, 334, 28, kText);  // fix 149
+   const int rows = int(game_rows_.size()), shown = 8;
+   const int first = std::clamp(game_option_row_ - shown / 2, 0, std::max(0, rows - shown));
+   if (rows > shown) {
+@@ -4624,16 +4640,17 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+   const Row rows[] = {
+       {Tr("Player profile"), profile, Tr("The signed-in gamertag. Each profile keeps its own saved games and achievements.")},
+       {Tr("Language"), language, Tr("Automatic follows the PS5 language. Unsupported interface languages use English. The selection also applies to the next game launched; available languages depend on each game.")},
+-      {Tr("Video"), changed(0), Tr("Image filter (Plain, CAS, FSR), sharpness, anisotropic filtering, the emulated console's resolution and VSync.")},
+-      {Tr("Performance"), changed(1), Tr("Options that trade accuracy for speed: video memory, visibility queries, image readbacks, background shaders and tests.")},
++      // Fix 149: the pages in option_groups::kOrder: Picture and smoothness first, Emulation (advanced) last.
++      {Tr("Picture and smoothness"), changed(option_groups::kPicture), Tr("How the game's picture looks and how smoothly it is shown: image filter, anti-aliasing, colors, frame rate limit, frame generation and the rate sent to your TV. The game itself runs the same.")},
+       {Tr("Audio"), changed(2), Tr("Sound, game volume and interface sounds.")},
+       {Tr("Controls"), changed(3), Tr("Touchpad click, vibration and stick dead zones.")},
+       {Tr("System"), changed(4), Tr("FPS counter, achievement notifications, Arcade games and logs.")},
++      {Tr("Emulation (advanced)"), changed(option_groups::kEmulation), Tr("How the emulated Xbox 360 runs each game: its video rate and resolution, VSync, the renderer, memory, readbacks, shaders and tests. They can change a game's speed or correctness; change them game by game.")},
+       {Tr("Download covers"), covers_.Busy() ? Tr("Downloading...") : "", Tr("Download missing covers from XboxUnity, also used by Aurora. Requires internet on PS5. A cover.jpg in the game folder takes priority.")},
+       {Tr("Game folders"), std::to_string(settings_.game_paths.size()), Tr("Add multiple folders, including external devices. Disconnected folders remain saved. Only locations accessible to the application can be read.")},
+       {Tr("Refresh game list"), scan_result_, Tr("Looks again for games, covers and patches in the folders. A game copied to the console also shows up by itself, a few seconds after the copy ends.")},
+       {Tr("Saved data"), "", Tr("View data by game and its storage location. Profiles and achievements are kept with saved games.")},
+-      {Tr("Restore recommended"), restored_ ? Tr("Done") : "", Tr("Puts every Video, Performance, Audio, Controls and System option back to its recommended value. Each game's own settings stay as they are.")},
++      {Tr("Restore recommended"), restored_ ? Tr("Done") : "", Tr("Puts every option of the Picture and smoothness, Audio, Controls, System and Emulation (advanced) pages back to its recommended value. Each game's own settings stay as they are.")},
+       {Tr("Theme"), dark_theme::AtStart() ? Tr("DARK") : Tr("LIGHT"), Tr("X switches the theme; the emulator restarts")},
+       {Tr("Restart emulator"), "", Tr("Close and reopen the emulator.")},
+       // Fix 93d: set apart below the others (drawn after a divider, with its own mark).
