@@ -160,6 +160,7 @@ on:
       - 'tools/check-vulkan-fxaa.cpp'
       - 'tools/check-swap-effects.cpp'
       - 'tools/check-swap-smaa.cpp'
+      - 'tools/check-low-half-size.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
