@@ -410,11 +410,16 @@ void CheckTree() {
   Expect(start != std::string::npos && loop != std::string::npos && loop > start, "the watch starts before the game loop");
   Expect(reset != std::string::npos && cancel != std::string::npos && reset < cancel,
          "the watch stops when the loop ends, before the exit's waits");
-  Expect(main_text.find("ui_loop.Mark(xbox360ps5::hang_watch::kUiPaint);\r\n          context.Tick(); window.Paint();") !=
-                 std::string::npos ||
-             main_text.find("ui_loop.Mark(xbox360ps5::hang_watch::kUiPaint);\n          context.Tick(); window.Paint();") !=
-                 std::string::npos,
-         "the UI loop marks its Paint");
+  {
+    // The mark, then the tick and the paint (fix 146f laps the loop's parts in between).
+    const size_t mark = main_text.find("ui_loop.Mark(xbox360ps5::hang_watch::kUiPaint);");
+    const size_t tick = main_text.find("context.Tick();", mark);
+    const size_t paint = main_text.find("window.Paint();", tick);
+    const size_t sample = main_text.find("kUiSample);", paint);
+    Expect(mark != std::string::npos && tick != std::string::npos && paint != std::string::npos &&
+               sample != std::string::npos && tick - mark < 400 && paint - tick < 400 && sample - paint < 200,
+           "the UI loop marks its Paint");
+  }
   Expect(main_text.find("ui_loop.Mark(xbox360ps5::hang_watch::kUiMeasure);") != std::string::npos, "a measurement is marked");
   // Candidate 4.
   const size_t klass = main_text.find("class HangWatchThread {");

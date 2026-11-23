@@ -268,3 +268,19 @@ Reading it: "waiting for earlier paints" large means the GPU did not finish a pa
 busy with the game, or a GPU hang the queue recovers from); "submit" or "present" large means the
 queue's lock (the GPU command thread holding it); "outside the presenter" large means the UI loop
 (`context.Tick()` and the work between paints), the next place to time.
+
+## 12. Fix 146f: the UI loop's parts
+
+`1.0.6-work-fix146e` at a true 60 Hz (GTA IV, Automatic, `research/fix146e-60/`): six
+`Present stall (fix 146e)` lines (436, 149, 822, 536, 232, 889 ms), each almost all "outside the
+presenter (the UI loop)", the paint 0.2-0.3 ms. The same log has slow VFS deletes (longest 150-988
+ms a window). The UI loop does no file I/O of its own every frame, but it logs: every log line
+(platform/ps5/logging.cpp) takes one lock shared by every thread and is flushed (`flush_log` is on
+in the game), to the logs folder on the console drive where the saves and their slow deletes are.
+A write that waits for the file system holds the lock, so any thread's next line waits too.
+
+146f laps the game loop's parts and times this thread's log lines, with the lock wait apart, in
+the stall line. Reading it: a large "n log lines ... took" with a large lock wait means another
+thread's write held the lock (the file system); a large time with no lock wait means this
+thread's own write waited; a large lap names the loop's part (tick: queued UI-thread calls;
+settings page: the web state; every second: summaries and the stall watch).
