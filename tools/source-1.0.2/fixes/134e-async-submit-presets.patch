@@ -1,0 +1,73 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/async_submit.h
+@@ -76,6 +76,33 @@ inline int Parse(const std::string& text, Settings& settings) {
+   return not_understood;
+ }
+ 
++// Fix 134e: the games that get mode 1 while gpu_async_submit is at its default (0) and
++// async-submit.txt does not say otherwise. Console runs in mode 1 (1.0.5-work-fix134b to 134d):
++// Grand Theft Auto IV (545407F2) 43 to 45.5 frames a second, 45-55 in 8 windows, 13 minutes
++// clean; Red Dead Redemption (5454082B) a minimum of 30 instead of 28 at its 30, the GPU
++// thread's own work from 945 down to 780 ms/s, 17 minutes clean. Everything else: 0, as before.
++inline uint32_t PresetMode(uint32_t title_id) {
++  switch (title_id) {
++    case 0x545407F2:  // Grand Theft Auto IV
++    case 0x5454082B:  // Red Dead Redemption
++      return kWorker;
++    default:
++      return kOff;
++  }
++}
++// The mode in force: the cvar's when it is not 0, else the game's preset; the file's
++// "mode" line wins over both (Parse, after this). `from_preset` says which.
++inline uint32_t ModeFor(uint32_t cvar_mode, uint32_t title_id, bool* from_preset) {
++  const uint32_t mode = cvar_mode < kModes ? cvar_mode : kModes - 1;
++  if (mode != kOff) {
++    *from_preset = false;
++    return mode;
++  }
++  const uint32_t preset = PresetMode(title_id);
++  *from_preset = preset != kOff;
++  return preset;
++}
++
+ // At the start of a draw: whether the submission ends here, as a chunk.
+ inline bool ChunkDue(uint32_t mode, size_t stream_bytes, uint32_t chunk_kib) {
+   return mode != kOff && chunk_kib && stream_bytes >= size_t(chunk_kib) * 1024;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1497,7 +1497,10 @@ void VulkanCommandProcessor::RefreshAsyncSubmitSettings() {
+   }
+   checked = now;
+   async_submit::Settings next;
+-  next.mode = std::min<uint32_t>(cvars::gpu_async_submit, async_submit::kModes - 1);
++  // Fix 134e: the game's preset while the cvar is at 0 (the title is known once it runs).
++  bool from_preset = false;
++  const uint32_t title_id = kernel_state_ ? kernel_state_->title_id() : 0;
++  next.mode = async_submit::ModeFor(cvars::gpu_async_submit, title_id, &from_preset);
+   next.chunk_kib = std::max<uint32_t>(cvars::gpu_async_submit_chunk_kib, 16);
+   const char* const path = XBOX360PS5_DATA_ROOT "/async-submit.txt";
+   int not_understood = 0;
+@@ -1511,6 +1514,9 @@ void VulkanCommandProcessor::RefreshAsyncSubmitSettings() {
+     not_understood = async_submit::Parse(text, next);
+     from_file = true;
+   }
++  if (from_file) {
++    from_preset = false;  // fix 134e: the file's lines, if any, decide
++  }
+   if (async_settings_logged_ && next == async_settings_) {
+     return;
+   }
+@@ -1527,7 +1533,9 @@ void VulkanCommandProcessor::RefreshAsyncSubmitSettings() {
+          : next.mode == async_submit::kChunkOnly ? "chunks submitted on the GPU thread"
+                                                  : "off",
+          next.chunk_kib, next.resolves ? "handed off" : "kept on the GPU thread",
+-         from_file ? path : "the settings",
++         from_file      ? path
++         : from_preset  ? fmt::format("the preset for title {:08X} (fix 134e)", title_id)
++                        : std::string("the settings"),
+          not_understood ? fmt::format(", {} lines not understood", not_understood) : std::string());
+ }
+ 
