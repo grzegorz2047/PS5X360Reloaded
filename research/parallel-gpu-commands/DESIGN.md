@@ -463,5 +463,11 @@ Kinect Sports (boxing: Kinect, readbacks and queries).
 
 - Branch: `fix/parallel-gpu-record`
 - `BUILD_VERSION`: `1.0.5-work-fix142`
-- Build run (Rebuild v1.0.2 from source drops): see the branch's Actions, and the final message
-  of the session that made this fix.
+- Build run (Rebuild v1.0.2 from source drops): **45088598997**, green, at `c9d7652`
+  (artifact `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks of the same commit: run
+  45088593784, green.
+- The first build (run 45083906636, `a4af291`) failed to compile the core. The anonymous-enum PM4
+  constants compared with `xenos::Type3Opcode` raised `-Wdeprecated-anon-enum-enum-conversion`,
+  which `-Werror` makes fatal. `c9d7652` made them `constexpr uint32_t`.
+- As with any test build of the source rebuild, the package needs `src102-out/lang/*.txt` in place
+  of `PPSA50011/assets/lang/*.txt` (fixes README, "Language files").
