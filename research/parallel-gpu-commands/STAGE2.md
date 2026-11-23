@@ -360,3 +360,118 @@ verify mode, the "speculate, then validate" idea:
 Console order: verify across GTA IV, RDR, MW2 and the titles with odd render target use (Tekken
 TT2 at 2x, Kinect Sports' readbacks, BF3). Then skip, only where verify showed zero mismatches.
 Expected gain: up to about 0.25 µs on most draws, about 8% of the GPU thread in GTA IV and MW2.
+
+## 13. Fix 142e built: the render target update skip
+
+- **Base:** `fix/parallel-gpu-record-106` on top of fix 142d (`1.0.6_candidate_2`).
+- **Label:** `1.0.6-work-fix142e`.
+- **Setting:** `render_target_skip` ([GPU] in `assets/config/<title>.config.toml`), or live in
+  `render-target-skip.txt` in the title folder: one number, read again at most once a second, so
+  the mode can change while the game runs. `0` (the default) is today's path, `1` verify, `2`
+  skip.
+- **The patch only adds lines.** With the mode at 0 `Update` runs as before. The state version
+  is still counted; that is one increment where the state changes.
+- **Host check:** `tools/check-render-target-skip.cpp`.
+
+### What it does
+
+`xenia/gpu/render_target_skip.h` holds the key, the outputs, the memo, the counters and the
+line. `VulkanRenderTargetCache::Update` wraps them around the common `Update`. On the host render
+target path, for a clipped draw, with the mode not 0:
+- It builds the key: the 18 registers in `render_target_skip::kRegisters`, the four parameters,
+  the resolution scale, the three settings `Update` reads, and fix 117g's frame.
+- The memo **predicts** a skip when the last `Update` had the same key, changed nothing, and the
+  state version has not moved since it returned.
+- In **mode 2** a predicted draw returns at once.
+- Otherwise `Update` runs. At its end (an `AtExit`, as `Update` has several returns) the
+  outputs are compared with what they were before it:
+  - the used and accumulated render targets and their validity;
+  - the transfers;
+  - the render pass key, the render pass, the framebuffer, its pitch and attachments.
+
+  "Changed nothing" means the version did not move and the outputs are the same.
+- In **mode 1**, a predicted draw whose `Update` then changed something is a **mismatch**,
+  counted by kind:
+  - `state`: the version moved;
+  - `outputs`: what it leaves differs;
+  - `failed`: it returned false.
+
+  The first 16 are logged with what last bumped the version and the first output word that
+  differs.
+
+An unclipped draw, any other path, and a mode change all clear the memo.
+
+### Who bumps the state version (`Fix142eTouch`)
+
+**Where they change something:**
+- `ChangeOwnership`, before it splits or claims a range;
+- `GetOrCreateRenderTarget`, when it creates one;
+- `TransitionRenderTarget`, when the layout, stage or access differ;
+- `PerformTransfersAndResolveClears`, when it has a transfer or a clear;
+- `ResetAccumulatedRenderTargets` and `KeepScaleNativeForPitch` (fix 117b).
+
+**On entry:**
+- `InitializeCommon`, `Initialize` and `Shutdown`;
+- `DestroyAllRenderTargets`;
+- both `ClearCache`;
+- `BeginFrame`;
+- the fix 117g trims;
+- `Resolve` and `PrepareHostRenderTargetsResolveClear`;
+- `PrepareFullEdram1280xRenderTargetForSnapshotRestoration`;
+- `PixelShaderInterlockFullEdramBarrierPlaced`;
+- `DumpRenderTargets`.
+
+**The check keeps the list honest.** Every function of the two cache files that mentions the
+state `Update` reads must either bump the version or be listed as only reading it, with the
+reason. That state is the ownership map, the render targets, the accumulated and last-update
+members, the layouts, the render pass and framebuffer caches, fix 117b's and 117g's members.
+
+A new function from a Xenia update fails the check until someone classifies it. The check found
+two problems while it was being written:
+- the snapshot restoration function, which had been missed;
+- an overflow in the key's word count.
+
+### Reading the log
+
+Once a second, while the mode is not 0:
+
+```
+Render target skip (fix 142e): mode 1 (verify), per second U updates, C clipped, N unclipped,
+  P could skip (X%), S skipped, K changed; mismatches M (state a, outputs b, failed c), T in all
+```
+
+Also logged:
+- each mode change: `Render target skip (fix 142e): mode .. (..), from ..`;
+- in mode 1, up to 16 lines of `Render target skip (fix 142e): mismatch ..`.
+
+In mode 2, fix 142d's `Frame time draws like the previous one` line shows what is left. Its
+render pass `when the same` ms/s is the time `Update` still takes for unchanged passes; it should
+drop by about the skipped share.
+
+### Console plan
+
+Five games, no Kinect Sports:
+- Grand Theft Auto IV;
+- Red Dead Redemption;
+- Modern Warfare 2;
+- Tekken Tag Tournament 2 at 2x;
+- Battlefield 3.
+
+1. **Verify.** Write `1` into `render-target-skip.txt` and play the usual scene for 2-3 minutes,
+   including a menu, a loading screen and a cutscene where the game has them.
+   - Read `T in all`. It must stay 0.
+   - Read `X%`, the share that could be skipped. Compare it with fix 142d's 99%.
+   - Look for any rendering difference. There should be none: mode 1 changes nothing.
+2. **Skip.** Only in a game whose verify showed `T in all` 0, write `2` and play the same scene.
+   - Compare the fps and fix 49's `GPU thread executing` with a mode 0 run of the same scene.
+   - Compare fix 142d's `when the same` render pass time.
+   - Look for render target corruption: missing or stale surfaces, wrong shadows or reflections,
+     flicker after resolves.
+3. **If a game shows mismatches,** send the `mismatch` lines. They name what bumped the version
+   or which output word changed, and point to the missed case.
+
+Expected gain in mode 2, from fix 142d: up to about 86-98 ms/s of GPU thread time in GTA IV,
+43.6 in RDR and 74.5 in MW2. Draws the memo cannot predict lower that:
+- the first two draws of each pass;
+- unclipped draws;
+- draws after a resolve.
