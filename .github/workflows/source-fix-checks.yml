@@ -163,6 +163,14 @@ on:
       - 'tools/check-swap-smaa.cpp'
       - 'tools/check-low-half-size.cpp'
       - 'tools/check-present-limit.cpp'
+      - 'tools/check-exception-loop-entry.cpp'
+      - 'tools/check-disc-content.cpp'
+      - 'tools/check-smartglass-app.cpp'
+      - 'tools/check-title-keys.cpp'
+      - 'tools/check-disc-name-tags.cpp'
+      - 'tools/check-package-io.cpp'
+      - 'tools/check-file-io.cpp'
+      - 'tools/check-harmonix-keys.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

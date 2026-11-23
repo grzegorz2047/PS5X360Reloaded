@@ -155,9 +155,18 @@ checks=(
   check-video-mode.cpp             # fixes 140 and 140b
   check-video-mode.cpp             # fixes 140 to 140c
   check-present-limit.cpp          # fixes 146 to 146e
+  check-exception-loop-entry.cpp   # fix 147
+  check-disc-content.cpp           # fix 148
+  check-smartglass-app.cpp         # fix 147b
+  check-title-keys.cpp             # fix 147b
+  check-disc-name-tags.cpp         # fix 148b
+  check-package-io.cpp             # fix 148c
+  check-file-io.cpp                # fix 148d
+  check-harmonix-keys.cpp          # fix 147c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-harmonix-keys.cpp]="$repo"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -288,6 +297,14 @@ declare -A fix_of=(
   [check-low-half-size.cpp]=144
   [check-video-mode.cpp]="140 140b"
   [check-present-limit.cpp]="146 146b 146c 146d 146e"
+  [check-exception-loop-entry.cpp]=147
+  [check-disc-content.cpp]=148
+  [check-smartglass-app.cpp]=147b
+  [check-title-keys.cpp]=147b
+  [check-disc-name-tags.cpp]=148b
+  [check-package-io.cpp]=148c
+  [check-file-io.cpp]=148d
+  [check-harmonix-keys.cpp]=147c
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

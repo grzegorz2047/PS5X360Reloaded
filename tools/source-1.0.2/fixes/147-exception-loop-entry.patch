@@ -1,0 +1,325 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+index 209f4e5..6f51dd5 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+@@ -29,6 +29,7 @@
+ #include "xenia/ui/imgui_host_notification.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47: the title ends
++#include "xbox360ps5/exception_loop_entry.hpp"  // fix 147
+ #endif
+ 
+ #include "third_party/crypto/TinySHA1.hpp"
+@@ -771,6 +772,56 @@ object_ref<UserModule> KernelState::LoadUserModuleFromMemory(
+   return module;
+ }
+ 
++// Xbox360PS5 fix 147: a game that enters its main loop through a deliberate
++// crash (Dance Central 3: SetUnhandledExceptionFilter(filter), then a store to
++// address 0 whose exception runs the filter, and the filter the game loop). The
++// emulator does not hand guest access violations to the guest, so that store
++// becomes a call of the filter (xbox360ps5/exception_loop_entry.hpp finds the
++// shape). Every other executable is left as it is.
++static void Xbox360PS5EnterExceptionLoops(Memory* memory, UserModule* module) {
++  if (!module || !module->is_executable() || !module->xex_module()) {
++    return;
++  }
++  cpu::XexModule* xex = module->xex_module();
++  const uint32_t base = xex->base_address(), size = xex->image_size();
++  if (!size || uint64_t(base) + size > 0x100000000ull) {
++    return;
++  }
++  for (uint64_t at = base; at < uint64_t(base) + size;
++       at = (at & ~uint64_t(4095)) + 4096) {
++    auto* heap = memory->LookupHeap(uint32_t(at));
++    uint32_t protection = 0;
++    if (!heap || !heap->QueryProtect(uint32_t(at), &protection) ||
++        !(protection & kMemoryProtectRead)) {
++      return;
++    }
++  }
++  const auto scan = xbox360ps5::exception_loop::Find(
++      {memory->TranslateVirtual<const uint8_t*>(base), size, base});
++  for (const std::string& why : scan.refused) {
++    XELOGW("Exception loop (fix 147): title {:08X}, left alone at {}",
++           module->title_id(), why);
++  }
++  for (const auto& site : scan.sites) {
++    auto* heap = memory->LookupHeap(site.null_store);
++    uint32_t old_protect = 0;
++    if (!heap || !heap->QueryProtect(site.null_store, &old_protect)) {
++      continue;
++    }
++    heap->Protect(site.null_store, 4,
++                  kMemoryProtectRead | kMemoryProtectWrite);
++    xe::store_and_swap<uint32_t>(memory->TranslateVirtual(site.null_store),
++                                 site.new_word);
++    heap->Protect(site.null_store, 4, old_protect);
++    XELOGW(
++        "Exception loop (fix 147): title {:08X}: the store to address 0 at "
++        "{:08X} after SetUnhandledExceptionFilter ({:08X}, called at {:08X}) "
++        "now calls the filter {:08X} (word {:08X} -> {:08X})",
++        module->title_id(), site.null_store, site.set_filter, site.call,
++        site.filter, site.old_word, site.new_word);
++  }
++}
++
+ X_RESULT KernelState::FinishLoadingUserModule(
+     const object_ref<UserModule> module, bool call_entry) {
+   // TODO(Gliniak): Apply custom patches here
+@@ -787,6 +838,7 @@ X_RESULT KernelState::FinishLoadingUserModule(
+   {
+     emulator_->patcher()->ApplyPatchesForTitle(memory_, module->title_id(), module->hash());
+   }
++  Xbox360PS5EnterExceptionLoops(memory_, module.get());  // fix 147
+   emulator_->on_patch_apply();
+   if (module->xex_module()) {
+     module->xex_module()->Precompile();
+diff --git a/include/xbox360ps5/exception_loop_entry.hpp b/include/xbox360ps5/exception_loop_entry.hpp
+new file mode 100644
+index 0000000..28d798f
+--- /dev/null
++++ b/include/xbox360ps5/exception_loop_entry.hpp
+@@ -0,0 +1,242 @@
++// SPDX-License-Identifier: MIT
++// Fix 147: games that enter their main loop through a deliberate crash.
++//
++// Dance Central 3 (373307D9) builds its App object, installs an unhandled-exception filter with the
++// C runtime's SetUnhandledExceptionFilter and then writes to address 0:
++//     addi r3,r9,0x1A40         ; the filter, 82311A40
++//     bl   SetUnhandledExceptionFilter
++//     lis  r11,...
++//     li   r10,1
++//     stw  r10,0(0)             ; access violation, on purpose
++// On an Xbox 360 the fault reaches mainCRTStartup's __except, whose UnhandledExceptionFilter calls
++// that filter, and the filter runs the game loop (82311338 there): the whole game runs inside the
++// exception filter. The emulator does not hand guest access violations to the guest, so the game
++// stopped on a "guest crash" right after its logo (BrinooTk/PS5X360 #141).
++//
++// Found by the shape of the code, not by addresses of one image:
++//  * SetUnhandledExceptionFilter: "lis rA,hi; mr rX,r3; lwz r3,lo(rA); stw rX,lo(rA); blr" (it swaps
++//    one global and returns the old filter);
++//  * a call of it whose r3 is a constant made by "lis rB,hi; addi r3,rB,lo" just before, followed
++//    within a few instructions (no branch in between) by "li rN,1; stw rN,0(r0)";
++//  * the filter is code of the executable that does not read r3 (EXCEPTION_POINTERS) before it sets
++//    r3 itself: only a frame prologue may come first.
++// The null store becomes "bl filter": the filter runs at the moment the exception would have called it.
++#pragma once
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::exception_loop {
++
++// The executable as loaded: big-endian bytes from base.
++struct Code {
++  const uint8_t* code = nullptr;
++  size_t bytes = 0;
++  uint32_t base = 0;
++  bool Has(uint32_t address, size_t size = 4) const {
++    return code && address >= base && uint64_t(address - base) + size <= bytes;
++  }
++  uint32_t Word(uint32_t address) const {
++    const uint8_t* p = code + (address - base);
++    return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | p[3];
++  }
++};
++
++struct Site {
++  uint32_t set_filter = 0;  // SetUnhandledExceptionFilter
++  uint32_t call = 0;        // its call that installs the filter
++  uint32_t null_store = 0;  // stw rN,0(r0)
++  uint32_t filter = 0;      // the filter the exception would have run
++  uint32_t old_word = 0;
++  uint32_t new_word = 0;    // bl filter
++};
++
++struct Scan {
++  std::vector<Site> sites;
++  std::vector<std::string> refused;  // shapes that looked like it but were left alone, and why
++};
++
++constexpr uint32_t kBlr = 0x4E800020;
++
++inline uint32_t Op(uint32_t word) { return word >> 26; }
++inline uint32_t Rd(uint32_t word) { return (word >> 21) & 31; }
++inline uint32_t Ra(uint32_t word) { return (word >> 16) & 31; }
++inline uint32_t Rb(uint32_t word) { return (word >> 11) & 31; }
++inline int32_t Simm(uint32_t word) { return int16_t(word & 0xFFFF); }
++
++// "bl target" (I-form, relative, link, not absolute).
++inline bool RelativeCall(uint32_t at, uint32_t word, uint32_t* target) {
++  if (Op(word) != 18 || (word & 3) != 1) return false;
++  int32_t offset = int32_t(word & 0x03FFFFFC);
++  if (offset & 0x02000000) offset -= 0x04000000;
++  *target = at + uint32_t(offset);
++  return true;
++}
++inline uint32_t CallWord(uint32_t at, uint32_t target) {
++  return 0x48000001u | ((target - at) & 0x03FFFFFCu);
++}
++inline bool CallReaches(uint32_t at, uint32_t target) {
++  const int64_t offset = int64_t(target) - int64_t(at);
++  return offset >= -0x2000000 && offset < 0x2000000 && !(offset & 3);
++}
++inline bool IsBranch(uint32_t word) {
++  const uint32_t op = Op(word);
++  if (op == 16 || op == 18 || op == 17) return true;  // bc, b, sc
++  if (op == 19) {
++    const uint32_t xo = (word >> 1) & 0x3FF;
++    return xo == 16 || xo == 528 || xo == 50;  // bclr, bcctr, rfi
++  }
++  return false;
++}
++inline bool IsMr(uint32_t word, uint32_t* to, uint32_t* from) {  // or rA,rS,rS
++  if (Op(word) != 31 || ((word >> 1) & 0x3FF) != 444 || (word & 1) || Rd(word) != Rb(word)) return false;
++  *to = Ra(word);
++  *from = Rd(word);
++  return true;
++}
++
++// "lis rA,hi; mr rX,r3; lwz r3,lo(rA); stw rX,lo(rA); blr".
++inline bool IsSetUnhandledExceptionFilter(const Code& code, uint32_t at) {
++  if (!code.Has(at, 20)) return false;
++  const uint32_t lis = code.Word(at), mr = code.Word(at + 4), load = code.Word(at + 8),
++                 store = code.Word(at + 12);
++  if (Op(lis) != 15 || Ra(lis) != 0 || Rd(lis) == 0 || Rd(lis) == 3) return false;
++  const uint32_t a = Rd(lis);
++  uint32_t x = 0, from = 0;
++  if (!IsMr(mr, &x, &from) || from != 3 || x == 3 || x == a || x == 0) return false;
++  if (Op(load) != 32 || Rd(load) != 3 || Ra(load) != a) return false;
++  if (Op(store) != 36 || Rd(store) != x || Ra(store) != a || (store & 0xFFFF) != (load & 0xFFFF))
++    return false;
++  return code.Word(at + 16) == kBlr;
++}
++
++// The constant in r3 at the call: "lis rB,hi" then "addi r3,rB,lo" within the 8 instructions before
++// it, rB not written in between (any instruction with rB as its D field, other than stores, counts as
++// a write).
++inline bool FilterArgument(const Code& code, uint32_t call, uint32_t* filter) {
++  for (uint32_t back = 1; back <= 8; ++back) {
++    const uint32_t at = call - back * 4;
++    if (!code.Has(at)) return false;
++    const uint32_t word = code.Word(at);
++    if (IsBranch(word)) return false;
++    if (Op(word) == 14 && Rd(word) == 3 && Ra(word) != 0 && Ra(word) != 3) {
++      const uint32_t b = Ra(word);
++      for (uint32_t more = back + 1; more <= back + 8; ++more) {
++        const uint32_t at2 = call - more * 4;
++        if (!code.Has(at2)) return false;
++        const uint32_t word2 = code.Word(at2);
++        if (IsBranch(word2)) return false;
++        if (Op(word2) == 15 && Ra(word2) == 0 && Rd(word2) == b) {
++          *filter = (uint32_t(word2 & 0xFFFF) << 16) + uint32_t(Simm(word));
++          return true;
++        }
++        const uint32_t op2 = Op(word2);
++        const bool store = op2 == 36 || op2 == 37 || op2 == 38 || op2 == 39 || op2 == 44 ||
++                           op2 == 45 || op2 == 62;
++        if (!store && Rd(word2) == b) return false;
++      }
++      return false;
++    }
++    // Anything else that sets r3 between the constant and the call.
++    const uint32_t op = Op(word);
++    const bool store = op == 36 || op == 37 || op == 38 || op == 39 || op == 44 || op == 45 ||
++                       op == 62;
++    uint32_t to = 0, from = 0;
++    if (IsMr(word, &to, &from) && to == 3) return false;
++    if (!store && op != 31 && Rd(word) == 3) return false;
++  }
++  return false;
++}
++
++// The filter must not read r3 (EXCEPTION_POINTERS on the console; something else here) before it
++// sets r3 itself. Only a frame prologue may come first: mflr r12, stores of other registers through
++// r1, stwu/stdu r1, lis, and "addi rX,r1,..." of the frame. r3 then set by lwz/lis/li/addi (not from r3).
++inline bool FilterIgnoresArgument(const Code& code, uint32_t filter, std::string* why) {
++  for (uint32_t n = 0; n < 12; ++n) {
++    const uint32_t at = filter + n * 4;
++    if (!code.Has(at)) {
++      *why = "the filter is outside the executable";
++      return false;
++    }
++    const uint32_t word = code.Word(at);
++    const uint32_t op = Op(word);
++    if (word == 0x7D8802A6) continue;  // mflr r12
++    if ((op == 36 || op == 37 || op == 62) && Ra(word) == 1 && Rd(word) != 3) continue;  // stw/stwu/std(u) via r1
++    if (op == 15 && Ra(word) == 0 && Rd(word) != 3) continue;                           // lis
++    if (op == 14 && Ra(word) == 1 && Rd(word) != 3) continue;                           // addi rX,r1,...
++    if (op == 32 && Rd(word) == 3 && Ra(word) != 3) return true;                        // lwz r3,d(rA)
++    if (op == 15 && Ra(word) == 0 && Rd(word) == 3) return true;                        // lis r3
++    if (op == 14 && Rd(word) == 3 && Ra(word) != 3) return true;                        // li/addi r3
++    *why = "the filter may read its argument (r3) first";
++    return false;
++  }
++  *why = "the filter does not set r3 within its first 12 instructions";
++  return false;
++}
++
++// Every site in the executable. A filter function (body above) is looked for once; calls of it are
++// then checked one by one.
++inline Scan Find(const Code& code) {
++  Scan scan;
++  if (!code.code || code.bytes < 20) return scan;
++  std::vector<uint32_t> set_filters;
++  const uint32_t end = code.base + uint32_t(code.bytes & ~size_t(3));
++  for (uint32_t at = code.base; at + 20 <= end; at += 4)
++    if (Op(code.Word(at)) == 15 && IsSetUnhandledExceptionFilter(code, at)) set_filters.push_back(at);
++  if (set_filters.empty()) return scan;
++  for (uint32_t at = code.base; at + 4 <= end; at += 4) {
++    uint32_t target = 0;
++    if (!RelativeCall(at, code.Word(at), &target)) continue;
++    bool is_set_filter = false;
++    for (uint32_t s : set_filters) is_set_filter |= s == target;
++    if (!is_set_filter) continue;
++    // "li rN,1" then "stw rN,0(r0)" within the 6 instructions after the call, no branch between.
++    uint32_t store = 0, n = 0;
++    bool loaded = false;
++    for (uint32_t k = 1; k <= 6 && code.Has(at + k * 4); ++k) {
++      const uint32_t word = code.Word(at + k * 4);
++      if (IsBranch(word)) break;
++      if (Op(word) == 14 && Ra(word) == 0 && (word & 0xFFFF) == 1) {
++        n = Rd(word);
++        loaded = true;
++        continue;
++      }
++      if (loaded && word == (0x90000000u | (n << 21))) {
++        store = at + k * 4;
++        break;
++      }
++    }
++    if (!store) continue;
++    char where[96];
++    uint32_t filter = 0;
++    if (!FilterArgument(code, at, &filter)) {
++      std::snprintf(where, sizeof(where), "%08X: the filter given at the call is not a constant", at);
++      scan.refused.push_back(where);
++      continue;
++    }
++    std::string why;
++    if (!FilterIgnoresArgument(code, filter, &why)) {
++      std::snprintf(where, sizeof(where), "%08X (filter %08X): ", at, filter);
++      scan.refused.push_back(where + why);
++      continue;
++    }
++    if (!CallReaches(store, filter)) {
++      std::snprintf(where, sizeof(where), "%08X (filter %08X): too far for a call", at, filter);
++      scan.refused.push_back(where);
++      continue;
++    }
++    Site site;
++    site.set_filter = target;
++    site.call = at;
++    site.null_store = store;
++    site.filter = filter;
++    site.old_word = code.Word(store);
++    site.new_word = CallWord(store, filter);
++    scan.sites.push_back(site);
++  }
++  return scan;
++}
++
++}  // namespace xbox360ps5::exception_loop

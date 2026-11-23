@@ -1,0 +1,35 @@
+diff --git a/port/disc_catalog.cpp b/port/disc_catalog.cpp
+index 4c9092f..9db82d5 100644
+--- a/port/disc_catalog.cpp
++++ b/port/disc_catalog.cpp
+@@ -56,6 +56,9 @@ struct Hint {unsigned number=0;std::string family;};
+ bool Sep(char c){return c==' '||c=='_'||c=='-'||c=='.';}
+ // Terminal Disc N / Disk N token only. The remaining prefix is a physical filename family.
+ Hint DiscHint(std::string n){auto ext=Extension(n);if(ext==".iso"||ext==".zar")n.resize(n.size()-ext.size());n=Lower(Trim(n));if(!n.empty()&&(n.back()==')'||n.back()==']'))n.pop_back();n=Trim(n);
++ // Fix 148b: No-Intro puts one tag after the disc number, "(Disc 1) (Install)", "(Disc 2) (Play)":
++ // a last group of letters, spaces and dashes after a group that ends in a number is set aside.
++ if(!n.empty()&&!std::isdigit(static_cast<unsigned char>(n.back()))){size_t open=n.find_last_of("([");if(open!=std::string::npos&&open+1<n.size()&&n.size()-open<=20){bool tag=true;for(size_t i=open+1;i<n.size();++i){unsigned char ch=static_cast<unsigned char>(n[i]);if(!std::isalpha(ch)&&ch!=' '&&ch!='-')tag=false;}std::string before=Trim(n.substr(0,open));if(tag&&!before.empty()&&(before.back()==')'||before.back()==']')){before.pop_back();before=Trim(before);if(!before.empty()&&std::isdigit(static_cast<unsigned char>(before.back())))n=before;}}}
+  size_t end=n.size(),start=end;while(start && std::isdigit(static_cast<unsigned char>(n[start-1])))--start;if(start==end)return {};
+  auto digits=n.substr(start);if(digits.size()>3 || digits[0]=='0')return {};unsigned number=unsigned(std::stoul(digits));if(!number||number>255)return {};
+  size_t word_end=start;while(word_end && Sep(n[word_end-1]))--word_end;if(word_end<4)return {};size_t length=word_end>=5 && n.substr(word_end-5,5)=="disco"?5:4;auto word=n.substr(word_end-length,length);if(word!="disc" && word!="disk" && word!="disco")return {};size_t word_start=word_end-length;
+@@ -282,6 +285,20 @@ std::string NameWithoutDisc(const std::string& name) {
+     while (!text.empty() && (text.back() == ' ' || text.back() == '\t' || text.back() == '\r')) text.pop_back();
+   };
+   trim();
++  // Fix 148b: a No-Intro tag after the disc number ("(Disc 1) (Install)") goes with it.
++  if (text.size() > 2 && (text.back() == ')' || text.back() == ']') &&
++      !std::isdigit(static_cast<unsigned char>(text[text.size() - 2]))) {
++    const size_t open = text.find_last_of("([");
++    bool tag = open != std::string::npos;
++    for (size_t i = tag ? open + 1 : text.size(); i + 1 < text.size(); ++i) {
++      const unsigned char ch = static_cast<unsigned char>(text[i]);
++      if (!std::isalpha(ch) && ch != ' ' && ch != '-') tag = false;
++    }
++    if (tag) {
++      text.resize(open);
++      trim();
++    }
++  }
+   if (!text.empty() && (text.back() == ')' || text.back() == ']')) text.pop_back();
+   trim();
+   while (!text.empty() && std::isdigit(static_cast<unsigned char>(text.back()))) text.pop_back();
