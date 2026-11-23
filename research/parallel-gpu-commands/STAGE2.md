@@ -639,6 +639,8 @@ The name is 142f-diag because the earlier 142f plan (widening 142e) is set aside
 - **Patch:** `142f-diag-gpu-thread.patch`.
 - **Branch:** `fix/gpu-thread-probe-106`.
 - **Label:** `1.0.6-work-fix142f-diag`.
+- **Build run:** 45264673575, green, at `bdce6de` (artifact
+  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks: run 45264673127, green.
 - **Nothing the emulator does changes.**
 
 **One switch.** `gpu-diag-detail.txt` in the title folder turns on fix 142d's probes and the new
