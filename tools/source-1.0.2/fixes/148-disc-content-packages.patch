@@ -1,0 +1,145 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+index 25fef92..61096e8 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+@@ -9,6 +9,7 @@
+ 
+ #include "xenia/base/logging.h"
+ #include "xbox360ps5/dashboard_mode.hpp"
++#include "xbox360ps5/disc_content.hpp"  // fix 148
+ #include "xbox360ps5/multi_disc.hpp"
+ #include "xbox360ps5/motion_input.hpp"
+ #include "xenia/base/math.h"
+@@ -389,6 +390,33 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+                                                 uint32_t& length) -> X_RESULT {
+     X_RESULT result = X_ERROR_INVALID_PARAMETER;
+     kDispositionState disposition = kDispositionState::Unknown;
++    // Xbox360PS5 fix 148: a package asked for on the optical drive is on the
++    // game disc, game:\content\<xuid>\<title>\<type>\<file> (Grand Theft
++    // Auto V's install disc keeps its 8 GB of data as four such packages). The
++    // host content folder only had packages copied there by hand, so every
++    // open failed and the game showed its dirty-disc error. A disc package is
++    // opened read-only from the disc; the host folder still comes first.
++    std::string disc_package;
++    if (uint32_t(content_data.device_id) ==
++            xbox360ps5::disc_content::kOpticalDrive &&
++        xbox360ps5::disc_content::OpensExisting(flags) &&
++        !content_manager->ContentExists(xuid, content_data)) {
++      uint32_t title_id = content_data.title_id;
++      if (!title_id || title_id == kCurrentlyRunningTitleId) {
++        title_id = kernel_state()->title_id();
++      }
++      for (const std::string& path :
++           xbox360ps5::disc_content::GuestPackagePaths(
++               uint64_t(content_data.xuid), title_id,
++               static_cast<uint32_t>(content_data.content_type.get()),
++               xe::string_util::trim(content_data.file_name()))) {
++        auto entry = kernel_state()->file_system()->ResolvePath(path);
++        if (entry && !(entry->attributes() & vfs::kFileAttributeDirectory)) {
++          disc_package = path;
++          break;
++        }
++      }
++    }
+     switch (flags & 0xF) {
+       case XContentFlag::kCreateNew:
+         // Fail if exists.
+@@ -407,7 +435,9 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+         break;
+       case XContentFlag::kOpenExisting:
+         // Open only if exists.
+-        if (!content_manager->ContentExists(xuid, content_data)) {
++        if (!disc_package.empty()) {
++          disposition = kDispositionState::Open;  // fix 148
++        } else if (!content_manager->ContentExists(xuid, content_data)) {
+           result = X_ERROR_PATH_NOT_FOUND;
+         } else {
+           disposition = kDispositionState::Open;
+@@ -415,7 +445,9 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+         break;
+       case XContentFlag::kOpenAlways:
+         // Create if needed.
+-        if (!content_manager->ContentExists(xuid, content_data)) {
++        if (!disc_package.empty()) {
++          disposition = kDispositionState::Open;  // fix 148
++        } else if (!content_manager->ContentExists(xuid, content_data)) {
+           disposition = kDispositionState::Create;
+         } else {
+           disposition = kDispositionState::Open;
+@@ -456,6 +488,12 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+ 
+       result = content_manager->CreateContent(root_name, xuid,
+                                               content_data_internal);
++    } else if (disposition == kDispositionState::Open &&
++               !disc_package.empty()) {
++      result = content_manager->OpenContentFromGuestFile(
++          root_name, disc_package, content_license);
++      XELOGW("Content (fix 148): {} opened from the disc, {}: result {:08X}",
++             root_name, disc_package, uint32_t(result));
+     } else if (disposition == kDispositionState::Open) {
+       result = content_manager->OpenContent(root_name, xuid, content_data,
+                                             content_license);
+diff --git a/include/xbox360ps5/disc_content.hpp b/include/xbox360ps5/disc_content.hpp
+new file mode 100644
+index 0000000..563a3c8
+--- /dev/null
++++ b/include/xbox360ps5/disc_content.hpp
+@@ -0,0 +1,58 @@
++// SPDX-License-Identifier: MIT
++// Fix 148: content packages on the game disc.
++//
++// Grand Theft Auto V's install disc (545408A7, "Disc 1 (Install)") holds its data as four packages
++// (PIRS, 8.3 GB) in content\0000000000000000\545408A7\00000002\ on the disc. The game lists them on
++// the optical drive (device 2; ContentManager::ListContentODD finds them under game:\content) and
++// opens each with XamContentCreate(OPEN_EXISTING). ContentExists/OpenContent only looked in the host
++// content folder (the saves folder), so every open failed with "path not found", the game showed its
++// dirty-disc error and the emulator went back to the library.
++//
++// A package asked for on the optical drive is now looked for on the disc first,
++// game:\content\<xuid>\<title id>\<content type>\<file name> (the player's xuid, then 0, as a disc
++// stores it), and opened read-only from there with the core's package-from-a-guest-file path; the
++// host content folder stays the fallback (a disc's content copied there by hand keeps working).
++#pragma once
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace xbox360ps5::disc_content {
++
++// DummyDeviceId::ODD (xam_content_device.h).
++constexpr uint32_t kOpticalDrive = 2;
++
++// A package file name the disc can hold: one path component, no separators or drive letter.
++inline bool PackageFileName(std::string_view name) {
++  if (name.empty() || name.size() > 42 || name == "." || name == "..") return false;
++  for (char c : name)
++    if (c == '\\' || c == '/' || c == ':' || static_cast<unsigned char>(c) < 0x20) return false;
++  return true;
++}
++
++// The guest paths to try, in order: the player's xuid (when it is one), then 0.
++inline std::vector<std::string> GuestPackagePaths(uint64_t xuid, uint32_t title_id,
++                                                  uint32_t content_type, std::string_view file_name) {
++  std::vector<std::string> paths;
++  if (!PackageFileName(file_name)) return paths;
++  const uint64_t xuids[2] = {xuid, 0};
++  for (int n = 0; n < 2; ++n) {
++    if (n == 0 && (xuid == 0 || xuid == ~uint64_t(0))) continue;
++    char prefix[64];
++    std::snprintf(prefix, sizeof(prefix), "game:\\content\\%016llX\\%08X\\%08X\\",
++                  static_cast<unsigned long long>(xuids[n]), title_id, content_type);
++    paths.push_back(std::string(prefix) + std::string(file_name));
++  }
++  return paths;
++}
++
++// Which open dispositions may use a disc package: open-existing (3) and open-always (4). A create
++// (1, 2) or truncate (5) on the read-only disc keeps the host content folder.
++inline bool OpensExisting(uint32_t flags) {
++  const uint32_t disposition = flags & 0xF;
++  return disposition == 3 || disposition == 4;
++}
++
++}  // namespace xbox360ps5::disc_content

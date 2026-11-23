@@ -159,6 +159,8 @@ on:
       - 'tools/check-guide-per-game.cpp'
       - 'tools/check-vulkan-fxaa.cpp'
       - 'tools/check-swap-effects.cpp'
+      - 'tools/check-exception-loop-entry.cpp'
+      - 'tools/check-disc-content.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

@@ -150,6 +150,8 @@ checks=(
   check-guide-per-game.cpp         # fix 143
   check-vulkan-fxaa.cpp            # fixes 137 and 137b
   check-swap-effects.cpp           # fixes 141 and 141b
+  check-exception-loop-entry.cpp   # fix 147
+  check-disc-content.cpp           # fix 148
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -279,6 +281,8 @@ declare -A fix_of=(
   [check-guide-per-game.cpp]=143
   [check-vulkan-fxaa.cpp]="137 137b"
   [check-swap-effects.cpp]="141 141b"
+  [check-exception-loop-entry.cpp]=147
+  [check-disc-content.cpp]=148
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
