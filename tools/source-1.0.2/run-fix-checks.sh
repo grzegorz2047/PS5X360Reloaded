@@ -155,6 +155,7 @@ checks=(
   check-smartglass-app.cpp         # fix 147b
   check-title-keys.cpp             # fix 147b
   check-disc-name-tags.cpp         # fix 148b
+  check-package-io.cpp             # fix 148c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -289,6 +290,7 @@ declare -A fix_of=(
   [check-smartglass-app.cpp]=147b
   [check-title-keys.cpp]=147b
   [check-disc-name-tags.cpp]=148b
+  [check-package-io.cpp]=148c
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
