@@ -1,0 +1,210 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -1086,10 +1086,12 @@ X_STATUS XThread::Resume(uint32_t* out_suspend_count) {
+   xe::threading::Thread::DeferSuspension(true);
+   {
+     std::lock_guard<std::mutex> lock(suspend_mutex_);
+-    uint8_t previous = suspend_count.load();
+-    while (previous > 0 &&
+-           !suspend_count.compare_exchange_weak(previous, previous - 1)) {
+-    }
++    // Fix 151: never below 0 (Lower stops there).
++    const uint8_t previous = xbox360ps5::suspend_count::Lower(suspend_count);
++    // Fix 151: this resume ends the thread's own suspension, as on the console. A credit an earlier
++    // resume left (it found 0 just before the thread raised its count) has nothing left to do: taken
++    // now, it would end this suspension a second time (Virtua Tennis 3: 0 -> 255).
++    if (previous == 1 && in_self_suspend_.load(std::memory_order_relaxed)) pending_resume_.Clear();
+     if (out_suspend_count) {
+       *out_suspend_count = previous;
+     }
+@@ -1166,12 +1168,18 @@ X_STATUS XThread::Suspend(uint32_t* out_suspend_count) {
+   std::lock_guard<std::mutex> lock(suspend_mutex_);
+ #endif
+ 
+-  uint8_t previous_suspend_count =
+-      reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count)
+-          ->fetch_add(1);
++  // Fix 151: raised through Raise, which stops at 255 instead of wrapping to 0.
++  const uint8_t previous_suspend_count = xbox360ps5::suspend_count::Raise(
++      *reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count));
+   if (out_suspend_count) {
+     *out_suspend_count = previous_suspend_count;
+   }
++  if (previous_suspend_count == xbox360ps5::suspend_count::kMax) {
++    const std::string line =
++        xbox360ps5::suspend_trace::CountLimitLine(handle(), "suspension by another thread");
++    if (!line.empty()) XELOGW("{}", line);
++    return X_STATUS(xbox360ps5::suspend_count::kStatusSuspendCountExceeded);
++  }
+   {  // Fix 69: suspended by another thread.
+     XThread* caller = XThread::GetCurrentThread();
+     suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendedBy, caller ? caller->handle() : 0,
+@@ -1217,8 +1225,17 @@ uint32_t XThread::SelfSuspend() {
+   auto& suspend_count =
+       *reinterpret_cast<std::atomic_uint8_t*>(&guest_thread->suspend_count);
+   entering_self_suspend_.store(true, std::memory_order_relaxed);  // fix 69
+-  const uint32_t previous = suspend_count.fetch_add(1);
++  // Fix 151: raised through Raise, which stops at 255 instead of wrapping to 0.
++  const uint32_t previous = xbox360ps5::suspend_count::Raise(suspend_count);
+   entering_self_suspend_.store(false, std::memory_order_relaxed);
++  if (previous == xbox360ps5::suspend_count::kMax) {
++    // Fix 151: at its limit the console refuses the suspension; the thread goes on.
++    const std::string line = xbox360ps5::suspend_trace::CountLimitLine(handle(), "suspension by itself");
++    if (!line.empty()) XELOGW("{}", line);
++    xe::threading::Thread::DeferSuspension(false);
++    return previous;
++  }
++  in_self_suspend_.store(true, std::memory_order_relaxed);  // fix 151
+   suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendedItself, 0, uint8_t(previous),
+                       xbox360ps5::suspend_trace::NowMs());
+   {
+@@ -1230,15 +1247,20 @@ uint32_t XThread::SelfSuspend() {
+     if (pending_resume_.Take(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count())) {
+-      suspend_count.fetch_sub(1);
++      // Fix 151: lowered only while the count still holds this suspension. A resume that found the
++      // count raised may have ended it already (it is 0 then): lowering it again wrapped it to 255.
++      const uint8_t before = xbox360ps5::suspend_count::Lower(suspend_count);
++      in_self_suspend_.store(false, std::memory_order_relaxed);
+       lock.unlock();
+-      suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendCancelled, 0, uint8_t(previous),
+-                          xbox360ps5::suspend_trace::NowMs());
++      suspend_trace_.Note(before ? xbox360ps5::suspend_trace::kSuspendCancelled
++                                 : xbox360ps5::suspend_trace::kCreditDropped,
++                          0, before, xbox360ps5::suspend_trace::NowMs());
+       xe::threading::Thread::DeferSuspension(false);
+       return previous;
+     }
+     suspend_cv_.wait(lock,
+                      [&suspend_count]() { return suspend_count.load() == 0; });
++    in_self_suspend_.store(false, std::memory_order_relaxed);  // fix 151
+   }
+   suspend_trace_.Note(xbox360ps5::suspend_trace::kWokeItself, 0, 0, xbox360ps5::suspend_trace::NowMs());
+   xe::threading::Thread::DeferSuspension(false);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.h b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+@@ -30,6 +30,7 @@
+ #include "xenia/xbox.h"
+ #include "xbox360ps5/suspend_trace.hpp"  // fix 69
+ #include "xbox360ps5/pending_resume.hpp"  // fix 71
++#include "xbox360ps5/suspend_count.hpp"  // fix 151
+ 
+ namespace xe {
+ namespace kernel {
+@@ -569,6 +570,9 @@ class XThread : public XObject, public cpu::Thread {
+   std::atomic<bool> entering_self_suspend_{false};
+   // Fix 71: a resume that found no suspension, kept for a suspension of the thread by itself.
+   xbox360ps5::pending_resume::Credit pending_resume_;
++  // Fix 151: the count holds this thread's own suspension (set after SelfSuspend raised it,
++  // cleared under suspend_mutex_ before SelfSuspend returns).
++  std::atomic<bool> in_self_suspend_{false};
+ 
+   // Reentry mechanism for fiber-based stack switching.
+   // On Linux, C++ exceptions are used instead of setjmp/longjmp so that
+diff --git a/include/xbox360ps5/pending_resume.hpp b/include/xbox360ps5/pending_resume.hpp
+--- a/include/xbox360ps5/pending_resume.hpp
++++ b/include/xbox360ps5/pending_resume.hpp
+@@ -31,6 +31,8 @@ class Credit {
+     const int64_t at = at_.exchange(0, std::memory_order_acq_rel);
+     return at && now_ns >= at && now_ns - at <= kWindowNs;
+   }
++  // Fix 151: dropped by a resume that ends the thread's own suspension itself.
++  void Clear() { at_.store(0, std::memory_order_release); }
+ 
+  private:
+   std::atomic<int64_t> at_{0};
+diff --git a/include/xbox360ps5/suspend_count.hpp b/include/xbox360ps5/suspend_count.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/suspend_count.hpp
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: MIT
++// Fix 151 (tools/source-1.0.2/fixes/151-suspend-credit-underflow.patch): the guest suspend count
++// (X_KTHREAD::suspend_count, one byte) never wraps.
++//
++// Virtua Tennis 3 (534507E1) froze in a replay on 1.0.5 (issue #61): a job thread slept with a
++// suspend count of 175 and the main thread spun on a job counter only that thread lowers. Its main
++// thread resumes a worker in bursts (13-20 resumes in the same millisecond). With fix 71's credit:
++// resume A finds 0 and leaves a credit; the worker raises its count 0->1 (without the lock); resume B
++// finds 1 and lowers it to 0; the worker then takes A's credit and lowered the count again: 0 -> 255.
++// From then on every resume only drained the count, and the worker's next suspension of itself
++// needed about 255 resumes to end. Every change to the count now goes through Raise or Lower, which
++// stop at the byte's ends instead of wrapping.
++#pragma once
++#include <atomic>
++#include <cstdint>
++
++namespace xbox360ps5::suspend_count {
++
++inline constexpr uint8_t kMax = 0xFF;
++// The console's answer to a suspension of a thread whose count is at its limit.
++inline constexpr uint32_t kStatusSuspendCountExceeded = 0xC000004A;
++
++// Raises the count by one unless it is at kMax; returns the count before (kMax: not raised).
++inline uint8_t Raise(std::atomic<uint8_t>& count) {
++  uint8_t previous = count.load();
++  while (previous != kMax && !count.compare_exchange_weak(previous, uint8_t(previous + 1))) {
++  }
++  return previous;
++}
++
++// Lowers the count by one unless it is 0; returns the count before (0: not lowered).
++inline uint8_t Lower(std::atomic<uint8_t>& count) {
++  uint8_t previous = count.load();
++  while (previous != 0 && !count.compare_exchange_weak(previous, uint8_t(previous - 1))) {
++  }
++  return previous;
++}
++
++}  // namespace xbox360ps5::suspend_count
+diff --git a/include/xbox360ps5/suspend_trace.hpp b/include/xbox360ps5/suspend_trace.hpp
+--- a/include/xbox360ps5/suspend_trace.hpp
++++ b/include/xbox360ps5/suspend_trace.hpp
+@@ -27,7 +27,8 @@ enum Kind : uint8_t {
+   kSuspendedBy,      // by another thread
+   kResumedBy,        // by another thread, count before (>0)
+   kResumeFoundRunning,  // a resume found count 0: nothing happened
+-  kSuspendCancelled,    // fix 71: its own suspension took that resume's credit
++  kSuspendCancelled,    // fix 71: its own suspension took that resume's credit (count before, >0)
++  kCreditDropped,       // fix 151: a credit taken when a resume had already ended the suspension
+ };
+ inline const char* KindName(uint8_t kind) {
+   switch (kind) {
+@@ -37,6 +38,7 @@ inline const char* KindName(uint8_t kind) {
+     case kResumedBy: return "resumed by";
+     case kResumeFoundRunning: return "EARLY resume (count 0) by";
+     case kSuspendCancelled: return "suspension cancelled by the early resume";
++    case kCreditDropped: return "early resume's credit dropped, a resume had ended the suspension";
+     default: return "?";
+   }
+ }
+@@ -76,7 +78,7 @@ class Ring {
+       const Event& e = events_[(n - 1 - k) % kEvents];
+       char item[96];
+       const int after = e.kind == kSuspendedItself || e.kind == kSuspendedBy ? e.previous + 1
+-                        : e.kind == kResumedBy                              ? e.previous - 1
++                        : e.kind == kResumedBy || e.kind == kSuspendCancelled ? e.previous - 1
+                                                                             : e.previous;
+       const long long ago = now_ms >= e.ms ? (long long)(now_ms - e.ms) : 0;
+       if (e.kind == kWokeItself)
+@@ -126,4 +128,17 @@ inline std::string EarlyResumeLine(uint32_t resumer, uint32_t target, bool enter
+   return text;
+ }
+ 
++// Fix 151: a suspension refused because the thread's count is at its limit (255); it would have
++// wrapped to 0 before. The first kRawLines, then none (the STALL report shows the count).
++inline std::atomic<uint64_t> count_limit_hits{0};
++inline std::string CountLimitLine(uint32_t target, const char* what) {
++  const uint64_t n = count_limit_hits.fetch_add(1, std::memory_order_relaxed) + 1;
++  if (n > kRawLines) return std::string();
++  char text[200];
++  std::snprintf(text, sizeof(text),
++                "Suspend: %s of %08X refused: its suspend count is at its limit, 255 (fix 151, #%llu)", what,
++                target, (unsigned long long)n);
++  return text;
++}
++
+ }  // namespace xbox360ps5::suspend_trace
