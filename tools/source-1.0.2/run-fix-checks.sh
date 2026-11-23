@@ -158,6 +158,7 @@ checks=(
   check-package-io.cpp             # fix 148c
   check-file-io.cpp                # fix 148d
   check-harmonix-keys.cpp          # fix 147c
+  check-stfs-cut-short.cpp         # fix 148e
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -296,6 +297,7 @@ declare -A fix_of=(
   [check-package-io.cpp]=148c
   [check-file-io.cpp]=148d
   [check-harmonix-keys.cpp]=147c
+  [check-stfs-cut-short.cpp]=148e
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
