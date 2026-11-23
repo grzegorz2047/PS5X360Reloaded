@@ -477,3 +477,26 @@ Expected gain in mode 2, from fix 142d: up to about 86-98 ms/s of GPU thread tim
 - the first two draws of each pass;
 - unclipped draws;
 - draws after a resolve.
+
+### Verify results (mode 1)
+
+Build 45219977045 (`1.0.6-work-fix142e`), default settings, `render-target-skip.txt` = 1:
+
+| Game | Lines (s) | Updates/s avg (max) | Could skip avg (lowest second) | Mismatches |
+|---|---|---|---|---|
+| Grand Theft Auto IV | 825 | 255,379 (321,450) | 84% (30%) | 0 (state 0, outputs 0, failed 0) |
+| Red Dead Redemption | 294 | 123,371 (262,235) | 79% (16%) | 0 |
+| Modern Warfare 2 | 399 | 219,223 (332,357) | 90% | 0 |
+
+No `mismatch` line in any log, and nothing wrong on screen. Tekken Tag Tournament 2 at 2x and
+Battlefield 3 have not been verified yet.
+
+The skip share is below fix 142d's 99.1-99.9% "same render pass" for three reasons:
+- the memo needs one `Update` that changed nothing before it predicts;
+- unclipped draws never skip;
+- a resolve or transition between draws moves the version.
+
+From fix 142d's `Update` time, the expected saving in mode 2 is about:
+- 72-82 ms/s in GTA IV (84% of 86-98);
+- 34 in RDR (79% of 43.6);
+- 67 in MW2 (90% of 74.5).
