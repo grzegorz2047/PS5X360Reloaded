@@ -153,6 +153,7 @@ checks=(
   check-swap-smaa.cpp              # fix 145
   check-low-half-size.cpp          # fix 144
   check-video-mode.cpp             # fixes 140 and 140b
+  check-video-mode.cpp             # fixes 140 to 140c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
