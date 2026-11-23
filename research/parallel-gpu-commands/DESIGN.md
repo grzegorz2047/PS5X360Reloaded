@@ -553,3 +553,76 @@ Read in each run's fix 142 line:
 - `passed early` should be close to 89 a frame;
 - `ib-after-wait` per frame;
 - `starved` versus `executing`.
+
+## 13. Console results of 1.0.5-work-fix142b (runs H-L), and what they mean
+
+GTA IV, the same spot, build run 45137416431, fix 134's worker on in every run. Logs and the
+coordinator's notes are in `research/fix142b/`.
+
+| Run | Settings | Swaps/s | Decode | GPU thread executing | Starved | Drains/frame | Woken after | Decoder woken |
+|---|---|---|---|---|---|---|---|---|
+| B (142's build) | off | 42-45 | - | 987-990 | - | - | - | - |
+| H | mode 2 | 36-38 | 150-170 | 721-817 | 0 | 90.1 | - | 0/s |
+| I | mode 1 | 40-42 | 298 | 950 | 30 | 91.1 | 9.2 us | 1,079/s |
+| J | mode 1, waits 0 | 41-45 | 290 | 951 | 31 | 91.1 | 8.9 us | 1,127/s |
+| K | mode 1, waits 2 | 42-45 | 290 | 948 | 33 | 90.9 | 9.0 us | 1,188/s |
+| L | mode 1, sibling 1 | 40-44 | 282 | 956 | 22 | 91.2 | 9.8 us | 1,110/s |
+
+- **The single wake fixed the collapse.** 12-13 became 40-45 swaps/s, with about 1,100 wakes a
+  second instead of about 1.1 million, and about 9 µs from the GPU thread reaching a drain to the
+  decoder running.
+- **No hang and no visual problem** in any run.
+- **There is no gain over fix 134 alone.** Mode 1 runs about as fast as B.
+- **Of the 89 WAIT_REG_MEMs a frame, 83 poll a register**; 3 are unmet and 3 have a write
+  pending. So "passed early" stayed at 0, every wait still drained, and `waits` 0/1/2 made no
+  difference (I = J = K). `ib-after-wait` cost nothing.
+- **Placement didn't matter** (L, sibling 1).
+- **One window of run I showed vertex buffers at 233.6 ms/s** (27-28 in every other window). It
+  coincides with a 771 ms hold of the global lock by a guest thread. It is not part of the split.
+
+### Why mode 1 does not beat fix 134 alone
+
+The split takes the packet layer off the GPU thread. Handing that layer over costs about as much
+as the layer did. Per frame, from the 30 s lines (steady state; B at about 44, H at about 37
+swaps/s):
+
+| Per frame | B (one thread) | H (mode 2: ops on the same thread) |
+|---|---|---|
+| GPU thread busy | 22.5 ms | 22.0 ms executing ops, plus 4.6 ms decoding |
+| Draws, own time (fix 73) | 12.9 ms | 12.1 ms |
+| Packets, own time (fix 75) | 7.7 ms (type 0 145 ms/s, INDIRECT_BUFFER 118, other 27, ...) | 1.1 ms (type 3 only) |
+| Everything else | about 1.9 ms (submissions, ...) | **about 8.8 ms** |
+
+So the ops cost the GPU thread about 7-8 ms a frame: about 80,000 ops a frame, roughly 90-100 ns
+each. That is the same as the packet layer they replaced (7.7 ms).
+
+In mode 1 the decoder takes the 4.6 ms and the GPU thread runs the ops at about 23 ms a frame,
+i.e. about B's 22.5. That matches what the console showed: mode 1 equal to B, mode 2 about 15%
+below it.
+
+Two costs that are not this:
+- **The drains.** About 91 a frame leave the GPU thread starved about 30 ms/s, about 3%.
+- **The decoder.** It is not the limit: 290 ms/s while the GPU thread is at 950.
+
+### What follows
+
+- **The ceiling is still there.** If the ops cost the GPU thread close to nothing, it would be
+  left with the draws (12.9 ms), the type-3 handlers (about 1 ms) and the submissions (about 2 ms).
+  That is about 16 ms against B's 22.5, roughly +40%, with the decoder at 4.6 ms keeping up. To
+  get there:
+  - **Fewer, bigger ops.** Today it is about 80,000 a frame: about 7 register runs and a packet
+    op per draw, each with its own header, `Front`/`Pop` and a `seq_cst` store to the shared
+    `retired`. Packing a draw's runs and packets into one op, and storing `retired` once per
+    batch instead of once per op, cuts the per-op cost by about 10×.
+  - **A measurement of the op path itself:** time in `Front`/`Pop`, in `WriteRegistersSwapped`,
+    and in `ExecutePacket` over op payloads. This confirms the 8.8 ms before it is optimised.
+  - **The 83 register waits a frame.** Most likely `COHER_STATUS_HOST`: the handler runs
+    `MakeCoherent`, which clears the register, so the outcome is known without the GPU thread. A
+    census of the polled registers would confirm it. Passing them would remove most drains, but
+    that is only worth about the 3% "starved".
+- **Draw translation stays the larger target** (option C, stage 2): bindings 176 ms/s, dynamic
+  state and constants 34, recording 15. Together about 23% of B's thread, and it does not
+  depend on any of the above.
+- **A lead for the single thread, unrelated to the split:** in B, INDIRECT_BUFFER's own time is
+  118 ms/s for 3,448 buffers/s, about 34 µs each, outside the packets inside them. It is not yet
+  explained: possibly the prefetch of the whole buffer, or how fix 75 attributes nested time.
