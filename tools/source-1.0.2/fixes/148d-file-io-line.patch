@@ -1,0 +1,245 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc
+index f8a6a94..b6f90b8 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/disc_image_file.cc
+@@ -11,6 +11,10 @@
+ 
+ #include "xenia/base/logging.h"
+ #include "xenia/vfs/devices/disc_image_entry.h"
++
++#include <chrono>  // fix 148d
++#include <string>  // fix 148d
++#include "xbox360ps5/package_io.hpp"  // fix 148d
+ namespace xe {
+ namespace vfs {
+ 
+@@ -23,6 +27,7 @@ void DiscImageFile::Destroy() { delete this; }
+ 
+ X_STATUS DiscImageFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+                                  size_t* out_bytes_read) {
++  const auto started = std::chrono::steady_clock::now();  // fix 148d
+   if (byte_offset >= entry_->size()) {
+     return X_STATUS_END_OF_FILE;
+   }
+@@ -40,6 +45,20 @@ X_STATUS DiscImageFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+     return X_STATUS_END_OF_FILE;
+   }
+   *out_bytes_read = real_length;
++  {
++    // Xbox360PS5 fix 148d: counted for the file I/O line.
++    namespace pio = xbox360ps5::package_io;
++    const uint64_t now_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now().time_since_epoch())
++          .count());
++    pio::Add(pio::file_io.disc_reads, real_length,
++             uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now() - started)
++                          .count()));
++    pio::last_file_io_ns = now_ns;
++    const std::string line = pio::FileIoReport(pio::file_io, now_ns);
++    if (!line.empty()) XELOGW("{}", line);
++  }
+   return X_STATUS_SUCCESS;
+ }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
+index 9034f43..ab5275c 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
+@@ -13,6 +13,8 @@
+ 
+ #include <chrono>  // fix 148c
+ #include "xbox360ps5/package_io.hpp"  // fix 148c
++#include <string>  // fix 148d
++#include "xenia/base/logging.h"  // fix 148d
+ 
+ namespace xe {
+ namespace vfs {
+@@ -35,6 +37,7 @@ void HostPathFile::Destroy() {
+ 
+ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+                                 size_t* out_bytes_read) {
++  const auto started = std::chrono::steady_clock::now();  // fix 148d
+   if (!(file_access_ &
+         (FileAccess::kGenericRead | FileAccess::kFileReadData))) {
+     return X_STATUS_ACCESS_DENIED;
+@@ -42,6 +45,20 @@ X_STATUS HostPathFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset,
+ 
+   if (file_handle_->Read(byte_offset, buffer.data(), buffer.size(),
+                          out_bytes_read)) {
++    {
++      // Xbox360PS5 fix 148d: counted for the file I/O line.
++      namespace pio = xbox360ps5::package_io;
++      const uint64_t now_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++            std::chrono::steady_clock::now().time_since_epoch())
++            .count());
++      pio::Add(pio::file_io.host_reads, *out_bytes_read,
++               uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                            std::chrono::steady_clock::now() - started)
++                            .count()));
++      pio::last_file_io_ns = now_ns;
++      const std::string line = pio::FileIoReport(pio::file_io, now_ns);
++      if (!line.empty()) XELOGW("{}", line);
++    }
+     // POSIX pread succeeds with zero bytes at EOF. The guest NT file
+     // interface must distinguish EOF from a successful data transfer.
+     // Preserve zero-length probes and successful partial reads.
+@@ -73,6 +90,20 @@ X_STATUS HostPathFile::WriteSync(std::span<const uint8_t> buffer,
+       std::chrono::duration_cast<std::chrono::nanoseconds>(
+           std::chrono::steady_clock::now() - started)
+           .count()));
++  {
++    // Xbox360PS5 fix 148d: counted for the file I/O line.
++    namespace pio = xbox360ps5::package_io;
++    const uint64_t now_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now().time_since_epoch())
++          .count());
++    pio::Add(pio::file_io.host_writes, written ? *out_bytes_written : 0,
++             uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now() - started)
++                          .count()));
++    pio::last_file_io_ns = now_ns;
++    const std::string line = pio::FileIoReport(pio::file_io, now_ns);
++    if (!line.empty()) XELOGW("{}", line);
++  }
+   return written ? X_STATUS_SUCCESS : X_STATUS_END_OF_FILE;
+ }
+ 
+@@ -82,7 +113,23 @@ X_STATUS HostPathFile::SetLength(size_t length) {
+     return X_STATUS_ACCESS_DENIED;
+   }
+ 
+-  if (file_handle_->SetLength(length)) {
++  const auto started = std::chrono::steady_clock::now();  // fix 148d
++  const bool set = file_handle_->SetLength(length);
++  {
++    // Xbox360PS5 fix 148d: counted for the file I/O line.
++    namespace pio = xbox360ps5::package_io;
++    const uint64_t now_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now().time_since_epoch())
++          .count());
++    pio::Add(pio::file_io.set_length, uint64_t(length),
++             uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                          std::chrono::steady_clock::now() - started)
++                          .count()));
++    pio::last_file_io_ns = now_ns;
++    const std::string line = pio::FileIoReport(pio::file_io, now_ns);
++    if (!line.empty()) XELOGW("{}", line);
++  }
++  if (set) {
+     return X_STATUS_SUCCESS;
+   } else {
+     return X_STATUS_END_OF_FILE;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+index 95997f5..1780d05 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+@@ -529,6 +529,28 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
+       pio::counters.delay_100ns.fetch_add(uint64_t(-int64_t(interval)));
+     }
+   }
++  // Xbox360PS5 fix 148d: a thread doing file I/O: the interval asked and
++  // the time it really slept.
++  {
++    namespace pio = xbox360ps5::package_io;
++    const auto before = std::chrono::steady_clock::now();
++    const uint64_t now_ns = uint64_t(
++        std::chrono::duration_cast<std::chrono::nanoseconds>(
++            before.time_since_epoch())
++            .count());
++    if (pio::FileIoThread(now_ns) && int64_t(interval) < 0) {
++      const uint64_t asked = uint64_t(-int64_t(interval));
++      const auto result =
++          KeDelayExecutionThread(processor_mode, alertable, &interval, context);
++      pio::file_io.delays.fetch_add(1);
++      pio::file_io.asked_100ns.fetch_add(asked);
++      pio::file_io.slept_ns.fetch_add(uint64_t(
++          std::chrono::duration_cast<std::chrono::nanoseconds>(
++              std::chrono::steady_clock::now() - before)
++              .count()));
++      return result;
++    }
++  }
+   return KeDelayExecutionThread(processor_mode, alertable, &interval, context);
+ }
+ DECLARE_XBOXKRNL_EXPORT3(KeDelayExecutionThread, kThreading, kImplemented,
+diff --git a/include/xbox360ps5/package_io.hpp b/include/xbox360ps5/package_io.hpp
+index 10b5296..95097f3 100644
+--- a/include/xbox360ps5/package_io.hpp
++++ b/include/xbox360ps5/package_io.hpp
+@@ -109,4 +109,75 @@ inline bool ReaderThread(uint64_t now_ns) {
+   return last_package_read_ns && now_ns - last_package_read_ns < 1000000000ull;
+ }
+ 
++// Fix 148d: GTA V's slow install phase reads no package file (no 148c line): it copies the
++// install disc's package files themselves, reading the disc image and writing the drive. Every
++// guest file read and write is counted by where it goes, with its largest size, and the delays of a
++// thread that read or wrote a file in the last second with the time asked and the time it really
++// slept. One line per 30 s while files are read or written.
++struct Kind {
++  std::atomic<uint64_t> calls{0}, bytes{0}, ns{0}, largest{0};
++};
++struct FileIo {
++  Kind disc_reads, host_reads, host_writes, set_length;
++  std::atomic<uint64_t> delays{0}, asked_100ns{0}, slept_ns{0};
++  std::atomic<uint64_t> last_report_ns{0};
++};
++inline FileIo file_io;
++inline thread_local uint64_t last_file_io_ns = 0;
++
++inline void Add(Kind& kind, uint64_t bytes, uint64_t ns) {
++  kind.calls.fetch_add(1);
++  kind.bytes.fetch_add(bytes);
++  kind.ns.fetch_add(ns);
++  uint64_t largest = kind.largest.load();
++  while (bytes > largest && !kind.largest.compare_exchange_weak(largest, bytes)) {
++  }
++}
++inline bool FileIoThread(uint64_t now_ns) {
++  return last_file_io_ns && now_ns - last_file_io_ns < 1000000000ull;
++}
++
++struct KindPeriod {
++  uint64_t calls = 0, bytes = 0, ns = 0, largest = 0;
++};
++inline KindPeriod TakeKind(Kind& kind) {
++  return {kind.calls.exchange(0), kind.bytes.exchange(0), kind.ns.exchange(0), kind.largest.exchange(0)};
++}
++
++// The 30 s line when due and the period had file I/O, else "". Only one caller wins a period.
++inline std::string FileIoReport(FileIo& io, uint64_t now_ns, uint64_t period_ns = 30000000000ull) {
++  uint64_t last = io.last_report_ns.load();
++  if (!last) {
++    io.last_report_ns.compare_exchange_strong(last, now_ns);
++    return {};
++  }
++  if (now_ns - last < period_ns || !io.last_report_ns.compare_exchange_strong(last, now_ns)) return {};
++  const double seconds = double(now_ns - last) / 1e9;
++  const KindPeriod d = TakeKind(io.disc_reads), r = TakeKind(io.host_reads), w = TakeKind(io.host_writes),
++                   l = TakeKind(io.set_length);
++  const uint64_t delays = io.delays.exchange(0), asked = io.asked_100ns.exchange(0),
++                 slept = io.slept_ns.exchange(0);
++  if (!d.calls && !r.calls && !w.calls && !l.calls) return {};
++  const auto part = [seconds](const char* name, const KindPeriod& k) {
++    char text[200];
++    std::snprintf(text, sizeof(text), "%s %llu (%.1f MiB, %.0f KiB each, largest %.0f KiB, %.2f MiB/s, %.0f us each)",
++                  name, (unsigned long long)k.calls, double(k.bytes) / 1048576.0,
++                  k.calls ? double(k.bytes) / double(k.calls) / 1024.0 : 0.0, double(k.largest) / 1024.0,
++                  seconds > 0 ? double(k.bytes) / 1048576.0 / seconds : 0.0,
++                  k.calls ? double(k.ns) / double(k.calls) / 1e3 : 0.0);
++    return std::string(text);
++  };
++  char tail[200];
++  std::snprintf(tail, sizeof(tail),
++                "; set length %llu (%.0f ms in all); KeDelayExecutionThread of threads doing file I/O %llu "
++                "(%.2f ms asked, %.2f ms slept each; %.0f ms slept in all)",
++                (unsigned long long)l.calls, double(l.ns) / 1e6, (unsigned long long)delays,
++                delays ? double(asked) / double(delays) / 1e4 : 0.0,
++                delays ? double(slept) / double(delays) / 1e6 : 0.0, double(slept) / 1e6);
++  char head[64];
++  std::snprintf(head, sizeof(head), "File I/O (fix 148d), last %.0f s: ", seconds);
++  return std::string(head) + part("disc image reads", d) + "; " + part("drive reads", r) + "; " +
++         part("drive writes", w) + tail;
++}
++
+ }  // namespace xbox360ps5::package_io

@@ -165,6 +165,7 @@ on:
       - 'tools/check-title-keys.cpp'
       - 'tools/check-disc-name-tags.cpp'
       - 'tools/check-package-io.cpp'
+      - 'tools/check-file-io.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
