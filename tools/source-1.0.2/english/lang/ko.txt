@@ -25,6 +25,7 @@
 %d\sown\ssettings = 고유\s설정\s%d개
 %d\ssettings\sof\sthis\sgame's\sown = 이\s게임의\s고유\s설정\s%d개
 %s\sGB\sfree = %s\sGB\s남음
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s:\s설치\s데이터가\s불완전합니다(%s:\s%s\s/\s%s).\s라이브러리에서\s게임을\sX로\s열고\s"%s"\s탭에서\s각\s설치\s패키지를\s선택한\s뒤\s△\s"%s"를\s누르세요.\s그런\s다음\s게임을\s시작하면\s다시\s설치합니다.
 120\sHz\s(test) = 120Hz(테스트)
 1x\s(720p,\snative) = 1x(720p,\s기본\s해상도)
 2x\s(1440p,\sdemanding) = 2x(1440p,\s무거움)
@@ -257,6 +258,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = 게임의\s이미지\s되읽기
 In\sXenia\sCanary = Xenia\sCanary\s상태
 Install = 설치
+Install\sdata\sincomplete = 설치\s데이터가\s불완전합니다
 Installation\sinterrupted. = 설치가\s중단되었습니다.
 Installed\spackage\svalidation\sfailed. = 설치한\s패키지\s확인에\s실패했습니다.
 Installing\s = 설치\s중:\s

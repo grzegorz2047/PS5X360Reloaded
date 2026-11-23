@@ -23,6 +23,7 @@
 %d\sown\ssettings = %d\sajustes\spropios
 %d\ssettings\sof\sthis\sgame's\sown = %d\sajustes\spropios\sde\seste\sjuego
 %s\sGB\sfree = %s\sGB\slibres
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s:\slos\sdatos\sde\sinstalación\sestán\sincompletos\s(%s:\s%s\sde\s%s).\sEn\sla\sbiblioteca,\spulsa\sCruz\ssobre\sel\sjuego,\sabre\sla\spestaña\s"%s",\sselecciona\scada\spaquete\sde\sinstalación\sy\spulsa\sTriángulo\s"%s".\sDespués\sinicia\sel\sjuego\spara\svolver\sa\sinstalarlo.
 120\sHz\s(test) = 120\sHz\s(prueba)
 1x\s(720p,\snative) = 1x\s(720p,\soriginal)
 2x\s(1440p,\sdemanding) = 2x\s(1440p,\sexigente)
@@ -247,6 +248,7 @@ Image\sfilter = Filtro\sde\simagen
 Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\semulated\sconsole's\sresolution\sand\sVSync. = Filtro\sde\simagen\s(Simple,\sCAS,\sFSR),\snitidez,\sfiltro\sanisotrópico,\sresolución\sde\sla\sconsola\semulada\sy\sVSync.
 Image\sreadback\sby\sthe\sgame = Lectura\sde\sla\simagen\spor\sel\sjuego
 Install = Instalar
+Install\sdata\sincomplete = Datos\sde\sinstalación\sincompletos
 Installation\sinterrupted. = Instalación\sinterrumpida.
 Installed\spackage\svalidation\sfailed. = Error\sal\svalidar\sel\spaquete\sinstalado.
 Installing\s = Instalando\s

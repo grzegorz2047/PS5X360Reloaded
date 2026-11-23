@@ -25,6 +25,7 @@
 %d\sown\ssettings = Своих\sнастроек:\s%d
 %d\ssettings\sof\sthis\sgame's\sown = Своих\sнастроек\sэтой\sигры:\s%d
 %s\sGB\sfree = Свободно:\s%s\sГБ
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s:\sданные\sустановки\sнеполные\s(%s:\s%s\sиз\s%s).\sВ\sбиблиотеке\sнажмите\s«Крест»\sна\sигре,\sоткройте\sвкладку\s«%s»,\sвыберите\sкаждый\sустановочный\sпакет\sи\sнажмите\s«Треугольник»\s«%s».\sЗатем\sзапустите\sигру,\sчтобы\sустановить\sеё\sзаново.
 120\sHz\s(test) = 120\sГц\s(тест)
 1x\s(720p,\snative) = 1x\s(720p,\sродное)
 2x\s(1440p,\sdemanding) = 2x\s(1440p,\sтяжело)
@@ -257,6 +258,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = Чтение\sизображения\sигрой
 In\sXenia\sCanary = В\sXenia\sCanary
 Install = Установить
+Install\sdata\sincomplete = Неполные\sданные\sустановки
 Installation\sinterrupted. = Установка\sпрервана.
 Installed\spackage\svalidation\sfailed. = Проверка\sустановленного\sпакета\sне\sудалась.
 Installing\s = Установка:\s

@@ -354,6 +354,9 @@ Keys saved: %u of %u. Restart the game to use them. = Chaves salvas: %u de %u. R
 Keys refused (no fingerprint matches): %u = Chaves recusadas (nenhuma impressão digital confere): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Dados de instalação incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: os dados de instalação estão incompletos (%s: %s de %s). Na biblioteca, pressione X no jogo, abra a aba "%s", selecione cada pacote de instalação e pressione Triângulo "%s". Depois inicie o jogo para instalar de novo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -520,6 +523,9 @@ Keys saved: %u of %u. Restart the game to use them. = Chaves guardadas: %u de %u
 Keys refused (no fingerprint matches): %u = Chaves recusadas (nenhuma impressão digital corresponde): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Dados de instalação incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: os dados de instalação estão incompletos (%s: %s de %s). Na biblioteca, prima Cruz no jogo, abra o separador "%s", selecione cada pacote de instalação e prima Triângulo "%s". Depois inicie o jogo para voltar a instalar.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -686,6 +692,9 @@ Keys saved: %u of %u. Restart the game to use them. = Claves guardadas: %u de %u
 Keys refused (no fingerprint matches): %u = Claves rechazadas (ninguna huella coincide): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Datos de instalación incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: los datos de instalación están incompletos (%s: %s de %s). En la biblioteca, pulsa Cruz sobre el juego, abre la pestaña "%s", selecciona cada paquete de instalación y pulsa Triángulo "%s". Después inicia el juego para volver a instalarlo.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -852,6 +861,9 @@ Keys saved: %u of %u. Restart the game to use them. = Claves guardadas: %u de %u
 Keys refused (no fingerprint matches): %u = Claves rechazadas (ninguna huella coincide): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Datos de instalación incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: los datos de instalación están incompletos (%s: %s de %s). En la biblioteca, presiona Cruz sobre el juego, abre la pestaña "%s", selecciona cada paquete de instalación y presiona Triángulo "%s". Después inicia el juego para volver a instalarlo.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1018,6 +1030,9 @@ Keys saved: %u of %u. Restart the game to use them. = Gespeicherte Schlüssel: %
 Keys refused (no fingerprint matches): %u = Abgelehnte Schlüssel (kein Fingerabdruck passt): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = unvollständig: %s von %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Installationsdaten unvollständig
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: Die Installationsdaten sind unvollständig (%s: %s von %s). Drücke in der Bibliothek Kreuz auf dem Spiel, öffne den Tab "%s", wähle jedes Installationspaket aus und drücke Dreieck "%s". Starte danach das Spiel, um es neu zu installieren.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1184,6 +1199,9 @@ Keys saved: %u of %u. Restart the game to use them. = Clés enregistrées : %u s
 Keys refused (no fingerprint matches): %u = Clés refusées (aucune empreinte ne correspond) : %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = incomplet : %s sur %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Données d'installation incomplètes
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s : les données d'installation sont incomplètes (%s : %s sur %s). Dans la bibliothèque, appuyez sur Croix sur le jeu, ouvrez l'onglet « %s », sélectionnez chacun de ses paquets d'installation et appuyez sur Triangle « %s ». Lancez ensuite le jeu pour le réinstaller.
 
 [added it]
 Console storage = Memoria della console
@@ -1350,6 +1368,9 @@ Keys saved: %u of %u. Restart the game to use them. = Chiavi salvate: %u di %u. 
 Keys refused (no fingerprint matches): %u = Chiavi rifiutate (nessuna impronta corrisponde): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = incompleto: %s di %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Dati di installazione incompleti
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: i dati di installazione sono incompleti (%s: %s di %s). Nella libreria premi Croce sul gioco, apri la scheda "%s", seleziona ciascun pacchetto di installazione e premi Triangolo "%s". Poi avvia il gioco per installarlo di nuovo.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -1516,6 +1537,9 @@ Keys saved: %u of %u. Restart the game to use them. = 保存されたキー：%u
 Keys refused (no fingerprint matches): %u = 拒否されたキー（一致する指紋なし）：%u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = 不完全：%s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = インストールデータが不完全です
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：インストールデータが不完全です（%s：%s / %s）。ライブラリでゲームを×で開き、「%s」タブで各インストールパッケージを選んで△「%s」を押してください。その後ゲームを起動すると再インストールされます。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -1682,6 +1706,9 @@ Keys saved: %u of %u. Restart the game to use them. = 저장된 키: %u / %u. �
 Keys refused (no fingerprint matches): %u = 거부된 키(일치하는 지문 없음): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = 불완전: %s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = 설치 데이터가 불완전합니다
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: 설치 데이터가 불완전합니다(%s: %s / %s). 라이브러리에서 게임을 X로 열고 "%s" 탭에서 각 설치 패키지를 선택한 뒤 △ "%s"를 누르세요. 그런 다음 게임을 시작하면 다시 설치합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -1848,6 +1875,9 @@ Keys saved: %u of %u. Restart the game to use them. = Opgeslagen sleutels: %u va
 Keys refused (no fingerprint matches): %u = Geweigerde sleutels (geen vingerafdruk komt overeen): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = onvolledig: %s van %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Installatiegegevens onvolledig
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: de installatiegegevens zijn onvolledig (%s: %s van %s). Druk in de bibliotheek op Kruisje bij de game, open het tabblad "%s", selecteer elk installatiepakket en druk op Driehoek "%s". Start daarna de game om opnieuw te installeren.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -2014,6 +2044,9 @@ Keys saved: %u of %u. Restart the game to use them. = Zapisane klucze: %u z %u. 
 Keys refused (no fingerprint matches): %u = Odrzucone klucze (żaden odcisk się nie zgadza): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = niepełna: %s z %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Niepełne dane instalacji
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: dane instalacji są niepełne (%s: %s z %s). W bibliotece naciśnij Krzyżyk na grze, otwórz zakładkę „%s”, zaznacz kolejno jej pakiety instalacyjne i naciśnij Trójkąt „%s”. Potem uruchom grę, aby zainstalować ją ponownie.
 
 [added ru]
 Console storage = Память консоли
@@ -2180,6 +2213,9 @@ Keys saved: %u of %u. Restart the game to use them. = Сохранено клю�
 Keys refused (no fingerprint matches): %u = Отклонено ключей (нет совпадающего отпечатка): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = неполный: %s из %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Неполные данные установки
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: данные установки неполные (%s: %s из %s). В библиотеке нажмите «Крест» на игре, откройте вкладку «%s», выберите каждый установочный пакет и нажмите «Треугольник» «%s». Затем запустите игру, чтобы установить её заново.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -2346,6 +2382,9 @@ Keys saved: %u of %u. Restart the game to use them. = Kaydedilen anahtarlar: %u 
 Keys refused (no fingerprint matches): %u = Reddedilen anahtarlar (eşleşen parmak izi yok): %u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = eksik: %s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Kurulum verileri eksik
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: kurulum verileri eksik (%s: %s / %s). Kütüphanede oyunun üzerinde Çarpı'ya basın, "%s" sekmesini açın, her kurulum paketini seçip Üçgen "%s" tuşuna basın. Ardından yeniden kurmak için oyunu başlatın.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -2512,6 +2551,9 @@ Keys saved: %u of %u. Restart the game to use them. = 已保存的密钥：%u / 
 Keys refused (no fingerprint matches): %u = 被拒绝的密钥（无匹配的指纹）：%u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = 不完整：%s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = 安装数据不完整
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：安装数据不完整（%s：%s / %s）。在游戏库中对该游戏按叉键，打开“%s”标签，选择每个安装包并按三角键“%s”。然后启动游戏以重新安装。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -2678,3 +2720,6 @@ Keys saved: %u of %u. Restart the game to use them. = 已儲存的金鑰：%u / 
 Keys refused (no fingerprint matches): %u = 遭拒絕的金鑰（沒有相符的指紋）：%u
 # Fix 148f: a package shorter than its header says (the DLCs tab).
 incomplete: %s of %s = 不完整：%s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = 安裝資料不完整
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：安裝資料不完整（%s：%s / %s）。在遊戲庫中對該遊戲按叉鍵，開啟「%s」分頁，選擇每個安裝套件並按三角鍵「%s」。然後啟動遊戲以重新安裝。

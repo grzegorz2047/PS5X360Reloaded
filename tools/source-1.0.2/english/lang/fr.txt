@@ -25,6 +25,7 @@
 %d\sown\ssettings = %d\sréglages\spropres
 %d\ssettings\sof\sthis\sgame's\sown = %d\sréglages\spropres\sà\sce\sjeu
 %s\sGB\sfree = %s\sGo\slibres
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s\s:\sles\sdonnées\sd'installation\ssont\sincomplètes\s(%s\s:\s%s\ssur\s%s).\sDans\sla\sbibliothèque,\sappuyez\ssur\sCroix\ssur\sle\sjeu,\souvrez\sl'onglet\s«\s%s\s»,\ssélectionnez\schacun\sde\sses\spaquets\sd'installation\set\sappuyez\ssur\sTriangle\s«\s%s\s».\sLancez\sensuite\sle\sjeu\spour\sle\sréinstaller.
 120\sHz\s(test) = 120\sHz\s(test)
 1x\s(720p,\snative) = 1x\s(720p,\snatif)
 2x\s(1440p,\sdemanding) = 2x\s(1440p,\sexigeant)
@@ -257,6 +258,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = Relecture\sde\sl'image\spar\sle\sjeu
 In\sXenia\sCanary = Dans\sXenia\sCanary
 Install = Installer
+Install\sdata\sincomplete = Données\sd'installation\sincomplètes
 Installation\sinterrupted. = Installation\sinterrompue.
 Installed\spackage\svalidation\sfailed. = La\svérification\sdu\spaquet\sinstallé\sa\séchoué.
 Installing\s = Installation\sde\s

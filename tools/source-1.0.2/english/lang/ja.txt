@@ -25,6 +25,7 @@
 %d\sown\ssettings = 独自設定\s%d\s件
 %d\ssettings\sof\sthis\sgame's\sown = このゲーム独自の設定\s%d\s件
 %s\sGB\sfree = 空き容量\s%s\sGB
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s：インストールデータが不完全です（%s：%s\s/\s%s）。ライブラリでゲームを×で開き、「%s」タブで各インストールパッケージを選んで△「%s」を押してください。その後ゲームを起動すると再インストールされます。
 120\sHz\s(test) = 120\sHz（テスト）
 1x\s(720p,\snative) = 1x（720p、ネイティブ）
 2x\s(1440p,\sdemanding) = 2x（1440p、重い）
@@ -257,6 +258,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = ゲームによる画像の読み戻し
 In\sXenia\sCanary = Xenia\sCanary\sでの状況
 Install = インストール
+Install\sdata\sincomplete = インストールデータが不完全です
 Installation\sinterrupted. = インストールが中断されました。
 Installed\spackage\svalidation\sfailed. = インストールしたパッケージの検証に失敗しました。
 Installing\s = インストール中：\s

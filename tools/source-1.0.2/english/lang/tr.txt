@@ -25,6 +25,7 @@
 %d\sown\ssettings = %d\sözel\sayar
 %d\ssettings\sof\sthis\sgame's\sown = Bu\soyuna\sözgü\s%d\sayar
 %s\sGB\sfree = %s\sGB\sboş
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s:\skurulum\sverileri\seksik\s(%s:\s%s\s/\s%s).\sKütüphanede\soyunun\süzerinde\sÇarpı'ya\sbasın,\s"%s"\ssekmesini\saçın,\sher\skurulum\spaketini\sseçip\sÜçgen\s"%s"\stuşuna\sbasın.\sArdından\syeniden\skurmak\siçin\soyunu\sbaşlatın.
 120\sHz\s(test) = 120\sHz\s(deneme)
 1x\s(720p,\snative) = 1x\s(720p,\sdoğal)
 2x\s(1440p,\sdemanding) = 2x\s(1440p,\szorlayıcı)
@@ -257,6 +258,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = Oyunun\sgörüntüyü\sgeri\sokuması
 In\sXenia\sCanary = Xenia\sCanary'de
 Install = Kur
+Install\sdata\sincomplete = Kurulum\sverileri\seksik
 Installation\sinterrupted. = Kurulum\syarıda\skesildi.
 Installed\spackage\svalidation\sfailed. = Kurulu\spaketin\sdoğrulaması\sbaşarısız\soldu.
 Installing\s = Kuruluyor:\s

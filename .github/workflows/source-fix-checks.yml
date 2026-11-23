@@ -170,6 +170,7 @@ on:
       - 'tools/check-stfs-cut-short.cpp'
       - 'tools/check-dlc-incomplete.cpp'
       - 'tools/check-write-trace.cpp'
+      - 'tools/check-install-notice.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

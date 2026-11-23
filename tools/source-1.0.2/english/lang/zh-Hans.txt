@@ -25,6 +25,7 @@
 %d\sown\ssettings = %d\s项自有设置
 %d\ssettings\sof\sthis\sgame's\sown = 此游戏的\s%d\s项自有设置
 %s\sGB\sfree = 可用\s%s\sGB
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s：安装数据不完整（%s：%s\s/\s%s）。在游戏库中对该游戏按叉键，打开“%s”标签，选择每个安装包并按三角键“%s”。然后启动游戏以重新安装。
 120\sHz\s(test) = 120\sHz（测试）
 1x\s(720p,\snative) = 1x（720p，原生）
 2x\s(1440p,\sdemanding) = 2x（1440p，吃性能）
@@ -257,6 +258,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = 游戏回读画面
 In\sXenia\sCanary = 在\sXenia\sCanary\s中
 Install = 安装
+Install\sdata\sincomplete = 安装数据不完整
 Installation\sinterrupted. = 安装已中断。
 Installed\spackage\svalidation\sfailed. = 已安装包的校验失败。
 Installing\s = 正在安装：\s
