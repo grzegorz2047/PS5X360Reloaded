@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = 형식\s\s
 Frame\sgeneration\s(test) = 프레임\s생성(테스트)
 Frame\sgeneration\soutput\s(test) = 프레임\s생성\s출력(테스트)
+Frame\srate\slimit\s(screen) = 프레임\s제한(화면)
 Full\s(slow) = 전체(느림)
 Full\sversion = 정식판
 Game = 게임
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = 다음이\s포함된\s게임\s없음:\s"
 No\sgames\sin\sthis\sfilter = 이\s필터에\s게임이\s없습니다
 No\sgames\syet = 아직\s게임이\s없습니다
+No\slimit = 제한\s없음
 No\smatching\sDLC\spackages\sfound. = 맞는\sDLC\s패키지를\s찾지\s못했습니다.
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = 새\s프레임이\s없습니다(셰이더\s컴파일\s또는\s로딩\s중).\sOPTIONS\s+\s터치패드:\s가이드
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = 새\s프레임이\s없습니다(셰이더\s컴파일\s또는\s로딩\s중).\s터치패드:\s가이드
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = 게임\s중\sFPS\s표시
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = 게임의\s초당\s프레임\s수를\s화면\s구석에\s표시합니다.
 Show\syour\swhole\sbody\sto\sthe\scamera = 전신이\s카메라에\s보이게\s하세요
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = 게임이\sXbox\s360\s업적을\s달성하면\sPS5\s알림을\s표시합니다.
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = 게임의\s새\s화면을\s1초에\s최대\s이\s횟수만큼,\s각각\s같은\s시간\s동안\s보여\s주어\s화면의\s움직임을\s고르게\s합니다.\s게임\s자체는\s이전과\s같이\s실행되며(속도,\s소리,\s에뮬레이트된\s화면\s주사율은\s바뀌지\s않음),\s제한보다\s느린\s게임은\s그대로\s표시됩니다.\s40은\s120Hz\s출력이\s필요합니다(프레임\s생성\s출력:\s최대\s120Hz).\s60Hz에서는\s모든\s화면을\s보여\s줍니다.\s프레임\s생성이\s켜져\s있으면\s아무\s효과가\s없습니다.\s자동:\s이전과\s같음.
 Sign\sIn = 프로필로\s로그인
 Signing\sout\sof\sonline\splay... = 온라인\s플레이에서\s로그아웃하는\s중...
 Size:\s%s = 크기:\s%s
