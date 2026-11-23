@@ -500,3 +500,40 @@ From fix 142d's `Update` time, the expected saving in mode 2 is about:
 - 72-82 ms/s in GTA IV (84% of 86-98);
 - 34 in RDR (79% of 43.6);
 - 67 in MW2 (90% of 74.5).
+
+### Skip results (mode 2)
+
+Same build, `render-target-skip.txt` = 2:
+- Grand Theft Auto IV: 276 s.
+- Red Dead Redemption: 217 s.
+- Modern Warfare 2: not run.
+
+Correctness: 0 mismatches, no `mismatch` line, and nothing wrong on screen. Skipped draws, per
+second (median of the busy seconds): 235,065 in GTA IV and 117,964 in RDR.
+
+Each figure below is the median of the loaded 30 s windows. Each mode is a separate run (the
+142d build, then 142e in modes 1 and 2), in different scenes.
+
+| | 142d, no 142e | 142e mode 1 | 142e mode 2 |
+|---|---|---|---|
+| GTA IV render targets part (fix 73), ms/s | 100.7 at 299,640 draws/s | 144.2 at 270,104 | 54.7 at 285,527 |
+| GTA IV per draw, us | 0.336 | 0.534 | 0.192 |
+| GTA IV 142d render pass "when the same", ms/s | 90.1 | 133.0 | 43.5 |
+| GTA IV GPU thread executing, ms/s | 961 | 958 | 894.5 |
+| GTA IV swaps/s | 51.2 | 47.0 | 51.8 |
+| RDR render targets part, ms/s | 49.0 at 168,055 | 62.9 at 127,220 | 32.4 at 165,431 |
+| RDR per draw, us | 0.292 | 0.494 | 0.196 |
+| RDR 142d "when the same", ms/s | 40.1 | 50.0 | 24.1 |
+| RDR GPU thread executing, ms/s | ~993 | ~993 | ~993 |
+
+Reading:
+- **Saving.** Mode 2 cuts the render target part per draw by 43% in GTA IV (0.336 to 0.192 us,
+  about 46 ms/s) and by 33% in RDR (0.292 to 0.196 us, about 17 ms/s).
+- **Below the 72-82 ms/s expected.** What is left is mostly the draws that do not skip: 16-21%
+  of them, whose `Update` does real work. The skip path itself (the key and the memo) is small
+  next to that.
+- **Mode 1 costs about 0.2 us a draw** (two output snapshots and a comparison) and about 8% of
+  the frame rate in GTA IV. It is a check, not a mode to play in.
+- **The frame rate gain is not shown yet.** The runs are different scenes. RDR is at its 30 fps
+  cap with the GPU thread near 993 ms/s in all three modes. A same-spot comparison is next:
+  switch the file between 0 and 2 every 30 s window while standing still. The file is read live.
