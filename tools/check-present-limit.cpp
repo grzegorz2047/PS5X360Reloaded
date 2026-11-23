@@ -15,9 +15,17 @@
 //      output shows 30 new pictures a second, 2 refreshes each, and Automatic shows them all;
 //  (e) 40 on the 60 Hz output and any limit with frame generation on show every picture;
 //  (f) a change during the session (40, Automatic, 30), a new output and a pause: a log line for
-//      each change, the grid starts again, the first picture after a pause is shown at once;
+//      each change, the limit starts again, the first picture after a pause is shown at once, and
+//      a summary covers one choice (its window starts again at a change);
 //  (g) the 30 s summary: target, new pictures, game swaps, presents, vblanks, held, repeated,
-//      dropped, waited, median and p95;
+//      dropped and how many by the limit, waited, median, p95 and longest; the game's own times
+//      between pictures and the presents' (fix 146b);
+//  (i) fix 146b, the console's cases (1.0.6-work-fix146: 30 showed 24.7 new pictures/s of GTA
+//      IV's 37-43 and 15.8/s of Dragon Age II's 30): with paints that wake up to 3 ms early or
+//      late, a game at the limit (30, steady or by a 60 Hz vblank) has every picture shown and
+//      none dropped by the limit on both outputs; a game at 37-43 or 45-55 capped at 30 shows
+//      30 a second, each picture at least 2 presents (4 at 120 Hz); a game alternating 26.7 and
+//      40 ms (30 on average) loses at most a tenth;
 //  (h) the assembled tree: the mailbox keeps the acquired picture while the limit holds (under
 //      the consumer lock, before the exchange), the producer notes each picture, the Vulkan
 //      presenter gives the display refresh and notes each paint and logs the lines, nothing in
@@ -119,6 +127,7 @@ struct Result {
   uint64_t paints = 0;
   std::vector<int64_t> produced_at;  // when the game published each picture
   std::vector<int64_t> intervals;    // between new pictures shown, ns
+  std::vector<uint64_t> presents;    // presents each shown picture had before the next
   std::vector<std::string> lines;
 };
 struct Game {
@@ -127,15 +136,18 @@ struct Game {
   std::function<int64_t(uint64_t, std::mt19937&)> frame;
 };
 Result Run(pl::Gate& gate, double output_hz, int64_t seconds, const Game& game, uint32_t seed,
-           bool framegen = false, int64_t start = 1000000000) {
+           bool framegen = false, int64_t start = 1000000000, int64_t early = 0,
+           int64_t late = 700000) {
   Result result;
   std::mt19937 random(seed);
-  std::uniform_int_distribution<int64_t> jitter(0, 700000);  // a paint wakes up to 0.7 ms late
+  // A paint wakes up to 0.7 ms late (fix 146b's cases: up to 3 ms early or late).
+  std::uniform_int_distribution<int64_t> jitter(-early, late);
   const double refresh = 1e9 / output_hz;
   gate.SetOutputHz(output_hz);
   int64_t next_frame = start;
   uint64_t ready = 0, acquired = 0;  // picture numbers; 0: nothing
   int64_t last_shown = 0;
+  uint64_t last_shown_paint = 0;
   const int64_t end = start + seconds * 1000000000;
   uint64_t vblanks = 0;
   for (uint64_t refresh_index = 0;; ++refresh_index) {
@@ -157,8 +169,12 @@ Result Run(pl::Gate& gate, double output_hz, int64_t seconds, const Game& game, 
     if (ready != acquired && gate.Take(now, acquired != 0)) {
       acquired = ready;
       ++result.shown;
-      if (last_shown) result.intervals.push_back(now - last_shown);
+      if (last_shown) {
+        result.intervals.push_back(now - last_shown);
+        result.presents.push_back(result.paints - last_shown_paint);
+      }
       last_shown = now;
+      last_shown_paint = result.paints;
     }
   }
   return result;
@@ -275,7 +291,7 @@ void CheckChanges() {
   const int64_t after = 25000000000;
   gate.NoteRefresh(after);
   Expect(gate.Take(after + 1000000, true), "(f) after a pause the first picture is shown at once");
-  Expect(!gate.Take(after + 9000000, true), "(f) and the next one waits for the grid");
+  Expect(!gate.Take(after + 9000000, true), "(f) and the next one waits for its refreshes");
   // A new output (the surface made again at 60 Hz): the line, and 30 is 2 refreshes now.
   gate.SetOutputHz(k60);
   std::string lines[2];
@@ -284,6 +300,22 @@ void CheckChanges() {
   // An unknown choice is Automatic.
   gate.SetChoice(9);
   Expect(gate.choice() == pl::kAutomatic, "(f) an unknown choice is Automatic");
+
+  // Fix 146b: a summary covers one choice. 20 s at 40, then 30: the first summary comes 30 s
+  // after the change and counts 30 a second (not a mix of 40 and 30).
+  pl::Gate mixed;
+  mixed.SetChoice(pl::k40);
+  const Result at40 = Run(mixed, k120, 20, Steady(55), 5, false, 1000000000);
+  mixed.SetChoice(pl::k30);
+  const Result at30 = Run(mixed, k120, 35, Steady(55), 6, false, 21000000000);
+  std::string summary;
+  for (const std::string& line : at30.lines)
+    if (Has(line, "new pictures/s")) summary = line;
+  Expect(!summary.empty() && Has(summary, "target 30 FPS") &&
+             (Has(summary, "; 30.0 new pictures/s") || Has(summary, "; 29.9 new pictures/s")),
+         "(f) the summary after a change covers the new choice only: " + summary);
+  for (const std::string& line : at40.lines)
+    Expect(!Has(line, "new pictures/s"), "(f) no summary within 20 s of the choice: " + line);
 }
 
 void CheckReport() {
@@ -297,8 +329,9 @@ void CheckReport() {
   Expect(!report.empty(), "(g) a summary line within 40 s");
   for (const char* field : {"Presentation limit (fix 146): target 40 FPS (3 refreshes of 119.88 Hz)",
                             "new pictures/s of", "game swaps/s", "presents/s", "vblanks/s",
-                            "held ", "repeated ", "dropped ", "waited ", "ms a picture",
-                            "interval median 25.", "p95 25."})
+                            "held ", "repeated ", "dropped ", "/s by the limit)", "waited ",
+                            "ms a picture", "interval median 25.", "p95 25.", "longest ",
+                            "game interval median ", "present interval median "})
     Expect(Has(report, field), std::string("(g) the summary has \"") + field + "\": " + report);
   // 40.0 new pictures of about 50 game swaps; about 120 presents.
   Expect(Has(report, ": target 40 FPS") && (Has(report, "; 40.0 new pictures/s") || Has(report, "; 39.9 new pictures/s")),
@@ -313,6 +346,69 @@ void CheckReport() {
   Expect(plain.lines.size() == 1, "(g) Automatic from the start: no plan line, only the summary");
 }
 
+// (i) fix 146b.
+Game ByVblank60(double jitter_ms) {
+  // 30 by two vblanks of an emulated 60.00 Hz, each picture published up to `jitter_ms` later.
+  return {[jitter_ms](uint64_t, std::mt19937& random) {
+    std::uniform_real_distribution<double> jitter(-jitter_ms, jitter_ms);
+    return int64_t(2e9 / 60.0 + jitter(random) * 1e6);
+  }};
+}
+Game Alternating() {
+  return {[](uint64_t n, std::mt19937&) { return int64_t(n % 2 ? 26.7e6 : 40e6); }};
+}
+void CheckConsoleCases() {
+  constexpr int64_t kEarly = 3000000, kLate = 3000000;
+  for (double output : {k60, k120}) {
+    const std::string at = output < 100 ? " at 60 Hz" : " at 120 Hz";
+    const uint32_t refreshes = output < 100 ? 2 : 4;
+    struct AtLimit {
+      const char* name;
+      Game game;
+    } at_limit[] = {{"steady 30", Steady(30)}, {"30 by a 60 Hz vblank", ByVblank60(1.0)}};
+    for (const AtLimit& row : at_limit) {
+      pl::Gate gate;
+      gate.SetChoice(pl::k30);
+      const Result result = Run(gate, output, 40, row.game, 21, false, 1000000000, kEarly, kLate);
+      // 30.00 is a hair faster than 2 refreshes of 59.94 Hz (29.97 a second): over 40 s the
+      // limit may drop the 1.2 pictures that difference makes, no more.
+      const double most = 40.0 * output / refreshes;
+      const uint64_t over = result.produced > uint64_t(most) ? result.produced - uint64_t(most) : 0;
+      Expect(result.shown + 2 + over >= result.produced && gate.limit_dropped() <= over + 1,
+             std::string("(i) ") + row.name + " under 30" + at + ": every picture shown (" +
+                 std::to_string(result.shown) + " of " + std::to_string(result.produced) +
+                 ", dropped by the limit " + std::to_string(gate.limit_dropped()) + ")");
+    }
+    struct Faster {
+      const char* name;
+      Game game;
+    } faster[] = {{"37-43", Uneven(37, 43)}, {"45-55", Uneven(45, 55)}, {"60", Steady(60)}};
+    for (const Faster& row : faster) {
+      pl::Gate gate;
+      gate.SetChoice(pl::k30);
+      const Result result = Run(gate, output, 40, row.game, 23, false, 1000000000, kEarly, kLate);
+      const double rate = double(result.shown) / 40.0;
+      Expect(rate > 29.5 && rate < 30.1,
+             std::string("(i) ") + row.name + " capped at 30" + at + ": 30 a second, got " +
+                 std::to_string(rate));
+      uint64_t short_ones = 0;
+      for (uint64_t presents : result.presents)
+        if (presents < refreshes) ++short_ones;
+      Expect(short_ones == 0, std::string("(i) ") + row.name + " capped at 30" + at +
+                                  ": every picture on screen for " + std::to_string(refreshes) +
+                                  " presents or more, " + std::to_string(short_ones) + " shorter");
+      Expect(gate.limit_dropped() > 0 && gate.limit_dropped() <= result.produced - result.shown,
+             std::string("(i) ") + row.name + " capped at 30" + at + ": the limit's drops are counted");
+    }
+    pl::Gate gate;
+    gate.SetChoice(pl::k30);
+    const Result uneven = Run(gate, output, 40, Alternating(), 25, false, 1000000000, kEarly, kLate);
+    Expect(uneven.shown * 10 >= uneven.produced * 9,
+           "(i) 26.7 and 40 ms in turn under 30" + at + ": at most a tenth not shown, " +
+               std::to_string(uneven.shown) + " of " + std::to_string(uneven.produced));
+  }
+}
+
 // (h) the assembled tree.
 void CheckTree() {
   const std::string header = Read("include/xbox360ps5/present_limit.hpp");
@@ -320,6 +416,8 @@ void CheckTree() {
   for (const char* sleep : {"sleep(", "Sleep(", "sleep_for", "wait_for", "wait_until", "this_thread",
                             "condition_variable"})
     Expect(!Has(header, sleep), std::string("(h) nothing in the limit sleeps (") + sleep + ")");
+  Expect(Has(header, "return presents >= plan_.refreshes ||") && !Has(header, "deadline_"),
+         "(h) fix 146b: a picture is held for its presents, with no time grid");
 
   const std::string presenter = Read(".deps/xenia-canary/src/xenia/ui/presenter.cc");
   const std::string consume = Body(presenter, "std::unique_lock<std::mutex> Presenter::ConsumeGuestOutput(");
@@ -383,6 +481,7 @@ int main() {
   CheckNotApplied();
   CheckChanges();
   CheckReport();
+  CheckConsoleCases();
   CheckTree();
   if (failures) {
     std::printf("check-present-limit: %d failure(s)\n", failures);
