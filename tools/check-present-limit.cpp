@@ -43,6 +43,9 @@
 //      paints, writes one line that says where the time went (every stage named, "other" for the
 //      rest); at most 10 lines a minute, the next one counting those not written; the Vulkan
 //      presenter times each stage and logs at any return, the mailbox's consumer lock is timed;
+//  (m) fix 146f: the game loop's laps between two paints (pad, guide and library, settings page,
+//      input, tick, every second) and this thread's log writes (with the wait for the log's lock)
+//      are in the line; the loop laps each part and logging.cpp times each line;
 //  (h) the assembled tree: the mailbox keeps the acquired picture while the limit holds (under
 //      the consumer lock, before the exchange), the producer notes each picture, the Vulkan
 //      presenter gives the display refresh and notes each paint and logs the lines, nothing in
@@ -594,6 +597,34 @@ void CheckPresentStall() {
   t += 1000000;
   Expect(timer.End(t, line) && Has(line, "(7 earlier not written)"), "(l) the next minute's line counts the rest: " + line);
   Expect(timer.stalls() == 18, "(l) every stall is counted, got " + std::to_string(timer.stalls()));
+
+  // (m) fix 146f: a 600 ms stall in the loop's settings page, with a 590 ms log write in it
+  // (580 ms of it waiting for the log's lock).
+  ps::Timer loop;
+  t = 1000000000;
+  loop.Begin(t);
+  t += 8000000;
+  loop.End(t, line);
+  loop.Lap(ps::kLoopSecond, t += 1000000);
+  loop.Lap(ps::kLoopPad, t += 1000000);
+  loop.Lap(ps::kLoopGuide, t += 2000000);
+  loop.AddLog(590000000, 580000000);
+  loop.AddLog(100000, 0);
+  loop.Lap(ps::kLoopWeb, t += 600000000);
+  loop.Lap(ps::kLoopInput, t += 1000000);
+  loop.Lap(ps::kLoopTick, t += 1000000);
+  loop.Begin(t);
+  t += 300000;
+  Expect(loop.End(t, line) &&
+             Has(line, "606.0 ms outside the presenter (the UI loop: pad 1.0, guide and library 2.0, settings page 600.0, "
+                       "input 1.0, tick 1.0, every second 1.0), 0.3 ms in the paint:") &&
+             Has(line, "; 2 log lines on this thread took 590.1 ms (580.0 ms waiting for the log's lock)"),
+         "(m) the loop's parts and the log writes: " + line);
+  // The next ordinary paint starts from zero.
+  loop.Lap(ps::kLoopSecond, t += 1000000);
+  loop.Begin(t += 8000000);
+  t += 8000000;
+  Expect(!loop.End(t, line), "(m) the counts start again after a line");
 }
 
 // (h) the assembled tree.
@@ -641,6 +672,21 @@ void CheckTree() {
   for (const char* stage : {"kPending", "kAcquire", "kImageWaits", "kDrawers", "kSubmit", "kPresent"})
     Expect(Has(vulkan, std::string("present_stall::Span stall_span(xbox360ps5::present_stall::") + stage + ")"),
            std::string("(l) the paint times ") + stage);
+  // (m) fix 146f.
+  const std::string game_main = Read("src/canary_game_main.cpp");
+  for (const char* stage : {"kLoopPad", "kLoopGuide", "kLoopWeb", "kLoopInput", "kLoopTick", "kLoopSecond"})
+    Expect(Has(game_main, std::string("present_stall::ThisThread().Lap(xbox360ps5::present_stall::") + stage + ","),
+           std::string("(m) the game loop laps ") + stage);
+  const size_t tick_lap = game_main.find("context.Tick();", game_main.find("kUiPaint);"));
+  Expect(game_main.find("kLoopInput,", game_main.find("kUiPaint);")) < tick_lap &&
+             game_main.find("kLoopTick,", tick_lap) < game_main.find("window.Paint();", tick_lap),
+         "(m) the tick is lapped on its own, before the paint");
+  const std::string logging = Read("platform/ps5/logging.cpp");
+  Expect(Has(logging, "present_stall::ThisThread().AddLog(") &&
+             logging.find("} log_time;") != std::string::npos &&
+             logging.find("std::lock_guard lock(log_mutex);", logging.find("} log_time;")) <
+                 logging.find("log_time.locked = "),
+         "(m) logging.cpp times each line and the wait for its lock");
   Expect(Has(consume, "present_stall::Span stall_span(xbox360ps5::present_stall::kGuestOutput);") &&
              consume.find("kGuestOutput") < consume.find("guest_output_mailbox_consumer_mutex_"),
          "(l) ConsumeGuestOutput times its consumer lock");

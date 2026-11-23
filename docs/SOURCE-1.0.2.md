@@ -308,6 +308,7 @@ also listed here.
 | 146c (`146c-present-limit-measured`) | with the title's 120 Hz metadata the screen refreshed at 119.88 Hz although the display mode said 59.94 Hz, so 146b's 30 counted 2 presents (a 60 cap) and 40 was not applied; the limit now measures the refresh from the presents (30 is 4 of them, 40 is applied at 3) and the log lists every display mode the driver offers | host-checked (`tools/check-present-limit.cpp`); console: `1.0.6-work-fix146c` |
 | 146d (`146d-present-limit-bound`) | a picture is never held past two periods of the limit once a newer one is ready; the summary gives the longest present interval and the count over 100 ms (the console's 160-680 ms freezes matched missing presents, not the limit) | host-checked (`tools/check-present-limit.cpp`); console: `1.0.6-work-fix146d` |
 | 146e (`146e-present-stall-log`) | a diagnostic: when the presents stop for 100 ms or more (GTA IV on the 120 Hz output, about once in 30 s, with and without the limit), the log says where the UI thread spent the time, by part of the paint or outside it | host-checked (`tools/check-present-limit.cpp`); console: `1.0.6-work-fix146e` |
+| 146f (`146f-present-stall-loop`) | a diagnostic: 146e showed the stalls outside the paint, in the UI loop; the loop's parts (pad, guide and library, settings page, input, tick, every second) and the UI thread's log writes (and waits for the log's lock) are now in the stall line | host-checked (`tools/check-present-limit.cpp`); console: `1.0.6-work-fix146f` |
 
 ## Comparison with the official executable
 
