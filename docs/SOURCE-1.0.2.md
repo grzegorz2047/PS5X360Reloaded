@@ -321,6 +321,7 @@ also listed here.
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
 | 150 (`150-vfs-background-delete`) | a 1.0.6 stutter fix: Grand Theft Auto IV paused for a fraction of a second when it deleted one of its files on a slow drive; the file is now deleted in the background (`vfs-delete.txt` `inline` restores the old way), and slow file operations and long pauses between the game's frames are logged | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.6-work-fix150` |
 | 150b (`150b-vfs-delete-steps`) | a 1.0.6 stutter fix: when Grand Theft Auto IV deleted a large cache file and made it again, the new file waited for the old one's delete; old files are now emptied in small steps first, so the game is not held up | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.6-work-fix150b` |
+| 150c (`150c-utility-cache-extended-storage`) | a 1.0.6 stutter fix: the games' cache drive (where Grand Theft Auto IV rewrites big cache files while you play) is kept on the PS5's M.2 SSD when one is installed, and stays in the console's own storage otherwise (or with `data` in `utility-cache-drive.txt`) | host-checked (`tools/check-utility-cache-drive.cpp`); console: `1.0.6-work-fix150c` |
 
 ## Comparison with the official executable
 
