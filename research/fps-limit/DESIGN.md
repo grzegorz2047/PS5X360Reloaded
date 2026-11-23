@@ -157,3 +157,47 @@ said, VSync on. Take 60 s per case on the same spot after shaders warmed; keep t
    (kept for its Title ID); a second game starts with Automatic.
 8. **A/B timing**: with the limit off and on, the in-game clock/animation speed and audio sync
    are unchanged (e.g. a cutscene's length, a timed sequence); vblanks/s identical.
+
+## 8. Fix 146b: after the first console test
+
+Console (`1.0.6-work-fix146`, logs in `research/fix146/` outside the repo; output 59.94 Hz FIFO, so
+40 was always "not applied"):
+
+| Case | Game swaps/s | New pictures/s | Held/s | Dropped/s | Interval median / p95 |
+|---|---|---|---|---|---|
+| DA2, 30 cap, game at 60 | 60 | 30.0 | | 29.8 | 33.5 / 33.5 (as designed) |
+| GTA IV city, 30 cap | 38.4 / 43.4 / 37.3 | 24.7 / 29.3 / 25.7 | 18.6-21.2 | 11.6-14.1 | 33.5 / 33.5 |
+| DA2 2nd run, 30 cap (vblanks 75/s: loading or a cutscene) | 30.2 | 15.8 | 14.7 | 14.4 | 33.5 / 33.5 |
+
+Live switching, per-game saving, 60, Automatic and No limit worked; game swap rates unchanged.
+
+What 146 did: a time grid (an opening every `period`, kept while pictures came within half a
+refresh of it). Its openings have a phase of their own, so a picture can wait for an opening and
+be replaced before it, and a paint that wakes more than half a refresh off the grid misses its
+opening.
+
+What does not add up: with intervals' median and p95 both 33.5 ms, 24.7 pictures/s leave about
+175 ms of every second in intervals longer than 33.5 ms that are at most 5% of them (or in pauses
+over 250 ms, which the histogram leaves out). The host model (paints with jitter, missing paints,
+FIFO run-ahead; games steady, uneven, quantised to a 60 or 120 Hz vblank) never gave fewer than 28
+for 146 either. So the cause may be the game (bursts and stalls of GTA IV's streaming, Dragon Age
+II loading) as much as the gate.
+
+146b, in `present_limit.hpp`:
+- no grid: a newer picture is taken when the one on screen has had `refreshes` presents (FIFO:
+  each present is at least a refresh on screen), or one present fewer and the whole period but a
+  quarter refresh of time (a refresh with no present). Without FIFO: after the period less half a
+  refresh. In the model it is never worse than 146, and with paints 5 ms off (119.88 Hz) a 30.00
+  FPS game under 30 shows 30.0/s instead of 28.6/s;
+- a summary covers one choice (146's first summary after a change also counted the time before);
+- the summary adds `(x/s by the limit)` to dropped (a held picture replaced by a newer one), the
+  `longest` interval between new pictures, `game interval median, p95, longest` (the game's own
+  times between pictures) and `present interval median, p95`.
+
+Reading the next console log (`1.0.6-work-fix146b`):
+- `by the limit` near `dropped` and new pictures/s under the cap with game swaps above it: still
+  the gate; send the line;
+- `by the limit` small, `game interval` p95 / longest large (game swaps bunched, then gaps): the
+  game's own bursts; the limit cannot show two pictures inside one period;
+- `present interval` p95 well over a refresh (16.7 ms at 60 Hz): late paints (the UI thread); new
+  pictures follow the presents.
