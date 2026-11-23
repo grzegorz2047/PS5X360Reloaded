@@ -365,6 +365,8 @@ Expected gain: up to about 0.25 µs on most draws, about 8% of the GPU thread in
 
 - **Base:** `fix/parallel-gpu-record-106` on top of fix 142d (`1.0.6_candidate_2`).
 - **Label:** `1.0.6-work-fix142e`.
+- **Build run:** 45219977045, green, at `7586738` (artifact
+  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks: run 45219967326, green.
 - **Setting:** `render_target_skip` ([GPU] in `assets/config/<title>.config.toml`), or live in
   `render-target-skip.txt` in the title folder: one number, read again at most once a second, so
   the mode can change while the game runs. `0` (the default) is today's path, `1` verify, `2`
