@@ -215,6 +215,7 @@ For\sthe\snext\sgame\syou\sstart,\sthe\semulator\swrites\sdown\smore\sof\swhat\s
 Format\s\s = 格式\s\s
 Frame\sgeneration\s(test) = 幀生成（測試）
 Frame\sgeneration\soutput\s(test) = 幀生成輸出（測試）
+Frame\srate\slimit\s(screen) = 影格率上限（螢幕）
 Full\s(slow) = 完整（慢）
 Full\sversion = 完整版
 Game = 遊戲
@@ -328,6 +329,7 @@ No\sgame\sidentified\syet.\sOpen\sa\sgame\sonce:\sthe\semulator\srecognises\sthe
 No\sgame\swith\s" = 沒有包含此內容的遊戲："
 No\sgames\sin\sthis\sfilter = 此篩選中沒有遊戲
 No\sgames\syet = 還沒有遊戲
+No\slimit = 無限制
 No\smatching\sDLC\spackages\sfound. = 未找到匹配的\sDLC\s包。
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sOPTIONS\s+\stouchpad:\sguide = 沒有新畫面（正在編譯著色器或載入）。OPTIONS\s+\s觸控板：指南
 No\snew\sframes\s(compiling\sshaders\sor\sloading).\sTouchpad:\sguide = 沒有新畫面（正在編譯著色器或載入）。觸控板：指南
@@ -474,6 +476,7 @@ Show\sFPS\sin\sgame = 在遊戲中顯示\sFPS
 Show\sgame\sframes\sper\ssecond\sin\sthe\scorner\sof\sthe\sscreen. = 在螢幕角落顯示遊戲每秒幀數。
 Show\syour\swhole\sbody\sto\sthe\scamera = 讓攝影機看到你的全身
 Shows\sa\sPS5\snotification\swhen\sa\sgame\sunlocks\san\sXbox\s360\sachievement. = 遊戲解鎖\sXbox\s360\s成就時顯示\sPS5\s通知。
+Shows\sthe\sgame's\snew\spictures\sat\smost\sthis\smany\stimes\sa\ssecond,\seach\sfor\sthe\ssame\stime,\sfor\san\seven\smotion\son\sscreen.\sThe\sgame\sitself\sruns\sas\sbefore\s(its\sspeed,\sits\ssound\sand\sthe\sEmulated\svideo\srate\sdo\snot\schange),\sand\sa\sgame\sslower\sthan\sthe\slimit\sis\sshown\sas\sit\sis.\s40\sneeds\sthe\s120\sHz\soutput\s(Frame\sgeneration\soutput:\sUp\sto\s120\sHz);\sat\s60\sHz\sit\sshows\severy\spicture.\sIt\sdoes\snothing\swhile\sframe\sgeneration\sis\son.\sAutomatic:\sas\sbefore. = 每秒最多顯示這麼多次遊戲的新畫面，每個畫面顯示相同的時間，讓畫面動作更平順。遊戲本身照常執行（速度、聲音和模擬的畫面更新率都不變），比上限慢的遊戲會照原樣顯示。40\s需要\s120\sHz\s輸出（幀生成輸出：最高\s120\sHz）；在\s60\sHz\s下會顯示每個畫面。開啟幀生成時不起作用。自動：與以前相同。
 Sign\sIn = 使用玩家設定檔登入
 Signing\sout\sof\sonline\splay... = 正在登出線上遊戲...
 Size:\s%s = 大小：%s

@@ -1,0 +1,215 @@
+diff --git a/include/xbox360ps5/present_stall.hpp b/include/xbox360ps5/present_stall.hpp
+--- a/include/xbox360ps5/present_stall.hpp
++++ b/include/xbox360ps5/present_stall.hpp
+@@ -13,6 +13,15 @@
+ // images in use, the UI drawers (the guide, the FPS overlay), the submit (with the queue's lock)
+ // and the present (with the queue's lock); what is left is "other". At most 10 lines a minute; the
+ // next line says how many were not written.
++//
++// Fix 146f: the console's stalls (1.0.6-work-fix146e, GTA IV at 60 Hz) were all outside the
++// presenter: 0.15-0.89 s in the UI loop, with the paint itself 0.2-0.3 ms. So the game loop of
++// canary_game_main.cpp now laps its parts (Lap: the time since the previous lap or the end of the
++// last paint): the pad, the guide and library, the settings page (apply and publish), the input
++// submit, context.Tick() and the every-second work (FPS, stall watch, summaries). And every log
++// line this thread writes (platform/ps5/logging.cpp: under one lock for every thread, flushed
++// per line, to the logs folder on the console drive) is timed, with the wait for the log's lock
++// apart, so a log write held up by the file system shows as such.
+ #pragma once
+ 
+ #include <array>
+@@ -35,6 +44,23 @@ enum Stage : int {
+   kStages
+ };
+ 
++// Fix 146f: the parts of the game loop between two paints (laps, in loop order).
++enum LoopStage : int {
++  kLoopPad = 0,  // the loop's top and the pad read
++  kLoopGuide,    // autotest, controller, the guide and the library
++  kLoopWeb,      // the settings page: changes applied, the state published
++  kLoopInput,    // motion, the input submit
++  kLoopTick,     // context.Tick(): the UI thread's queued calls
++  kLoopSecond,   // a measurement asked for and the every-second work
++  kLoopStages
++};
++
++inline const char* LoopStageName(int stage) {
++  static const char* const kNames[kLoopStages] = {"pad", "guide and library", "settings page",
++                                                  "input", "tick", "every second"};
++  return stage >= 0 && stage < kLoopStages ? kNames[stage] : "?";
++}
++
+ inline const char* StageName(int stage) {
+   static const char* const kNames[kStages] = {
+       "waiting for earlier paints", "acquire", "guest output", "image waits", "drawers",
+@@ -63,6 +89,18 @@ class Timer {
+   void Add(int stage, int64_t ns) {
+     if (begin_ && stage >= 0 && stage < kStages && ns > 0) stages_[size_t(stage)] += ns;
+   }
++  // Fix 146f: the game loop's part since the previous lap (or the end of the last paint).
++  void Lap(int stage, int64_t now) {
++    if (last_lap_ && stage >= 0 && stage < kLoopStages && now > last_lap_)
++      loop_[size_t(stage)] += now - last_lap_;
++    last_lap_ = now;
++  }
++  // Fix 146f: a log line this thread wrote, and how long of it was the wait for the log's lock.
++  void AddLog(int64_t ns, int64_t lock_wait_ns) {
++    if (ns > 0) log_ns_ += ns;
++    if (lock_wait_ns > 0) log_lock_ns_ += lock_wait_ns;
++    ++log_lines_;
++  }
+   // At the end of a paint (any return): true and `line` when this paint or the time before it
+   // was a stall worth a line.
+   bool End(int64_t now, std::string& line) {
+@@ -71,6 +109,14 @@ class Timer {
+     const int64_t outside = outside_;
+     begin_ = 0;
+     last_end_ = now;
++    last_lap_ = now;
++    // Fix 146f: what the loop and the log writes did since the previous paint ended.
++    const std::array<int64_t, kLoopStages> loop = loop_;
++    const int64_t log_ns = log_ns_, log_lock_ns = log_lock_ns_;
++    const unsigned log_lines = log_lines_;
++    loop_.fill(0);
++    log_ns_ = log_lock_ns_ = 0;
++    log_lines_ = 0;
+     if (inside < kStallNs && outside < kStallNs) return false;
+     ++stalls_;
+     if (!window_start_ || now - window_start_ >= kWindowNs) {
+@@ -84,18 +130,34 @@ class Timer {
+     ++written_in_window_;
+     int64_t known = 0;
+     for (int64_t ns : stages_) known += ns;
+-    char text[640];
++    char text[1100];
+     int n = std::snprintf(text, sizeof(text),
+                           "Present stall (fix 146e): %.1f ms from the end of the previous paint "
+-                          "to the end of this one: %.1f ms outside the presenter (the UI loop), "
+-                          "%.1f ms in the paint:",
+-                          double(outside + inside) / 1e6, double(outside) / 1e6, double(inside) / 1e6);
++                          "to the end of this one: %.1f ms outside the presenter (the UI loop",
++                          double(outside + inside) / 1e6, double(outside) / 1e6);
++    // Fix 146f: the loop's parts, when it lapped them.
++    int64_t lapped = 0;
++    for (int64_t ns : loop) lapped += ns;
++    if (lapped) {
++      for (int s = 0; s < kLoopStages && n > 0 && size_t(n) < sizeof(text); ++s)
++        n += std::snprintf(text + n, sizeof(text) - size_t(n), "%s %s %.1f", s ? "," : ":",
++                           LoopStageName(s), double(loop[size_t(s)]) / 1e6);
++    }
++    if (n > 0 && size_t(n) < sizeof(text))
++      n += std::snprintf(text + n, sizeof(text) - size_t(n), "), %.1f ms in the paint:",
++                         double(inside) / 1e6);
+     for (int s = 0; s < kStages && n > 0 && size_t(n) < sizeof(text); ++s)
+       n += std::snprintf(text + n, sizeof(text) - size_t(n), "%s %s %.1f", s ? "," : "",
+                          StageName(s), double(stages_[size_t(s)]) / 1e6);
+     if (n > 0 && size_t(n) < sizeof(text))
+       n += std::snprintf(text + n, sizeof(text) - size_t(n), ", other %.1f ms",
+                          double(inside > known ? inside - known : 0) / 1e6);
++    // Fix 146f: log writes on this thread (they can wait for the file system or for another
++    // thread's log write).
++    if (n > 0 && size_t(n) < sizeof(text))
++      n += std::snprintf(text + n, sizeof(text) - size_t(n),
++                         "; %u log lines on this thread took %.1f ms (%.1f ms waiting for the log's lock)",
++                         log_lines, double(log_ns) / 1e6, double(log_lock_ns) / 1e6);
+     if (not_written_ && n > 0 && size_t(n) < sizeof(text))
+       std::snprintf(text + n, sizeof(text) - size_t(n), " (%u earlier not written)", not_written_);
+     not_written_ = 0;
+@@ -106,6 +168,9 @@ class Timer {
+ 
+  private:
+   int64_t begin_ = 0, last_end_ = 0, outside_ = 0, window_start_ = 0;
++  int64_t last_lap_ = 0, log_ns_ = 0, log_lock_ns_ = 0;  // fix 146f
++  std::array<int64_t, kLoopStages> loop_{};
++  unsigned log_lines_ = 0;
+   std::array<int64_t, kStages> stages_{};
+   unsigned written_in_window_ = 0, not_written_ = 0;
+   uint64_t stalls_ = 0;
+diff --git a/platform/ps5/logging.cpp b/platform/ps5/logging.cpp
+--- a/platform/ps5/logging.cpp
++++ b/platform/ps5/logging.cpp
+@@ -8,6 +8,10 @@
+ #include <array>
+ #include <cstdlib>
+ #include <mutex>
++#if __has_include("xbox360ps5/present_stall.hpp")
++#include "xbox360ps5/present_stall.hpp"  // fix 146f: log writes in a present stall
++#define XBOX360PS5_PRESENT_STALL 1
++#endif
+ DEFINE_path(log_file, "", "Native title log file", "Logging");
+ DEFINE_int32(log_level, 2, "Maximum log severity level", "Logging");
+ DEFINE_bool(log_to_stdout, true, "Log to standard output", "Logging");
+@@ -40,7 +44,21 @@ namespace logging {
+ bool ShouldLog(LogLevel level) { return int(level) <= cvars::log_level; }
+ void AppendLogLine(LogLevel level, char prefix, std::string_view line) {
+   if (!ShouldLog(level)) return;
++#if XBOX360PS5_PRESENT_STALL
++  // Fix 146f: how long this line took on this thread, the wait for the lock apart (the lock is
++  // every thread's; each line is flushed to the logs folder on the console drive).
++  struct LogTime {
++    int64_t start = xbox360ps5::present_stall::NowNs(), locked = 0;
++    ~LogTime() {
++      xbox360ps5::present_stall::ThisThread().AddLog(xbox360ps5::present_stall::NowNs() - start,
++                                                     locked ? locked - start : 0);
++    }
++  } log_time;
++#endif
+   std::lock_guard lock(log_mutex);
++#if XBOX360PS5_PRESENT_STALL
++  log_time.locked = xbox360ps5::present_stall::NowNs();
++#endif
+   auto write = [&](FILE* out) {
+ #if XE_PLATFORM_PS5
+     std::fprintf(out, "%c> ", prefix);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -133,6 +133,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xenia/gpu/cp_trace.h"
+ #include "xenia/gpu/shader.h"
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47: the hang watch
++#include "xbox360ps5/present_stall.hpp"  // fix 146f: the game loop's parts in a present stall
+ #include "xenia/memory.h"  // fix 47, candidate 11: the guest heaps' reserved pages
+ #include <functional>  // fix 47, candidate 11
+ #include "xenia/cpu/entry_probe.h"  // candidate 21: Battlefield 3's render-job probes
+@@ -3684,6 +3685,8 @@ int main(int argc, char** argv) {
+             }
+           }
+           auto sample = pad.Read();
++          xbox360ps5::present_stall::ThisThread().Lap(xbox360ps5::present_stall::kLoopPad,
++                                                  xbox360ps5::present_stall::NowNs());  // fix 146f
+           xe::ui::controller_keyboard::SubmitPad(0, sample,
+               uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch()).count()));
+@@ -3988,13 +3991,22 @@ int main(int argc, char** argv) {
+           if (settings.touchpad_menu) sample.buttons &= ~0x100000u;
+           if (std::chrono::steady_clock::now() < back_until) sample.buttons |= 0x100000;
+           if (create_button && !guide.open && !library_open && !swallow) sample.buttons |= 0x100000;
++          xbox360ps5::present_stall::ThisThread().Lap(xbox360ps5::present_stall::kLoopGuide,
++                                                  xbox360ps5::present_stall::NowNs());  // fix 146f
+           if (apply_web(true) || ++web_tick % 600 == 0) publish_web(settings_title, game_name);
++          xbox360ps5::present_stall::ThisThread().Lap(xbox360ps5::present_stall::kLoopWeb,
++                                                  xbox360ps5::present_stall::NowNs());  // fix 146f
+           xbox360ps5::motion::SetEnabled(settings.motion_phone != 0);
+           xbox360ps5::motion::picture_wanted.store(settings.motion_picture != 0);  // fix 119
+           input->Submit(sample);
+           window.SubmitUiPad(sample);
+           xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiPaint);
+-          context.Tick(); window.Paint();
++          xbox360ps5::present_stall::ThisThread().Lap(xbox360ps5::present_stall::kLoopInput,
++                                                  xbox360ps5::present_stall::NowNs());  // fix 146f
++          context.Tick();
++          xbox360ps5::present_stall::ThisThread().Lap(xbox360ps5::present_stall::kLoopTick,
++                                                  xbox360ps5::present_stall::NowNs());  // fix 146f
++          window.Paint();
+           xbox360ps5::hang_watch::ui_loop.Mark(xbox360ps5::hang_watch::kUiSample);
+           // A measurement asked for in the guide starts once the game is back in play.
+           if (std::chrono::steady_clock::now() >= measure_at) {
+@@ -4268,6 +4280,8 @@ int main(int argc, char** argv) {
+               samples = 0; fps_sum = swaps_sum = 0.0f; fps_low = 1e9f;
+             }
+           }
++          xbox360ps5::present_stall::ThisThread().Lap(xbox360ps5::present_stall::kLoopSecond,
++                                                  xbox360ps5::present_stall::NowNs());  // fix 146f
+         }
+         hang_watch_thread.reset();  // fix 47
+         // Fix 93b: from here to the restart the screen says what happens, and keeps moving while
