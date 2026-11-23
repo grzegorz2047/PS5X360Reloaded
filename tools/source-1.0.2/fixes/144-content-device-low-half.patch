@@ -1,0 +1,166 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/low_half_size.h b/.deps/xenia-canary/src/xenia/kernel/xam/low_half_size.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/low_half_size.h
+@@ -0,0 +1,38 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++
++#ifndef XENIA_KERNEL_XAM_LOW_HALF_SIZE_H_
++#define XENIA_KERNEL_XAM_LOW_HALF_SIZE_H_
++
++#include <cstdint>
++
++namespace xe {
++namespace kernel {
++namespace xam {
++
++// Xbox360PS5 (fix 144): a storage size as a game is told it. A title that
++// reads only the low 32 bits of a device's 64-bit sizes (see the note at the
++// top of xam_content_device.cc) finds zero in the console's round figures,
++// 16 GiB free of 64 GiB, and refuses to save (Just Cause 2, upstream issue
++// 36). The rule of 1.0.2's XamContentGetDeviceData, in one place: a size
++// becomes the largest one not above it whose low half is 4 GiB less 1 MiB; a
++// size up to that stays as it is.
++constexpr uint64_t kLowHalfSafeLow = 0xFFF00000ull;
++
++constexpr uint64_t LowHalfSafeSize(uint64_t bytes) {
++  if (bytes <= kLowHalfSafeLow) return bytes;
++  uint64_t high = bytes >> 32;
++  if ((bytes & 0xFFFFFFFFull) < kLowHalfSafeLow) --high;
++  return (high << 32) | kLowHalfSafeLow;
++}
++
++}  // namespace xam
++}  // namespace kernel
++}  // namespace xe
++
++#endif  // XENIA_KERNEL_XAM_LOW_HALF_SIZE_H_
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.h
+@@ -51,6 +51,11 @@ std::vector<const DummyDeviceInfo*> ListStorageDevices(
+ // folder's for the hard drive, the fixed figures for the disc.
+ uint64_t DeviceTotalBytes(const DummyDeviceInfo* device_info);
+ uint64_t DeviceFreeBytes(const DummyDeviceInfo* device_info);
++// Xbox360PS5 (fix 144): the sizes a game is told, the same in the device's
++// data and in the device enumerator: a drive's and the hard drive's through
++// LowHalfSafeSize (low_half_size.h), the disc's fixed figures as they are.
++uint64_t ReportedTotalBytes(const DummyDeviceInfo* device_info);
++uint64_t ReportedFreeBytes(const DummyDeviceInfo* device_info);
+ 
+ }  // namespace xam
+ }  // namespace kernel
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content_device.cc
+@@ -14,6 +14,7 @@
+ 
+ #include "xenia/base/logging.h"
+ #include "xenia/kernel/xam/storage_devices.h"
++#include "xenia/kernel/xam/low_half_size.h"  // fix 144
+ #include "xenia/base/math.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+@@ -138,6 +139,21 @@ uint64_t DeviceFreeBytes(const DummyDeviceInfo* device_info) {
+       static_cast<uint32_t>(device_info->device_id));
+ }
+ 
++// Xbox360PS5 (fix 144): low_half_size.h; the disc keeps its fixed figures.
++uint64_t ReportedTotalBytes(const DummyDeviceInfo* device_info) {
++  if (device_info->device_type == DeviceType::ODD) {
++    return device_info->total_bytes;
++  }
++  return LowHalfSafeSize(DeviceTotalBytes(device_info));
++}
++
++uint64_t ReportedFreeBytes(const DummyDeviceInfo* device_info) {
++  if (device_info->device_type == DeviceType::ODD) {
++    return device_info->free_bytes;
++  }
++  return LowHalfSafeSize(DeviceFreeBytes(device_info));
++}
++
+ dword_result_t XamContentGetDeviceName_entry(dword_t device_id,
+                                              dword_t name_buffer_ptr,
+                                              dword_t name_capacity) {
+@@ -202,26 +218,10 @@ dword_result_t XamContentGetDeviceData_entry(
+   device_data.Zero();
+   device_data->device_id = static_cast<uint32_t>(device_info->device_id);
+   device_data->device_type = static_cast<uint32_t>(device_info->device_type);
+-  // Xbox360PS5: a title that reads only the low 32 bits of these sizes (see the note at the top
+-  // of this file) finds zero in the console's round figures, 16 GiB free of 64 GiB, and
+-  // refuses to save. Each size becomes the largest one not above it whose low half is 4 GiB
+-  // less 1 MiB; a size under 4 GiB stays as it is.
+-  const auto low_half_safe = [](uint64_t bytes) {
+-    constexpr uint64_t kLow = 0xFFF00000ull;
+-    if (bytes <= kLow) return bytes;
+-    uint64_t high = bytes >> 32;
+-    if ((bytes & 0xFFFFFFFFull) < kLow) --high;
+-    return (high << 32) | kLow;
+-  };
+-  // Xbox360PS5 (fix 27): a drive's own sizes, as the hard drive's.
+-  device_data->total_bytes =
+-      device_info->device_type != DeviceType::ODD
+-          ? low_half_safe(DeviceTotalBytes(device_info))
+-          : device_info->total_bytes;
+-  device_data->free_bytes =
+-      device_info->device_type != DeviceType::ODD
+-          ? low_half_safe(DeviceFreeBytes(device_info))
+-          : device_info->free_bytes;
++  // Xbox360PS5 (fix 27): a drive's own sizes, as the hard drive's; fix 144:
++  // safe for a title that reads only their low 32 bits (low_half_size.h).
++  device_data->total_bytes = ReportedTotalBytes(device_info);
++  device_data->free_bytes = ReportedFreeBytes(device_info);
+   xe::string_util::copy_and_swap_truncating(
+       device_data->name_chars, device_info->name,
+       xe::countof(device_data->name_chars));
+@@ -249,26 +249,10 @@ dword_result_t XamContentGetLocalizedDeviceData_entry(
+   device_data.Zero();
+   device_data->device_id = static_cast<uint32_t>(device_info->device_id);
+   device_data->device_type = static_cast<uint32_t>(device_info->device_type);
+-  // Xbox360PS5: a title that reads only the low 32 bits of these sizes (see the note at the top
+-  // of this file) finds zero in the console's round figures, 16 GiB free of 64 GiB, and
+-  // refuses to save. Each size becomes the largest one not above it whose low half is 4 GiB
+-  // less 1 MiB; a size under 4 GiB stays as it is.
+-  const auto low_half_safe = [](uint64_t bytes) {
+-    constexpr uint64_t kLow = 0xFFF00000ull;
+-    if (bytes <= kLow) return bytes;
+-    uint64_t high = bytes >> 32;
+-    if ((bytes & 0xFFFFFFFFull) < kLow) --high;
+-    return (high << 32) | kLow;
+-  };
+-  // Xbox360PS5 (fix 27): a drive's own sizes, as the hard drive's.
+-  device_data->total_bytes =
+-      device_info->device_type != DeviceType::ODD
+-          ? low_half_safe(DeviceTotalBytes(device_info))
+-          : device_info->total_bytes;
+-  device_data->free_bytes =
+-      device_info->device_type != DeviceType::ODD
+-          ? low_half_safe(DeviceFreeBytes(device_info))
+-          : device_info->free_bytes;
++  // Xbox360PS5 (fix 27): a drive's own sizes, as the hard drive's; fix 144:
++  // safe for a title that reads only their low 32 bits (low_half_size.h).
++  device_data->total_bytes = ReportedTotalBytes(device_info);
++  device_data->free_bytes = ReportedFreeBytes(device_info);
+   // enforces name by device type
+   const std::u16string_view device_name =
+       XDeviceTypeMap.contains(device_info->device_type)
+@@ -320,8 +304,10 @@ dword_result_t XamContentCreateDeviceEnumerator_entry(dword_t content_type,
+       device_data->device_id = static_cast<uint32_t>(device_info->device_id);
+       device_data->device_type =
+           static_cast<uint32_t>(device_info->device_type);
+-      device_data->total_bytes = DeviceTotalBytes(device_info);
+-      device_data->free_bytes = DeviceFreeBytes(device_info);
++      // Xbox360PS5 (fix 144): the sizes XamContentGetDeviceData gives; the
++      // enumerator gave the raw ones, zero in their low half at 16 GiB free.
++      device_data->total_bytes = ReportedTotalBytes(device_info);
++      device_data->free_bytes = ReportedFreeBytes(device_info);
+       xe::string_util::copy_and_swap_truncating(
+           device_data->name_chars, device_info->name,
+           xe::countof(device_data->name_chars));

@@ -293,6 +293,7 @@ also listed here.
 | 135 (`135-dragon-age-readback-preset`) | Dragon Age II gets readback Fast by default (its own setting still wins): the picture of a new save in its Load Game list was noise with readback off | host-checked (`tools/check-boost-presets.cpp`); console: `1.0.5-work-fix135` |
 | 139 (`139-vfs-entry-lifetime`) | a 1.0.5 crash fix: Halo: Reach crashed when it closed a temporary file that another handle of it, or its folder, had already deleted; a file system entry now stays until its last file is closed, and opening a name that is being deleted waits for the delete | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.5-work-fix139` |
 | 139b (`139b-vfs-delete-unlocked`) | fix 139 brought back the Kinect Sports stutter of fix 129 (a file delete held a lock the whole emulator needs, up to about a second); the delete no longer holds it, and a file of the same name can be made again at once | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.5-work-fix139b` |
+| 144 (`144-content-device-low-half`) | a 1.0.6 storage fix: the list of drives a game asks for now gives the same free space as the drive's own details, in the form that games which read only part of the number understand (1.0.2 did it for the details only); before, such a game could find no room to save on a drive with 16 GiB free | host-checked (`tools/check-low-half-size.cpp`); console: not yet |
 
 ## Comparison with the official executable
 

@@ -156,6 +156,7 @@ on:
       - 'tools/check-readback-batching.cpp'
       - 'tools/check-async-submit.cpp'
       - 'tools/check-library-groups.cpp'
+      - 'tools/check-low-half-size.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
