@@ -161,6 +161,9 @@ on:
       - 'tools/check-swap-effects.cpp'
       - 'tools/check-exception-loop-entry.cpp'
       - 'tools/check-disc-content.cpp'
+      - 'tools/check-smartglass-app.cpp'
+      - 'tools/check-title-keys.cpp'
+      - 'tools/check-disc-name-tags.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

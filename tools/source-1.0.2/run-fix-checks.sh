@@ -152,6 +152,9 @@ checks=(
   check-swap-effects.cpp           # fixes 141 and 141b
   check-exception-loop-entry.cpp   # fix 147
   check-disc-content.cpp           # fix 148
+  check-smartglass-app.cpp         # fix 147b
+  check-title-keys.cpp             # fix 147b
+  check-disc-name-tags.cpp         # fix 148b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -283,6 +286,9 @@ declare -A fix_of=(
   [check-swap-effects.cpp]="141 141b"
   [check-exception-loop-entry.cpp]=147
   [check-disc-content.cpp]=148
+  [check-smartglass-app.cpp]=147b
+  [check-title-keys.cpp]=147b
+  [check-disc-name-tags.cpp]=148b
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
