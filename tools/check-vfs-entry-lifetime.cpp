@@ -16,6 +16,9 @@
 //      replay files, holds of up to 949 ms), and an open of the same name goes on at once with a
 //      new entry (create, open-if) or finds no file (open), never the entry being deleted; the
 //      file renamed for the delete is gone afterwards.
+//  (e) fix 150 (Grand Theft Auto IV's pauses at its 350-950 ms deletes): the renamed file deleted
+//      in the background by default, the delete returning at once, a file made again under the
+//      name meanwhile kept; inline, the delete takes the slow part as before.
 // tools/check-vfs-entry-lifetime.sh also runs (a)-(c) on the tree without fix 139, where the
 // sanitizer must report the use of a freed entry (the console's crash).
 #include <atomic>
@@ -194,6 +197,9 @@ void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition dispo
   const double open_ms = MsSince(start);
   const bool deleting = in_delete;  // still in the slow part
   deleter.join();
+#ifdef XE_VFS_BACKGROUND_DELETE
+  vfs::Entry::FlushBackgroundDeletes();  // fix 150: the renamed file's delete runs in the background
+#endif
   vfs::entry_io::test_hook = nullptr;
   char ms[96];
   std::snprintf(ms, sizeof(ms), "lock taken in %.1f ms, open in %.1f ms", lock_ms, open_ms);
@@ -213,8 +219,53 @@ void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition dispo
   Expect(Write(file, 6) && OnHost(name), name + ": the new file is on the host after the delete");
   file->entry()->SetForDeletion(true);
   file->Destroy();
+#ifdef XE_VFS_BACKGROUND_DELETE
+  vfs::Entry::FlushBackgroundDeletes();
+#endif
   Expect(!OnHost(name) && !AnyRenamedLeft(), name + ": deleted at its close");
 }
+
+#ifdef XE_VFS_BACKGROUND_DELETE
+// (e) Fix 150: the renamed file deleted in the background (the default). With the delete made
+// slow (300 ms), a delete returns after the rename, at once; a file made again under the name
+// meanwhile is another file, still there once the background delete is done; the renamed file
+// gone then. Inline (vfs-delete.txt "inline"), the delete takes the 300 ms in the caller.
+void BackgroundDelete(vfs::VirtualFileSystem& fs, bool background) {
+  const std::string name = std::string("streaming_") + (background ? "bg" : "inline") + ".dat";
+  vfs::Entry::OverrideDeleteMode(background ? 1 : 0);
+  vfs::File* made = Open(fs, name, vfs::FileDisposition::kOverwriteIf);
+  Expect(made && Write(made, 7), name + ": created");
+  if (!made) return;
+  made->Destroy();
+  in_delete = false;
+  vfs::entry_io::test_hook = SlowDelete;
+  auto start = std::chrono::steady_clock::now();
+  const bool deleted = fs.DeletePath(kMount + "\\" + name);
+  const double delete_ms = MsSince(start);
+  char ms[64];
+  std::snprintf(ms, sizeof(ms), "%.1f ms", delete_ms);
+  if (!background) {
+    Expect(deleted && delete_ms >= 250, name + ": inline, the delete took the slow part (" + ms + ")");
+    vfs::entry_io::test_hook = nullptr;
+    vfs::Entry::OverrideDeleteMode(-1);
+    Expect(!OnHost(name) && !AnyRenamedLeft(), name + ": inline, gone at once");
+    return;
+  }
+  Expect(deleted && delete_ms < 100, name + ": the delete returned after the rename (" + ms + ")");
+  vfs::File* again = Open(fs, name, vfs::FileDisposition::kCreate);
+  Expect(again && Write(again, 8), name + ": made again while the renamed file is being deleted");
+  if (again) again->Destroy();
+  vfs::Entry::FlushBackgroundDeletes();
+  vfs::entry_io::test_hook = nullptr;
+  vfs::Entry::OverrideDeleteMode(-1);
+  Expect(in_delete && OnHost(name) && !AnyRenamedLeft(),
+         name + ": the background delete ran; the file made again is still there, the renamed one gone");
+  std::error_code error;
+  Expect(std::filesystem::file_size(host / name, error) == 4 && !error, name + ": with its own data");
+  Expect(fs.DeletePath(kMount + "\\" + name), name + ": deleted");
+  vfs::Entry::FlushBackgroundDeletes();
+}
+#endif
 #endif
 
 }  // namespace
@@ -239,6 +290,10 @@ int main() {
       OpenDuringSlowDelete(fs, vfs::FileDisposition::kOpenIf, "openif", by_close);
       OpenDuringSlowDelete(fs, vfs::FileDisposition::kOpen, "open", by_close);
     }
+#ifdef XE_VFS_BACKGROUND_DELETE
+    BackgroundDelete(fs, true);
+    BackgroundDelete(fs, false);
+#endif
 #endif
   }
   std::error_code error;

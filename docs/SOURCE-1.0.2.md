@@ -319,6 +319,7 @@ also listed here.
 | 149 (`149-option-groups`) | a player set GTA IV's "Emulated video rate" to 120 Hz taking it for the TV's rate: the settings are split into "Picture and smoothness" (quality and fluidity) and "Emulation (advanced)" (options that change how a game is emulated), each option in one group with short help, and a notice when an advanced option was changed for a game |
 | 149b (`149b-settings-tree`) | the launcher's settings and a game's settings were long flat pages: a multi-level settings menu (categories, then groups, then options) with a help card beside the focused option saying what it changes |
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
+| 150 (`150-vfs-background-delete`) | a 1.0.6 stutter fix: Grand Theft Auto IV paused for a fraction of a second when it deleted one of its files on a slow drive; the file is now deleted in the background (`vfs-delete.txt` `inline` restores the old way), and slow file operations and long pauses between the game's frames are logged | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.6-work-fix150` |
 
 ## Comparison with the official executable
 
