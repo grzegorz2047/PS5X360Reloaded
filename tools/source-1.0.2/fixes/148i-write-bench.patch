@@ -38,7 +38,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/write_bench.hpp
-@@ -0,0 +1,367 @@
+@@ -0,0 +1,378 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 148i: a drive write benchmark, to tell why GTA V's install writes at ~1.8 MiB/s.
 +//
@@ -74,6 +74,15 @@ new file mode 100644
 +#include <sstream>
 +#include <string>
 +#include <vector>
++
++// The PS5's libc has no posix_fadvise (1.0.6-work-fix148i's first build: undefined symbol), and a
++// raw system call the kernel does not know ends the process (SIGSYS): there the fadvise variant
++// says it was skipped.
++#if defined(POSIX_FADV_DONTNEED) && !defined(__PROSPERO__)
++#define XBOX360PS5_WRITE_BENCH_FADVISE 1
++#else
++#define XBOX360PS5_WRITE_BENCH_FADVISE 0
++#endif
 +
 +namespace xbox360ps5::write_bench {
 +
@@ -261,6 +270,10 @@ new file mode 100644
 +    return s;
 +#endif
 +  }
++  if (v.dontneed && !XBOX360PS5_WRITE_BENCH_FADVISE) {
++    s.stopped = "skipped: no posix_fadvise in this libc";
++    return s;
++  }
 +  const uint64_t chunk = v.write_mib * kMiB;
 +  std::vector<unsigned char> storage(size_t(chunk) + 4096);
 +  unsigned char* buffer = storage.data() + (4096 - reinterpret_cast<uintptr_t>(storage.data()) % 4096) % 4096;
@@ -312,11 +325,9 @@ new file mode 100644
 +      }
 +    }
 +    if (v.dontneed && since_hint >= 32 * kMiB) {
-+#ifdef POSIX_FADV_DONTNEED
++#if XBOX360PS5_WRITE_BENCH_FADVISE
 +      const int advised = ::posix_fadvise(fd, off_t(s.bytes - since_hint), off_t(since_hint), POSIX_FADV_DONTNEED);
 +      if (advised != 0 && s.note.empty()) s.note = ErrorText("posix_fadvise", advised);
-+#else
-+      if (s.note.empty()) s.note = "no posix_fadvise here";
 +#endif
 +      since_hint = 0;
 +    }

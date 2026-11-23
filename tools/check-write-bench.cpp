@@ -6,7 +6,8 @@
 //      first, then the first PS5X360Reloaded folder with saves of each drive); the .ran marker
 //      (a finished or twice-tried switch file does not run again until it changes); Describe's line;
 //  (b) on this host, for real in a scratch folder: each buffered variant writes what it is asked
-//      and removes its file, fsync every 32 MiB counted, a time cap of 0 s writes nothing;
+//      and removes its file (fadvise skipped where the libc has none, as on the PS5), fsync every
+//      32 MiB counted, a time cap of 0 s writes nothing;
 //      Launch removes a test file left behind, runs the switch file once, writes the result and
 //      the marker, and the next Launch does not run again;
 //  (c) the library starts Launch once per start in a thread of its own with the data root.
@@ -91,6 +92,10 @@ void Real(const fs::path& scratch) {
   const std::string dir = scratch.string();
   for (const char* name : {"1m", "8m", "32m", "dontneed"}) {
     const wb::Stats s = wb::Run(dir, *wb::FindVariant(name), 40, 120);
+    if (!XBOX360PS5_WRITE_BENCH_FADVISE && std::string(name) == "dontneed") {
+      Expect(s.bytes == 0 && s.stopped == "skipped: no posix_fadvise in this libc", "(b) dontneed skipped here");
+      continue;
+    }
     Expect(s.bytes == 40 * wb::kMiB && s.stopped == "size" && !fs::exists(wb::TestFile(dir)),
            std::string("(b) ") + name + " writes 40 MiB and removes its file: " + s.stopped);
   }
