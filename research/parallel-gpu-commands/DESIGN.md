@@ -731,3 +731,12 @@ draw translation (2.0 µs a draw), which only stage 2 (option C) addresses:
 
 That is about 0.7 µs a draw of order-independent work that could move to workers, about a
 quarter of the GPU thread. `gpu_parallel_record` stays off by default.
+
+## 16. Stage 2
+
+The next stage, on the draws themselves, is designed in `STAGE2.md` in this folder. It covers:
+- what in a draw can leave the GPU thread, and the Vulkan rule that bounds it;
+- a measurement build first (2.0);
+- descriptor writes on a worker (2.1);
+- float constants from a copy-on-write snapshot (2.2);
+- skipping unchanged render target, pipeline and primitive work on the single thread.
