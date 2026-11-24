@@ -405,7 +405,7 @@ else
     header="$tree/build/fix-checks/spirv/$(echo "${shader%.glsl}" | tr . _).h"
     if "$python" -I "$tree/.deps/xenia-canary/tools/build/compile_shader_spirv.py" \
           "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/$shader" "$header" &&
-       grep -q 'OpEntryPoint Fragment' "$header"; then
+       grep -qE 'OpEntryPoint (Fragment|GLCompute)' "$header"; then  # fix 160's are compute
       echo "compiled $shader"
     else
       echo "FAIL: $shader"
