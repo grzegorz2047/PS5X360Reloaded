@@ -1,0 +1,116 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -175,6 +175,12 @@ struct Counters {
+   std::atomic<uint64_t> trims{0}, trimmed{0};    // trims of the render target cache, targets destroyed
+   std::atomic<int64_t> last_trim_ms{-100000};
+   std::atomic<uint64_t> made_at_trim{0};         // render targets made when the last trim ran
++  // Fix 162c: memory pressure that may break a 2x picture, for the replay artifacts of Kinect
++  // Sports at 2x (1.0.6-work-fix162a). Since fix 117d no texture is made at 1x under the floor;
++  // these count scaled textures made while free memory is under the render target floor, and
++  // ownership transfers between a target at 1x and one at 2x (after fix 117b kept a class at 1x).
++  std::atomic<uint64_t> textures_under_floor{0};
++  std::atomic<uint64_t> mixed_transfers{0};
+ };
+ inline Counters counters;
+ 
+@@ -300,6 +306,22 @@ inline bool TwoXUnfit(const std::string& title_id) {
+   }
+   return false;
+ }
++// Fix 162c: games Automatic (fix 163) starts at 1x without trying 2x; an explicit 2x still gives 2x.
++// Kinect Sports (4D5308C9): at 2x on 1.0.6-work-fix162a its render targets reached 2773 MiB, the
++// texture cache evicted 1222 textures under memory pressure (stutter from then on), fix 117b kept two
++// classes at 1x mid-match and its replay showed artifacts; Automatic's verdict came only after that.
++#define XBOX360PS5_AUTO_SCALE_ONE_X_LIST 1  // fix 162c (auto_scale.hpp and the host checks look for it)
++inline bool AutomaticStartsAtOneX(const std::string& title_id) {
++  static constexpr const char* kTitles[] = {"4D5308C9"};
++  for (const char* id : kTitles) {
++    if (title_id.size() != 8) continue;
++    bool same = true;
++    for (size_t i = 0; i < 8; ++i)
++      same = same && std::toupper(static_cast<unsigned char>(title_id[i])) == id[i];
++    if (same) return true;
++  }
++  return false;
++}
+ // The draw_scale choice a game runs with: 2x (1) becomes 1x (0) for those games.
+ inline int ChoiceFor(int choice, const std::string& title_id) {
+   return choice == 1 && TwoXUnfit(title_id) ? 0 : choice;
+@@ -446,6 +468,15 @@ inline void NoteScaledTexture(Counters& c, uint64_t bytes) {
+   c.textures_scaled.fetch_add(1, std::memory_order_relaxed);
+   c.textures_scaled_bytes.fetch_add(bytes, std::memory_order_relaxed);
+ }
++// Fix 162c: a scaled texture made while free memory is under the render target floor (1.5 GiB).
++inline void NoteTextureFree(Counters& c, int64_t direct_free) {
++  if (direct_free >= 0 && uint64_t(direct_free) < kRenderTargetFloor)
++    c.textures_under_floor.fetch_add(1, std::memory_order_relaxed);
++}
++// Fix 162c: an ownership transfer between a target at 1x and one at 2x.
++inline void NoteTransfer(Counters& c, bool source_native, bool dest_native) {
++  if (source_native != dest_native) c.mixed_transfers.fetch_add(1, std::memory_order_relaxed);
++}
+ // Bytes of a render target: 8 a sample for depth and 64bpp colour, else 4.
+ inline uint64_t RenderTargetBytes(uint32_t width, uint32_t height, uint32_t samples, bool eight_bytes) {
+   return uint64_t(width) * height * (samples ? samples : 1) * (eight_bytes ? 8 : 4);
+@@ -594,7 +625,15 @@ inline std::string Line(const Counters& c, const DriverMemory::Totals& driver, i
+                 MiB(int64_t(kHardFloor)), get(c.rt_refused), get(c.trims), get(c.trimmed),
+                 MiB(int64_t(driver.bytes)), MiB(int64_t(driver.peak)), (unsigned long long)driver.allocations,
+                 MiB(direct_free), MiB(c.lowest_free.load(std::memory_order_relaxed)));
+-  return line;
++  std::string text = line;
++  // Fix 162c: only once either happened (the line stays as it was otherwise).
++  if (get(c.textures_under_floor) || get(c.mixed_transfers)) {
++    std::snprintf(line, sizeof(line),
++                  "; scaled textures made under the %lld MiB floor %llu, transfers between 1x and 2x targets %llu",
++                  MiB(int64_t(kRenderTargetFloor)), get(c.textures_under_floor), get(c.mixed_transfers));
++    text += line;
++  }
++  return text;
+ }
+ 
+ }  // namespace resolution_scale
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -1232,8 +1232,8 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(
+     return nullptr;
+   }
+ #if XE_PLATFORM_PS5
+-  // Fix 117c: the floor is asked in TextureCache::FindOrCreateTexture (a
+-  // scaled texture under it is made at 1x); here the scaled ones are counted.
++  // Fix 117c: the scaled ones are counted (since fix 117d every scaled
++  // texture is made scaled, also under the floor).
+   if (key.scaled_resolve) {
+     xbox360ps5::resolution_scale::NoteScaledTexture(
+         xbox360ps5::resolution_scale::counters,
+@@ -1242,6 +1242,10 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(
+             is_3d ? image_create_info.extent.depth
+                   : image_create_info.arrayLayers,
+             image_create_info.mipLevels > 1));
++    // Fix 162c: and those made while free memory is under the floor.
++    xbox360ps5::resolution_scale::NoteTextureFree(
++        xbox360ps5::resolution_scale::counters,
++        xbox360ps5::resolution_scale::DirectFreeRecent());
+   }
+ #endif
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -5199,6 +5199,15 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+               source_rt_key.resource_format;
+           new_transfer_shader_key.source_scale_native =
+               source_rt_key.scale_native;
++#if XE_PLATFORM_PS5
++          // Fix 162c: a transfer between a target at 1x and one at 2x.
++          if (!j) {
++            xbox360ps5::resolution_scale::NoteTransfer(
++                xbox360ps5::resolution_scale::counters,
++                bool(source_rt_key.scale_native),
++                bool(dest_rt_key.scale_native));
++          }
++#endif
+           assert_true(!host_depth_source_vulkan_rt ||
+                       host_depth_source_vulkan_rt->key().scale_native ==
+                           dest_rt_key.scale_native);

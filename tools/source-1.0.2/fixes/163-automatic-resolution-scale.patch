@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/auto_scale.hpp b/include/xbox360ps5/auto_scale.h
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/auto_scale.hpp
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,149 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 163: "Automatic" resolution scale, the default. draw_scale's third choice (2): a game runs at
 +// 2x unless 2x was found not to suit it, then at 1x from its next start. 2x does not suit a game
@@ -24,6 +24,8 @@ new file mode 100644
 +#include <string>
 +#include <vector>
 +
++#include "xbox360ps5/resolution_scale.hpp"  // fix 162c's list, when the tree has it
++
 +namespace xbox360ps5::auto_scale {
 +
 +inline constexpr int kAutomatic = 2;          // draw_scale: 0 1x, 1 2x, 2 Automatic
@@ -42,6 +44,10 @@ new file mode 100644
 +  if (choice == 0) return {0, "1x chosen"};
 +  if (choice == 1) return {1, "2x chosen"};
 +  if (title_id.empty()) return {1, "Automatic, no game yet: 2x"};
++#ifdef XBOX360PS5_AUTO_SCALE_ONE_X_LIST
++  // Fix 162c: listed games start at 1x without trying 2x.
++  if (xbox360ps5::resolution_scale::AutomaticStartsAtOneX(title_id)) return {0, "Automatic: 1x (compiled-in list)"};
++#endif
 +  if (verdict_1x) return {0, "Automatic: 1x remembered for this game"};
 +  return {1, "Automatic: 2x (no verdict for this game)"};
 +}
