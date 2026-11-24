@@ -1,0 +1,253 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 2570017..bd63a8b 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -71,6 +71,78 @@ DEFINE_uint32(gpu_async_submit, 0,
+ DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
+               "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
+               "GPU");
++// Xbox360PS5, fix 142i: in the fast readback mode, a resolve that would wait for the GPU for its
++// copy (no earlier copy of its pass to hand over, or fix 91k's own copy) or that fix 59 leaves
++// for later (the GPU behind) queues its copy instead, and the copy is put in guest memory as soon
++// as the GPU has made it (checked at each resolve and each submission's end). Off by default;
++// readback-deliver.txt in the title folder ("on"/"1", "off"/"0") switches it while the game runs.
++DEFINE_bool(readback_deliver_when_done, false,
++            "Fix 142i: fast readback copies put in guest memory when the GPU has made them, "
++            "instead of a wait for the GPU at the resolve.",
++            "GPU");
++#if XE_PLATFORM_PS5
++namespace fix142i {
++struct Pending {
++  uint64_t key;
++  uint32_t slot;
++  uint64_t submission;
++  uint32_t address, length;
++  uint64_t frame;
++  bool instead_of_wait;
++};
++std::vector<Pending> pending;
++std::unordered_map<uint64_t, uint64_t> delivered;  // key: the newest submission put in memory
++bool enabled = false, logged = false;
++std::chrono::steady_clock::time_point checked{}, line_at{};
++uint64_t deferred_wait = 0, deferred_late = 0, delivered_count = 0, superseded = 0,
++         early_reads = 0, left_out = 0, delay_frames = 0, delivered_bytes = 0;
++uint32_t early_shown = 0;
++// The switch, at most once a second, and the line every 30 s.
++void Refresh() {
++  const auto now = std::chrono::steady_clock::now();
++  if (logged && now - checked < std::chrono::seconds(1)) return;
++  checked = now;
++  bool next = cvars::readback_deliver_when_done;
++  const char* from = "the settings";
++  const char* const path = XBOX360PS5_DATA_ROOT "/readback-deliver.txt";
++  if (FILE* file = std::fopen(path, "rb")) {
++    char text[32] = {};
++    const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
++    std::fclose(file);
++    std::string word(text, got);
++    const size_t start = word.find_first_not_of(" \t\r\n");
++    word = start == std::string::npos
++               ? std::string()
++               : word.substr(start, word.find_first_of(" \t\r\n#", start) - start);
++    if (word == "1" || word == "on" || word == "0" || word == "off") {
++      next = word == "1" || word == "on";
++      from = path;
++    }
++  }
++  if (!logged || next != enabled) {
++    XELOGW("Readback delivery (fix 142i): {}, from {}", next ? "on" : "off", from);
++    enabled = next;
++    logged = true;
++  }
++  if (line_at == std::chrono::steady_clock::time_point()) line_at = now;
++  if (now - line_at >= std::chrono::seconds(30)) {
++    if (enabled || deferred_wait || deferred_late || delivered_count) {
++      XELOGW("Readback delivery, last 30 s (fix 142i, {}): {} copies queued instead of a wait, {} "
++             "queued that fix 59 left for later; {} put in guest memory ({} MiB, {:.1f} frames "
++             "after their resolve on average), {} dropped as a newer copy came first, {} kept out "
++             "(fix 91h); {} CPU reads before their copy was put in memory; {} still queued",
++             enabled ? "on" : "off", deferred_wait, deferred_late, delivered_count,
++             delivered_bytes >> 20,
++             delivered_count ? double(delay_frames) / double(delivered_count) : 0.0, superseded,
++             left_out, early_reads, pending.size());
++    }
++    deferred_wait = deferred_late = delivered_count = superseded = early_reads = left_out =
++        delay_frames = delivered_bytes = 0;
++    line_at = now;
++  }
++}
++}  // namespace fix142i
++#endif
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -5469,8 +5541,14 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+     uint64_t resolve_key =
+         MakeReadbackResolveKey(written_address, written_length);
++#if XE_PLATFORM_PS5
++    Fix142iDeliver();  // fix 142i: the queued copies the GPU has made, before this resolve
++#endif
+     // Fix 91: the CPU's reads of armed copies since the last resolve mark their keys.
+     readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++#if XE_PLATFORM_PS5
++      Fix142iEarlyRead(read_address, read_length);  // fix 142i
++#endif
+       static uint32_t raw_shown = 0;
+       if (raw_shown < 16) {
+         ++raw_shown;
+@@ -5977,6 +6055,18 @@ bool VulkanCommandProcessor::IssueCopy() {
+       // copy just queued is handed over at the next resolve here.
+       return true;
+     } else if (read_cache_miss) {
++#if XE_PLATFORM_PS5
++      if (fix142i::enabled) {
++        // Fix 142i: no wait; the copy just queued goes to guest memory once the GPU has made it.
++        // A one-shot read watch counts a CPU read that comes before it.
++        fix142i::pending.push_back({resolve_key, write_index, rb.submissions[write_index],
++                                    written_address, readback_length, frame_current_, true});
++        ++fix142i::deferred_wait;
++        memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,
++                                                     true);
++        return true;
++      }
++#endif
+       // Delayed sync, but the previous buffer doesn't exist - use the current
+       // buffer with a sync as a fallback.
+       read_index = write_index;
+@@ -6008,6 +6098,12 @@ bool VulkanCommandProcessor::IssueCopy() {
+         // a resolve later still when the GPU is behind. The other modes awaited all work above.
+ #if XE_PLATFORM_PS5
+         if (!auto_readback) xbox360ps5::frame_cost::NoteLateReadback();
++        if (!auto_readback && fix142i::enabled) {
++          // Fix 142i: the copy fix 59 leaves for later goes to guest memory once it is made.
++          fix142i::pending.push_back({resolve_key, read_index, read_submission, written_address,
++                                      readback_length, frame_current_, false});
++          ++fix142i::deferred_late;
++        }
+ #endif
+         return true;
+       }
+@@ -6043,6 +6139,13 @@ bool VulkanCommandProcessor::IssueCopy() {
+         } else {
+           memory::vastcpy(memory_->TranslatePhysical(written_address),
+                           static_cast<uint8_t*>(mapped_data), readback_length);
++#if XE_PLATFORM_PS5
++          if (fix142i::enabled || !fix142i::pending.empty()) {
++            // Fix 142i: a queued older copy of the key must not overwrite this one.
++            uint64_t& newest = fix142i::delivered[resolve_key];
++            newest = std::max(newest, read_submission);
++          }
++#endif
+         }
+         // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
+         // every 600 frames while it does not). The copy above goes through the physical view,
+@@ -6099,6 +6202,84 @@ bool VulkanCommandProcessor::IssueCopy() {
+   return true;
+ }
+ 
++#if XE_PLATFORM_PS5
++// Fix 142i: a CPU read of a copy still queued (read before the copy was put in memory).
++bool VulkanCommandProcessor::Fix142iEarlyRead(uint32_t read_address, uint32_t read_length) {
++  for (const fix142i::Pending& p : fix142i::pending) {
++    if (readback_slots::Overlaps(p.address, p.length, read_address, read_length)) {
++      ++fix142i::early_reads;
++      if (fix142i::early_shown < 16) {
++        ++fix142i::early_shown;
++        XELOGW("Readback delivery (fix 142i): the CPU read {:08X} ({} bytes) before the copy of "
++               "the key {:08X} ({} bytes) from {} frames ago was put in memory",
++               read_address, read_length, p.address, p.length, frame_current_ - p.frame);
++      }
++      return true;
++    }
++  }
++  return false;
++}
++
++// Fix 142i: puts the queued copies the GPU has made in guest memory, oldest first; a copy whose
++// slot was reused, or older than one already put there, is dropped.
++void VulkanCommandProcessor::Fix142iDeliver() {
++  if (fix142i::pending.empty()) return;
++  readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++    Fix142iEarlyRead(read_address, read_length);
++    for (auto& [key, buffer] : readback_buffers_) {  // fix 91's marks, as at a resolve
++      const uint32_t key_address = uint32_t(key >> 32), key_length = uint32_t(key);
++      if (buffer.armed_frame && !buffer.cpu_reads &&
++          readback_slots::Overlaps(key_address, key_length, read_address, read_length)) {
++        buffer.cpu_reads = true;
++        ++readback_keys_flagged_;
++      }
++    }
++  });
++  const uint64_t completed = completion_timeline_.UpdateAndGetCompletedSubmission();
++  std::sort(fix142i::pending.begin(), fix142i::pending.end(),
++            [](const fix142i::Pending& a, const fix142i::Pending& b) {
++              return a.submission < b.submission;
++            });
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  const VkDevice device = GetVulkanDevice()->device();
++  size_t kept = 0;
++  for (size_t i = 0; i < fix142i::pending.size(); ++i) {
++    const fix142i::Pending p = fix142i::pending[i];
++    if (p.submission > completed) {
++      fix142i::pending[kept++] = p;
++      continue;
++    }
++    auto it = readback_buffers_.find(p.key);
++    uint64_t& newest = fix142i::delivered[p.key];
++    if (it == readback_buffers_.end() || it->second.submissions[p.slot] != p.submission ||
++        it->second.buffers[p.slot] == VK_NULL_HANDLE ||
++        it->second.valid_sizes[p.slot] < p.length || newest >= p.submission) {
++      ++fix142i::superseded;
++      continue;
++    }
++    ReadbackBuffer& rb = it->second;
++    if (xbox360ps5::readback_keys::NoCopy(g_readback_rules, p.address, rb.cpu_reads)) {
++      ++fix142i::left_out;
++      newest = p.submission;
++      continue;
++    }
++    void* mapped_data;
++    if (!MapReadbackMemory(rb.memories[p.slot], rb.host_coherent[p.slot], &mapped_data)) {
++      ++fix142i::superseded;
++      continue;
++    }
++    memory::vastcpy(memory_->TranslatePhysical(p.address), static_cast<uint8_t*>(mapped_data),
++                    p.length);
++    dfn.vkUnmapMemory(device, rb.memories[p.slot]);
++    newest = p.submission;
++    ++fix142i::delivered_count;
++    fix142i::delivered_bytes += p.length;
++    fix142i::delay_frames += frame_current_ - p.frame;
++  }
++  fix142i::pending.resize(kept);
++}
++#endif
++
+ bool VulkanCommandProcessor::MapReadbackMemory(VkDeviceMemory memory,
+                                               bool host_coherent,
+                                               void** mapped_data) {
+@@ -7046,6 +7227,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
++  fix142i::Refresh();  // fix 142i: the switch and the line
++  Fix142iDeliver();    // fix 142i: the copies the GPU has made since
+ #endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 3b1a3bd..5e2867f 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -546,6 +546,10 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // dedicated allocation so whole-range invalidation satisfies atom alignment.
+   bool MapReadbackMemory(VkDeviceMemory memory, bool host_coherent,
+                          void** mapped_data);
++  // Xbox360PS5, fix 142i: the resolve readback copies waiting to be put in guest memory once
++  // the GPU has made them (instead of a wait for the GPU at the resolve).
++  void Fix142iDeliver();
++  bool Fix142iEarlyRead(uint32_t read_address, uint32_t read_length);
+ 
+   void ClearTransientDescriptorPools();
+ 

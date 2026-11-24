@@ -165,6 +165,7 @@ checks=(
   check-write-bench.cpp            # fixes 148i, 148j, 148j2
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
+  check-readback-deliver.cpp       # fix 142i
   check-gta5-audio-patch.cpp       # fix 155c
 )
 declare -A arguments=(
@@ -313,6 +314,7 @@ declare -A fix_of=(
   [check-install-notice.cpp]=148h
   [check-write-bench.cpp]="148i 148j 148j2"
   [check-xma-trace.cpp]="155 155b"
+  [check-readback-deliver.cpp]=142i
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
 )
