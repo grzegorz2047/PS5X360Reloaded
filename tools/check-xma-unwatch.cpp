@@ -34,7 +34,10 @@ std::string Read(const std::string& path) {
 void CheckTree() {
   const std::string code = Read(".deps/xenia-canary/src/xenia/apu/xma_decoder.cc");
   Expect(!code.empty(), "xma_decoder.cc");
-  const size_t helper = code.find("void UnwatchContext(Memory* memory, uint32_t guest_address, uint32_t bytes) {");
+  // Fix 155 passes the context id too (its trace logs each lift).
+  size_t helper = code.find("void UnwatchContext(Memory* memory, uint32_t guest_address, uint32_t bytes) {");
+  if (helper == std::string::npos)
+    helper = code.find("void UnwatchContext(Memory* memory, uint32_t guest_address, uint32_t bytes, uint32_t context_id) {");
   const size_t trigger = code.find(
       "memory->TriggerPhysicalMemoryCallbacks(xe::global_critical_region::Acquire(), guest_address, bytes,", helper);
   const size_t write = code.find("true, false))", trigger);
@@ -49,7 +52,9 @@ void CheckTree() {
   const size_t clear = code.find("r >= XmaRegister::Context0Clear &&");
   const size_t unwatch = code.find(
       "UnwatchContext(memory(), context_data_first_ptr_ + context_id * uint32_t(sizeof(XMA_CONTEXT_DATA)),", clear);
-  const size_t bytes = code.find("uint32_t(sizeof(XMA_CONTEXT_DATA)));  // fix 67", unwatch);
+  size_t bytes = code.find("uint32_t(sizeof(XMA_CONTEXT_DATA)));  // fix 67", unwatch);
+  if (bytes == std::string::npos)
+    bytes = code.find("uint32_t(sizeof(XMA_CONTEXT_DATA)), context_id);  // fix 67 (fix 155: the id)", unwatch);
   const size_t call = code.find("context.Clear();", clear);
   const size_t next_branch = code.find("} else {", clear);
   Expect(clear != std::string::npos && unwatch != std::string::npos && bytes != std::string::npos &&
