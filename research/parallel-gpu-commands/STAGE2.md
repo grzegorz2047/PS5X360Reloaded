@@ -963,6 +963,8 @@ needs a design document and the coordinator's decision before any build.
 - **Base:** the fixes of section 15 on `1.0.6_candidate_3`; the memos stay at 0.
 - **Patch:** `142h-sims3-readback-diag.patch`.
 - **Label:** `1.0.6-work-fix142h`.
+- **Build run:** 45332947659, green, at `edccdb2` (artifact
+  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks: run 45332947674, green.
 
 **`content-checked.txt`** in the title folder (`on`/`1` or `off`/`0`) sets fix 125 for the whole
 run. It is read when the shared memory starts, before any unit is checked, and logged:
