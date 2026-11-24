@@ -1,0 +1,204 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -32,7 +32,17 @@
+ //   frame processed: +8 quality issues;
+ //   complete:        +8 result (HRESULT), +0xC enrollment index, +0x10 profile matched.
+ // Enrollment information (827D8B58): +0 user index (0xFE none), +4 flags (1 enrolled).
++//
++// Fix 156q (Zumba Fitness, #63): the library's newer build. Zumba (8251D6D8, called each frame
++// at 8227E47C for a player not yet identified, its result ignored) and Dragon Ball Z
++// (824997F0) carry NuiIdentityIdentify with a 0x160-byte job, a flags check that allows
++// 0x20000000 (`rlwinm. r,flags,0,3,1`) and a message laid out with two more words: +8
++// tracking ID; complete: +0x10 result, +0x14 enrollment, +0x18 profile matched; frame
++// processed: +0x10 quality issues (Zumba's callback 82331FE8). 156l's shape required the older
++// build, so Zumba's identification never got an answer and the game stayed at "Searching for
++// player..." (1.0.6-work-fix156o). Both builds are found; the layout follows the job size.
+ #pragma once
++#include <atomic>
+ #include <cstddef>
+ #include <cstdint>
+ #include <mutex>
+@@ -52,7 +62,15 @@ constexpr uint32_t kEnrollmentUnknown = 0xFFFFFFFF, kUserIndexNone = 0xFE;
+ constexpr uint32_t kVirtualEnrollment = 0;  // = motion::kVirtualEnrollment
+ constexpr uint32_t kMaxEnrollments = 8;     // the library refuses an index from 8 on
+ constexpr uint32_t kEnrolled = 1;
+-constexpr size_t kMessageBytes = 0x14;
++constexpr size_t kMessageBytes = 0x1C;  // the newer layout's size (fix 156q)
++// The message layout: the older build (Fighters Uncaged, Kinect Sports; 0x150-byte job) or the
++// newer one (Zumba Fitness, Dragon Ball Z; 0x160-byte job).
++enum class Layout : int { kOld = 0, kNew = 1 };
++constexpr uint32_t kNewAllowedFlags = 0x20000000;
++inline uint32_t AllowedFlags(Layout layout) {
++  return layout == Layout::kNew ? kNewAllowedFlags : 0;
++}
++inline std::atomic<int> bound_layout{0};
+ constexpr size_t kMaxPending = 4;
+ 
+ // ---- The functions, by the shape of their code -------------------------------------------
+@@ -62,7 +80,9 @@ struct Marks {
+   bool not_connected = false;   // ori ?,?,0x48F    (8007048F)
+   bool invalid_arg = false;     // ori ?,?,0x57     (80070057)
+   bool job_size = false;        // mulli ?,?,0x150  (one body's identification job)
++  bool job_size_new = false;    // mulli ?,?,0x160  (the newer build's job, fix 156q)
+   bool flags_zero = false;      // cmplwi crN,r4,0  (Identify: flags must be 0)
++  bool flags_mask = false;      // rlwinm. ?,?,0,3,1 (the newer build: only 0x20000000 allowed)
+   bool identify_job = false;    // li r3,1 ; bl     (queue job kind 1, identify)
+   bool index_limit = false;     // cmplwi crN,r3,8  (GetEnrollmentInformation: index < 8)
+   bool user_none = false;       // li ?,0xFE
+@@ -79,7 +99,10 @@ inline Marks MarksOf(const motion::CodeView& view, uint32_t start) {
+     m.not_connected |= op == 24 && low == 0x048F;
+     m.invalid_arg |= op == 24 && low == 0x0057;
+     m.job_size |= op == 7 && low == 0x0150;
++    m.job_size_new |= op == 7 && low == 0x0160;
+     m.flags_zero |= op == 10 && ra == 4 && low == 0;
++    m.flags_mask |= op == 21 && (w & 1) && ((w >> 11) & 31) == 0 && ((w >> 6) & 31) == 3 &&
++                    ((w >> 1) & 31) == 1;
+     m.index_limit |= op == 10 && ra == 3 && low == 8;
+     m.user_none |= op == 14 && ra == 0 && low == 0x00FE;
+     m.flags_high |= op == 15 && ra == 0 && low == 0x4000;
+@@ -93,14 +116,17 @@ inline Marks MarksOf(const motion::CodeView& view, uint32_t start) {
+   return m;
+ }
+ inline bool IsIdentify(const Marks& m) {
+-  return m.not_connected && m.invalid_arg && m.job_size && m.flags_zero && m.identify_job;
++  return m.not_connected && m.invalid_arg && (m.job_size || m.job_size_new) &&
++         (m.flags_zero || m.flags_mask) && m.identify_job;
+ }
++inline Layout LayoutOf(const Marks& m) { return m.job_size_new ? Layout::kNew : Layout::kOld; }
+ inline bool IsEnrollmentInformation(const Marks& m) {
+   return m.index_limit && m.invalid_arg && m.user_none && m.flags_high && m.low_one &&
+          m.not_ready;
+ }
+ struct Found {
+   std::vector<uint32_t> identify, enrollment;
++  Layout layout = Layout::kOld;  // the (first) identify's
+   // Both exactly once, or the title keeps its own identification.
+   bool ok() const { return identify.size() == 1 && enrollment.size() == 1; }
+ };
+@@ -110,7 +136,10 @@ inline Found FindIdentityFunctions(const motion::CodeView& view) {
+   for (uint32_t at = view.base; view.Has(at); at += 4) {
+     if (view.Word(at) != motion::kMflrR12) continue;
+     const Marks m = MarksOf(view, at);
+-    if (IsIdentify(m)) found.identify.push_back(at);
++    if (IsIdentify(m)) {
++      if (found.identify.empty()) found.layout = LayoutOf(m);
++      found.identify.push_back(at);
++    }
+     if (IsEnrollmentInformation(m)) found.enrollment.push_back(at);
+   }
+   return found;
+@@ -128,8 +157,9 @@ inline std::vector<Request> pending;
+ // is live_tracking_id (0: none). The same checks as the library, in its order; a queued (or
+ // already queued) request answers E_PENDING.
+ inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback,
+-                         uint32_t context, uint32_t live_tracking_id) {
+-  if (flags) return kInvalidArgument;
++                         uint32_t context, uint32_t live_tracking_id,
++                         uint32_t allowed_flags = 0) {
++  if (flags & ~allowed_flags) return kInvalidArgument;
+   if (!tracking_id || tracking_id != live_tracking_id) return kBodyNotTracked;
+   if (!callback) return kInvalidArgument;
+   std::lock_guard lock(mutex);
+@@ -176,19 +206,28 @@ inline void StoreBE(uint8_t* p, uint32_t v) {
+   p[2] = uint8_t(v >> 8);
+   p[3] = uint8_t(v);
+ }
+-inline void WriteFrameProcessed(uint8_t* m, uint32_t tracking_id) {
++// The older layout: tracking ID at +4, fields from +8; the newer one (fix 156q): tracking ID
++// at +8, fields from +0x10.
++inline void WriteFrameProcessed(uint8_t* m, uint32_t tracking_id, Layout layout = Layout::kOld) {
+   for (size_t n = 0; n < kMessageBytes; ++n) m[n] = 0;
+   StoreBE(m + 0x0, kMessageFrameProcessed);
+-  StoreBE(m + 0x4, tracking_id);
+-  StoreBE(m + 0x8, 0);  // no quality issue
++  if (layout == Layout::kNew) {
++    StoreBE(m + 0x8, tracking_id);
++    StoreBE(m + 0x10, 0);  // no quality issue
++  } else {
++    StoreBE(m + 0x4, tracking_id);
++    StoreBE(m + 0x8, 0);
++  }
+ }
+-inline void WriteComplete(uint8_t* m, uint32_t tracking_id, const Answer& a) {
++inline void WriteComplete(uint8_t* m, uint32_t tracking_id, const Answer& a,
++                          Layout layout = Layout::kOld) {
+   for (size_t n = 0; n < kMessageBytes; ++n) m[n] = 0;
+   StoreBE(m + 0x0, kMessageComplete);
+-  StoreBE(m + 0x4, tracking_id);
+-  StoreBE(m + 0x8, a.result);
+-  StoreBE(m + 0xC, a.enrollment);
+-  StoreBE(m + 0x10, a.matched ? 1 : 0);
++  const size_t at = layout == Layout::kNew ? 8 : 0;
++  StoreBE(m + (layout == Layout::kNew ? 0x8 : 0x4), tracking_id);
++  StoreBE(m + 0x8 + at, a.result);
++  StoreBE(m + 0xC + at, a.enrollment);
++  StoreBE(m + 0x10 + at, a.matched ? 1 : 0);
+ }
+ 
+ // ---- GetEnrollmentInformation(index, out) ---------------------------------------------------
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1101,8 +1101,11 @@ void IdentityIdentifyHandler(cpu::ppc::PPCContext* ppc_context, KernelState* ker
+     std::lock_guard lock(xbox360ps5::motion::nui_mutex);
+     live = xbox360ps5::motion::nui_binding.tracking_id;
+   }
++  const auto layout =
++      xbox360ps5::nui_identity::Layout(xbox360ps5::nui_identity::bound_layout.load());
+   const uint32_t result = xbox360ps5::nui_identity::Identify(
+-      tracking_id, flags, callback, context, xbox360ps5::motion::enabled.load() ? live : 0);
++      tracking_id, flags, callback, context, xbox360ps5::motion::enabled.load() ? live : 0,
++      xbox360ps5::nui_identity::AllowedFlags(layout));  // fix 156q
+   ppc_context->r[3] = result;
+   static std::atomic<uint32_t> shown{0};
+   if (shown.fetch_add(1) < 8)
+@@ -1146,14 +1149,16 @@ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+     return;
+   }
+   const auto answer = xbox360ps5::nui_identity::AnswerFor(user_index);
++  const auto layout =
++      xbox360ps5::nui_identity::Layout(xbox360ps5::nui_identity::bound_layout.load());  // 156q
+   static std::atomic<uint32_t> shown{0};
+   for (const auto& r : requests) {
+     if (!IsGuestRangeMapped(memory, r.callback, 4, false)) continue;
+     uint8_t* m = memory->TranslateVirtual<uint8_t*>(message);
+     uint64_t args[] = {r.context, message};
+-    xbox360ps5::nui_identity::WriteFrameProcessed(m, r.tracking_id);
++    xbox360ps5::nui_identity::WriteFrameProcessed(m, r.tracking_id, layout);
+     kernel_state->processor()->Execute(thread, r.callback, args, 2);
+-    xbox360ps5::nui_identity::WriteComplete(m, r.tracking_id, answer);
++    xbox360ps5::nui_identity::WriteComplete(m, r.tracking_id, answer, layout);
+     kernel_state->processor()->Execute(thread, r.callback, args, 2);
+     if (shown.fetch_add(1) < 8)
+       XELOGW("Virtual Kinect: body {:08X} identified: result {:08X}, enrollment {:X}, "
+@@ -1494,8 +1499,8 @@ void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
+   Memory* memory = kernel_state->memory();
+   const auto found = xbox360ps5::nui_identity::FindIdentityFunctions(
+       {memory->TranslateVirtual<const uint8_t*>(base), size, base});
+-  // Without NuiIdentityIdentify the title asks the system (Kinect Sports Season Two, Zumba
+-  // Fitness, Dragon Ball Z have only the enrollment information function).
++  // Without NuiIdentityIdentify the title asks the system (Kinect Sports Season Two has only the
++  // enrollment information function; fix 156q finds Zumba's and Dragon Ball Z's newer build).
+   if (found.identify.empty()) return;
+   if (!found.ok()) {
+     XELOGW("Virtual Kinect: the title's Kinect ID functions were not identified ({} identify, "
+@@ -1504,6 +1509,7 @@ void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
+     return;
+   }
+   const uint32_t identify = found.identify[0], enrollment = found.enrollment[0];
++  xbox360ps5::nui_identity::bound_layout = int(found.layout);  // fix 156q
+   if (!BindTitleFunction(kernel_state, xex, enrollment, IdentityEnrollmentHandler) ||
+       !BindTitleFunction(kernel_state, xex, identify, IdentityIdentifyHandler)) {
+     XELOGW("Virtual Kinect: the title's Kinect ID functions at {:08X} / {:08X} could not be "
+@@ -1511,7 +1517,9 @@ void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
+     return;
+   }
+   XELOGW("Virtual Kinect: the title's Kinect ID answers for the signed-in profile (identify at "
+-         "{:08X}, enrollment information at {:08X}) (fix 156l)", identify, enrollment);
++         "{:08X}, enrollment information at {:08X}) (fix 156l); the library's {} build "
++         "(fix 156q)", identify, enrollment,
++         found.layout == xbox360ps5::nui_identity::Layout::kNew ? "newer" : "older");
+ }
+ 
+ // Finds the title's NuiSkeletonGetNextFrame and has the guest run the handler

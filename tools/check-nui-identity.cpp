@@ -21,7 +21,10 @@
 //      getters: the result is set, enrollment 0, the profile's user index;
 //  (d) a model of the script's identification states: 156l's S_OK never reaches the wait,
 //      156n's E_PENDING and delayed answer are read;
-//  (e) the tree: the handlers, the binding with the skeleton function, the delivery after the
+//  (e) fix 156q (156q-nui-identity-newer-build.patch; Zumba Fitness 4D4A07F0, #63): the
+//      library's newer build (0x160-byte job, flags check allowing 0x20000000) is found with
+//      its layout; its flags; its message layout as Zumba's callback (82331FE8) reads it;
+//  (f) the tree: the handlers, the binding with the skeleton function, the delivery after the
 //      skeleton frame, the reset.
 #include <cstdint>
 #include <cstdio>
@@ -72,6 +75,9 @@ constexpr uint32_t kLiFE = 0x392000FE;             // li r9,0xFE
 constexpr uint32_t kLis4000 = 0x3D604000;          // lis r11,0x4000
 constexpr uint32_t kOriOne = 0x616B0001;           // ori r11,r11,1
 constexpr uint32_t kOriFive = 0x60630005;          // ori r3,r3,5
+// Fix 156q: the library's newer build (Zumba Fitness 8251D6D8, Dragon Ball Z 824997F0).
+constexpr uint32_t kMulliJobNew = 0x1D660160;      // mulli r11,r6,0x160
+constexpr uint32_t kRlwinmFlags = 0x57AB00C3;      // rlwinm. r11,r29,0,3,1
 
 struct Image {
   std::vector<uint8_t> bytes;
@@ -116,6 +122,49 @@ static void CheckShapes() {
   found = ni::FindIdentityFunctions(system_id.View());
   CHECK(found.identify.empty() && found.enrollment.size() == 1 && !found.ok());
   CHECK(ni::FindIdentityFunctions({nullptr, 0, 0x82000000}).identify.empty());
+}
+
+// Fix 156q: the newer build is found, with its layout; the older one keeps its own.
+static void CheckNewBuild() {
+  Image image;
+  const uint32_t identify = image.Put({kMflr, kOriNotConnected, kRlwinmFlags, kOriInvalidArg,
+                                       kMulliJobNew, kLiR3One, kBlForward, kBlr});
+  const uint32_t enrollment = image.Put({kMflr, kCmplwiR3Eight, kOriInvalidArg, kLiFE, kLis4000,
+                                         kOriOne, kOriFive, kBlr});
+  ni::Found found = ni::FindIdentityFunctions(image.View());
+  CHECK(found.ok() && found.identify[0] == identify && found.enrollment[0] == enrollment);
+  CHECK(found.layout == ni::Layout::kNew);
+  // Neither flags check: not it.
+  Image no_flags;
+  no_flags.Put({kMflr, kOriNotConnected, kOriInvalidArg, kMulliJobNew, kLiR3One, kBlForward, kBlr});
+  CHECK(ni::FindIdentityFunctions(no_flags.View()).identify.empty());
+  Image old;
+  old.Put({kMflr, kOriNotConnected, kCmplwiR4, kOriInvalidArg, kMulliJob, kLiR3One, kBlForward, kBlr});
+  CHECK(ni::FindIdentityFunctions(old.View()).layout == ni::Layout::kOld);
+  // Flags: the newer build allows 0x20000000, the older none.
+  ni::Reset();
+  const uint32_t body = 0x00010001;
+  CHECK(ni::Identify(body, 0x20000000, 0x82331FE8, 0, body, ni::AllowedFlags(ni::Layout::kNew)) ==
+        ni::kPending);
+  CHECK(ni::Identify(body, 0x20000000, 0x8219B110, 0, body, ni::AllowedFlags(ni::Layout::kOld)) ==
+        ni::kInvalidArgument);
+  CHECK(ni::Identify(body, 1, 0x82331FE8, 0, body, ni::AllowedFlags(ni::Layout::kNew)) ==
+        ni::kInvalidArgument);
+  ni::Reset();
+  // The newer layout, as Zumba's callback (82331FE8) reads it: +0 kind, +8 tracking ID;
+  // complete: +0x10 result (0), +0x14 enrollment (< 8), +0x18 matched (1); frame processed:
+  // +0x10 quality issues.
+  uint8_t m[ni::kMessageBytes];
+  ni::WriteComplete(m, body, ni::AnswerFor(0), ni::Layout::kNew);
+  CHECK(LoadBE(m) == 1 && LoadBE(m + 8) == body && LoadBE(m + 0x10) == 0 &&
+        LoadBE(m + 0x14) == 0 && LoadBE(m + 0x18) == 1);
+  CHECK(LoadBE(m + 4) == 0 && LoadBE(m + 0xC) == 0);
+  ni::WriteFrameProcessed(m, body, ni::Layout::kNew);
+  CHECK(LoadBE(m) == 0 && LoadBE(m + 8) == body && LoadBE(m + 0x10) == 0);
+  // The older layout is unchanged (Fighters Uncaged's 8219B110).
+  ni::WriteComplete(m, body, ni::AnswerFor(0), ni::Layout::kOld);
+  CHECK(LoadBE(m + 4) == body && LoadBE(m + 8) == 0 && LoadBE(m + 0xC) == 0 && LoadBE(m + 0x10) == 1);
+  CHECK(ni::kMessageBytes >= 0x1C);
 }
 
 static void CheckIdentify() {
@@ -289,12 +338,15 @@ static void CheckTree() {
   CHECK(Has(cam, "auto requests = xbox360ps5::nui_identity::TakeDue();  // fix 156n"));
   const size_t body = cam.find("void DeliverIdentityAnswers(");
   const std::string fn = body == std::string::npos ? "" : cam.substr(body, 2200);
-  const size_t frame = fn.find("WriteFrameProcessed(m, r.tracking_id);");
-  const size_t complete = fn.find("WriteComplete(m, r.tracking_id, answer);");
+  const size_t frame = fn.find("WriteFrameProcessed(m, r.tracking_id, layout);");
+  const size_t complete = fn.find("WriteComplete(m, r.tracking_id, answer, layout);");
   CHECK(frame != std::string::npos && complete != std::string::npos && frame < complete);
   CHECK(Has(fn, "memory->SystemHeapFree(message);"));
   CHECK(Has(cam, "  xbox360ps5::motion::ResetVirtualNui();\n  xbox360ps5::nui_identity::Reset();  // fix 156l"));
   CHECK(Has(cam, "Virtual Kinect: the title's Kinect ID answers for the signed-in profile"));
+  // Fix 156q: the layout is the bound identify's, and the flags follow it.
+  CHECK(Has(cam, "xbox360ps5::nui_identity::bound_layout = int(found.layout);  // fix 156q"));
+  CHECK(Has(cam, "xbox360ps5::nui_identity::AllowedFlags(layout));  // fix 156q"));
 }
 
 int main() {
@@ -302,6 +354,7 @@ int main() {
   CheckIdentify();
   CheckMessages();
   CheckScript();
+  CheckNewBuild();
   CheckTree();
   if (failures) {
     std::printf("check-nui-identity: %d failure(s)\n", failures);
