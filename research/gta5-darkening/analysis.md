@@ -106,6 +106,54 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
   a flash, with NaN, infinity, negative and over-31.875 counts and the source format of each key (it
   tells whether GTA V's HDR target is 7e3 at all).
 
+### 2b. CPU-to-GPU upload with "Optimized video memory" off (new lead, from a later console run)
+
+- **Console run:** readback Off and "Zoptymalizowana pamięć wideo" (memory_boost) = On, at a steady
+  29.3-30 swaps/s (`research/gta5-perf/runs/boost.log:34`, `memory_boost=1`). The player noticed no
+  flashes. Every earlier run with flashes had memory_boost off. This is one run, watched once.
+- **What memory_boost changes** (`gpu_diag::enabled`, set from the option at
+  `src/canary_game_main.cpp:905`):
+  - **Write-fault window.** Off, a CPU write fault invalidates up to the whole 256 KiB block around
+    the write, stopping only at GPU-written pages (`shared_memory.cc:1412-1437`). On, it is limited
+    to the "Memory update window" (16/64 KiB, `shared_memory.cc:1438-1456`).
+  - **Content-checked units** (fix 125): units whose bytes did not change are kept, not re-uploaded
+    (`shared_memory.cc:274-281, 1380-1410`).
+  - **Unwatched dynamic buffers** and the request cache (`shared_memory.cc:1100`).
+  - Protection bridging in `memory.cc:2289`.
+- **How the off path could darken the picture for a frame:**
+  - With memory_boost off, every CPU write to data the GPU reads goes through a fault, an
+    invalidation and a re-upload of the whole window.
+  - Suppose the game writes its exposure or tonemap inputs (constants, a small buffer or texture the
+    CPU fills each frame from the 1F0E8000 ring) while the GPU thread is uploading or between the
+    upload and the draw. The draw then sees a stale or half-written value for one frame. That gives a
+    global, brief change in brightness.
+  - Faults are also far more frequent with it off: C0 watch arming was ~200-240 ms/s against 7 ms/s
+    with it on.
+- **Does hypothesis 2 (fp16 7e3, no clamp per write) still fit?** Only through the frame rate.
+  - Render-target formats and clamping do not depend on memory_boost.
+  - At 30 swaps/s, each frame moves GTA V's adaptation half as far as at 14-15. A one-frame outlier
+    in the luminance would be smaller and could go unnoticed.
+  - So the boost run weakens hypothesis 2 but does not rule it out.
+  - The boost run raises 2b to the same level, and 2b explains "more often at lower fps" better: more
+    faults per frame, longer frames.
+- **Tests that separate them:**
+  1. memory_boost Off, readback Off, the same route (the coordinator's run). If flashes return,
+     2b is the lead.
+  2. Then, with memory_boost On:
+     - "Memory update window" at 256 KiB (the off path's window);
+     - "Optimize dynamic buffers" Off.
+     Whichever brings the flashes back names the part.
+  3. FSI on, with memory_boost off: separates hypothesis 2. If FSI removes the flashes at the same
+     low frame rate, it is 2.
+- **What fix 158 shows for 2b:**
+  - A jump in the 1x1 adapted key (061D2000/061D3000) *without* a jump in the bigger downsample keys
+    (061CE000, the 80x48 ones) in the same or the frame before means the shader read a wrong input:
+    a constant, or the previous adapted value. That points to the upload path.
+  - Jumps that start in the bigger keys mean the scene content itself changed (hypothesis 2).
+- **A possible 158b**, if test 1 brings the flashes back: a line when a CPU write fault's
+  invalidation, or a re-upload, covers the pages of a traced key or the pages a draw just requested,
+  with the frame number, to time the upload races against the jump lines.
+
 ### 3. Frame-time dependence (amplifier, not a cause by itself)
 
 - GTA V's adaptation step depends on the frame time. At 14 swaps/s, with frames over 100 ms, one bad
