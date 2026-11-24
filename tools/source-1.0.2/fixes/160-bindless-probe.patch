@@ -1,0 +1,1507 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe.glsli b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe.glsli
+new file mode 100644
+index 0000000..c11f0e8
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe.glsli
+@@ -0,0 +1,50 @@
++// Xbox360PS5 (fix 160, docs/design/bindless.md step B0): the bindless probe's compute shaders,
++// run once at start when bindless-probe.txt says "on". Set 0 is the heap (update-after-bind,
++// partially bound); set 1 holds today's kind of fixed binding and the output. Each invocation
++// samples `iterations` times; invocation 0 writes the average to xe_probe_out[out_slot].
++layout(local_size_x = 64) in;
++
++layout(set = 0, binding = 0) uniform texture2DArray xe_heap_2d[65536];
++layout(set = 0, binding = 1) uniform sampler xe_heap_samplers[16];
++layout(set = 1, binding = 0) uniform texture2DArray xe_fixed_2d;
++layout(set = 1, binding = 1) uniform sampler xe_fixed_sampler;
++layout(set = 1, binding = 2, std430) buffer XeProbeOut { vec4 xe_probe_out[]; };
++
++layout(push_constant) uniform XeProbePush {
++  uint index;
++  uint sampler_index;
++  uint iterations;
++  uint out_slot;
++} xe_probe;
++
++vec4 XeProbeFetch(vec3 uv) {
++#if defined(XE_PROBE_FIXED)
++  return textureLod(sampler2DArray(xe_fixed_2d, xe_fixed_sampler), uv, 0.0);
++#elif defined(XE_PROBE_NONUNIFORM)
++  // Eight different descriptors in one wave: what a non-uniform index costs on this GPU.
++  return textureLod(
++      sampler2DArray(xe_heap_2d[nonuniformEXT(xe_probe.index + (gl_LocalInvocationID.x & 7u))],
++                     xe_heap_samplers[xe_probe.sampler_index]),
++      uv, 0.0);
++#else
++  // The bindless design's case: the same index for the whole dispatch.
++  return textureLod(sampler2DArray(xe_heap_2d[xe_probe.index],
++                                   xe_heap_samplers[xe_probe.sampler_index]),
++                    uv, 0.0);
++#endif
++}
++
++void main() {
++  vec4 sum = vec4(0.0);
++  for (uint i = 0u; i < xe_probe.iterations; ++i) {
++    vec3 uv = vec3((float(gl_LocalInvocationID.x) + 0.5) * (1.0 / 64.0),
++                   (float(i & 3u) + 0.5) * 0.25, 0.0);
++    sum += XeProbeFetch(uv);
++  }
++  vec4 average = sum / float(max(xe_probe.iterations, 1u));
++  if (gl_GlobalInvocationID.x == 0u) {
++    xe_probe_out[xe_probe.out_slot] = average;
++  } else if (average.w < -1.0) {
++    xe_probe_out[0] = average;  // never: keeps every invocation's samples
++  }
++}
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_fixed.cs.glsl b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_fixed.cs.glsl
+new file mode 100644
+index 0000000..c145bc5
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_fixed.cs.glsl
+@@ -0,0 +1,6 @@
++#version 460
++#extension GL_GOOGLE_include_directive : require
++
++// Xbox360PS5 (fix 160): the bindless probe through a fixed binding (today's path).
++#define XE_PROBE_FIXED 1
++#include "bindless_probe.glsli"
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_nonuniform.cs.glsl b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_nonuniform.cs.glsl
+new file mode 100644
+index 0000000..54f635c
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_nonuniform.cs.glsl
+@@ -0,0 +1,8 @@
++#version 460
++#extension GL_GOOGLE_include_directive : require
++#extension GL_EXT_nonuniform_qualifier : require
++
++// Xbox360PS5 (fix 160): the bindless probe through a non-uniform heap index (eight descriptors in
++// a wave), for what the driver's "non-uniform indexing not native" costs.
++#define XE_PROBE_NONUNIFORM 1
++#include "bindless_probe.glsli"
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_uniform.cs.glsl b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_uniform.cs.glsl
+new file mode 100644
+index 0000000..cb44ada
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_uniform.cs.glsl
+@@ -0,0 +1,7 @@
++#version 460
++#extension GL_GOOGLE_include_directive : require
++
++// Xbox360PS5 (fix 160): the bindless probe through a dynamically uniform heap index (the design's
++// case: the Xbox 360's fetch constant is a compile-time constant, so a draw's index is too).
++#define XE_PROBE_UNIFORM 1
++#include "bindless_probe.glsli"
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index e7d7b59..bd97236 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -14,6 +14,7 @@
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/bindless_probe.hpp"  // fix 160
+ #include <sys/stat.h>
+ #include <algorithm>
+ #include <chrono>
+@@ -151,6 +152,9 @@ void CopyFloatConstantRuns(uint8_t* mapping, const uint32_t* registers,
+ // Generated with `xb buildshaders`.
+ namespace shaders {
+ #include "xenia/gpu/shaders/bytecode/vulkan_spirv/apply_gamma_pwl_fxaa_luma_ps.h"
++#include "xenia/gpu/shaders/bytecode/vulkan_spirv/bindless_probe_fixed_cs.h"  // fix 160
++#include "xenia/gpu/shaders/bytecode/vulkan_spirv/bindless_probe_nonuniform_cs.h"  // fix 160
++#include "xenia/gpu/shaders/bytecode/vulkan_spirv/bindless_probe_uniform_cs.h"  // fix 160
+ #include "xenia/gpu/shaders/bytecode/vulkan_spirv/apply_gamma_pwl_ps.h"
+ #include "xenia/gpu/shaders/bytecode/vulkan_spirv/apply_gamma_table_fxaa_luma_ps.h"
+ #include "xenia/gpu/shaders/bytecode/vulkan_spirv/apply_gamma_table_ps.h"
+@@ -164,6 +168,606 @@ namespace shaders {
+ #include "xenia/gpu/shaders/bytecode/vulkan_spirv/swap_post_ps.h"  // fix 141
+ }  // namespace shaders
+ 
++#if XE_PLATFORM_PS5
++// Xbox360PS5, fix 160 (docs/design/bindless.md, step B0; xbox360ps5/bindless_probe.hpp): a
++// diagnostics-only probe, run only with "on" in bindless-probe.txt.
++namespace fix160 {
++namespace bp = xbox360ps5::bindless_probe;
++namespace fc = xbox360ps5::frame_cost;
++
++// A timer mark: the ticks minus the nested sections' ticks (fix 73's way), 0 for an untimed draw.
++inline uint64_t Mark() {
++  return bp::probe.timed() ? fc::Ticks() - fc::OtherSectionTicks() : 0;
++}
++
++// The probe's own cost, measured once on this thread: a draw counted, and a timed draw's marks.
++void CalibrateOwnCost() {
++  bp::Probe scratch;
++  constexpr uint32_t kDraws = 100000, kTimed = 20000;
++  uint64_t start = fc::NowNs();
++  for (uint32_t i = 0; i < kDraws; ++i) {
++    scratch.BeginDraw(1u << 30);
++    scratch.CountBindings(i & 3, 2, i & 7, 4, 32, 256);
++  }
++  const uint64_t draws_ns = fc::NowNs() - start;
++  start = fc::NowNs();
++  for (uint32_t i = 0; i < kTimed; ++i) {
++    scratch.BeginDraw(1);
++    for (uint32_t part = 0; part < bp::kParts; ++part) {
++      const uint64_t then = fc::Ticks() - fc::OtherSectionTicks();
++      scratch.Stop(part, then, fc::Ticks() - fc::OtherSectionTicks());
++    }
++    scratch.CountUpdate(4);
++  }
++  const uint64_t timed_ns = fc::NowNs() - start;
++  bp::own_cost.draw_ns = double(draws_ns) / kDraws;
++  bp::own_cost.timed_ns = double(timed_ns) / kTimed;
++}
++
++// The 30 s line, from EndSubmission.
++struct Report {
++  std::chrono::steady_clock::time_point at{};
++  uint64_t ticks = 0, ns = 0, executing_ns = 0;
++  std::array<uint64_t, bp::kViewKinds> views_made{}, views_destroyed{};
++  uint64_t samplers_made = 0, samplers_destroyed = 0;
++};
++Report report;
++void ReportEvery30s() {
++  const auto now = std::chrono::steady_clock::now();
++  const bool first = report.at == std::chrono::steady_clock::time_point();
++  if (!first && now - report.at < std::chrono::seconds(30)) return;
++  const uint64_t ticks = fc::Ticks(), ns = fc::NowNs();
++  const uint64_t executing = fc::totals.execute_ns.load(std::memory_order_relaxed);
++  bp::Window window;
++  window.seconds = double(ns - report.ns) / 1e9;
++  window.ns_per_tick =
++      ticks > report.ticks ? double(ns - report.ns) / double(ticks - report.ticks) : 1.0;
++  window.executing_ns = executing - report.executing_ns;
++  window.max_push_descriptors = bp::device_support.max_push_descriptors;
++  window.max_push_constants_size = bp::device_support.max_push_constants_size;
++  for (uint32_t k = 0; k < bp::kViewKinds; ++k) {
++    const uint64_t made = bp::objects.views_made[k].load(std::memory_order_relaxed);
++    const uint64_t destroyed = bp::objects.views_destroyed[k].load(std::memory_order_relaxed);
++    window.views_live[k] = made > destroyed ? made - destroyed : 0;
++    window.views_peak[k] = std::max(
++        bp::objects.views_peak[k].exchange(window.views_live[k], std::memory_order_relaxed),
++        window.views_live[k]);
++    window.views_made[k] = made - report.views_made[k];
++    window.views_destroyed[k] = destroyed - report.views_destroyed[k];
++    report.views_made[k] = made;
++    report.views_destroyed[k] = destroyed;
++  }
++  const uint64_t samplers_made = bp::objects.samplers_made.load(std::memory_order_relaxed);
++  const uint64_t samplers_destroyed =
++      bp::objects.samplers_destroyed.load(std::memory_order_relaxed);
++  window.samplers_live =
++      samplers_made > samplers_destroyed ? samplers_made - samplers_destroyed : 0;
++  window.samplers_peak = std::max(
++      bp::objects.samplers_peak.exchange(window.samplers_live, std::memory_order_relaxed),
++      window.samplers_live);
++  window.samplers_made = samplers_made - report.samplers_made;
++  window.samplers_destroyed = samplers_destroyed - report.samplers_destroyed;
++  report.samplers_made = samplers_made;
++  report.samplers_destroyed = samplers_destroyed;
++  const bp::Counters counters = bp::probe.Take();
++  if (!first && counters.draws) {
++    XELOGW("{}", bp::Line(counters, window));
++  }
++  report.at = now;
++  report.ticks = ticks;
++  report.ns = ns;
++  report.executing_ns = executing;
++}
++
++// The start-up test: the real path once, then the GPU's sampling cost by kind of index.
++void StartupTest(const ui::vulkan::VulkanDevice* vulkan_device) {
++  const bp::Settings& settings = bp::Current();
++  const bp::DeviceSupport& support = bp::device_support;
++  if (!settings.heap_test && !settings.gpu_timing) return;
++  if (!support.dynamic_indexing || !support.update_after_bind || !support.partially_bound) {
++    XELOGW("Bindless probe (fix 160) heap test: not run, a feature it needs is not enabled "
++           "(dynamic indexing {}, update after bind {}, partially bound {})",
++           support.dynamic_indexing, support.update_after_bind, support.partially_bound);
++    return;
++  }
++  const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
++  const VkDevice device = vulkan_device->device();
++  const uint32_t family = vulkan_device->queue_family_graphics_compute();
++  constexpr uint32_t kHeapImages = 65536, kHeapSamplers = 16, kOutSlots = 64;
++  constexpr uint32_t kImages = 4;
++  bool ok = true;
++  const char* failed = nullptr;
++  auto check = [&](bool result, const char* what) {
++    if (!result && ok) {
++      ok = false;
++      failed = what;
++    }
++    return ok;
++  };
++
++  // Objects, all destroyed at the end.
++  VkCommandPool pool = VK_NULL_HANDLE;
++  VkCommandBuffer cbs[5] = {};  // each used once: clears, three test submissions, timing
++  VkFence fences[2] = {};
++  VkImage images[kImages] = {};
++  VkDeviceMemory image_memory[kImages] = {};
++  VkImageView views[kImages] = {};
++  VkSampler sampler = VK_NULL_HANDLE;
++  VkBuffer out_buffer = VK_NULL_HANDLE;
++  VkDeviceMemory out_memory = VK_NULL_HANDLE;
++  void* out_mapping = nullptr;
++  VkDescriptorSetLayout set_layouts[2] = {};
++  VkDescriptorPool descriptor_pools[2] = {};
++  VkDescriptorSet sets[2] = {};
++  VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
++  VkPipeline pipelines[3] = {};  // fixed, uniform, non-uniform
++  VkQueryPool queries = VK_NULL_HANDLE;
++
++  VkCommandPoolCreateInfo pool_info = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
++  pool_info.queueFamilyIndex = family;
++  check(dfn.vkCreateCommandPool(device, &pool_info, nullptr, &pool) == VK_SUCCESS,
++        "command pool");
++  if (ok) {
++    VkCommandBufferAllocateInfo allocate_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
++    allocate_info.commandPool = pool;
++    allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
++    allocate_info.commandBufferCount = 5;
++    check(dfn.vkAllocateCommandBuffers(device, &allocate_info, cbs) == VK_SUCCESS,
++          "command buffers");
++  }
++  for (VkFence& fence : fences) {
++    VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
++    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;  // a wait on an unused one returns at once
++    if (ok) check(dfn.vkCreateFence(device, &fence_info, nullptr, &fence) == VK_SUCCESS, "fence");
++  }
++  // Four 4x4 images of one color each: A red, B green, C blue, D yellow.
++  for (uint32_t i = 0; i < kImages && ok; ++i) {
++    VkImageCreateInfo image_info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
++    image_info.imageType = VK_IMAGE_TYPE_2D;
++    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
++    image_info.extent = {4, 4, 1};
++    image_info.mipLevels = 1;
++    image_info.arrayLayers = 1;
++    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
++    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
++    image_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
++    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
++    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++    if (!check(ui::vulkan::util::CreateDedicatedAllocationImage(
++                   vulkan_device, image_info, ui::vulkan::util::MemoryPurpose::kDeviceLocal,
++                   images[i], image_memory[i]),
++               "image")) {
++      break;
++    }
++    VkImageViewCreateInfo view_info = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
++    view_info.image = images[i];
++    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
++    view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
++    view_info.subresourceRange = ui::vulkan::util::InitializeSubresourceRange();
++    check(dfn.vkCreateImageView(device, &view_info, nullptr, &views[i]) == VK_SUCCESS,
++          "image view");
++  }
++  if (ok) {
++    VkSamplerCreateInfo sampler_info = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
++    sampler_info.magFilter = VK_FILTER_NEAREST;
++    sampler_info.minFilter = VK_FILTER_NEAREST;
++    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
++    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
++    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
++    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
++    sampler_info.maxLod = 0.25f;
++    check(dfn.vkCreateSampler(device, &sampler_info, nullptr, &sampler) == VK_SUCCESS, "sampler");
++  }
++  if (ok) {
++    check(ui::vulkan::util::CreateDedicatedAllocationBuffer(
++              vulkan_device, kOutSlots * 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
++              ui::vulkan::util::MemoryPurpose::kReadback, out_buffer, out_memory) &&
++              dfn.vkMapMemory(device, out_memory, 0, VK_WHOLE_SIZE, 0, &out_mapping) ==
++                  VK_SUCCESS,
++          "output buffer");
++  }
++  // Set 0: the heap (update-after-bind, partially bound); set 1: a fixed binding and the output.
++  if (ok) {
++    VkDescriptorSetLayoutBinding bindings[2] = {};
++    bindings[0].binding = 0;
++    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
++    bindings[0].descriptorCount = kHeapImages;
++    bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
++    bindings[1].binding = 1;
++    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
++    bindings[1].descriptorCount = kHeapSamplers;
++    bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
++    VkDescriptorBindingFlags binding_flags[2];
++    binding_flags[0] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT |
++                       VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
++                       (support.unused_while_pending
++                            ? VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT
++                            : 0);
++    binding_flags[1] =
++        VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
++    VkDescriptorSetLayoutBindingFlagsCreateInfo flags_info = {
++        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
++    flags_info.bindingCount = 2;
++    flags_info.pBindingFlags = binding_flags;
++    VkDescriptorSetLayoutCreateInfo layout_info = {
++        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
++    layout_info.pNext = &flags_info;
++    layout_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
++    layout_info.bindingCount = 2;
++    layout_info.pBindings = bindings;
++    check(dfn.vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &set_layouts[0]) ==
++              VK_SUCCESS,
++          "heap set layout");
++  }
++  if (ok) {
++    VkDescriptorSetLayoutBinding bindings[3] = {};
++    const VkDescriptorType types[3] = {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
++                                       VK_DESCRIPTOR_TYPE_SAMPLER,
++                                       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER};
++    for (uint32_t i = 0; i < 3; ++i) {
++      bindings[i].binding = i;
++      bindings[i].descriptorType = types[i];
++      bindings[i].descriptorCount = 1;
++      bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
++    }
++    VkDescriptorSetLayoutCreateInfo layout_info = {
++        VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
++    layout_info.bindingCount = 3;
++    layout_info.pBindings = bindings;
++    check(dfn.vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &set_layouts[1]) ==
++              VK_SUCCESS,
++          "fixed set layout");
++  }
++  if (ok) {
++    const VkDescriptorPoolSize heap_sizes[2] = {
++        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kHeapImages},
++        {VK_DESCRIPTOR_TYPE_SAMPLER, kHeapSamplers}};
++    VkDescriptorPoolCreateInfo pool_create = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
++    pool_create.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
++    pool_create.maxSets = 1;
++    pool_create.poolSizeCount = 2;
++    pool_create.pPoolSizes = heap_sizes;
++    check(dfn.vkCreateDescriptorPool(device, &pool_create, nullptr, &descriptor_pools[0]) ==
++              VK_SUCCESS,
++          "heap descriptor pool");
++  }
++  if (ok) {
++    const VkDescriptorPoolSize fixed_sizes[3] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1},
++                                                 {VK_DESCRIPTOR_TYPE_SAMPLER, 1},
++                                                 {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1}};
++    VkDescriptorPoolCreateInfo pool_create = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
++    pool_create.maxSets = 1;
++    pool_create.poolSizeCount = 3;
++    pool_create.pPoolSizes = fixed_sizes;
++    check(dfn.vkCreateDescriptorPool(device, &pool_create, nullptr, &descriptor_pools[1]) ==
++              VK_SUCCESS,
++          "fixed descriptor pool");
++  }
++  for (uint32_t i = 0; i < 2 && ok; ++i) {
++    VkDescriptorSetAllocateInfo set_info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
++    set_info.descriptorPool = descriptor_pools[i];
++    set_info.descriptorSetCount = 1;
++    set_info.pSetLayouts = &set_layouts[i];
++    check(dfn.vkAllocateDescriptorSets(device, &set_info, &sets[i]) == VK_SUCCESS,
++          i ? "fixed set" : "heap set (65536 sampled images, update after bind)");
++  }
++  if (ok) {
++    VkPushConstantRange push_range = {VK_SHADER_STAGE_COMPUTE_BIT, 0, 16};
++    VkPipelineLayoutCreateInfo layout_info = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
++    layout_info.setLayoutCount = 2;
++    layout_info.pSetLayouts = set_layouts;
++    layout_info.pushConstantRangeCount = 1;
++    layout_info.pPushConstantRanges = &push_range;
++    check(dfn.vkCreatePipelineLayout(device, &layout_info, nullptr, &pipeline_layout) ==
++              VK_SUCCESS,
++          "pipeline layout");
++  }
++  if (ok) {
++    pipelines[0] = ui::vulkan::util::CreateComputePipeline(
++        vulkan_device, pipeline_layout, shaders::bindless_probe_fixed_cs,
++        sizeof(shaders::bindless_probe_fixed_cs));
++    pipelines[1] = ui::vulkan::util::CreateComputePipeline(
++        vulkan_device, pipeline_layout, shaders::bindless_probe_uniform_cs,
++        sizeof(shaders::bindless_probe_uniform_cs));
++    if (support.non_uniform) {
++      pipelines[2] = ui::vulkan::util::CreateComputePipeline(
++          vulkan_device, pipeline_layout, shaders::bindless_probe_nonuniform_cs,
++          sizeof(shaders::bindless_probe_nonuniform_cs));
++    }
++    check(pipelines[0] != VK_NULL_HANDLE && pipelines[1] != VK_NULL_HANDLE,
++          "compute pipelines");
++  }
++
++  auto write_heap = [&](uint32_t slot, uint32_t image) {
++    VkDescriptorImageInfo image_info = {VK_NULL_HANDLE, views[image],
++                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++    VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
++    write.dstSet = sets[0];
++    write.dstBinding = 0;
++    write.dstArrayElement = slot;
++    write.descriptorCount = 1;
++    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
++    write.pImageInfo = &image_info;
++    dfn.vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
++  };
++  auto begin = [&](VkCommandBuffer cb) {
++    VkCommandBufferBeginInfo begin_info = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
++    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
++    return dfn.vkBeginCommandBuffer(cb, &begin_info) == VK_SUCCESS;
++  };
++  auto submit = [&](VkCommandBuffer cb, VkFence fence) {
++    if (dfn.vkEndCommandBuffer(cb) != VK_SUCCESS) return false;
++    dfn.vkResetFences(device, 1, &fence);
++    VkSubmitInfo submit_info = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
++    submit_info.commandBufferCount = 1;
++    submit_info.pCommandBuffers = &cb;
++    ui::vulkan::VulkanDevice::Queue::Acquisition queue =
++        vulkan_device->AcquireQueue(family, 0);
++    return dfn.vkQueueSubmit(queue.queue(), 1, &submit_info, fence) == VK_SUCCESS;
++  };
++  auto wait = [&](VkFence fence) {
++    return dfn.vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_C(5000000000)) == VK_SUCCESS;
++  };
++  auto bind = [&](VkCommandBuffer cb, uint32_t pipeline) {
++    dfn.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipelines[pipeline]);
++    dfn.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_layout, 0, 2, sets,
++                                0, nullptr);
++  };
++  auto dispatch = [&](VkCommandBuffer cb, uint32_t index, uint32_t iterations,
++                      uint32_t out_slot, uint32_t groups) {
++    const uint32_t push[4] = {index, 0, iterations, out_slot};
++    dfn.vkCmdPushConstants(cb, pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push),
++                           push);
++    dfn.vkCmdDispatch(cb, groups, 1, 1);
++  };
++
++  // The images' colors, through a clear.
++  if (ok && check(begin(cbs[0]), "begin")) {
++    const VkClearColorValue colors[kImages] = {
++        {{1, 0, 0, 1}}, {{0, 1, 0, 1}}, {{0, 0, 1, 1}}, {{1, 1, 0, 1}}};
++    const VkImageSubresourceRange range = ui::vulkan::util::InitializeSubresourceRange();
++    VkImageMemoryBarrier barriers[kImages];
++    for (uint32_t i = 0; i < kImages; ++i) {
++      barriers[i] = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
++      barriers[i].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++      barriers[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
++      barriers[i].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
++      barriers[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++      barriers[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++      barriers[i].image = images[i];
++      barriers[i].subresourceRange = range;
++    }
++    dfn.vkCmdPipelineBarrier(cbs[0], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
++                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, kImages,
++                             barriers);
++    for (uint32_t i = 0; i < kImages; ++i) {
++      dfn.vkCmdClearColorImage(cbs[0], images[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++                               &colors[i], 1, &range);
++      barriers[i].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
++      barriers[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
++      barriers[i].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
++      barriers[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
++    }
++    dfn.vkCmdPipelineBarrier(cbs[0], VK_PIPELINE_STAGE_TRANSFER_BIT,
++                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
++                             kImages, barriers);
++    check(submit(cbs[0], fences[0]) && wait(fences[0]), "image clears");
++  }
++  // The fixed set, the heap's sampler and the slots written before any bind.
++  if (ok) {
++    VkDescriptorImageInfo fixed_image = {VK_NULL_HANDLE, views[0],
++                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
++    VkDescriptorImageInfo fixed_sampler = {sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
++    VkDescriptorBufferInfo out_info = {out_buffer, 0, VK_WHOLE_SIZE};
++    VkWriteDescriptorSet writes[4] = {};
++    for (uint32_t i = 0; i < 4; ++i) {
++      writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
++      writes[i].descriptorCount = 1;
++    }
++    writes[0].dstSet = sets[1];
++    writes[0].dstBinding = 0;
++    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
++    writes[0].pImageInfo = &fixed_image;
++    writes[1].dstSet = sets[1];
++    writes[1].dstBinding = 1;
++    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
++    writes[1].pImageInfo = &fixed_sampler;
++    writes[2].dstSet = sets[1];
++    writes[2].dstBinding = 2;
++    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
++    writes[2].pBufferInfo = &out_info;
++    writes[3].dstSet = sets[0];
++    writes[3].dstBinding = 1;
++    writes[3].dstArrayElement = 0;
++    writes[3].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
++    writes[3].pImageInfo = &fixed_sampler;
++    dfn.vkUpdateDescriptorSets(device, 4, writes, 0, nullptr);
++    write_heap(7, 0);
++    for (uint32_t slot = 100; slot < 108; ++slot) write_heap(slot, 0);
++    std::memset(out_mapping, 0, kOutSlots * 16);
++  }
++
++  // 1: slot 7 after a long dispatch, so the submission is still running at the next write.
++  bool pending_at_write = false;
++  if (ok && settings.heap_test && check(begin(cbs[1]), "begin")) {
++    bind(cbs[1], 1);
++    dispatch(cbs[1], 7, 256, kOutSlots - 1, 2048);
++    dispatch(cbs[1], 7, 1, 0, 1);
++    check(submit(cbs[1], fences[0]), "first submission");
++    // 2: slot 40000 written while the first submission is pending (it does not use the slot).
++    pending_at_write = dfn.vkGetFenceStatus(device, fences[0]) == VK_NOT_READY;
++    if (!support.unused_while_pending) wait(fences[0]);
++    write_heap(40000, 1);
++    // 3: slot 50000 written after the bind was recorded, before the submission.
++    if (ok && check(begin(cbs[2]), "begin")) {
++      bind(cbs[2], 1);
++      write_heap(50000, 2);
++      dispatch(cbs[2], 40000, 1, 1, 1);
++      dispatch(cbs[2], 50000, 1, 2, 1);
++      check(submit(cbs[2], fences[1]), "second submission");
++    }
++    check(wait(fences[0]) && wait(fences[1]), "waits");
++    // 4: slot 7 rewritten after its last use completed; 5: a non-uniform index; 6: fixed.
++    write_heap(7, 3);
++    if (ok && check(begin(cbs[3]), "begin")) {
++      bind(cbs[3], 1);
++      dispatch(cbs[3], 7, 1, 3, 1);
++      if (pipelines[2] != VK_NULL_HANDLE) {
++        bind(cbs[3], 2);
++        dispatch(cbs[3], 100, 1, 4, 1);
++      }
++      bind(cbs[3], 0);
++      dispatch(cbs[3], 0, 1, 5, 1);
++      VkMemoryBarrier to_host = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
++      to_host.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
++      to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
++      dfn.vkCmdPipelineBarrier(cbs[3], VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                               VK_PIPELINE_STAGE_HOST_BIT, 0, 1, &to_host, 0, nullptr, 0,
++                               nullptr);
++      check(submit(cbs[3], fences[0]) && wait(fences[0]), "third submission");
++    }
++  }
++  if (settings.heap_test) {
++    std::string results;
++    bool all = ok;
++    if (ok) {
++      VkMappedMemoryRange range = {VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
++      range.memory = out_memory;
++      range.size = VK_WHOLE_SIZE;
++      dfn.vkInvalidateMappedMemoryRanges(device, 1, &range);
++      const float* out = static_cast<const float*>(out_mapping);
++      const auto& checks = bp::HeapChecks();
++      for (uint32_t i = 0; i < checks.size(); ++i) {
++        const float* got = out + i * 4;
++        std::string item;
++        if (i == 4 && pipelines[2] == VK_NULL_HANDLE) {
++          item = "not run (non-uniform indexing not enabled)";
++        } else if (bp::Near(got, checks[i].expected)) {
++          item = "ok";
++        } else {
++          char text[96];
++          std::snprintf(text, sizeof(text), "WRONG (%.2f %.2f %.2f %.2f)", got[0], got[1],
++                        got[2], got[3]);
++          item = text;
++          all = false;
++        }
++        results += std::string(i ? "; " : "") + checks[i].what + ": " + item;
++      }
++    }
++    XELOGW("Bindless probe (fix 160) heap test: {}{}{}; the first submission was {} at the "
++           "pending write{}",
++           all ? "ok" : "FAILED", failed ? std::string(" at ") + failed : std::string(),
++           results.empty() ? std::string() : " - " + results,
++           pending_at_write ? "still running" : "already done",
++           support.unused_while_pending ? "" : " (update-unused-while-pending not supported: "
++                                               "written after it)");
++  }
++
++  // GPU timing: 8 dispatches of 256 x 64 invocations, 64 samples each, by kind of index.
++  if (ok && settings.gpu_timing) {
++    VkQueryPoolCreateInfo query_info = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
++    query_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
++    query_info.queryCount = 6;
++    const ui::vulkan::VulkanInstance::Functions& ifn =
++        vulkan_device->vulkan_instance()->functions();
++    uint32_t family_count = 0;
++    ifn.vkGetPhysicalDeviceQueueFamilyProperties(vulkan_device->physical_device(),
++                                                 &family_count, nullptr);
++    std::vector<VkQueueFamilyProperties> families(family_count);
++    ifn.vkGetPhysicalDeviceQueueFamilyProperties(vulkan_device->physical_device(),
++                                                 &family_count, families.data());
++    VkPhysicalDeviceProperties physical;
++    ifn.vkGetPhysicalDeviceProperties(vulkan_device->physical_device(), &physical);
++    const uint32_t valid_bits = family < family_count ? families[family].timestampValidBits : 0;
++    const double period = physical.limits.timestampPeriod;
++    if (valid_bits && period > 0 &&
++        dfn.vkCreateQueryPool(device, &query_info, nullptr, &queries) == VK_SUCCESS &&
++        begin(cbs[4])) {
++      dfn.vkCmdResetQueryPool(cbs[4], queries, 0, 6);
++      VkMemoryBarrier compute = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
++      compute.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
++      compute.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
++      for (uint32_t v = 0; v < 3; ++v) {
++        if (pipelines[v] == VK_NULL_HANDLE) continue;
++        bind(cbs[4], v);
++        dispatch(cbs[4], 100, 64, kOutSlots - 1, 64);  // warm-up
++        dfn.vkCmdPipelineBarrier(cbs[4], VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &compute, 0,
++                                 nullptr, 0, nullptr);
++        dfn.vkCmdWriteTimestamp(cbs[4], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries, v * 2);
++        for (uint32_t d = 0; d < 8; ++d) dispatch(cbs[4], 100, 64, kOutSlots - 1, 256);
++        dfn.vkCmdWriteTimestamp(cbs[4], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, queries,
++                                v * 2 + 1);
++        dfn.vkCmdPipelineBarrier(cbs[4], VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
++                                 VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &compute, 0,
++                                 nullptr, 0, nullptr);
++      }
++      uint64_t stamps[6] = {};
++      if (submit(cbs[4], fences[0]) && wait(fences[0])) {
++        for (uint32_t v = 0; v < 3; ++v) {
++          if (pipelines[v] == VK_NULL_HANDLE) continue;
++          dfn.vkGetQueryPoolResults(device, queries, v * 2, 2, sizeof(uint64_t) * 2,
++                                    stamps + v * 2, sizeof(uint64_t),
++                                    VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
++        }
++        const uint64_t mask = valid_bits >= 64 ? ~UINT64_C(0) : (UINT64_C(1) << valid_bits) - 1;
++        constexpr double kSamples = 8.0 * 256 * 64 * 64;
++        double us[3] = {};
++        for (uint32_t v = 0; v < 3; ++v) {
++          us[v] = double((stamps[v * 2 + 1] - stamps[v * 2]) & mask) * period / 1000.0;
++        }
++        auto item = [&](uint32_t v) {
++          if (pipelines[v] == VK_NULL_HANDLE) return std::string("not run");
++          char text[96];
++          std::snprintf(text, sizeof(text), "%.1f us (%.2f ps a sample, %.2f x the fixed)",
++                        us[v], us[v] * 1e6 / kSamples, us[0] > 0 ? us[v] / us[0] : 0.0);
++          return std::string(text);
++        };
++        XELOGW("Bindless probe (fix 160) GPU timing, 8 x 256 x 64 invocations of 64 samples: "
++               "fixed binding {}; dynamically uniform heap index {}; non-uniform heap index {}",
++               item(0), item(1), item(2));
++      }
++    }
++  }
++
++  // Clean up.
++  for (VkFence fence : fences) {
++    if (fence != VK_NULL_HANDLE) wait(fence);
++  }
++  if (queries != VK_NULL_HANDLE) dfn.vkDestroyQueryPool(device, queries, nullptr);
++  for (VkPipeline pipeline : pipelines) {
++    if (pipeline != VK_NULL_HANDLE) dfn.vkDestroyPipeline(device, pipeline, nullptr);
++  }
++  if (pipeline_layout != VK_NULL_HANDLE) {
++    dfn.vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
++  }
++  for (VkDescriptorPool descriptor_pool : descriptor_pools) {
++    if (descriptor_pool != VK_NULL_HANDLE) {
++      dfn.vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
++    }
++  }
++  for (VkDescriptorSetLayout set_layout : set_layouts) {
++    if (set_layout != VK_NULL_HANDLE) {
++      dfn.vkDestroyDescriptorSetLayout(device, set_layout, nullptr);
++    }
++  }
++  if (out_mapping) dfn.vkUnmapMemory(device, out_memory);
++  if (out_buffer != VK_NULL_HANDLE) dfn.vkDestroyBuffer(device, out_buffer, nullptr);
++  if (out_memory != VK_NULL_HANDLE) dfn.vkFreeMemory(device, out_memory, nullptr);
++  if (sampler != VK_NULL_HANDLE) dfn.vkDestroySampler(device, sampler, nullptr);
++  for (uint32_t i = 0; i < kImages; ++i) {
++    if (views[i] != VK_NULL_HANDLE) dfn.vkDestroyImageView(device, views[i], nullptr);
++    if (images[i] != VK_NULL_HANDLE) dfn.vkDestroyImage(device, images[i], nullptr);
++    if (image_memory[i] != VK_NULL_HANDLE) dfn.vkFreeMemory(device, image_memory[i], nullptr);
++  }
++  for (VkFence fence : fences) {
++    if (fence != VK_NULL_HANDLE) dfn.vkDestroyFence(device, fence, nullptr);
++  }
++  if (pool != VK_NULL_HANDLE) dfn.vkDestroyCommandPool(device, pool, nullptr);
++}
++}  // namespace fix160
++#endif
++
+ constexpr VkDescriptorPoolSize
+     VulkanCommandProcessor::kDescriptorPoolSizeUniformBuffer = {
+         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+@@ -1446,6 +2050,16 @@ bool VulkanCommandProcessor::SetupContext() {
+            valid_bits, period);
+   }
+ #endif
++#if XE_PLATFORM_PS5
++  if (xbox360ps5::bindless_probe::enabled) {
++    // Fix 160: the start-up test and what the per-draw probe costs on this thread.
++    fix160::StartupTest(vulkan_device);
++    fix160::CalibrateOwnCost();
++    XELOGW("Bindless probe (fix 160): own cost {:.1f} ns a draw, {:.1f} ns more a timed draw",
++           xbox360ps5::bindless_probe::own_cost.draw_ns,
++           xbox360ps5::bindless_probe::own_cost.timed_ns);
++  }
++#endif
+ 
+   return true;
+ }
+@@ -7868,6 +8482,7 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
++  if (xbox360ps5::bindless_probe::enabled) fix160::ReportEvery30s();  // fix 160
+ #endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+@@ -9156,6 +9771,14 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+ #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
+ 
+   const RegisterFile& regs = *register_file_;
++#if XE_PLATFORM_PS5
++  // Fix 160: 1 draw in N timed by part (xbox360ps5/bindless_probe.hpp), only with the probe on.
++  const bool fix160_on = xbox360ps5::bindless_probe::enabled;
++  if (fix160_on) {
++    xbox360ps5::bindless_probe::probe.BeginDraw(xbox360ps5::bindless_probe::Current().sample);
++  }
++  const uint64_t fix160_total = fix160_on ? fix160::Mark() : 0;
++#endif
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+@@ -9452,6 +10075,14 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     sampler_count_pixel = 0;
+     texture_count_pixel = 0;
+   }
++#if XE_PLATFORM_PS5
++  if (fix160_on) {
++    xbox360ps5::bindless_probe::probe.CountBindings(
++        texture_count_vertex, sampler_count_vertex, texture_count_pixel, sampler_count_pixel,
++        xbox360ps5::bindless_probe::device_support.max_push_descriptors,
++        xbox360ps5::bindless_probe::device_support.max_push_constants_size);  // fix 160
++  }
++#endif
+ #if XE_PLATFORM_PS5
+   // Fix 104: the image infos of both stages are filled first (as before for a
+   // set to write), and a stage whose descriptors equal those of its set
+@@ -9480,6 +10111,9 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       (texture_count_pixel || sampler_count_pixel) &&
+       !(current_graphics_descriptor_set_values_up_to_date_ &
+         (UINT32_C(1) << SpirvShaderTranslator::kDescriptorSetTexturesPixel));
++#endif
++#if XE_PLATFORM_PS5
++  const uint64_t fix160_infos = fix160_on ? fix160::Mark() : 0;
+ #endif
+   descriptor_write_image_info_.clear();
+   descriptor_write_image_info_.reserve(
+@@ -9533,6 +10167,12 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+     }
+   }
+ #if XE_PLATFORM_PS5
++  uint64_t fix160_reuse = 0;
++  if (fix160_infos) {
++    fix160_reuse = fix160::Mark();
++    xbox360ps5::bindless_probe::probe.Stop(xbox360ps5::bindless_probe::kImageInfos,
++                                           fix160_infos, fix160_reuse);
++  }
+   // Fix 104: reuse or write, for each stage.
+   const uint64_t texture_set_epoch = texture_cache_->binding_epoch();
+   uint32_t texture_sets_reused = 0;
+@@ -9602,6 +10242,14 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+       texture_sets_reused,
+       uint32_t(write_vertex_textures) + uint32_t(write_pixel_textures));
+ #endif
++#if XE_PLATFORM_PS5
++  uint64_t fix160_allocate = 0;
++  if (fix160_reuse) {
++    fix160_allocate = fix160::Mark();
++    xbox360ps5::bindless_probe::probe.Stop(xbox360ps5::bindless_probe::kReuseCheck,
++                                           fix160_reuse, fix160_allocate);
++  }
++#endif
+ 
+   // Write the new descriptor sets.
+ 
+@@ -9758,10 +10406,35 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+ #endif
+   }
+   // Write.
++#if XE_PLATFORM_PS5
++  uint64_t fix160_update = 0;
++  if (fix160_allocate) {
++    fix160_update = fix160::Mark();
++    xbox360ps5::bindless_probe::probe.Stop(xbox360ps5::bindless_probe::kAllocate,
++                                           fix160_allocate, fix160_update);
++  }
++#endif
+   if (write_descriptor_set_count) {
+     dfn.vkUpdateDescriptorSets(device, write_descriptor_set_count,
+                                write_descriptor_sets.data(), 0, nullptr);
++#if XE_PLATFORM_PS5
++    if (fix160_update) {
++      uint32_t fix160_descriptors = 0;
++      for (uint32_t i = 0; i < write_descriptor_set_count; ++i) {
++        fix160_descriptors += write_descriptor_sets[i].descriptorCount;
++      }
++      xbox360ps5::bindless_probe::probe.CountUpdate(fix160_descriptors);
++    }
++#endif
+   }
++#if XE_PLATFORM_PS5
++  uint64_t fix160_bind = 0;
++  if (fix160_update) {
++    fix160_bind = fix160::Mark();
++    xbox360ps5::bindless_probe::probe.Stop(xbox360ps5::bindless_probe::kUpdate, fix160_update,
++                                           fix160_bind);
++  }
++#endif
+   // Only make valid if all descriptor sets have been allocated and written
+   // successfully.
+   current_graphics_descriptor_set_values_up_to_date_ |=
+@@ -9814,6 +10487,17 @@ bool VulkanCommandProcessor::UpdateBindings(const VulkanShader* vertex_shader,
+         ~((UINT32_C(1) << descriptor_set_mask_tzcnt) - 1);
+   }
+   current_graphics_descriptor_sets_bound_up_to_date_ |= descriptor_sets_needed;
++#if XE_PLATFORM_PS5
++  if (fix160_total) {
++    const uint64_t fix160_end = fix160::Mark();
++    if (fix160_bind) {
++      xbox360ps5::bindless_probe::probe.Stop(xbox360ps5::bindless_probe::kBind, fix160_bind,
++                                             fix160_end);
++    }
++    xbox360ps5::bindless_probe::probe.Stop(xbox360ps5::bindless_probe::kTotal, fix160_total,
++                                           fix160_end);
++  }
++#endif
+ 
+   return true;
+ }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+index eba7782..8c593a0 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.cc
+@@ -30,6 +30,7 @@
+ #include "xenia/ui/vulkan/ui_samplers.h"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/bindless_probe.hpp"  // fix 160
+ #include "xenia/ui/vulkan/vulkan_mem_alloc.h"
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ 
+@@ -843,6 +844,9 @@ VkSampler VulkanTextureCache::UseSampler(SamplerParameters parameters,
+     dfn.vkDestroySampler(device, sampler_used_first_->second.sampler, nullptr);
+ #if XE_PLATFORM_PS5
+     NoteBindingObjectsDestroyed();  // fix 104: its handle may come back
++#endif
++#if XE_PLATFORM_PS5
++    xbox360ps5::bindless_probe::SamplerDestroyed();  // fix 160
+ #endif
+     if (sampler_used_first_->second.used_next) {
+       sampler_used_first_->second.used_next->second.used_previous =
+@@ -973,6 +977,9 @@ VkSampler VulkanTextureCache::UseSampler(SamplerParameters parameters,
+     has_overflown_out = false;
+     return VK_NULL_HANDLE;
+   }
++#if XE_PLATFORM_PS5
++  xbox360ps5::bindless_probe::SamplerMade();  // fix 160
++#endif
+   std::pair<const SamplerParameters, Sampler>& new_sampler =
+       *(samplers_
+             .emplace(std::piecewise_construct,
+@@ -2031,6 +2038,14 @@ VulkanTextureCache::VulkanTexture::~VulkanTexture() {
+   for (const auto& view_pair : views_) {
+     dfn.vkDestroyImageView(device, view_pair.second, nullptr);
+   }
++#if XE_PLATFORM_PS5
++  // Fix 160: the live image views, by the kind a bindless heap would keep them in.
++  xbox360ps5::bindless_probe::ViewDestroyed(Fix160ViewKind(), views_.size());
++  xbox360ps5::bindless_probe::ViewDestroyed(
++      xbox360ps5::bindless_probe::kView3DAs2D,
++      uint64_t(image_view_3d_as_2d_unsigned_ != VK_NULL_HANDLE) +
++          uint64_t(image_view_3d_as_2d_signed_ != VK_NULL_HANDLE));
++#endif
+   // Clean up 3D-as-2D image views. The texture_3d_as_2d_ wrapper will clean
+   // itself up via unique_ptr destructor.
+   if (image_view_3d_as_2d_unsigned_ != VK_NULL_HANDLE) {
+@@ -2131,9 +2146,26 @@ VkImageView VulkanTextureCache::VulkanTexture::GetView(bool is_signed,
+     return VK_NULL_HANDLE;
+   }
+   views_.emplace(view_key, view);
++#if XE_PLATFORM_PS5
++  xbox360ps5::bindless_probe::ViewMade(Fix160ViewKind());  // fix 160
++#endif
+   return view;
+ }
+ 
++#if XE_PLATFORM_PS5
++// Fix 160: the heap binding a bindless path would keep this texture's views in.
++uint32_t VulkanTextureCache::VulkanTexture::Fix160ViewKind() const {
++  switch (key().dimension) {
++    case xenos::DataDimension::k3D:
++      return xbox360ps5::bindless_probe::kView3D;
++    case xenos::DataDimension::kCube:
++      return xbox360ps5::bindless_probe::kViewCube;
++    default:
++      return xbox360ps5::bindless_probe::kView2DArray;
++  }
++}
++#endif
++
+ VkImageView VulkanTextureCache::VulkanTexture::GetOrCreate3DAs2DImageView(
+     bool is_signed, uint32_t host_swizzle) {
+   if (!cvars::gpu_3d_to_2d_texture) {
+@@ -2265,6 +2297,9 @@ VkImageView VulkanTextureCache::VulkanTexture::GetOrCreate3DAs2DImageView(
+     XELOGE("VulkanTexture: Failed to create 3D-as-2D image view");
+     return VK_NULL_HANDLE;
+   }
++#if XE_PLATFORM_PS5
++  xbox360ps5::bindless_probe::ViewMade(xbox360ps5::bindless_probe::kView3DAs2D);  // fix 160
++#endif
+ 
+   return cached_view;
+ }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.h
+index 77892ee..31ddb74 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_texture_cache.h
+@@ -293,6 +293,10 @@ class VulkanTextureCache final : public TextureCache {
+                         bool is_array = true);
+ 
+     // For 3D textures sampled as 2D - creates a 2D copy of slice 0.
++#if XE_PLATFORM_PS5
++    // Fix 160: the bindless probe's kind of this texture's views (xbox360ps5/bindless_probe.hpp).
++    uint32_t Fix160ViewKind() const;
++#endif
+     VkImageView GetOrCreate3DAs2DImageView(bool is_signed,
+                                            uint32_t host_swizzle);
+ 
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
+index 32f4e63..c52a2cc 100644
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_device.cc
+@@ -19,6 +19,11 @@
+ #include <unordered_map>
+ #include <vector>
+ 
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/app_identity.hpp"    // fix 160
++#include "xbox360ps5/bindless_probe.hpp"  // fix 160
++#endif
++
+ namespace xe {
+ namespace ui {
+ namespace vulkan {
+@@ -790,6 +795,149 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
+     }
+   }
+ 
++#if XE_PLATFORM_PS5
++  // Xbox360PS5, fix 160 (docs/design/bindless.md, step B0): with "on" in bindless-probe.txt (read
++  // once, here, before the device exists), what a bindless path or push descriptors would use is
++  // logged, and the descriptor indexing features are enabled for the probe's start-up test only.
++  // Without the file nothing here runs and the device is created as before.
++  {
++    namespace bp = xbox360ps5::bindless_probe;
++    const bp::Settings& probe = bp::Load(XBOX360PS5_DATA_ROOT "/bindless-probe.txt");
++    if (probe.on && with_gpu_emulation) {
++      bool has_push_descriptor = false, has_descriptor_buffer = false,
++           has_mutable_descriptor = false, has_descriptor_indexing = false;
++      {
++        uint32_t count = 0;
++        ifn.vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &count, nullptr);
++        std::vector<VkExtensionProperties> all(count);
++        if (count && ifn.vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &count,
++                                                              all.data()) == VK_SUCCESS) {
++          for (const VkExtensionProperties& extension : all) {
++            const std::string name = extension.extensionName;
++            has_push_descriptor |= name == "VK_KHR_push_descriptor";
++            has_descriptor_buffer |= name == "VK_EXT_descriptor_buffer";
++            has_mutable_descriptor |=
++                name == "VK_EXT_mutable_descriptor_type" || name == "VK_VALVE_mutable_descriptor_type";
++            has_descriptor_indexing |= name == "VK_EXT_descriptor_indexing";
++          }
++        }
++      }
++      VkPhysicalDeviceDescriptorIndexingFeatures indexing = {};
++      indexing.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
++      VkPhysicalDeviceDescriptorIndexingProperties indexing_limits = {};
++      indexing_limits.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES;
++      VkPhysicalDevicePushDescriptorPropertiesKHR push_limits = {};
++      push_limits.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR;
++      VkPhysicalDeviceDriverProperties driver = {};
++      driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
++      const bool queried = get_physical_device_properties2_supported &&
++                           ifn.vkGetPhysicalDeviceFeatures2 && ifn.vkGetPhysicalDeviceProperties2;
++      if (queried) {
++        VkPhysicalDeviceFeatures2 query_features = {};
++        query_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
++        query_features.pNext = &indexing;
++        ifn.vkGetPhysicalDeviceFeatures2(physical_device, &query_features);
++        VkPhysicalDeviceProperties2 query_properties = {};
++        query_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
++        query_properties.pNext = &indexing_limits;
++        if (has_push_descriptor) {
++          push_limits.pNext = query_properties.pNext;
++          query_properties.pNext = &push_limits;
++        }
++        if (ext_1_2_KHR_driver_properties) {
++          driver.pNext = query_properties.pNext;
++          query_properties.pNext = &driver;
++        }
++        ifn.vkGetPhysicalDeviceProperties2(physical_device, &query_properties);
++      }
++      // Enabled for the start-up test: the core feature, and Vulkan 1.2's (chained above).
++      bp::DeviceSupport& support = bp::device_support;
++      if (supported_features.shaderSampledImageArrayDynamicIndexing) {
++        enabled_features.shaderSampledImageArrayDynamicIndexing = VK_TRUE;
++        support.dynamic_indexing = true;
++      }
++      if (get_physical_device_properties2_supported &&
++          properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 2, 0)) {
++        const VkPhysicalDeviceVulkan12Features& has = features_1_2.supported;
++        VkPhysicalDeviceVulkan12Features& use = features_1_2.enabled;
++        if (has.descriptorIndexing) use.descriptorIndexing = VK_TRUE;
++        if (has.runtimeDescriptorArray) use.runtimeDescriptorArray = VK_TRUE;
++        if (has.descriptorBindingSampledImageUpdateAfterBind) {
++          use.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
++          support.update_after_bind = true;
++        }
++        if (has.descriptorBindingUpdateUnusedWhilePending) {
++          use.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
++          support.unused_while_pending = true;
++        }
++        if (has.descriptorBindingPartiallyBound) {
++          use.descriptorBindingPartiallyBound = VK_TRUE;
++          support.partially_bound = true;
++        }
++        if (has.shaderSampledImageArrayNonUniformIndexing) {
++          use.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
++          support.non_uniform = true;
++        }
++      }
++      support.max_push_descriptors = has_push_descriptor ? push_limits.maxPushDescriptors : 0;
++      support.max_push_constants_size = properties.limits.maxPushConstantsSize;
++      XELOGW("Bindless probe (fix 160): on, 1 draw in {} timed, heap test {}, GPU timing {}; "
++             "driver {} ({}), Vulkan {}.{}.{}",
++             probe.sample, probe.heap_test ? "on" : "off", probe.gpu_timing ? "on" : "off",
++             queried && driver.driverName[0] ? driver.driverName : "?",
++             queried && driver.driverInfo[0] ? driver.driverInfo : "?",
++             VK_API_VERSION_MAJOR(properties.apiVersion),
++             VK_API_VERSION_MINOR(properties.apiVersion),
++             VK_API_VERSION_PATCH(properties.apiVersion));
++      XELOGW("Bindless probe (fix 160) features, supported (enabled for the probe): "
++             "shaderSampledImageArrayDynamicIndexing {} ({}), "
++             "shaderSampledImageArrayNonUniformIndexing {} ({}), "
++             "descriptorBindingSampledImageUpdateAfterBind {} ({}), "
++             "descriptorBindingUpdateUnusedWhilePending {} ({}), "
++             "descriptorBindingPartiallyBound {} ({}), "
++             "descriptorBindingVariableDescriptorCount {}, runtimeDescriptorArray {}",
++             bool(supported_features.shaderSampledImageArrayDynamicIndexing),
++             support.dynamic_indexing, bool(indexing.shaderSampledImageArrayNonUniformIndexing),
++             support.non_uniform, bool(indexing.descriptorBindingSampledImageUpdateAfterBind),
++             support.update_after_bind, bool(indexing.descriptorBindingUpdateUnusedWhilePending),
++             support.unused_while_pending, bool(indexing.descriptorBindingPartiallyBound),
++             support.partially_bound, bool(indexing.descriptorBindingVariableDescriptorCount),
++             bool(indexing.runtimeDescriptorArray));
++      XELOGW("Bindless probe (fix 160) limits: maxPushConstantsSize {}, maxBoundDescriptorSets {}, "
++             "maxDescriptorSetUniformBuffersDynamic {}, maxSamplerAllocationCount {}, "
++             "maxPerStageDescriptorSampledImages {}, maxPerStageDescriptorSamplers {}, "
++             "maxPerStageResources {}, maxDescriptorSetSampledImages {}; update after bind: "
++             "maxUpdateAfterBindDescriptorsInAllPools {}, "
++             "maxPerStageDescriptorUpdateAfterBindSampledImages {}, "
++             "maxPerStageDescriptorUpdateAfterBindSamplers {}, "
++             "maxDescriptorSetUpdateAfterBindSampledImages {}, "
++             "maxDescriptorSetUpdateAfterBindSamplers {}, "
++             "shaderSampledImageArrayNonUniformIndexingNative {}; timestampPeriod {} ns",
++             properties.limits.maxPushConstantsSize, properties.limits.maxBoundDescriptorSets,
++             properties.limits.maxDescriptorSetUniformBuffersDynamic,
++             properties.limits.maxSamplerAllocationCount,
++             properties.limits.maxPerStageDescriptorSampledImages,
++             properties.limits.maxPerStageDescriptorSamplers,
++             properties.limits.maxPerStageResources,
++             properties.limits.maxDescriptorSetSampledImages,
++             indexing_limits.maxUpdateAfterBindDescriptorsInAllPools,
++             indexing_limits.maxPerStageDescriptorUpdateAfterBindSampledImages,
++             indexing_limits.maxPerStageDescriptorUpdateAfterBindSamplers,
++             indexing_limits.maxDescriptorSetUpdateAfterBindSampledImages,
++             indexing_limits.maxDescriptorSetUpdateAfterBindSamplers,
++             bool(indexing_limits.shaderSampledImageArrayNonUniformIndexingNative),
++             properties.limits.timestampPeriod);
++      XELOGW("Bindless probe (fix 160) extensions: VK_KHR_push_descriptor {}{}, "
++             "VK_EXT_descriptor_buffer {}, VK_EXT_mutable_descriptor_type {}, "
++             "VK_EXT_descriptor_indexing {}",
++             has_push_descriptor ? "yes, maxPushDescriptors " : "no",
++             has_push_descriptor ? std::to_string(push_limits.maxPushDescriptors) : std::string(),
++             has_descriptor_buffer ? "yes" : "no", has_mutable_descriptor ? "yes" : "no",
++             has_descriptor_indexing ? "yes" : "no");
++    }
++  }
++#endif
++
+ #undef XE_UI_VULKAN_LIMIT
+ #undef XE_UI_VULKAN_ENUM_LIMIT
+ #undef XE_UI_VULKAN_FEATURE
+diff --git a/include/xbox360ps5/bindless_probe.hpp b/include/xbox360ps5/bindless_probe.hpp
+new file mode 100644
+index 0000000..c3eb2eb
+--- /dev/null
++++ b/include/xbox360ps5/bindless_probe.hpp
+@@ -0,0 +1,365 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 160 (docs/design/bindless.md, step B0): a diagnostics-only probe that decides
++// whether a bindless texture path, or push descriptors, would pay on the PS5. It changes nothing
++// the game sees. Off unless bindless-probe.txt in the title folder says "on"; the file is read once,
++// at start. With it on:
++//  - the device's descriptor indexing features are enabled (only for the start-up test) and logged
++//    with the limits and extensions a bindless path or push descriptors would use;
++//  - a start-up test runs the real path once (an update-after-bind heap, partially bound, a slot
++//    written while a submission is pending and one after the bind) and times sampling through a
++//    fixed binding, a dynamically uniform heap index and a non-uniform one;
++//  - every 30 s: the draws' binding counts against the push limits, the live image views and
++//    samplers, and the texture binding work by part (fix 142d's parts), timed on 1 draw in N.
++// GPU thread only, except the view counters (atomics).
++
++#ifndef XBOX360PS5_BINDLESS_PROBE_HPP_
++#define XBOX360PS5_BINDLESS_PROBE_HPP_
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace bindless_probe {
++
++struct Settings {
++  bool on = false;
++  uint32_t sample = 8;    // 1 draw in `sample` timed (1-1024)
++  bool heap_test = true;  // "heap-test off"
++  bool gpu_timing = true; // "gpu-timing off"
++};
++
++// Words, blanks between, "#" to the end of a line: on/1, off/0, "sample N", "heap-test off|on",
++// "gpu-timing off|on". Anything else is ignored.
++inline Settings Parse(const std::string& text) {
++  std::vector<std::string> words;
++  std::string word;
++  bool comment = false;
++  for (size_t i = 0; i <= text.size(); ++i) {
++    const char c = i < text.size() ? text[i] : '\n';
++    if (c == '\n') comment = false;
++    if (c == '#') comment = true;
++    if (comment || c == ' ' || c == '\t' || c == '\r' || c == '\n') {
++      if (!word.empty()) words.push_back(word);
++      word.clear();
++    } else {
++      word += c;
++    }
++  }
++  Settings s;
++  for (size_t i = 0; i < words.size(); ++i) {
++    const std::string& w = words[i];
++    const std::string value = i + 1 < words.size() ? words[i + 1] : std::string();
++    if (w == "on" || w == "1") {
++      s.on = true;
++    } else if (w == "off" || w == "0") {
++      s.on = false;
++    } else if (w == "sample" && !value.empty() && value.size() < 5 &&
++               value.find_first_not_of("0123456789") == std::string::npos) {
++      s.sample = std::clamp<uint32_t>(uint32_t(std::strtoul(value.c_str(), nullptr, 10)), 1, 1024);
++      ++i;
++    } else if ((w == "heap-test" || w == "gpu-timing") && (value == "on" || value == "off")) {
++      (w == "heap-test" ? s.heap_test : s.gpu_timing) = value == "on";
++      ++i;
++    }
++  }
++  return s;
++}
++
++// Read once (the first caller's path), then the same answer for the whole run.
++inline Settings& Current() {
++  static Settings settings;
++  return settings;
++}
++inline bool& Loaded() {
++  static bool loaded = false;
++  return loaded;
++}
++inline bool enabled = false;  // Current().on, for the per-draw test
++inline const Settings& Load(const char* path) {
++  if (!Loaded()) {
++    Loaded() = true;
++    std::string text;
++    if (FILE* file = std::fopen(path, "rb")) {
++      char buffer[1024];
++      const size_t got = std::fread(buffer, 1, sizeof(buffer), file);
++      std::fclose(file);
++      text.assign(buffer, got);
++      Current() = Parse(text);
++    }
++    enabled = Current().on;
++  }
++  return Current();
++}
++
++// What the device side enabled for the start-up test (vulkan_device.cc).
++struct DeviceSupport {
++  bool dynamic_indexing = false;     // shaderSampledImageArrayDynamicIndexing, enabled
++  bool update_after_bind = false;    // descriptorBindingSampledImageUpdateAfterBind, enabled
++  bool unused_while_pending = false; // descriptorBindingUpdateUnusedWhilePending, enabled
++  bool partially_bound = false;      // descriptorBindingPartiallyBound, enabled
++  bool non_uniform = false;          // shaderSampledImageArrayNonUniformIndexing, enabled
++  uint32_t max_push_descriptors = 0; // VK_KHR_push_descriptor's limit, 0 without it
++  uint32_t max_push_constants_size = 128;
++};
++inline DeviceSupport device_support;
++
++// The parts of a draw's texture binding work (fix 142d's names), timed on the sampled draws.
++enum Part : uint32_t {
++  kImageInfos = 0,  // texture image infos (stays with bindless: becomes the index lookup)
++  kReuseCheck,      // fix 104's check (goes)
++  kAllocate,        // set allocation and writes (goes)
++  kUpdate,          // vkUpdateDescriptorSets (goes)
++  kBind,            // binds (texture sets go, the constant set's rebind stays)
++  kTotal,           // the whole of UpdateBindings
++  kParts
++};
++inline const char* PartName(uint32_t part) {
++  static const char* const names[] = {"texture image infos", "texture set reuse check",
++                                      "set allocation and writes", "vkUpdateDescriptorSets",
++                                      "binds", "UpdateBindings in all"};
++  return part < kParts ? names[part] : "?";
++}
++
++// Image view kinds, as a heap would hold them in separate bindings.
++enum ViewKind : uint32_t { kView2DArray = 0, kView3D, kViewCube, kView3DAs2D, kViewKinds };
++inline const char* ViewKindName(uint32_t kind) {
++  static const char* const names[] = {"2D/2D array", "3D", "cube", "3D as 2D"};
++  return kind < kViewKinds ? names[kind] : "?";
++}
++
++struct Counters {
++  // Every draw (when on).
++  uint64_t draws = 0, timed = 0;
++  uint32_t max_vertex = 0, max_pixel = 0, max_both = 0;  // textures + samplers
++  uint32_t max_vertex_textures = 0, max_pixel_textures = 0, max_vertex_samplers = 0,
++           max_pixel_samplers = 0;
++  uint64_t over_push_descriptors = 0;  // a stage with more than maxPushDescriptors
++  uint64_t over_push_constants = 0;    // more 16-bit indices than maxPushConstantsSize holds
++  uint64_t vkupdate_calls = 0, vkupdate_descriptors = 0;  // on the timed draws
++  std::array<uint64_t, kParts> ticks{};                   // own ticks on the timed draws
++};
++
++class Probe {
++ public:
++  // Once per draw, at the start of UpdateBindings: whether this draw is timed (1 in `sample`).
++  bool BeginDraw(uint32_t sample) {
++    ++counters_.draws;
++    timed_ = SampleOneIn(sample);
++    counters_.timed += timed_;
++    return timed_;
++  }
++  // The draw's bindings by stage, against the push limits (0 descriptors: no push descriptors).
++  void CountBindings(uint32_t vertex_textures, uint32_t vertex_samplers, uint32_t pixel_textures,
++                     uint32_t pixel_samplers, uint32_t max_push_descriptors,
++                     uint32_t max_push_constants_size) {
++    Counters& c = counters_;
++    const uint32_t vertex = vertex_textures + vertex_samplers;
++    const uint32_t pixel = pixel_textures + pixel_samplers;
++    c.max_vertex = std::max(c.max_vertex, vertex);
++    c.max_pixel = std::max(c.max_pixel, pixel);
++    c.max_both = std::max(c.max_both, vertex + pixel);
++    c.max_vertex_textures = std::max(c.max_vertex_textures, vertex_textures);
++    c.max_pixel_textures = std::max(c.max_pixel_textures, pixel_textures);
++    c.max_vertex_samplers = std::max(c.max_vertex_samplers, vertex_samplers);
++    c.max_pixel_samplers = std::max(c.max_pixel_samplers, pixel_samplers);
++    if (max_push_descriptors && (vertex > max_push_descriptors || pixel > max_push_descriptors))
++      ++c.over_push_descriptors;
++    if (vertex + pixel > max_push_constants_size / 2) ++c.over_push_constants;
++  }
++  bool timed() const { return timed_; }
++  // A part's own ticks, from two marks (ticks minus nested sections' ticks).
++  void Stop(uint32_t part, uint64_t mark_then, uint64_t mark_now) {
++    if (!timed_ || part >= kParts || !mark_then) return;
++    counters_.ticks[part] += mark_now > mark_then ? mark_now - mark_then : 0;
++  }
++  void CountUpdate(uint32_t descriptors) {
++    if (!timed_) return;
++    ++counters_.vkupdate_calls;
++    counters_.vkupdate_descriptors += descriptors;
++  }
++  // The counters since the last call, and a fresh start.
++  Counters Take() {
++    Counters taken = counters_;
++    counters_ = Counters();
++    return taken;
++  }
++
++ private:
++  bool SampleOneIn(uint32_t every) {
++    if (every <= 1) return true;
++    uint32_t x = state_;
++    x ^= x << 13;
++    x ^= x >> 17;
++    x ^= x << 5;
++    state_ = x;
++    return x % every == 0;
++  }
++  Counters counters_;
++  uint32_t state_ = 0x2545F491u;  // its own, so fix 73's sampled draws stay as they were
++  bool timed_ = false;
++};
++inline Probe probe;
++
++// Image views and samplers made and destroyed (the texture cache; atomics).
++struct Objects {
++  std::array<std::atomic<uint64_t>, kViewKinds> views_made{}, views_destroyed{};
++  std::array<std::atomic<uint64_t>, kViewKinds> views_peak{};
++  std::atomic<uint64_t> samplers_made{0}, samplers_destroyed{0}, samplers_peak{0};
++};
++inline Objects objects;
++inline void Peak(std::atomic<uint64_t>& peak, uint64_t live) {
++  uint64_t seen = peak.load(std::memory_order_relaxed);
++  while (live > seen && !peak.compare_exchange_weak(seen, live, std::memory_order_relaxed)) {
++  }
++}
++inline void ViewMade(uint32_t kind) {
++  if (!enabled || kind >= kViewKinds) return;
++  const uint64_t made = objects.views_made[kind].fetch_add(1, std::memory_order_relaxed) + 1;
++  const uint64_t destroyed = objects.views_destroyed[kind].load(std::memory_order_relaxed);
++  Peak(objects.views_peak[kind], made > destroyed ? made - destroyed : 0);
++}
++inline void ViewDestroyed(uint32_t kind, uint64_t count = 1) {
++  if (!enabled || kind >= kViewKinds || !count) return;
++  objects.views_destroyed[kind].fetch_add(count, std::memory_order_relaxed);
++}
++inline void SamplerMade() {
++  if (!enabled) return;
++  const uint64_t made = objects.samplers_made.fetch_add(1, std::memory_order_relaxed) + 1;
++  const uint64_t destroyed = objects.samplers_destroyed.load(std::memory_order_relaxed);
++  Peak(objects.samplers_peak, made > destroyed ? made - destroyed : 0);
++}
++inline void SamplerDestroyed() {
++  if (!enabled) return;
++  objects.samplers_destroyed.fetch_add(1, std::memory_order_relaxed);
++}
++
++// The probe's own cost per draw, measured at start (ns): a draw counted, and a timed draw's marks.
++struct OwnCost {
++  double draw_ns = 0, timed_ns = 0;
++};
++inline OwnCost own_cost;
++
++// The 30 s line. `ns_per_tick` converts the parts' ticks; `executing_ns` is the GPU thread's
++// executing time over the same window (fix 49), for the shares.
++struct Window {
++  double seconds = 30;
++  double ns_per_tick = 1;
++  uint64_t executing_ns = 0;
++  uint32_t max_push_descriptors = 0;
++  uint32_t max_push_constants_size = 128;
++  std::array<uint64_t, kViewKinds> views_live{}, views_peak{}, views_made{}, views_destroyed{};
++  uint64_t samplers_live = 0, samplers_peak = 0, samplers_made = 0, samplers_destroyed = 0;
++};
++struct Summary {
++  double draws_s = 0;
++  std::array<double, kParts> ms_s{};
++  double bindless_ms_s = 0, push_ms_s = 0;    // what each would remove (upper bounds)
++  double bindless_share = 0, push_share = 0;  // of the GPU thread's executing time
++  double over_push_descriptors = 0, over_push_constants = 0;  // shares of draws
++  double own_ms_s = 0;
++};
++inline Summary Summarize(const Counters& c, const Window& w) {
++  Summary s;
++  const double seconds = w.seconds > 0 ? w.seconds : 1;
++  s.draws_s = double(c.draws) / seconds;
++  const double scale = c.timed ? double(c.draws) / double(c.timed) : 0.0;
++  for (uint32_t n = 0; n < kParts; ++n)
++    s.ms_s[n] = double(c.ticks[n]) * scale * w.ns_per_tick / 1e6 / seconds;
++  s.push_ms_s = s.ms_s[kReuseCheck] + s.ms_s[kAllocate] + s.ms_s[kUpdate];
++  s.bindless_ms_s = s.push_ms_s + s.ms_s[kBind];
++  const double executing_ms_s = double(w.executing_ns) / 1e6 / seconds;
++  s.bindless_share = executing_ms_s > 0 ? s.bindless_ms_s / executing_ms_s : 0.0;
++  s.push_share = executing_ms_s > 0 ? s.push_ms_s / executing_ms_s : 0.0;
++  s.over_push_descriptors = c.draws ? double(c.over_push_descriptors) / double(c.draws) : 0.0;
++  s.over_push_constants = c.draws ? double(c.over_push_constants) / double(c.draws) : 0.0;
++  s.own_ms_s = (double(c.draws) * own_cost.draw_ns + double(c.timed) * own_cost.timed_ns) / 1e6 /
++               seconds;
++  return s;
++}
++inline std::string Line(const Counters& c, const Window& w) {
++  const Summary s = Summarize(c, w);
++  const double seconds = w.seconds > 0 ? w.seconds : 1;
++  std::string views;
++  for (uint32_t k = 0; k < kViewKinds; ++k) {
++    char item[128];
++    std::snprintf(item, sizeof(item), "%s%s %llu (peak %llu)", k ? ", " : "", ViewKindName(k),
++                  static_cast<unsigned long long>(w.views_live[k]),
++                  static_cast<unsigned long long>(w.views_peak[k]));
++    views += item;
++  }
++  uint64_t made = 0, destroyed = 0;
++  for (uint32_t k = 0; k < kViewKinds; ++k) {
++    made += w.views_made[k];
++    destroyed += w.views_destroyed[k];
++  }
++  std::string parts;
++  for (uint32_t n = 0; n < kParts; ++n) {
++    char item[96];
++    std::snprintf(item, sizeof(item), "%s%s %.1f ms/s", n ? ", " : "", PartName(n), s.ms_s[n]);
++    parts += item;
++  }
++  char push_descriptors[96];
++  if (w.max_push_descriptors) {
++    std::snprintf(push_descriptors, sizeof(push_descriptors), "%.2f%% of draws over %u a stage",
++                  s.over_push_descriptors * 100.0, w.max_push_descriptors);
++  } else {
++    std::snprintf(push_descriptors, sizeof(push_descriptors), "not available");
++  }
++  char text[2048];
++  std::snprintf(
++      text, sizeof(text),
++      "Bindless probe, last 30 s (fix 160, 1 draw in %llu timed): %.0f draws/s; bindings a draw "
++      "(textures + samplers) at most: vertex %u (%u + %u), pixel %u (%u + %u), both %u; push "
++      "descriptors: %s; a push-constant index table (%u bytes, 16-bit indices): %.2f%% of draws "
++      "over; live image views: %s; views made %.1f/s, destroyed %.1f/s; samplers live %llu (peak "
++      "%llu), made %.1f/s, destroyed %.1f/s; texture binding work: %s; bindless would remove up to "
++      "%.1f ms/s (%.1f%% of the GPU thread's %.0f ms/s), push descriptors up to %.1f ms/s (%.1f%%); "
++      "vkUpdateDescriptorSets %.1f descriptors a call; the probe's own cost about %.1f ms/s",
++      static_cast<unsigned long long>(c.timed ? (c.draws + c.timed / 2) / c.timed : 0), s.draws_s,
++      c.max_vertex, c.max_vertex_textures, c.max_vertex_samplers, c.max_pixel,
++      c.max_pixel_textures, c.max_pixel_samplers, c.max_both, push_descriptors,
++      w.max_push_constants_size, s.over_push_constants * 100.0, views.c_str(),
++      double(made) / seconds, double(destroyed) / seconds,
++      static_cast<unsigned long long>(w.samplers_live),
++      static_cast<unsigned long long>(w.samplers_peak), double(w.samplers_made) / seconds,
++      double(w.samplers_destroyed) / seconds, parts.c_str(), s.bindless_ms_s,
++      s.bindless_share * 100.0, double(w.executing_ns) / 1e6 / seconds, s.push_ms_s,
++      s.push_share * 100.0,
++      c.vkupdate_calls ? double(c.vkupdate_descriptors) / double(c.vkupdate_calls) : 0.0,
++      s.own_ms_s);
++  return text;
++}
++
++// The start-up heap test's expected results, in the order the test writes them (one RGBA color a
++// slot of the output): the checks are made against these, and the log names the one that failed.
++struct HeapCheck {
++  const char* what;
++  float expected[4];
++};
++inline const std::array<HeapCheck, 6>& HeapChecks() {
++  static const std::array<HeapCheck, 6> checks = {{
++      {"heap slot 7, written before the bind", {1, 0, 0, 1}},
++      {"slot 40000, written while an earlier submission was pending", {0, 1, 0, 1}},
++      {"slot 50000, written after the bind was recorded", {0, 0, 1, 1}},
++      {"slot 7 again, rewritten after its last use completed", {1, 1, 0, 1}},
++      {"a non-uniform index (slots 100-107)", {1, 0, 0, 1}},
++      {"a fixed binding (today's path)", {1, 0, 0, 1}},
++  }};
++  return checks;
++}
++inline bool Near(const float* got, const float* expected) {
++  for (int i = 0; i < 4; ++i)
++    if (got[i] < expected[i] - 0.01f || got[i] > expected[i] + 0.01f) return false;
++  return true;
++}
++
++}  // namespace bindless_probe
++}  // namespace xbox360ps5
++
++#endif  // XBOX360PS5_BINDLESS_PROBE_HPP_

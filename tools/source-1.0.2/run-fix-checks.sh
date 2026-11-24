@@ -178,6 +178,7 @@ checks=(
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
+  check-bindless-probe.cpp         # fix 160
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -343,6 +344,7 @@ declare -A fix_of=(
   [check-xma-trace.cpp]="155 155b"
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
+  [check-bindless-probe.cpp]=160
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -377,7 +379,7 @@ done
 # as XeniaHelpers.cmake runs it at the compile), where glslangValidator, spirv-opt and spirv-dis are on
 # the PATH (the source build installs the Vulkan SDK's before these checks); a shader error then shows
 # here instead of in the compile.
-echo "=== fix 137, 141 and 145 shaders (glslangValidator)"
+echo "=== fix 137, 141, 145 and 160 shaders (glslangValidator)"
 if [[ " $skipped_fixes " == *" 137 "* ]]; then
   echo "skip fix 137 shaders (fix 137 left out of this build)"
 elif ! command -v glslangValidator > /dev/null || ! command -v spirv-opt > /dev/null || ! command -v spirv-dis > /dev/null; then
@@ -393,6 +395,10 @@ else
   # Fix 145: SMAA 1x's three passes (with the pinned third_party/smaa/SMAA.hlsl).
   if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/smaa_edge.ps.glsl" ]]; then
     shader_list+=" smaa_edge.ps.glsl smaa_weight.ps.glsl smaa_blend.ps.glsl"
+  fi
+  # Fix 160: the bindless probe's compute shaders (fixed binding, uniform and non-uniform index).
+  if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/bindless_probe_uniform.cs.glsl" ]]; then
+    shader_list+=" bindless_probe_fixed.cs.glsl bindless_probe_uniform.cs.glsl bindless_probe_nonuniform.cs.glsl"
   fi
   for shader in $shader_list; do
     # fxaa.ps.glsl -> fxaa_ps.h, as XeniaHelpers.cmake names it.

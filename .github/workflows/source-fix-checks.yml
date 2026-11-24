@@ -187,6 +187,7 @@ on:
       - 'tools/check-xma-trace.cpp'
       - 'tools/check-xma-progress.cpp'
       - 'tools/check-gta5-audio-patch.cpp'
+      - 'tools/check-bindless-probe.cpp'
       - 'assets/patches/**'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
