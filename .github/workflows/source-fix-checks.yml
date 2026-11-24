@@ -185,6 +185,7 @@ on:
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
       - 'tools/check-nui-elevation.cpp'
+      - 'tools/check-pscam-state.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
