@@ -47,7 +47,8 @@ homebrew catalog does not list an app whose name contains the name of an app it 
 so the fork, PS5X360Reloaded until v1.0.5, needed a name of its own. What changed and what did not:
 
 - The home screen tile, its icon and backgrounds, the home screen label (**TrinityX360 v1.0.6**),
-  the guide, notifications, the web settings and phone camera pages say TrinityX360.
+  the guide, notifications, the web settings and phone camera pages say TrinityX360, and the
+  emulator's home screen shows TrinityX360's pictures in place of the PS5X360 logo.
 - The title id is still **`PPSA83600`** and the data folder `/data/homebrew/PPSA83600`. Install
   v1.0.6 over PS5X360Reloaded as you would any update: the console keeps one tile, and your saves,
   settings (`/download0`), game folders and caches stay.

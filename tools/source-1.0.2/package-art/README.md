@@ -23,3 +23,21 @@ images with a red "RELOADED" plate stamped on them.
 | `icon0.png` | `sce_sys/icon0.png` | 512x512 | `7b55e75d4293b5bbb01b40c5831855bb626cab80d149a7a01f4c2adeecf7b26f` |
 | `pic0.png` | `sce_sys/pic0.png` | 3840x2160 | `e0541c1987d983bb50ca04eb7b2c653afc4316f63d84620c7017cdacbfe5d350` |
 | `pic1.png` | `sce_sys/pic1.png` | 1920x1080 | `d25b1bb70a158f1a07825a3b5bf0633469af8ae62e5cd791f004db9d54b90a62` |
+
+## The home screen's pictures (`skin/`)
+
+The official package's `assets/skin` has four pictures with the PS5X360 logo, which the home screen
+draws (`port/kinect_home.inc`, `port/kinect_state.inc`; `assets/skin-dark` has none of them, so the
+dark theme draws these too). TrinityX360 shows no logo of the project it is based on, so
+`package.py` (`ART`) replaces them with these, drawn by `make_art.py` (into `<out>/skin`) in the
+same style, at the official names, sizes and formats; `stage-reloaded-candidate.py` copies the same
+`ART` files into console test images. `package.py` refuses a package with any file that is one of
+the official logo pictures (`OFFICIAL_LOGOS`, by SHA-256). The other skin pictures (icons, slots,
+background, Kinect wave) carry no logo and stay the official ones.
+
+| File | Package path | Size | Was | SHA-256 |
+|---|---|---|---|---|
+| `skin/xbox-logo.png` | `assets/skin/xbox-logo.png` | 300x196 RGBA PNG | the PS5X360 logo (the "Online" slot) | `df0939abce9b60cef25586051b050830ee0dac83c31f5db46b1412e01f0fb534` |
+| `skin/basics.jpg` | `assets/skin/basics.jpg` | 420x200 JPEG | PS5X360's X on a plate (the "Original dashboard" slot) | `8ce47a0083e137829dfd0a937b013fce92c549e928eeb765687dee131525bafa` |
+| `skin/ball.png` | `assets/skin/ball.png` | 96x96 RGBA PNG | the X in a green ring (the home's corner orb) | `f02d6eefdd69c58dca4d925ecbd8a77fcb2045a4f70456444b209f639f973aa3` |
+| `skin/ball-glow.png` | `assets/skin/ball-glow.png` | 96x96 RGBA PNG | the orb's glow with the X | `ac14d7d75fe9c0715768e0e3882d971340b3870fa0372fab4a9dbafcb69c4aaf` |

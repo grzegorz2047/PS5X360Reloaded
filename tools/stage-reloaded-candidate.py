@@ -102,6 +102,15 @@ def main():
         param.write_bytes(package.param_json(param.read_bytes()))
     for target, data in package.art_files().items():
         (app / target).write_bytes(data)
+    # No picture of the official package's PS5X360 logo stays in the image (package.py's
+    # OFFICIAL_LOGOS; an older package.py without it checks nothing).
+    logos = getattr(package, 'OFFICIAL_LOGOS', {})
+    if logos:
+        import hashlib
+        left = sorted(str(f.relative_to(app)) for f in (app / 'assets').rglob('*')
+                      if f.is_file() and hashlib.sha256(f.read_bytes()).hexdigest() in logos)
+        if left:
+            sys.exit(f'the stage still has the official PS5X360 logo pictures: {", ".join(left)}')
     for name, count in package.DOC_RENAMES:
         f = app / name
         data = f.read_bytes()

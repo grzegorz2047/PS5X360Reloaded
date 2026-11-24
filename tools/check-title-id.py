@@ -25,6 +25,8 @@ when the tree has the core):
       product, and its old name, still known so that it is moved); no string literal names
       PS5X360Reloaded but as a folder (".../PS5X360Reloaded", "PS5X360Reloaded/saves"), a fix
       note in the phone pages' comments, or the old name of a certificate a phone may still have (OLD_NAME_ALLOWED);
+      the home screen's sources (HOME_SOURCES) have no string literal naming PS5X360 but the About
+      text's credit and log lines;
   (e) the import runs before the saves are prepared and before the settings are read;
   (f) english/lang: no "PPSA50011", and no key that fix 46 or the rename to TrinityX360 renames
       (english/rekey.py RENAMES).
@@ -75,6 +77,10 @@ OLD_NAME_ALLOWED = [
     re.compile(r'\((?:or|ou|o|lub) PS5X360Reloaded\)'),
     re.compile(r'\((?:or|ou|o|lub) ["\u201e]PS5X360Reloaded Kinect camera["\u201d]\)'),
 ]
+# The home screen's sources (the launcher and the Kinect-era home) and the literals in them that may
+# name PS5X360: the About text's credit to the project TrinityX360 is based on, and log lines.
+HOME_SOURCES = ('src/launcher.cpp', 'port/kinect_home.inc', 'port/kinect_state.inc')
+HOME_ALLOWED = (' PS5X360 (BrinooTk) ', 'Home: ')
 # (file, the official text, the app's): the first must be gone and the second there.
 RENAMED = [
     ('include/xbox360ps5/build_version.hpp', '"PS5X360 v" XBOX360PS5_VERSION', 'XBOX360PS5_PRODUCT_NAME " v" XBOX360PS5_VERSION'),
@@ -265,6 +271,20 @@ def check(tree, problems):
                                   f'(the name is {PRODUCT}; a folder: XBOX360PS5_FOLDER_NAME)')
     print(f'(d) name: {len(RENAMED)} texts renamed, the camera instructions name the certificate, {kept} kept; '
           f'{OLD_NAME} only as a folder, a fix note or an old certificate ({old_literals} other)')
+    # The home screen draws no text of the project it is based on: in its sources, a literal naming
+    # PS5X360 is only the About text's credit or a log line (TrinityX360 comes from the macro).
+    home_literals = 0
+    for rel in HOME_SOURCES:
+        text = files.get(rel)
+        if text is None:
+            problems.add('d', f'{rel} missing')
+            continue
+        for tok in rekey.lex(text, rel):
+            if tok.kind == 'str' and 'PS5X360' in tok.value and not tok.value.startswith(HOME_ALLOWED):
+                home_literals += 1
+                problems.add('d', f'{rel}:{rekey.line_of(text, tok.start)}: the home screen would show '
+                                  f'{tok.value[:80]!r}')
+    print(f'(d) home screen: no PS5X360 text but the About credit and log lines ({home_literals} other)')
     # (e) the import's place in the start.
     main = files.get('src/canary_game_main.cpp', '')
     run = main.find('official_import::Run(')

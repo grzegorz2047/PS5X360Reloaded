@@ -87,6 +87,23 @@ RELEASE_PARAM = (OFFICIAL_PARAM.replace(b'"conceptId": "50011"', b'"conceptId": 
                   .replace(b'"UP9000-PPSA50011_00-XBOX360PS5M80001"', b'"UP9000-PPSA83600_00-PS5X360RELOADED0"')
                   .replace(b'"titleName": "PS5X360"', b'"titleName": "TrinityX360"')
                   .replace(b'"titleId": "PPSA50011"', b'"titleId": "PPSA83600"'))
+# The home screen's pictures that carried the PS5X360 logo, replaced by TrinityX360's
+# (package-art/skin): file, path in the package, (width, height), SHA-256 of the replacement, and the
+# official file's SHA-256 that must never ship.
+SKIN = [
+    ('skin/xbox-logo.png', 'assets/skin/xbox-logo.png', (300, 196),
+     'df0939abce9b60cef25586051b050830ee0dac83c31f5db46b1412e01f0fb534',
+     '4ac0244cee08eaa882b5757dd276c746f25aedb1d77c19b739cfedc589eb8ca5'),
+    ('skin/basics.jpg', 'assets/skin/basics.jpg', (420, 200),
+     '8ce47a0083e137829dfd0a937b013fce92c549e928eeb765687dee131525bafa',
+     'b4ce6c522ae9f6dc591ab195319b5d0bb21ecdced746b495526d4e68664d1a4e'),
+    ('skin/ball.png', 'assets/skin/ball.png', (96, 96),
+     'f02d6eefdd69c58dca4d925ecbd8a77fcb2045a4f70456444b209f639f973aa3',
+     'e527495051d09032e624431288a7c0a5e8f4e6c4ca25975460d4c409a34d9654'),
+    ('skin/ball-glow.png', 'assets/skin/ball-glow.png', (96, 96),
+     'ac14d7d75fe9c0715768e0e3882d971340b3870fa0372fab4a9dbafcb69c4aaf',
+     'a04d79843ac04e7417b336bc6e3a7a788ebc335cee776d91778703aa33545d89'),
+]
 # The reviewed TrinityX360 art (package-art/make_art.py): file, (width, height), SHA-256.
 ART = {'icon0.png': ((512, 512), '7b55e75d4293b5bbb01b40c5831855bb626cab80d149a7a01f4c2adeecf7b26f'),
        'pic0.png': ((3840, 2160), 'e0541c1987d983bb50ca04eb7b2c653afc4316f63d84620c7017cdacbfe5d350'),
@@ -176,6 +193,14 @@ def base_files():
         B + 'sce_sys/icon0.png': b'\x89PNG official icon0',
         B + 'sce_sys/pic0.png': b'\x89PNG official pic0',
         B + 'sce_sys/pic1.png': b'\x89PNG official pic1',
+        # The home screen's pictures: the four with the PS5X360 logo are replaced (SKIN), the
+        # others (an icon, the dark theme's) stay as they are.
+        B + 'assets/skin/xbox-logo.png': b'\x89PNG official PS5X360 logo',
+        B + 'assets/skin/basics.jpg': b'\xff\xd8\xff official X plate',
+        B + 'assets/skin/ball.png': b'\x89PNG official X orb',
+        B + 'assets/skin/ball-glow.png': b'\x89PNG official X glow',
+        B + 'assets/skin/icon-games.png': b'\x89PNG official controller icon',
+        B + 'assets/skin-dark/slot.jpg': b'\xff\xd8\xff official dark slot',
     }
     files.update(OFFICIAL_DOCS)
     for name, data in PORTUGUESE.items():
@@ -303,7 +328,25 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
         assert (int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')) == size, name
         assert data[24:26] == b'\x08\x02', name  # 8-bit RGB, as the official files
         assert f'`{name}`' in readme and digest in readme, name
-    assert [(n, s, d) for n, _, s, d in package.ART] == [(n, s, d) for n, (s, d) in ART.items()]
+    # The home screen's pictures with the PS5X360 logo: TrinityX360's, at the official sizes and
+    # formats; never the official bytes; the other skin pictures as the base has them.
+    for name, target, size, digest, official in SKIN:
+        data = files[P + target]
+        assert data == (REPO / 'tools/source-1.0.2/package-art' / name).read_bytes(), name
+        assert sha(data) == digest and data != base[B + target], name
+        if name.endswith('.jpg'):
+            assert data[:3] == b'\xff\xd8\xff' and package.jpeg_size(data) == size, name
+        else:
+            assert package.png_size(data) == size and data[25] == 6, name  # RGBA, as the official files
+        assert package.OFFICIAL_LOGOS[official] == target and digest not in package.OFFICIAL_LOGOS, name
+        assert f'`{name}`' in readme and digest in readme, name
+    assert files[P + 'assets/skin/icon-games.png'] == base[B + 'assets/skin/icon-games.png']
+    assert files[P + 'assets/skin-dark/slot.jpg'] == base[B + 'assets/skin-dark/slot.jpg']
+    assert set(package.OFFICIAL_LOGOS) == {official for *_, official in SKIN}
+    assert package.official_logo_problems(files) == []
+    assert [(n, s, d) for n, _, s, d in package.ART] == \
+        [(n, s, d) for n, (s, d) in ART.items()] + [(n, s, d) for n, _, s, d, _ in SKIN]
+    assert [t for n, t, s, d in package.ART if n.startswith('skin/')] == [t for _, t, *_ in SKIN]
     # English-keyed language files, as built; nothing Portuguese-keyed merged in.
     for name, data in LANG.items():
         assert files[P + 'assets/lang/' + name] == data, name
@@ -582,8 +625,20 @@ def main():
         refused('package-art/pic0.png is not the reviewed file')
         package.ART = [(n, t, (256, 256) if n == 'icon0.png' else s, d) for n, t, s, d in art]
         refused('package-art/icon0.png is not a 256x256 PNG')
+        package.ART = [(n, t, (420, 201) if n == 'skin/basics.jpg' else s, d) for n, t, s, d in art]
+        refused('package-art/skin/basics.jpg is not a 420x201 JPEG')
     finally:
         package.ART = art
+    # A logo picture anywhere in the package (here: the official bytes under another name, as a
+    # base with a copy in skin-dark would have) stops the packaging; so does an ART file that is one.
+    logos = package.OFFICIAL_LOGOS
+    try:
+        package.OFFICIAL_LOGOS = dict(logos, **{sha(b'\xff\xd8\xff official dark slot'): 'assets/skin/basics.jpg'})
+        refused('files that are the official PS5X360 logo pictures: PPSA83600/assets/skin-dark/slot.jpg')
+        package.OFFICIAL_LOGOS = dict(logos, **{SKIN[2][3]: 'assets/skin/ball.png'})
+        refused('package-art/skin/ball.png is the official PS5X360 logo picture')
+    finally:
+        package.OFFICIAL_LOGOS = logos
     # The label package.py wants is the one check_release_elf.py checks after the link.
     assert package.HOME_LABEL == check_release_elf.LABELS[0] == b'TrinityX360 v'
     assert check_release_elf.OLD_LABELS == (b'PS5X360 v', b'PS5X360Reloaded v')

@@ -9,7 +9,9 @@ A (--variant a, a preview only, with --out elsewhere) keeps the style of the art
 white and green "X" of two slanted bars on black with the name under it. Both are drawn here from
 shapes and Noto Sans SemiBold (assets/fonts, SIL Open Font License); no pixel of the official art
 is used, and no Xbox or PlayStation logo, shape or typeface: colours only.
-Also the README banner (docs/images/banner.png, 2172x724) with --banner.
+Also the README banner (docs/images/banner.png, 2172x724) with --banner, and (variant B) the home
+screen's pictures that carried the PS5X360 logo, in <out>/skin: xbox-logo.png 300x196, basics.jpg
+420x200, ball.png and ball-glow.png 96x96 (package.py ships them as assets/skin/...).
 
 Needs Pillow. package.py pins the committed files by SHA-256 (package-art/README.md); another
 Pillow or FreeType version can draw slightly different bytes, so after running this script the
@@ -261,6 +263,95 @@ def b_banner(width=2172, height=724):
     return image
 
 
+# ---- The home screen's own pictures that carried the PS5X360 logo (assets/skin of the official
+# package; kinect_home.inc and kinect_state.inc draw them; skin-dark has none of them, so both themes
+# use these): the same names, sizes and formats, in variant B's style.
+
+def b_name_layer(width, scale=4):
+    """"Trinity" white + "X360" green on a transparent layer, width wide."""
+    font, _ = fit_font(FONT, 'TrinityX360', width * scale, 0.0)
+    probe = ImageDraw.Draw(Image.new('L', (1, 1)))
+    first = probe.textlength('Trinity', font=font)
+    box = probe.textbbox((0, 0), 'TrinityX360', font=font)
+    layer = Image.new('RGBA', (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    draw.text((-box[0], -box[1]), 'Trinity', font=font, fill=WHITE)
+    draw.text((first - box[0], -box[1]), 'X360', font=font, fill=B_GREEN_TEXT)
+    return layer.resize((max(1, round(layer.width / scale)), max(1, round(layer.height / scale))), Image.LANCZOS)
+
+
+def b_rings_small(size, centre, radius, scale=4):
+    """The rings on a transparent layer of size, drawn at scale times and scaled down."""
+    big = (size[0] * scale, size[1] * scale)
+    layer = b_rings(big, (centre[0] * scale, centre[1] * scale), radius * scale, max(scale, round(radius * scale * 0.16)))
+    return layer.resize(size, Image.LANCZOS)
+
+
+def skin_logo(width=300, height=196):
+    """xbox-logo.png: the "Online" slot's picture (was the PS5X360 logo): the rings and the name,
+    transparent around them."""
+    image = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    image.alpha_composite(b_rings_small((width, height), (width / 2, height * 0.36), height * 0.22))
+    name = b_name_layer(width * 0.86)
+    image.alpha_composite(name, (round((width - name.width) / 2), round(height * 0.80 - name.height / 2)))
+    return image
+
+
+def skin_basics(width=420, height=200):
+    """basics.jpg: the "Original dashboard" slot's picture (was PS5X360's X on a plate): the rings
+    on the navy gradient with their light."""
+    image = gradient((width, height), B_TOP, B_BOTTOM)
+    halo = Image.new('RGB', (width, height), (0, 0, 0))
+    r = height * 0.45
+    ImageDraw.Draw(halo).ellipse([width / 2 - r, height / 2 - r, width / 2 + r, height / 2 + r], fill=(20, 44, 78))
+    image = ImageChops.add(image, halo.filter(ImageFilter.GaussianBlur(r * 0.5)))
+    rings = b_rings_small((width, height), (width / 2, height * 0.52), height * 0.27)
+    image.paste(rings, (0, 0), rings)
+    return image
+
+
+def skin_ball(size=96, scale=4):
+    """ball.png: the orb in the home's corner (was PS5X360's X in a green ring): a navy disc with a
+    green rim and the rings inside."""
+    big = size * scale
+    disc = Image.new('RGBA', (big, big), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(disc)
+    pad = 2 * scale
+    draw.ellipse([pad, pad, big - pad, big - pad], fill=B_TOP + (255,), outline=B_RINGS[2] + (255,), width=4 * scale)
+    disc = disc.resize((size, size), Image.LANCZOS)
+    disc.alpha_composite(b_rings_small((size, size), (size / 2, size * 0.52), size * 0.19))
+    return disc
+
+
+def skin_ball_glow(size=96):
+    """ball-glow.png: the orb's pulsing light (was a green glow with PS5X360's X): a soft
+    blue-green glow with the rings faint in it."""
+    glow = Image.new('L', (size, size), 0)
+    r = size * 0.30
+    ImageDraw.Draw(glow).ellipse([size / 2 - r, size / 2 - r, size / 2 + r, size / 2 + r], fill=210)
+    glow = glow.filter(ImageFilter.GaussianBlur(size * 0.12))
+    image = Image.new('RGBA', (size, size), (70, 190, 150, 0))
+    image.putalpha(glow)
+    rings = b_rings_small((size, size), (size / 2, size * 0.52), size * 0.19)
+    rings.putalpha(rings.getchannel('A').point(lambda v: v * 2 // 5))
+    image.alpha_composite(rings)
+    return image
+
+
+SKIN = {'xbox-logo.png': skin_logo, 'basics.jpg': skin_basics, 'ball.png': skin_ball, 'ball-glow.png': skin_ball_glow}
+
+
+def write_skin(folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    for name, make in SKIN.items():
+        image = make()
+        if name.endswith('.jpg'):
+            image.convert('RGB').save(folder / name, quality=92, optimize=True)
+        else:
+            image.save(folder / name, optimize=True)
+        print('wrote', folder / name, image.size, image.mode)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', type=Path, default=HERE)
@@ -272,6 +363,8 @@ def main():
     if args.variant == 'a' and args.out.resolve() == HERE:
         parser.error('variant a is a preview: give --out <another folder>')
     make = {'a': (icon, picture, banner), 'b': (b_icon, b_picture, b_banner)}[args.variant]
+    if args.variant == 'b':
+        write_skin(args.out / 'skin')
     args.out.mkdir(parents=True, exist_ok=True)
     for name, image in (('icon0.png', make[0]()), ('pic0.png', make[1](3840, 2160)),
                         ('pic1.png', make[1](1920, 1080))):

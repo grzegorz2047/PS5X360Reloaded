@@ -20,8 +20,11 @@ installed app and keeps its saves. This script:
     "%02d.%03d.000" % (X, Y * 100 + Z), so 1.0.4 -> 01.004.000), which must be higher than the
     base's and than every contentVersion already shipped (SHIPPED_CONTENT_VERSIONS); every other
     field (masterVersion included) and the file's layout (key order, indent, CRLF) stay the base's;
-  * replaces sce_sys/icon0.png, pic0.png and pic1.png with the TrinityX360 art in
-    tools/source-1.0.2/package-art (checked by SHA-256 and size, see its README.md);
+  * replaces sce_sys/icon0.png, pic0.png and pic1.png, and the home screen's four pictures with the
+    PS5X360 logo (assets/skin/xbox-logo.png, basics.jpg, ball.png, ball-glow.png), with the
+    TrinityX360 art in tools/source-1.0.2/package-art (checked by SHA-256 and size, see its
+    README.md), and refuses a
+    package with any file that is one of the official logo pictures (OFFICIAL_LOGOS);
   * replaces the official user docs that name its folder PPSA50011 (tools/source-1.0.2/package-docs,
     see its README.md): INSTALLATION.md with TrinityX360's own, RELEASE_NOTES.md with
     docs/release-notes/v<version>.md, dlc/README.md and updates/README.md with the folder
@@ -134,7 +137,27 @@ ART = [
      'e0541c1987d983bb50ca04eb7b2c653afc4316f63d84620c7017cdacbfe5d350'),
     ('pic1.png', 'sce_sys/pic1.png', (1920, 1080),
      'd25b1bb70a158f1a07825a3b5bf0633469af8ae62e5cd791f004db9d54b90a62'),
+    # The home screen's own pictures that carried the PS5X360 logo (kinect_home.inc, kinect_state.inc;
+    # skin-dark has none of them, so both themes draw these): TrinityX360's, same names, sizes and
+    # formats (package-art/skin, make_art.py).
+    ('skin/xbox-logo.png', 'assets/skin/xbox-logo.png', (300, 196),
+     'df0939abce9b60cef25586051b050830ee0dac83c31f5db46b1412e01f0fb534'),
+    ('skin/basics.jpg', 'assets/skin/basics.jpg', (420, 200),
+     '8ce47a0083e137829dfd0a937b013fce92c549e928eeb765687dee131525bafa'),
+    ('skin/ball.png', 'assets/skin/ball.png', (96, 96),
+     'f02d6eefdd69c58dca4d925ecbd8a77fcb2045a4f70456444b209f639f973aa3'),
+    ('skin/ball-glow.png', 'assets/skin/ball-glow.png', (96, 96),
+     'ac14d7d75fe9c0715768e0e3882d971340b3870fa0372fab4a9dbafcb69c4aaf'),
 ]
+# SHA-256 of the official package's pictures with the PS5X360 logo (assets/skin of PPSA50011.zip
+# v1.0.2): xbox-logo.png, basics.jpg, ball.png, ball-glow.png. No file of the package may be one
+# of them (TrinityX360 shows no logo of the project it is based on); build() checks it.
+OFFICIAL_LOGOS = {
+    '4ac0244cee08eaa882b5757dd276c746f25aedb1d77c19b739cfedc589eb8ca5': 'assets/skin/xbox-logo.png',
+    'b4ce6c522ae9f6dc591ab195319b5d0bb21ecdced746b495526d4e68664d1a4e': 'assets/skin/basics.jpg',
+    'e527495051d09032e624431288a7c0a5e8f4e6c4ca25975460d4c409a34d9654': 'assets/skin/ball.png',
+    'a04d79843ac04e7417b336bc6e3a7a788ebc335cee776d91778703aa33545d89': 'assets/skin/ball-glow.png',
+}
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 # The package's files the repository also carries, at its root, in the commit a release tag points
 # at: homebrew catalogs and stores (github.com/darkxex/ps5-homebrew-catalog, docs/versioning.md)
@@ -318,16 +341,43 @@ def png_size(data):
     return int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
 
 
+def jpeg_size(data):
+    """(width, height) of a JPEG, from its first SOF segment."""
+    if data[:3] != b'\xff\xd8\xff':
+        return None
+    at = 2
+    while at + 9 <= len(data):
+        if data[at] != 0xFF:
+            return None
+        marker = data[at + 1]
+        length = int.from_bytes(data[at + 2:at + 4], 'big')
+        if marker in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(data[at + 7:at + 9], 'big'), int.from_bytes(data[at + 5:at + 7], 'big')
+        at += 2 + length
+    return None
+
+
 def art_files():
+    """{path in the package: bytes} of ART, each checked by SHA-256, format (its name's: PNG or
+    JPEG) and size. stage-reloaded-candidate.py writes the same files into console test images."""
     files = {}
     for name, target, size, digest in ART:
         data = (HERE / 'package-art' / name).read_bytes()
         if sha256(data) != digest:
             fail(f'tools/source-1.0.2/package-art/{name} is not the reviewed file (SHA-256 differs)')
-        if png_size(data) != size:
-            fail(f'tools/source-1.0.2/package-art/{name} is not a {size[0]}x{size[1]} PNG')
+        kind, found = ('JPEG', jpeg_size(data)) if name.endswith('.jpg') else ('PNG', png_size(data))
+        if found != size:
+            fail(f'tools/source-1.0.2/package-art/{name} is not a {size[0]}x{size[1]} {kind}')
+        if sha256(data) in OFFICIAL_LOGOS:
+            fail(f'tools/source-1.0.2/package-art/{name} is the official PS5X360 logo picture')
         files[target] = data
     return files
+
+
+def official_logo_problems(files):
+    """The package's files that are one of the official PS5X360 logo pictures (OFFICIAL_LOGOS)."""
+    return sorted(f'{name} (the official {OFFICIAL_LOGOS[sha256(data)]})'
+                  for name, data in files.items() if sha256(data) in OFFICIAL_LOGOS)
 
 
 def read_base_zip(path):
@@ -647,6 +697,10 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     if named:
         fail(f'files that still name the official title id {BASE_PREFIX.rstrip("/")}: {", ".join(named)} '
              '(English-keyed language files: tools/source-1.0.2/english/rekey.py RENAMES)')
+    logos = official_logo_problems(files)
+    if logos:
+        fail(f'files that are the official PS5X360 logo pictures: {", ".join(logos)} '
+             '(TrinityX360 ships its own: package-art/skin, ART)')
     return files
 
 

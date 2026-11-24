@@ -60,6 +60,15 @@ PACKAGE_TRINITY = PACKAGE_TWO_ARGS.replace(
     "OFFICIAL_LABEL_RE = re.compile(rb'PS5X360 v[0-9]')",
     "HOME_LABEL = b'TrinityX360 v'\nOFFICIAL_LABEL_RE = re.compile(rb'PS5X360(?:Reloaded)? v[0-9]')")
 assert PACKAGE_TRINITY != PACKAGE_TWO_ARGS
+# package.py with the home screen's pictures: OFFICIAL_LOGOS names the official orb's SHA-256; one
+# that replaces it in art_files() stages, one that does not is refused.
+_ORB = __import__('hashlib').sha256(b'OFFICIAL X ORB').hexdigest()
+PACKAGE_SKIN = PACKAGE_TRINITY.replace(
+    "    return {'sce_sys/icon0.png': b'NEW ICON'}",
+    "    return {'sce_sys/icon0.png': b'NEW ICON', 'assets/skin/ball.png': b'TRINITY ORB'}") + \
+    f"OFFICIAL_LOGOS = {{'{_ORB}': 'assets/skin/ball.png'}}\n"
+PACKAGE_SKIN_MISSING = PACKAGE_TRINITY + f"OFFICIAL_LOGOS = {{'{_ORB}': 'assets/skin/ball.png'}}\n"
+assert 'TRINITY ORB' in PACKAGE_SKIN
 
 
 def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_mentions=1,
@@ -71,6 +80,7 @@ def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_
     write(base / 'assets/lang/en.txt', 'Configuracoes = Settings\n')
     write(base / 'dlc/README.md', 'Put DLC in PPSA50011 here. ' * dlc_mentions if dlc_mentions else 'no id\n')
     write(base / 'AUTOLOG.md', 'official autolog guide\n')
+    write(base / 'assets/skin/ball.png', b'OFFICIAL X ORB')
     art = root / 'art'
     elf = b'\x7fELF....' + f'{name} v{label}'.encode() + b'\0' + extra_elf
     if official_label:
@@ -156,6 +166,10 @@ def stage_checks():
          'stage: a TrinityX360 build with an older package.py is refused'),
         (dict(package=PACKAGE_TRINITY, name='TrinityX360', extra_elf=b'PS5X360Reloaded v1.0.5\0'), 'older name',
          'stage: a TrinityX360 build that also carries PS5X360Reloaded\'s label is refused'),
+        (dict(package=PACKAGE_SKIN, name='TrinityX360'), None,
+         'stage: the official logo pictures replaced by package.py\'s art stage'),
+        (dict(package=PACKAGE_SKIN_MISSING, name='TrinityX360'), 'official PS5X360 logo',
+         'stage: a stage that keeps an official logo picture is refused'),
     ]
     for kwargs, text, what in renamed:
         with tempfile.TemporaryDirectory() as tmp:
