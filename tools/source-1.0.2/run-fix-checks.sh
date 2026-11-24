@@ -183,6 +183,7 @@ checks=(
   check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
   check-single-game-folder.cpp     # fix 159
+  check-user-storage.cpp           # fix 165
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -351,6 +352,7 @@ declare -A fix_of=(
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
   [check-single-game-folder.cpp]=159
+  [check-user-storage.cpp]=165
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -149,7 +149,9 @@ int main(int argc, char** argv) {
     CHECK(odd.weight == 100 && odd.height == 0 && odd.body == 2);
     CHECK(sk::Parse("").body == 1 && sk::Parse("").weight == 0);
     CHECK(sk::FileName(0xE0000123456789ABull) == "E0000123456789AB.txt");
-    CHECK(std::string(sk::kFolder) == "/download0/xbox360ps5/avatars");
+    // Fix 165: the user's data folder (user_storage.hpp; before 165 the internal storage).
+    CHECK(std::string(sk::kFolder) == "/data/homebrew/PPSA83600/avatars" ||
+          std::string(sk::kFolder) == "/download0/xbox360ps5/avatars");
     const std::filesystem::path folder = std::filesystem::temp_directory_path() / "check-avatar-skeleton";
     std::filesystem::remove_all(folder);
     sk::Shape loaded;
