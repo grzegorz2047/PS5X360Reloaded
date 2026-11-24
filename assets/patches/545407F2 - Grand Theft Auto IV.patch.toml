@@ -60,12 +60,14 @@ hash = "4CBE7EEB2455A159" # default.xex
 # The world scan draws an object's high-detail model while (distance - fade) < its lodDist
 # (IDE/WPL, entity +0x50) times the view's LOD scale, clamped to the far clip, so a larger
 # multiplier keeps buildings, props and trees in full detail farther away and streams them
-# in sooner. All three patches write the same value, so only one of them can be on.
-# Console (c89, AF 16x, Bohan under the El): off 39-48 FPS, +50% 34-35, +100% 29.
+# in sooner. Both patches write the same value, so only one of them can be on.
+# Console (1.0.6_candidate_6, AF 16x, waterfront with the Algonquin skyline, swaps/s):
+# off 52.5-55.1, +25% 45.9, +50% 38.4-40.1, +100% 29.2-30.3 (dropped: about -45% for no
+# visible gain at that spot). Bound by the GPU command thread in all runs.
 
 [[patch]]
     name = "Draw Distance +25%"
-    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.25x farther (the game's level-of-detail scale 1.0 -> 1.25). The gentlest level: a few frames per second less in the city. Only one draw distance patch can be on."
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.25x farther (the game's level-of-detail scale 1.0 -> 1.25). Costs about 15% of the frame rate (about 46 instead of 54 frames per second on an open view). Only one draw distance patch can be on."
     author = "PS5X360Reloaded"
     is_enabled = false
 
@@ -75,20 +77,10 @@ hash = "4CBE7EEB2455A159" # default.xex
 
 [[patch]]
     name = "Draw Distance +50%"
-    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.5x farther (the game's level-of-detail scale 1.0 -> 1.5). Costs frame rate: in the city about 5-10 frames per second less (about 34 instead of 40). Most visible on long open views such as bridges and the skyline. Only one draw distance patch can be on."
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.5x farther (the game's level-of-detail scale 1.0 -> 1.5). Costs about 28% of the frame rate (about 39 instead of 54 frames per second on an open view). Use +25% if this one is too slow. Only one draw distance patch can be on."
     author = "PS5X360Reloaded"
     is_enabled = false
 
     [[patch.be32]]
         address = 0x82a2bda4
         value = 0x3fc00000 # 1.5f
-
-[[patch]]
-    name = "Draw Distance +100%"
-    desc = "Draws buildings, trees, props, people and vehicles in full detail 2x farther (the game's level-of-detail scale 1.0 -> 2.0). Heavy: about 29 frames per second in the city instead of 40, and more streaming. Use +25% or +50% if this one is too slow. Only one draw distance patch can be on."
-    author = "PS5X360Reloaded"
-    is_enabled = false
-
-    [[patch.be32]]
-        address = 0x82a2bda4
-        value = 0x40000000 # 2.0f
