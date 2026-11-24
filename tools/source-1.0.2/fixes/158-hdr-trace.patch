@@ -1,0 +1,849 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -19,6 +19,7 @@
+ #include "xenia/base/profiling.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/global_lock_spin.hpp"  // fix 55
++#include "xbox360ps5/hdr_trace.hpp"  // fix 158 diagnostic
+ #endif
+ #include "xenia/gpu/gpu_flags.h"
+ #include "xenia/gpu/graphics_system.h"
+@@ -1441,12 +1442,26 @@ void CommandProcessor::PumpPendingRetire() {
+         fast_zpd_report_cached_deltas_.clear();
+       }
+       fast_zpd_report_cached_deltas_[front.address] = front.delta;
++#if XE_PLATFORM_PS5
++      // Fix 158: the fast mode's guess against the real result (hdr-trace.txt).
++      if (xbox360ps5::hdr_trace::Global().Enabled()) {
++        namespace ht = xbox360ps5::hdr_trace;
++        std::vector<std::string> hdr_lines;
++        ht::Global().NoteZpd(front.address, front.speculative_delta.z_pass,
++                             front.delta.z_pass, ht::NowSeconds(),
++                             ht::NowUnixMs(), &hdr_lines);
++        for (const std::string& hdr_line : hdr_lines) XELOGW("{}", hdr_line);
++      }
++#endif
+     }
+     if (!front.speculative) {
+       WriteZPDReport(front.address, zpd_sample_counter_);
+     } else if (front.speculative_value != zpd_sample_counter_) {
+       WriteZPDReport(front.address, zpd_sample_counter_);
+       rebase_needed = true;
++#if XE_PLATFORM_PS5
++      xbox360ps5::hdr_trace::Global().NoteZpdRebase();  // fix 158
++#endif
+     }
+     if (front.awaited) {
+       assert_true(zpd_awaited_report_count_);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -13,6 +13,7 @@
+ #include "xbox360ps5/memexport_loss.hpp"  // fix 48
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
++#include "xbox360ps5/hdr_trace.hpp"  // fix 158 diagnostic
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include <sys/stat.h>
+ #include <algorithm>
+@@ -6112,6 +6113,33 @@ bool VulkanCommandProcessor::IssueCopy() {
+   xbox360ps5::hang_watch::RecordResolve(
+       GetCurrentSubmission(), written_address, written_length,
+       uint32_t(copy_dest_info.copy_dest_format));
++  // Fix 158: HDR trace (<data>/hdr-trace.txt, off without it): the resolve's source and
++  // destination, for the value trace of its copy below.
++  {
++    namespace ht = xbox360ps5::hdr_trace;
++    std::vector<std::string> hdr_lines;
++    ht::Poll(XBOX360PS5_DATA_ROOT "/hdr-trace.txt", &hdr_lines);
++    if (ht::Global().Enabled()) {
++      const auto copy_control = register_file_->Get<reg::RB_COPY_CONTROL>();
++      ht::Source source;
++      source.select = uint32_t(copy_control.copy_src_select);
++      if (source.select < xenos::kMaxColorRenderTargets) {
++        source.format = uint32_t(
++            register_file_
++                ->Get<reg::RB_COLOR_INFO>(
++                    reg::RB_COLOR_INFO::rt_register_indices[source.select])
++                .color_format);
++      }
++      source.msaa =
++          uint32_t(register_file_->Get<reg::RB_SURFACE_INFO>().msaa_samples);
++      source.exp_bias = int32_t(copy_dest_info.copy_dest_exp_bias);
++      source.dest_format = uint32_t(copy_dest_info.copy_dest_format);
++      source.dest_endian = uint32_t(copy_dest_info.copy_dest_endian);
++      ht::Global().NoteResolve(written_address, written_length, source,
++                               frame_current_, ht::NowSeconds(), &hdr_lines);
++    }
++    for (const std::string& hdr_line : hdr_lines) XELOGW("{}", hdr_line);
++  }
+ #endif
+ 
+   // CPU readback resolve path (if not disabled).
+@@ -6866,6 +6894,19 @@ bool VulkanCommandProcessor::IssueCopy() {
+           memory::vastcpy(memory_->TranslatePhysical(written_address),
+                           static_cast<uint8_t*>(mapped_data), readback_length);
+         }
++#if XE_PLATFORM_PS5
++        // Fix 158: the values of a traced float resolve's copy (hdr-trace.txt).
++        if (xbox360ps5::hdr_trace::Global().Enabled()) {
++          namespace ht = xbox360ps5::hdr_trace;
++          std::vector<std::string> hdr_lines;
++          ht::Global().NoteBytes(written_address, readback_length,
++                                 static_cast<const uint8_t*>(mapped_data),
++                                 uint32_t(copy_dest_info.copy_dest_format),
++                                 uint32_t(copy_dest_info.copy_dest_endian), frame_current_,
++                                 ht::NowSeconds(), ht::NowUnixMs(), &hdr_lines);
++          for (const std::string& hdr_line : hdr_lines) XELOGW("{}", hdr_line);
++        }
++#endif
+         // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
+         // every 600 frames while it does not). The copy above goes through the physical view,
+         // which the watch does not cover.
+diff --git a/include/xbox360ps5/hdr_trace.hpp b/include/xbox360ps5/hdr_trace.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/hdr_trace.hpp
+@@ -0,0 +1,741 @@
++// SPDX-License-Identifier: MIT
++// Fix 158: "HDR trace", a diagnostic behind <data>/hdr-trace.txt (off without the file).
++//
++// Grand Theft Auto V (545408A7) darkens the whole picture for a moment while the player drives, then
++// comes back, as if the exposure dropped for one moment. It shows with "Image readback by the game"
++// = Full (every resolve copy waited for), so it is not the readback timing (fix 142i, 157). The
++// game's exposure comes from a luminance chain: the HDR picture is resolved, downsampled to small
++// float targets (16_16_16_16_FLOAT and 32_FLOAT resolves of 4 to 48 KiB in the 1.0.6 logs), and an
++// adapted value is kept from frame to frame. Its occlusion queries (ZPASS_DONE, about 12 a frame)
++// are answered with a guess first in the default "fast" mode and corrected later.
++//
++// With the switch on, this logs what can tell the causes apart:
++//  - each resolve's source (render target format: 7e3 is k_2_10_10_10_FLOAT, MSAA, exp bias) and
++//    destination, per key (address/length);
++//  - the values of float resolves of up to 64 KiB (more with "max-bytes", or any size for a listed
++//    "key"), taken when their copy goes back to guest memory: the first texel (a 1x1 target's
++//    value), the mean of the R, G and B channels, the largest value, NaN, infinity, negative and
++//    over-31.875 counts;
++//  - a line with the console's clock (UTC, as in the console's video files) when a key's first texel
++//    or mean leaves a factor of 2 of its median of the last 16 copies, or turns NaN/infinite, and
++//    another when it comes back, with the frame number and the last frame's length;
++//  - occlusion queries: how often the fast mode's guess said visible for a query that was hidden (or
++//    the other way), once a second while that happens, and in a 30 s summary.
++//
++// The switch file: the first word "on" (any case) turns it on; more lines may follow:
++//   key 061D3000      also trace this destination address whatever its size or format
++//   max-bytes 262144  the size limit for float resolves (default 65536, at most 8 MiB)
++// The file is read again at most once every 5 s, so it can be changed while a game runs.
++#pragma once
++
++#include <algorithm>
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <limits>
++#include <map>
++#include <mutex>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace hdr_trace {
++
++constexpr uint32_t kDefaultMaxBytes = 64 * 1024;
++constexpr uint32_t kLargestMaxBytes = 8 * 1024 * 1024;
++constexpr size_t kHistory = 16;
++constexpr size_t kHistoryBeforeJumps = 8;
++constexpr float kJumpFactor = 2.0f;
++constexpr float kBackFactor = 1.5f;
++constexpr double kWindowSeconds = 30.0;
++constexpr double kRereadSeconds = 5.0;
++constexpr uint32_t kEventLinesPerWindow = 80;
++constexpr uint32_t kZpdLinesPerWindow = 30;
++constexpr size_t kMaxKeys = 256;
++constexpr size_t kSummaryKeys = 24;
++constexpr float kRange7e3 = 31.875f;
++
++struct Config {
++  bool on = false;
++  uint32_t max_bytes = kDefaultMaxBytes;
++  std::vector<uint32_t> keys;
++  uint32_t not_understood = 0;
++};
++
++inline std::string Lower(std::string text) {
++  for (char& c : text) {
++    if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
++  }
++  return text;
++}
++
++inline std::vector<std::string> Words(const std::string& line) {
++  std::vector<std::string> words;
++  std::string word;
++  for (char c : line) {
++    if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
++      if (!word.empty()) words.push_back(word);
++      word.clear();
++    } else {
++      word += c;
++    }
++  }
++  if (!word.empty()) words.push_back(word);
++  return words;
++}
++
++inline bool ParseNumber(const std::string& text, bool hex, uint32_t* out) {
++  if (text.empty() || text.size() > 10) return false;
++  std::string digits = text;
++  if (digits.size() > 2 && digits[0] == '0' && (digits[1] == 'x' || digits[1] == 'X')) {
++    digits = digits.substr(2);
++    hex = true;
++  }
++  if (digits.empty()) return false;
++  uint64_t value = 0;
++  for (char c : digits) {
++    uint32_t digit;
++    if (c >= '0' && c <= '9') {
++      digit = uint32_t(c - '0');
++    } else if (hex && c >= 'a' && c <= 'f') {
++      digit = uint32_t(c - 'a' + 10);
++    } else if (hex && c >= 'A' && c <= 'F') {
++      digit = uint32_t(c - 'A' + 10);
++    } else {
++      return false;
++    }
++    value = value * (hex ? 16 : 10) + digit;
++    if (value > 0xFFFFFFFFull) return false;
++  }
++  *out = uint32_t(value);
++  return true;
++}
++
++// The switch file's text. Anything but a first word "on" is off.
++inline Config ParseConfig(const std::string& text) {
++  Config config;
++  size_t start = 0;
++  bool first = true;
++  while (start <= text.size()) {
++    size_t end = text.find('\n', start);
++    if (end == std::string::npos) end = text.size();
++    const std::vector<std::string> words = Words(text.substr(start, end - start));
++    start = end + 1;
++    if (words.empty()) continue;
++    const std::string head = Lower(words[0]);
++    if (first) {
++      first = false;
++      config.on = head == "on" && words.size() == 1;
++      if (!config.on) return Config();
++      continue;
++    }
++    uint32_t value = 0;
++    if (head == "key" && words.size() == 2 && ParseNumber(words[1], true, &value)) {
++      config.keys.push_back(value);
++    } else if (head == "max-bytes" && words.size() == 2 && ParseNumber(words[1], false, &value)) {
++      config.max_bytes = std::min(value, kLargestMaxBytes);
++    } else {
++      ++config.not_understood;
++    }
++  }
++  return config;
++}
++
++// IEEE half to float (the Xenos 16-bit float formats are IEEE halves).
++inline float HalfToFloat(uint16_t half) {
++  const uint32_t sign = uint32_t(half >> 15) << 31;
++  const uint32_t exponent = (half >> 10) & 0x1F;
++  uint32_t mantissa = half & 0x3FF;
++  uint32_t bits;
++  if (exponent == 0x1F) {
++    bits = sign | 0x7F800000u | (mantissa << 13);
++  } else if (exponent == 0) {
++    if (!mantissa) {
++      bits = sign;
++    } else {
++      int32_t e = -1;
++      do {
++        ++e;
++        mantissa <<= 1;
++      } while (!(mantissa & 0x400));
++      bits = sign | (uint32_t(127 - 15 - e) << 23) | ((mantissa & 0x3FF) << 13);
++    }
++  } else {
++    bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
++  }
++  float value;
++  std::memcpy(&value, &bits, sizeof(value));
++  return value;
++}
++
++// Destination formats traced (xenos::ColorFormat): channels and bytes per channel.
++struct FloatLayout {
++  uint32_t channels = 0;
++  uint32_t bytes = 0;
++};
++inline FloatLayout LayoutOf(uint32_t dest_format) {
++  switch (dest_format) {
++    case 30: return {1, 2};  // k_16_FLOAT
++    case 31: return {2, 2};  // k_16_16_FLOAT
++    case 32: return {4, 2};  // k_16_16_16_16_FLOAT
++    case 36: return {1, 4};  // k_32_FLOAT
++    case 37: return {2, 4};  // k_32_32_FLOAT
++    case 38: return {4, 4};  // k_32_32_32_32_FLOAT
++    default: return {};
++  }
++}
++
++// Bytes as the guest stores them (copy_dest_endian, xenos::Endian128: 1 = 8in16, 2 = 8in32,
++// 3 = 16in32) to the little-endian value at offset (2 or 4 bytes).
++inline uint32_t LoadElement(const uint8_t* bytes, size_t offset, uint32_t element_bytes,
++                            uint32_t endian) {
++  uint8_t b[4] = {};
++  if (element_bytes == 2) {
++    // Within a 32-bit word: which half and the half's own two bytes.
++    const size_t word = offset & ~size_t(3);
++    uint8_t w[4];
++    std::memcpy(w, bytes + word, 4);
++    uint8_t swapped[4];
++    switch (endian) {
++      case 1: swapped[0] = w[1]; swapped[1] = w[0]; swapped[2] = w[3]; swapped[3] = w[2]; break;
++      case 2: swapped[0] = w[3]; swapped[1] = w[2]; swapped[2] = w[1]; swapped[3] = w[0]; break;
++      case 3: swapped[0] = w[2]; swapped[1] = w[3]; swapped[2] = w[0]; swapped[3] = w[1]; break;
++      default: std::memcpy(swapped, w, 4); break;
++    }
++    const size_t half = offset & 2;
++    return uint32_t(swapped[half]) | (uint32_t(swapped[half + 1]) << 8);
++  }
++  std::memcpy(b, bytes + offset, 4);
++  switch (endian) {
++    case 1: return uint32_t(b[1]) | uint32_t(b[0]) << 8 | uint32_t(b[3]) << 16 | uint32_t(b[2]) << 24;
++    case 2: return uint32_t(b[3]) | uint32_t(b[2]) << 8 | uint32_t(b[1]) << 16 | uint32_t(b[0]) << 24;
++    case 3: return uint32_t(b[2]) | uint32_t(b[3]) << 8 | uint32_t(b[0]) << 16 | uint32_t(b[1]) << 24;
++    default: return uint32_t(b[0]) | uint32_t(b[1]) << 8 | uint32_t(b[2]) << 16 | uint32_t(b[3]) << 24;
++  }
++}
++
++inline float ElementValue(const uint8_t* bytes, size_t offset, FloatLayout layout,
++                          uint32_t endian) {
++  const uint32_t raw = LoadElement(bytes, offset, layout.bytes, endian);
++  if (layout.bytes == 2) return HalfToFloat(uint16_t(raw));
++  float value;
++  std::memcpy(&value, &raw, sizeof(value));
++  return value;
++}
++
++struct Stats {
++  bool valid = false;
++  uint32_t texels = 0;
++  uint32_t nan = 0, inf = 0, negative = 0, over_7e3 = 0;
++  float first = 0.0f;  // channel 0 of texel 0 (a tiled 1x1 target's value)
++  float mean = 0.0f;   // finite R, G and B values
++  float largest = 0.0f;
++};
++
++inline Stats Scan(const uint8_t* bytes, uint32_t length, uint32_t dest_format, uint32_t endian) {
++  Stats stats;
++  const FloatLayout layout = LayoutOf(dest_format);
++  if (!layout.channels || !bytes) return stats;
++  const uint32_t texel_bytes = layout.channels * layout.bytes;
++  const uint32_t texels = (length & ~3u) / texel_bytes;
++  if (!texels) return stats;
++  stats.valid = true;
++  stats.texels = texels;
++  double sum = 0.0;
++  uint64_t counted = 0;
++  bool any_finite = false;
++  for (uint32_t t = 0; t < texels; ++t) {
++    for (uint32_t c = 0; c < layout.channels; ++c) {
++      const float value =
++          ElementValue(bytes, size_t(t) * texel_bytes + size_t(c) * layout.bytes, layout, endian);
++      if (t == 0 && c == 0) stats.first = value;
++      if (std::isnan(value)) {
++        ++stats.nan;
++        continue;
++      }
++      if (std::isinf(value)) {
++        ++stats.inf;
++        continue;
++      }
++      if (value < 0.0f) ++stats.negative;
++      if (value > kRange7e3) ++stats.over_7e3;
++      if (!any_finite || value > stats.largest) stats.largest = value;
++      any_finite = true;
++      if (c < 3) {
++        sum += value;
++        ++counted;
++      }
++    }
++  }
++  stats.mean = counted ? float(sum / double(counted)) : 0.0f;
++  return stats;
++}
++
++inline float Median(std::vector<float> values) {
++  if (values.empty()) return 0.0f;
++  std::sort(values.begin(), values.end());
++  return values[values.size() / 2];
++}
++
++// How far value is from reference, as a factor >= 1 (infinite when one is about zero and the
++// other is not, or either is not finite).
++inline float Factor(float value, float reference) {
++  if (!std::isfinite(value) || !std::isfinite(reference)) {
++    return std::numeric_limits<float>::infinity();
++  }
++  const float a = std::fabs(value), b = std::fabs(reference);
++  constexpr float kTiny = 1.0e-6f;
++  if (a < kTiny && b < kTiny) return 1.0f;
++  if (a < kTiny || b < kTiny) return std::numeric_limits<float>::infinity();
++  if ((value < 0.0f) != (reference < 0.0f)) return std::numeric_limits<float>::infinity();
++  return a > b ? a / b : b / a;
++}
++
++// Wall clock text of the console (UTC time of day), as in its video file names.
++inline std::string ClockText(int64_t unix_ms) {
++  int64_t day_ms = unix_ms % 86400000;
++  if (day_ms < 0) day_ms += 86400000;
++  char text[32];
++  std::snprintf(text, sizeof(text), "%02d:%02d:%02d.%03d UTC", int(day_ms / 3600000),
++                int(day_ms / 60000 % 60), int(day_ms / 1000 % 60), int(day_ms % 1000));
++  return text;
++}
++
++inline const char* SourceFormatName(uint32_t format) {
++  switch (format) {
++    case 0: return "8_8_8_8";
++    case 1: return "8_8_8_8_GAMMA";
++    case 2: return "2_10_10_10";
++    case 3: return "7e3 (2_10_10_10_FLOAT)";
++    case 4: return "16_16";
++    case 5: return "16_16_16_16";
++    case 6: return "16_16_FLOAT";
++    case 7: return "16_16_16_16_FLOAT";
++    case 10: return "2_10_10_10_AS_10_10_10_10";
++    case 12: return "7e3 (2_10_10_10_FLOAT_AS_16_16_16_16)";
++    case 14: return "32_FLOAT";
++    case 15: return "32_32_FLOAT";
++    default: return "other";
++  }
++}
++
++struct Source {
++  uint32_t select = 0;  // 0-3 color render target, 4 depth
++  uint32_t format = 0;  // xenos::ColorRenderTargetFormat of a color source
++  uint32_t msaa = 0;    // xenos::MsaaSamples: 0 1x, 1 2x, 2 4x
++  int32_t exp_bias = 0;
++  uint32_t dest_format = 0;
++  uint32_t dest_endian = 0;
++  bool operator==(const Source& other) const {
++    return select == other.select && format == other.format && msaa == other.msaa &&
++           exp_bias == other.exp_bias && dest_format == other.dest_format &&
++           dest_endian == other.dest_endian;
++  }
++};
++
++inline std::string SourceText(const Source& source) {
++  char text[160];
++  if (source.select >= 4) {
++    std::snprintf(text, sizeof(text), "from depth, %ux MSAA -> f%u e%u", 1u << (source.msaa & 3),
++                  source.dest_format, source.dest_endian);
++  } else {
++    std::snprintf(text, sizeof(text), "from rt%u %s, %ux MSAA, exp bias %d -> f%u e%u",
++                  source.select, SourceFormatName(source.format), 1u << (source.msaa & 3),
++                  source.exp_bias, source.dest_format, source.dest_endian);
++  }
++  return text;
++}
++
++inline std::string Number(float value) {
++  char text[32];
++  if (std::isnan(value)) return "NaN";
++  if (std::isinf(value)) return value < 0 ? "-inf" : "inf";
++  std::snprintf(text, sizeof(text), "%.4g", double(value));
++  return text;
++}
++
++// One traced quantity (the first texel or the mean) of one key.
++struct Series {
++  std::vector<float> history;  // the last kHistory copies, oldest first
++  bool away = false;
++  float reference = 0.0f;  // the median when it left
++  float peak_factor = 1.0f;
++  uint64_t left_frame = 0;
++  uint32_t jumps = 0;
++
++  // Returns 1 when the value has just left the median's factor of 2, -1 when it has just come
++  // back within 1.5 of where it left, 0 otherwise. factor_out: the factor against the median (or
++  // against the reference while away).
++  int Add(float value, float* factor_out, float* reference_out, uint64_t frame) {
++    int result = 0;
++    float factor = 1.0f;
++    if (!away) {
++      if (history.size() >= kHistoryBeforeJumps) {
++        const float median = Median(history);
++        factor = Factor(value, median);
++        if (factor > kJumpFactor) {
++          away = true;
++          reference = median;
++          peak_factor = factor;
++          left_frame = frame;
++          ++jumps;
++          result = 1;
++        }
++      }
++    } else {
++      factor = Factor(value, reference);
++      peak_factor = std::max(peak_factor, factor);
++      if (factor <= kBackFactor) {
++        away = false;
++        result = -1;
++      }
++    }
++    if (factor_out) *factor_out = factor;
++    if (reference_out) *reference_out = away || result == -1 ? reference : Median(history);
++    history.push_back(value);
++    if (history.size() > kHistory) history.erase(history.begin());
++    return result;
++  }
++};
++
++struct KeyState {
++  Source source;
++  bool sources_vary = false;
++  bool traced = false;
++  uint64_t resolves = 0, copies = 0;
++  // Window counts.
++  uint64_t window_copies = 0;
++  uint64_t nan = 0, inf = 0, negative = 0, over_7e3 = 0;
++  float largest = 0.0f;
++  float first_min = 0.0f, first_max = 0.0f;
++  std::vector<float> window_first;
++  uint32_t window_jumps = 0;
++  Series first, mean;
++};
++
++class Tracker {
++ public:
++  bool Enabled() const { return config_.on; }
++  const Config& config() const { return config_; }
++
++  // Takes a (new) switch file text. Lines are added for the log.
++  void Configure(const std::string& text, bool exists, const std::string& path,
++                 std::vector<std::string>* lines) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    const Config next = exists ? ParseConfig(text) : Config();
++    const bool changed = next.on != config_.on || next.max_bytes != config_.max_bytes ||
++                         next.keys != config_.keys || !configured_;
++    const bool was_on = config_.on;
++    config_ = next;
++    configured_ = true;
++    if (!changed || (!next.on && !was_on)) return;
++    if (!next.on) {
++      lines->push_back("HDR trace (fix 158): off (" + path + " " +
++                       (exists ? "does not start with \"on\")" : "removed)"));
++      return;
++    }
++    std::string keys;
++    for (uint32_t key : next.keys) {
++      char text_key[16];
++      std::snprintf(text_key, sizeof(text_key), " %08X", key);
++      keys += text_key;
++    }
++    lines->push_back("HDR trace (fix 158): on from " + path + ": float resolves up to " +
++                     std::to_string(next.max_bytes) + " bytes" +
++                     (keys.empty() ? std::string() : ", and the keys" + keys) +
++                     (next.not_understood
++                          ? ", " + std::to_string(next.not_understood) + " lines not understood"
++                          : std::string()) +
++                     "; a jump is a first texel or mean outside 2x of its median of the last 16 "
++                     "copies; times are the console clock");
++  }
++
++  // At each resolve, on the GPU thread, before its copy back (if any).
++  void NoteResolve(uint32_t address, uint32_t length, const Source& source, uint64_t frame,
++                   double now_s, std::vector<std::string>* lines) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (!config_.on) return;
++    NoteFrameLocked(frame, now_s);
++    KeyState* key = FindKey(address, length, true);
++    if (!key) return;
++    if (key->resolves && !(key->source == source)) key->sources_vary = true;
++    key->source = source;
++    ++key->resolves;
++    const bool traced =
++        Listed(address) || (LayoutOf(source.dest_format).channels && length <= config_.max_bytes);
++    if (traced && !key->traced) {
++      key->traced = true;
++      if (first_seen_lines_ < 64) {
++        ++first_seen_lines_;
++        char text[96];
++        std::snprintf(text, sizeof(text), "HDR trace (fix 158): key %08X/%u traced, ", address,
++                      length);
++        lines->push_back(text + SourceText(source));
++      }
++    }
++    MaybeSummaryLocked(now_s, lines);
++  }
++
++  // When a resolve's copy is put back in guest memory (fast mode: a resolve or more late).
++  void NoteBytes(uint32_t address, uint32_t length, const uint8_t* bytes, uint32_t dest_format,
++                 uint32_t dest_endian, uint64_t frame, double now_s, int64_t unix_ms,
++                 std::vector<std::string>* lines) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (!config_.on) return;
++    KeyState* key = FindKey(address, length, false);
++    if (!key || !key->traced) return;
++    const Stats stats = Scan(bytes, length, dest_format, dest_endian);
++    if (!stats.valid) return;
++    ++key->copies;
++    if (!key->window_copies) {
++      key->first_min = key->first_max = stats.first;
++    } else {
++      key->first_min = std::min(key->first_min, stats.first);
++      key->first_max = std::max(key->first_max, stats.first);
++    }
++    ++key->window_copies;
++    key->window_first.push_back(stats.first);
++    key->nan += stats.nan;
++    key->inf += stats.inf;
++    key->negative += stats.negative;
++    key->over_7e3 += stats.over_7e3;
++    key->largest = key->window_copies == 1 ? stats.largest : std::max(key->largest, stats.largest);
++    Track(*key, key->first, "first texel", stats.first, stats, address, length, frame, now_s,
++          unix_ms, lines);
++    Track(*key, key->mean, "R,G,B mean", stats.mean, stats, address, length, frame, now_s,
++          unix_ms, lines);
++  }
++
++  // A fast-mode occlusion query when its real result comes (CommandProcessor::PumpPendingRetire).
++  void NoteZpd(uint32_t address, uint64_t guessed_z_pass, uint64_t real_z_pass, double now_s,
++               int64_t unix_ms, std::vector<std::string>* lines) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (!config_.on) return;
++    ++zpd_.reports;
++    ++zpd_second_.reports;
++    const bool guessed_visible = guessed_z_pass != 0, visible = real_z_pass != 0;
++    if (guessed_visible && !visible) {
++      ++zpd_.visible_but_hidden;
++      ++zpd_second_.visible_but_hidden;
++      zpd_second_.address = address;
++    } else if (!guessed_visible && visible) {
++      ++zpd_.hidden_but_visible;
++      ++zpd_second_.hidden_but_visible;
++      zpd_second_.address = address;
++    } else if (Factor(float(guessed_z_pass), float(real_z_pass)) > 4.0f) {
++      ++zpd_.off_by_4x;
++    }
++    if (now_s - zpd_second_start_ >= 1.0) {
++      if ((zpd_second_.visible_but_hidden || zpd_second_.hidden_but_visible) &&
++          zpd_lines_ < kZpdLinesPerWindow) {
++        ++zpd_lines_;
++        char text[256];
++        std::snprintf(text, sizeof(text),
++                      "HDR trace (fix 158): %s occlusion queries in the last second: %llu "
++                      "answered, %llu guessed visible but hidden, %llu guessed hidden but "
++                      "visible (last at %08X)",
++                      ClockText(unix_ms).c_str(), (unsigned long long)zpd_second_.reports,
++                      (unsigned long long)zpd_second_.visible_but_hidden,
++                      (unsigned long long)zpd_second_.hidden_but_visible, zpd_second_.address);
++        lines->push_back(text);
++      }
++      zpd_second_ = {};
++      zpd_second_start_ = now_s;
++    }
++  }
++
++  void NoteZpdRebase() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (config_.on) ++zpd_.rebases;
++  }
++
++  // For the host check: summary now.
++  void Summary(double now_s, std::vector<std::string>* lines) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    SummaryLocked(now_s, lines);
++  }
++
++ private:
++  struct Zpd {
++    uint64_t reports = 0, visible_but_hidden = 0, hidden_but_visible = 0, off_by_4x = 0;
++    uint64_t rebases = 0;
++    uint32_t address = 0;
++  };
++
++  bool Listed(uint32_t address) const {
++    return std::find(config_.keys.begin(), config_.keys.end(), address) != config_.keys.end();
++  }
++
++  KeyState* FindKey(uint32_t address, uint32_t length, bool create) {
++    const uint64_t id = (uint64_t(address) << 32) | length;
++    auto found = keys_.find(id);
++    if (found != keys_.end()) return &found->second;
++    if (!create || keys_.size() >= kMaxKeys) return nullptr;
++    return &keys_[id];
++  }
++
++  void NoteFrameLocked(uint64_t frame, double now_s) {
++    if (frame != frame_) {
++      if (frame_time_ > 0.0) {
++        last_frame_ms_ = (now_s - frame_time_) * 1000.0;
++        longest_frame_ms_ = std::max(longest_frame_ms_, last_frame_ms_);
++        if (last_frame_ms_ > 100.0) ++frames_over_100ms_;
++      }
++      frame_ = frame;
++      frame_time_ = now_s;
++    }
++  }
++
++  void Track(KeyState& key, Series& series, const char* what, float value, const Stats& stats,
++             uint32_t address, uint32_t length, uint64_t frame, double now_s, int64_t unix_ms,
++             std::vector<std::string>* lines) {
++    (void)now_s;
++    float factor = 1.0f, reference = 0.0f;
++    const int change = series.Add(value, &factor, &reference, frame);
++    if (!change) return;
++    if (change > 0) ++key.window_jumps;
++    if (event_lines_ >= kEventLinesPerWindow) {
++      ++events_not_shown_;
++      return;
++    }
++    ++event_lines_;
++    char text[512];
++    if (change > 0) {
++      std::snprintf(text, sizeof(text),
++                    "HDR trace (fix 158): %s frame %llu (the last frame took %.0f ms): key "
++                    "%08X/%u %s %s -> %s, %sx its median of up to 16 recent copies; this copy: first "
++                    "texel %s, mean %s, largest %s, NaN %u, inf %u, negative %u, over 31.875 %u "
++                    "(%s)",
++                    ClockText(unix_ms).c_str(), (unsigned long long)frame, last_frame_ms_, address,
++                    length, what, Number(reference).c_str(), Number(value).c_str(),
++                    Number(factor).c_str(), Number(stats.first).c_str(),
++                    Number(stats.mean).c_str(), Number(stats.largest).c_str(), stats.nan,
++                    stats.inf, stats.negative, stats.over_7e3, SourceText(key.source).c_str());
++    } else {
++      std::snprintf(text, sizeof(text),
++                    "HDR trace (fix 158): %s frame %llu: key %08X/%u %s back to %s (within 1.5x "
++                    "of %s) after %llu frames, at most %sx away",
++                    ClockText(unix_ms).c_str(), (unsigned long long)frame, address, length, what,
++                    Number(value).c_str(), Number(reference).c_str(),
++                    (unsigned long long)(frame - series.left_frame),
++                    Number(series.peak_factor).c_str());
++    }
++    lines->push_back(text);
++  }
++
++  void MaybeSummaryLocked(double now_s, std::vector<std::string>* lines) {
++    if (window_start_ < 0.0) {
++      window_start_ = now_s;
++      zpd_second_start_ = now_s;
++      return;
++    }
++    if (now_s - window_start_ < kWindowSeconds) return;
++    SummaryLocked(now_s, lines);
++  }
++
++  void SummaryLocked(double now_s, std::vector<std::string>* lines) {
++    std::vector<std::pair<uint64_t, uint64_t>> order;
++    for (const auto& [id, key] : keys_) {
++      if (key.traced && key.window_copies) order.emplace_back(key.window_copies, id);
++    }
++    std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) {
++      return a.first != b.first ? a.first > b.first : a.second < b.second;
++    });
++    char text[640];
++    std::snprintf(text, sizeof(text),
++                  "HDR trace (fix 158), last %.0f s: %zu float keys copied back; frames: longest "
++                  "%.0f ms, %llu over 100 ms; jump lines %u (%u not shown); occlusion queries "
++                  "(fast mode's guesses): %llu answered, %llu guessed visible but hidden, %llu "
++                  "guessed hidden but visible, %llu off by more than 4x, %llu rebases",
++                  now_s - window_start_, order.size(), longest_frame_ms_,
++                  (unsigned long long)frames_over_100ms_, event_lines_, events_not_shown_,
++                  (unsigned long long)zpd_.reports, (unsigned long long)zpd_.visible_but_hidden,
++                  (unsigned long long)zpd_.hidden_but_visible, (unsigned long long)zpd_.off_by_4x,
++                  (unsigned long long)zpd_.rebases);
++    lines->push_back(text);
++    size_t shown = 0;
++    for (const auto& [count, id] : order) {
++      if (shown++ == kSummaryKeys) break;
++      const KeyState& key = keys_[id];
++      std::snprintf(text, sizeof(text),
++                    "HDR trace (fix 158):   %08X/%u %s%s: %llu copies, first texel min %s median "
++                    "%s max %s, largest %s, NaN %llu, inf %llu, negative %llu, over 31.875 %llu, "
++                    "jumps %u",
++                    uint32_t(id >> 32), uint32_t(id), SourceText(key.source).c_str(),
++                    key.sources_vary ? " (sources vary)" : "", (unsigned long long)count,
++                    Number(key.first_min).c_str(), Number(Median(key.window_first)).c_str(),
++                    Number(key.first_max).c_str(), Number(key.largest).c_str(),
++                    (unsigned long long)key.nan, (unsigned long long)key.inf,
++                    (unsigned long long)key.negative, (unsigned long long)key.over_7e3,
++                    key.window_jumps);
++      lines->push_back(text);
++    }
++    for (auto& [id, key] : keys_) {
++      key.window_copies = 0;
++      key.nan = key.inf = key.negative = key.over_7e3 = 0;
++      key.largest = 0.0f;
++      key.window_first.clear();
++      key.window_jumps = 0;
++    }
++    zpd_ = {};
++    event_lines_ = events_not_shown_ = 0;
++    zpd_lines_ = 0;
++    longest_frame_ms_ = 0.0;
++    frames_over_100ms_ = 0;
++    window_start_ = now_s;
++  }
++
++  std::mutex mutex_;
++  Config config_;
++  bool configured_ = false;
++  std::map<uint64_t, KeyState> keys_;
++  uint32_t first_seen_lines_ = 0;
++  uint64_t frame_ = 0;
++  double frame_time_ = 0.0;
++  double last_frame_ms_ = 0.0, longest_frame_ms_ = 0.0;
++  uint64_t frames_over_100ms_ = 0;
++  double window_start_ = -1.0;
++  uint32_t event_lines_ = 0, events_not_shown_ = 0, zpd_lines_ = 0;
++  Zpd zpd_, zpd_second_;
++  double zpd_second_start_ = 0.0;
++};
++
++inline Tracker& Global() {
++  static Tracker tracker;
++  return tracker;
++}
++
++inline double NowSeconds() {
++  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++}
++
++inline int64_t NowUnixMs() {
++  return std::chrono::duration_cast<std::chrono::milliseconds>(
++             std::chrono::system_clock::now().time_since_epoch())
++      .count();
++}
++
++// Reads the switch file again when kRereadSeconds have passed (the first call reads it).
++inline void Poll(const char* path, std::vector<std::string>* lines) {
++  static double last = -1.0e9;
++  const double now = NowSeconds();
++  if (now - last < kRereadSeconds) return;
++  last = now;
++  std::string text;
++  bool exists = false;
++  if (FILE* file = std::fopen(path, "rb")) {
++    exists = true;
++    char chunk[512];
++    size_t got;
++    while (text.size() < 4096 && (got = std::fread(chunk, 1, sizeof(chunk), file)) > 0) {
++      text.append(chunk, got);
++    }
++    std::fclose(file);
++  }
++  Global().Configure(text, exists, path, lines);
++}
++
++}  // namespace hdr_trace
++}  // namespace xbox360ps5

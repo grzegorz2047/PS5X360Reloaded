@@ -178,6 +178,7 @@ checks=(
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
+  check-hdr-trace.cpp              # fix 158
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -343,6 +344,7 @@ declare -A fix_of=(
   [check-xma-trace.cpp]="155 155b"
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
+  [check-hdr-trace.cpp]=158
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
