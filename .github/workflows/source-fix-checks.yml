@@ -195,6 +195,7 @@ on:
       - 'tools/check-diag-r31.cpp'
       - 'tools/check-nui-identity.cpp'
       - 'tools/check-diag-stuck-dump.cpp'
+      - 'tools/check-avatar-assets-success.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

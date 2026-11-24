@@ -186,6 +186,7 @@ checks=(
   check-diag-r31.cpp               # fixes 156k and 156m
   check-nui-identity.cpp           # fixes 156l and 156n
   check-diag-stuck-dump.cpp        # fix 156o
+  check-avatar-assets-success.cpp  # fix 156p
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -358,6 +359,7 @@ declare -A fix_of=(
   [check-diag-r31.cpp]="156k 156m"
   [check-nui-identity.cpp]="156l 156n"
   [check-diag-stuck-dump.cpp]=156o
+  [check-avatar-assets-success.cpp]=156p
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
