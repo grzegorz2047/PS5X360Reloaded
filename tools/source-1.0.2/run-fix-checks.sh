@@ -183,7 +183,7 @@ checks=(
   check-page-watch.cpp             # fix 156h
   check-skeleton-frame-number.cpp  # fix 156i
   check-xex-dll-heap.cpp           # fix 156j
-  check-diag-r31.cpp               # fix 156k
+  check-diag-r31.cpp               # fixes 156k and 156m
   check-nui-identity.cpp           # fix 156l
 )
 declare -A arguments=(
@@ -354,7 +354,7 @@ declare -A fix_of=(
   [check-page-watch.cpp]=156h
   [check-skeleton-frame-number.cpp]=156i
   [check-xex-dll-heap.cpp]=156j
-  [check-diag-r31.cpp]=156k
+  [check-diag-r31.cpp]="156k 156m"
   [check-nui-identity.cpp]=156l
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os

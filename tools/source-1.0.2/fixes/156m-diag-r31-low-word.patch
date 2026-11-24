@@ -1,0 +1,62 @@
+diff --git a/include/xbox360ps5/kinect_diag.hpp b/include/xbox360ps5/kinect_diag.hpp
+--- a/include/xbox360ps5/kinect_diag.hpp
++++ b/include/xbox360ps5/kinect_diag.hpp
+@@ -88,13 +88,18 @@ inline int BackChain(uint32_t lr, uint32_t sp, Read read, uint32_t* out, int cou
+ // Fix 156k (Kinect Sports Season Two, #63): what each function along the chain is working on.
+ // A callee saves the r31 of its caller 0x10 bytes below the caller's stack pointer (the game's
+ // `std r31,-0x10(r1)` before its `stwu`, and the __savegprlr helpers): for each saved LR the
+-// walk finds (a return address into function F), the word at back - 0x10 is F's r31, and,
+-// when that is a readable guest address, its first word (an object's vtable). Season Two's
++// walk finds (a return address into function F), the doubleword at back - 0x10 is F's r31, and,
++// when that is a readable guest address, its first words (an object's vtable and fields). Season Two's
+ // darts load waits in a loop that keeps its load operation in r31 (82620560: `while
+ // (!op->vt[0x14]()) pump();`); this names the operation. Same walk and stops as BackChain.
++// Fix 156m: `std` saves all 64 bits, big-endian: the 32-bit value is the low word, at
++// back - 0x0C (156k read the high word at back - 0x10, always 0 or FFFFFFFF for a guest
++// address). The object's first kObjectWords words (its vtable, then its first fields).
++constexpr int kObjectWords = 4;
+ struct SavedR31 {
+-  uint32_t ret = 0, r31 = 0, first_word = 0;
+-  bool readable = false;
++  uint32_t ret = 0, r31 = 0;
++  uint32_t words[kObjectWords] = {};
++  int readable = 0;  // how many of words were read
+ };
+ template <typename Read>
+ inline int BackChainR31(uint32_t sp, Read read, SavedR31* out, int count) {
+@@ -105,7 +110,10 @@ inline int BackChainR31(uint32_t sp, Read read, SavedR31* out, int count) {
+     if (!read(back - 8, &saved)) break;
+     SavedR31 item;
+     item.ret = saved;
+-    if (read(back - 0x10, &item.r31)) item.readable = read(item.r31, &item.first_word);
++    if (read(back - 0x10 + 4, &item.r31))
++      while (item.readable < kObjectWords &&
++             read(item.r31 + 4 * uint32_t(item.readable), &item.words[item.readable]))
++        ++item.readable;
+     out[n++] = item;
+     sp = back;
+   }
+@@ -113,15 +121,16 @@ inline int BackChainR31(uint32_t sp, Read read, SavedR31* out, int count) {
+ }
+ inline std::string ChainR31(const SavedR31* items, int n) {
+   std::string out;
+-  char text[48];
++  char text[96];
+   for (int i = 0; i < n; ++i) {
+-    if (items[i].readable)
+-      std::snprintf(text, sizeof(text), "%s%08X r31 %08X [%08X]", i ? " < " : "", items[i].ret,
+-                    items[i].r31, items[i].first_word);
+-    else
+-      std::snprintf(text, sizeof(text), "%s%08X r31 %08X", i ? " < " : "", items[i].ret,
+-                    items[i].r31);
++    std::snprintf(text, sizeof(text), "%s%08X r31 %08X", i ? " < " : "", items[i].ret,
++                  items[i].r31);
+     out += text;
++    for (int w = 0; w < items[i].readable; ++w) {
++      std::snprintf(text, sizeof(text), "%s%08X%s", w ? " " : " [", items[i].words[w],
++                    w + 1 == items[i].readable ? "]" : "");
++      out += text;
++    }
+   }
+   return out;
+ }
