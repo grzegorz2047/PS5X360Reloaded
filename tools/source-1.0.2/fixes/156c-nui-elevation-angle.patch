@@ -1,7 +1,7 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
-@@ -272,20 +272,29 @@ DECLARE_XAM_EXPORT1(XamNuiCameraTiltGetStatus, kNone, kStub);
+@@ -275,20 +275,29 @@ DECLARE_XAM_EXPORT1(XamNuiCameraTiltGetStatus, kNone, kStub);
  
  dword_result_t XamNuiCameraElevationGetAngle_entry(lpdword_t elevation_angle,
                                                     lpdword_t camera_moving) {
@@ -44,7 +44,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-ca
  }
  DECLARE_XAM_EXPORT1(XamNuiCameraElevationGetAngle, kNone, kStub);
  
-@@ -314,13 +323,8 @@ dword_result_t XamNuiCameraSetFlags_entry(qword_t unk1, dword_t unk2) {
+@@ -317,13 +326,8 @@ dword_result_t XamNuiCameraSetFlags_entry(qword_t unk1, dword_t unk2) {
    int controller_type = XamNuiCameraGetTiltControllerType_entry();
  
    if (controller_type == 1) {
@@ -60,7 +60,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-ca
      // TODO(knuckleslee): Apply the flags once their meaning is known.
      return X_E_FAIL;  // until implementation improves
    }
-@@ -562,6 +566,9 @@ DECLARE_XAM_EXPORT1(XamWriteBiometricData, kNone, kStub);
+@@ -565,6 +569,9 @@ DECLARE_XAM_EXPORT1(XamWriteBiometricData, kNone, kStub);
  
  dword_result_t XamNuiCameraElevationSetAngle_entry(dword_t angle, dword_t flags) {
    KinectIdentityLog("XamNuiCameraElevationSetAngle", uint32_t(angle), uint32_t(flags), 0);

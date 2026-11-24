@@ -1,7 +1,7 @@
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
-@@ -89,12 +89,22 @@ dword_result_t XamNuiGetDeviceStatus_entry(
+@@ -89,12 +89,25 @@ dword_result_t XamNuiGetDeviceStatus_entry(
      if (!NuiWritable(status_ptr.guest_address(), sizeof(X_NUI_DEVICE_STATUS)))
        return X_E_INVALIDARG;
      status_ptr.Zero();
@@ -20,8 +20,11 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-ca
 +    status_ptr->tilt_status = status.tilt_status;
 +    status_ptr->mic_status = status.mic_status;
 +    status_ptr->status_bits = status.status_bits;
-+    static std::atomic<uint32_t> shown{0};
-+    if (shown.fetch_add(1) < 16)
++    // The first 16 answers, and every change after them (16 more): Harry Potter
++    // polls this every frame from before its camera opens.
++    static std::atomic<uint32_t> shown{0}, changes{0}, last{0xFFFFFFFF};
++    const bool changed = last.exchange(status.result) != status.result;
++    if (shown.fetch_add(1) < 16 || (changed && changes.fetch_add(1) < 16))
 +      XELOGW("Virtual Kinect: XamNuiGetDeviceStatus -> {:08X}, status bits {:X} (camera {}, "
 +             "skeleton {}) (fix 156)", status.result, status.status_bits,
 +             xbox360ps5::motion::guest_camera_open.load() ? "open" : "closed",
@@ -30,7 +33,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-ca
    }
  #if XE_PLATFORM_PS5
    static std::atomic<bool> motion_reported{false};
-@@ -336,7 +346,8 @@ DECLARE_XAM_EXPORT1(XamIsNuiUIActive, kNone, kImplemented);
+@@ -336,7 +349,8 @@ DECLARE_XAM_EXPORT1(XamIsNuiUIActive, kNone, kImplemented);
  
  dword_result_t XamNuiIsDeviceReady_entry() {
    if (VirtualNuiMode()) {

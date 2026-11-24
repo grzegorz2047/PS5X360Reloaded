@@ -18,7 +18,13 @@
 //      status bits 5 (1, the system's "ready" bit, and 4, the earlier answer); not connected
 //      is 0xC0050006 with no bits;
 //  (d) the tree: XamNuiGetDeviceStatus and XamNuiIsDeviceReady answer from it in the virtual
-//      mode, the first 16 answers are logged, LiveNuiBinding keeps the frame rule.
+//      mode, the first 16 answers and then each change are logged, LiveNuiBinding keeps the
+//      frame rule;
+//  (e) a title that polls from before its camera opens (Harry Potter Kinect 57520826, issue 66:
+//      XamNuiGetDeviceStatus every frame from 82C32A54, the camera opened later): "not
+//      connected" until the camera opens, then connected on the next poll with no frame ever
+//      delivered; and one asked once with all set (Nike+ Kinect Training 4D53090F, its speech
+//      library 82DA617C): connected.
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -125,7 +131,8 @@ static void CheckTree() {
   CHECK(Has(status, "status_ptr->status_bits = status.status_bits;") &&
         Has(status, "status_ptr->tilt_status = status.tilt_status;") &&
         Has(status, "status_ptr->mic_status = status.mic_status;"));
-  CHECK(Has(status, "if (shown.fetch_add(1) < 16)") &&
+  CHECK(Has(status, "const bool changed = last.exchange(status.result) != status.result;") &&
+        Has(status, "if (shown.fetch_add(1) < 16 || (changed && changes.fetch_add(1) < 16))") &&
         Has(status, "Virtual Kinect: XamNuiGetDeviceStatus -> {:08X}, status bits {:X}"));
   CHECK(!Has(status, "VirtualNuiCameraLive"));
   const std::string ready = Body(nui, "dword_result_t XamNuiIsDeviceReady_entry(");
@@ -136,8 +143,28 @@ static void CheckTree() {
   CHECK(Has(header, "constexpr uint32_t kVirtualNuiStatusBits = 0x5;"));
 }
 
+// (e) the answer a title gets from XamNuiGetDeviceStatus on each poll.
+static uint32_t Poll() { return m::VirtualNuiStatus(m::VirtualNuiDeviceConnected(true)).result; }
+
+static void CheckLateCamera() {
+  m::ResetVirtualNui();
+  // Harry Potter: the skeleton function bound at load, "Camera motion" on, the camera not open.
+  SetDevice(true, false, true);
+  for (int frame = 0; frame < 30; ++frame) CHECK(Poll() == 0xC0050006u);
+  m::guest_camera_open = true;  // the guest opens its camera (PsCamDeviceRequest)
+  CHECK(Poll() == 0u);          // the next poll: connected, no frame delivered
+  CHECK(!m::VirtualNuiCameraLive(true));
+  for (int frame = 0; frame < 30; ++frame) CHECK(Poll() == 0u);
+  CHECK(m::VirtualNuiStatus(true).status_bits == 5u);
+  // Nike+: one question, with the camera open and the skeleton bound, no frame yet.
+  m::ResetVirtualNui();
+  SetDevice(true, true, true);
+  CHECK(Poll() == 0u);
+}
+
 int main() {
   CheckConnected();
+  CheckLateCamera();
   CheckStatus();
   CheckTree();
   if (failures) {
