@@ -10,7 +10,10 @@
 //  (d) the queue is emptied at each resolve and each submission's end: only copies the GPU has
 //      made, oldest first; a reused slot or an older copy is dropped; fix 91h's nocopy is kept;
 //  (e) CPU reads of a queued copy's range are counted as early, at both places reads are taken;
-//  (f) the setting is off by default, the file read at most once a second, the line every 30 s.
+//  (f) the setting is off by default, the file read at most once a second, the line every 30 s;
+//  (g) small keys (readback_deliver_wait_below_kib, 64 KiB) and keys the CPU read before their
+//      copy was put in memory keep the wait, and fix 59's late copy is left out for them as before;
+//  (h) early reads are counted per key, each key a read covers, and listed in the 30 s line.
 // Runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -55,7 +58,7 @@ void CheckTree() {
   const size_t miss = cp.find("    } else if (read_cache_miss) {\n");
   const size_t fallback = cp.find("      read_index = write_index;", miss);
   const std::string defer = cp.substr(miss, fallback - miss);
-  Expect(miss != std::string::npos && Has(defer, "if (fix142i::enabled) {") &&
+  Expect(miss != std::string::npos && Has(defer, "if (fix142i::enabled && fix142i::Queue(resolve_key, readback_length, true)) {") &&
              Has(defer, "fix142i::pending.push_back({resolve_key, write_index, rb.submissions[write_index],") &&
              Has(defer, "memory_->EnablePhysicalMemoryAccessCallbacks(\n            written_address, readback_length, false, true);  // fix 142i") &&
              Has(defer, "return true;"),
@@ -70,7 +73,9 @@ void CheckTree() {
   // (b)
   const size_t late = cp.find("if (!auto_readback) xbox360ps5::frame_cost::NoteLateReadback();");
   Expect(late != std::string::npos &&
-             cp.find("if (!auto_readback && fix142i::enabled) {", late) < cp.find("return true;", late) &&
+             cp.find("if (!auto_readback && fix142i::enabled &&\n"
+                     "            fix142i::Queue(resolve_key, readback_length, false)) {",
+                     late) < cp.find("return true;", late) &&
              Has(cp, "fix142i::pending.push_back({resolve_key, read_index, read_submission, written_address,"),
          "fix 59's late copy is queued while on");
   // (c)
@@ -105,6 +110,30 @@ void CheckTree() {
              Has(cp, "if (logged && now - checked < std::chrono::seconds(1)) return;") &&
              Has(cp, "Readback delivery, last 30 s (fix 142i, {}):"),
          "off by default, the file at most once a second, the line every 30 s");
+  // (g)
+  const std::string queue = Body(cp, "bool Queue(uint64_t key, uint32_t length, bool instead_of_wait) {");
+  Expect(!queue.empty() && Has(queue, "const bool small = length <= wait_below;") &&
+             Has(queue, "const bool early = !small && read_early.count(key) != 0;") &&
+             Has(queue, "if (!small && !early) return true;") &&
+             Has(queue, "++(small ? kept_small : kept_early);") &&
+             Has(queue, "++(small ? late_small : late_early);"),
+         "small keys and keys read early keep the wait, counted");
+  Expect(Has(cp, "DEFINE_uint32(readback_deliver_wait_below_kib, 64,") &&
+             Has(cp, "DEFINE_bool(readback_deliver_wait_after_early, true,") &&
+             Has(cp, "} else if (w == \"wait-below\" && !value.empty() &&") &&
+             Has(cp, "} else if (w == \"wait-after-early\" && (value == \"on\" || value == \"off\")) {"),
+         "both settings in the config and in readback-deliver.txt");
+  // (h)
+  const std::string early = Body(cp, "bool VulkanCommandProcessor::Fix142iEarlyRead(uint32_t read_address, uint32_t read_length) {");
+  const size_t loop = early.find("for (const fix142i::Pending& p : fix142i::pending) {");
+  Expect(!early.empty() && Has(early, "std::find(keys.begin(), keys.end(), p.key) != keys.end()") &&
+             Has(early, "fix142i::EarlyKey& counted = fix142i::early_by_key[p.key];") &&
+             Has(early, "if (fix142i::wait_after_early && !fix142i::read_early.count(p.key)) {") &&
+             loop != std::string::npos && early.find("return true;") > loop &&
+             early.find("++fix142i::early_reads;") > early.find("if (keys.empty()) return false;"),
+         "every key a read covers counted once, the read once, the key moved to the wait");
+  Expect(Has(cp, "early reads by \"\n             \"key: {}\"") && Has(cp, "early_by_key.clear();"),
+         "the keys with early reads in the 30 s line, forgotten after it");
 }
 
 }  // namespace
