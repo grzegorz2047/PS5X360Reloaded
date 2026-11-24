@@ -175,6 +175,7 @@ checks=(
   check-log-ring.cpp               # fix 154
   check-utility-cache-drive.cpp    # fixes 150c, 150d and 150f
   check-two-x-unfit.cpp            # fix 150g
+  check-kinect-camera-classes.cpp  # fix 162a
   check-auto-scale.cpp             # fix 163
   check-write-bench.cpp            # fixes 148i, 148j, 148k
   check-xma-trace.cpp              # fixes 155, 155b
@@ -345,6 +346,7 @@ declare -A fix_of=(
   [check-log-ring.cpp]=154
   [check-utility-cache-drive.cpp]="150c 150d"
   [check-two-x-unfit.cpp]=150g
+  [check-kinect-camera-classes.cpp]=162a
   [check-auto-scale.cpp]=163
   [check-xma-trace.cpp]="155 155b"
   [check-xma-progress.cpp]=155b
