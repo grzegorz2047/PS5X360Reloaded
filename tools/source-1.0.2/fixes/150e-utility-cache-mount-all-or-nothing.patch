@@ -1,0 +1,86 @@
+diff --git a/include/xbox360ps5/utility_cache.hpp b/include/xbox360ps5/utility_cache.hpp
+--- a/include/xbox360ps5/utility_cache.hpp
++++ b/include/xbox360ps5/utility_cache.hpp
+@@ -1,39 +1,71 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
+ #include <filesystem>
++#include <string>
++#include <vector>
+ #include "xenia/base/logging.h"
+ #include "xenia/vfs/devices/host_path_device.h"
+ #include "xenia/vfs/devices/memory_device.h"  // fix 150d
+ #include "xenia/vfs/virtual_file_system.h"
++// Fix 150e: a failed mount leaves nothing registered (the host check looks for this).
++#define XBOX360PS5_UTILITY_CACHE_ALL_OR_NOTHING 1
+ namespace xbox360ps5 {
+ // Fix 150d: the devices named in `in_memory` ("cache1", "cache") are kept in memory
+ // (memory_device.h) instead of in storage/utility-cache.
++// Fix 150e: all or nothing. Every folder is made before anything is registered, and a device or
++// link that fails takes those registered before it out again, so fix 150c's fallback to the
++// internal storage starts from nothing (it used to find a second \CACHE0 and cache0: link left
++// by the extended storage's half-done mount, and failed).
+ inline bool MountUtilityCache(xe::vfs::VirtualFileSystem& fs,
+                               const std::filesystem::path& storage,
+                               std::initializer_list<const char*> in_memory = {}) {
+   // Match the desktop frontend's order: CACHE must follow CACHE0/CACHE1,
+   // since VFS device resolution matches mount prefixes.
+-  for (const char* name : {"cache0", "cache1", "cache"}) {
++  constexpr const char* kNames[] = {"cache0", "cache1", "cache"};
++  const auto in_memory_name = [&in_memory](const char* name) {
++    for (const char* wanted : in_memory)
++      if (std::string(wanted) == name) return true;
++    return false;
++  };
++  for (const char* name : kNames) {
++    if (in_memory_name(name)) continue;
++    const auto root = storage / "utility-cache" / name;
++    std::error_code error;
++    std::filesystem::create_directories(root, error);
++    if (error || !std::filesystem::is_directory(root, error)) {
++      XELOGE("Utility cache {}: {}", root.string(), error ? error.message() : std::string("not a folder"));
++      return false;  // nothing registered yet
++    }
++  }
++  std::vector<std::string> registered;  // the mounts done, taken out again on a failure
++  for (const char* name : kNames) {
+     const auto root = storage / "utility-cache" / name;
+     std::string mount = "\\" + std::string(name);
+     for (auto& c : mount) if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+-    bool memory = false;
+-    for (const char* wanted : in_memory) memory = memory || std::string(wanted) == name;
++    const bool memory = in_memory_name(name);
+     std::unique_ptr<xe::vfs::Device> device;
+     if (memory) {
+       device = std::make_unique<xe::vfs::MemoryDevice>(mount);
+     } else {
+-      std::error_code error;
+-      std::filesystem::create_directories(root, error);
+-      if (error) { XELOGE("Utility cache {}: {}", root.string(), error.message()); return false; }
+       device = std::make_unique<xe::vfs::HostPathDevice>(mount, root, false);
+     }
+-    if (!device->Initialize() || !fs.RegisterDevice(std::move(device)) ||
+-        !fs.RegisterSymbolicLink(std::string(name) + ":", mount)) {
+-      XELOGE("Utility cache {} registration failed", name);
+-      return false;
++    const bool initialized = device->Initialize();
++    const bool device_registered = initialized && fs.RegisterDevice(std::move(device));
++    if (device_registered && fs.RegisterSymbolicLink(std::string(name) + ":", mount)) {
++      registered.push_back(name);
++      XELOGI("Utility cache {}: -> {}", name, memory ? std::string("memory (fix 150d)") : root.string());
++      continue;
++    }
++    XELOGE("Utility cache {} registration failed; the {} registered before it taken out (fix 150e)", name,
++           registered.size());
++    if (device_registered) fs.UnregisterDevice(mount);
++    for (const std::string& done : registered) {
++      std::string done_mount = "\\" + done;
++      for (auto& c : done_mount) if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
++      fs.UnregisterSymbolicLink(done + ":");
++      fs.UnregisterDevice(done_mount);
+     }
+-    XELOGI("Utility cache {}: -> {}", name, memory ? std::string("memory (fix 150d)") : root.string());
++    return false;
+   }
+   return true;
+ }

@@ -31,12 +31,16 @@
 //      deleted with its file; the cap (STATUS_DISK_FULL, the bytes up to it written) and the
 //      direct memory reserve; segments mapped through xe::memory and all unmapped once empty;
 //      four threads writing, deleting and making files again; the 30 s File I/O line's part.
+//  (h) fix 150e: MountUtilityCache all or nothing: a folder that cannot be made fails before
+//      anything is registered, a link that cannot be registered takes the mounts before it out
+//      again, and the fallback mounts cleanly afterwards.
 // tools/check-vfs-entry-lifetime.sh also runs (a)-(c) on the tree without fix 139, where the
 // sanitizer must report the use of a freed entry (the console's crash).
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <random>
 #include <span>
 #include <string>
@@ -55,6 +59,7 @@
 // the assembled tree's header on its include path).
 #if __has_include("xenia/vfs/devices/memory_device.h") && defined(XE_VFS_BACKGROUND_DELETE)
 #include "xenia/vfs/devices/memory_device.h"  // fix 150d
+#include "xbox360ps5/utility_cache.hpp"       // fix 150d3: MoveUtilityCacheToMemory
 #endif
 
 using namespace xe;  // X_STATUS
@@ -574,7 +579,103 @@ void MemoryCache() {
              line.find("memory reads 1 (1.0 MiB") != std::string::npos && part != std::string::npos,
          "fix 150d: the File I/O line has the memory reads, writes and the pool" +
              (part != std::string::npos ? line.substr(part) : std::string(" (missing): ") + line));
+
+  // Fix 150d3: a second title (Kinect Sports) chosen in the launcher. The start mounts the caches
+  // on the drive (no title yet); the launch moves cache1: and cache: into memory, cache0: stays.
+  const auto cache_base = std::filesystem::temp_directory_path() / "check-vfs-150d3";
+  std::error_code cache_error;
+  std::filesystem::remove_all(cache_base, cache_error);
+  {
+    mc::Pool moved_pool;
+    moved_pool.direct_free = [] { return int64_t(-1); };
+    vfs::VirtualFileSystem cache_fs;
+    const auto open_cache = [&cache_fs](const std::string& path) {
+      vfs::File* f = nullptr;
+      vfs::FileAction action = vfs::FileAction::kDoesNotExist;
+      return cache_fs.OpenFile(nullptr, path, vfs::FileDisposition::kOverwriteIf, kAccess, false, true, &f,
+                               &action) == X_STATUS_SUCCESS
+                 ? f
+                 : nullptr;
+    };
+    const auto on_drive = [&cache_base](const char* device, const char* name) {
+      return std::filesystem::exists(cache_base / "utility-cache" / device / name);
+    };
+    Expect(xbox360ps5::MountUtilityCache(cache_fs, cache_base), "fix 150d3: the caches mounted on the drive at the start");
+    if (vfs::File* f = open_cache("cache:\\videobuffer0")) {
+      WriteAt(f, second, 0, &written);
+      f->Destroy();
+    }
+    Expect(on_drive("cache", "videobuffer0") && moved_pool.used == 0,
+           "fix 150d3: before the launch cache:\\videobuffer0 is a file on the drive");
+    Expect(xbox360ps5::MoveUtilityCacheToMemory(cache_fs, moved_pool),
+           "fix 150d3: Kinect Sports chosen: cache1: and cache: moved into memory");
+    vfs::File* in_cache = open_cache("cache:\\videobuffer1");
+    vfs::File* in_cache1 = open_cache("cache1:\\level_3.img");
+    vfs::File* in_cache0 = open_cache("cache0:\\cache010.map");
+    Expect(in_cache && in_cache1 && in_cache0, "fix 150d3: cache:, cache1: and cache0: open after the move");
+    if (in_cache) WriteAt(in_cache, second, 0, &written);
+    if (in_cache1) WriteAt(in_cache1, second, 0, &written);
+    if (in_cache0) WriteAt(in_cache0, second, 0, &written);
+    Expect(moved_pool.used == 2 * kChunk && !on_drive("cache", "videobuffer1") && !on_drive("cache1", "level_3.img") &&
+               on_drive("cache0", "cache010.map"),
+           "fix 150d3: cache: and cache1: write into memory (2 chunks), cache0: still to the drive");
+    for (vfs::File* f : {in_cache, in_cache1, in_cache0})
+      if (f) f->Destroy();
+  }
+  std::filesystem::remove_all(cache_base, cache_error);
 }
+
+#ifdef XBOX360PS5_UTILITY_CACHE_ALL_OR_NOTHING
+// Fix 150e: a mount that fails half-way leaves nothing registered, so fix 150c's fallback to the
+// internal storage mounts cleanly (it found a second \CACHE0 and cache0: link before).
+void MountAllOrNothing() {
+  const auto tmp = std::filesystem::temp_directory_path();
+  const auto bad = tmp / "check-vfs-150e-bad", good = tmp / "check-vfs-150e-good";
+  std::error_code error;
+  for (const auto& dir : {bad, good}) std::filesystem::remove_all(dir, error);
+  // The extended storage's cache1 is a file, not a folder: its folder cannot be made.
+  std::filesystem::create_directories(bad / "utility-cache", error);
+  std::ofstream(bad / "utility-cache" / "cache1") << "a file";
+  const auto open_in = [](vfs::VirtualFileSystem& fs, const std::string& path) {
+    vfs::File* f = nullptr;
+    vfs::FileAction action = vfs::FileAction::kDoesNotExist;
+    return fs.OpenFile(nullptr, path, vfs::FileDisposition::kOverwriteIf, kAccess, false, true, &f, &action) ==
+                   X_STATUS_SUCCESS
+               ? f
+               : nullptr;
+  };
+  {
+    vfs::VirtualFileSystem fs;
+    Expect(!xbox360ps5::MountUtilityCache(fs, bad), "fix 150e: cache1's folder cannot be made: the mount fails");
+    vfs::File* left = open_in(fs, "cache0:\\cache010.map");
+    Expect(!left, "fix 150e: nothing registered (cache0: not mounted)");
+    if (left) left->Destroy();
+    Expect(xbox360ps5::MountUtilityCache(fs, good), "fix 150e: the fallback to the internal storage mounts");
+    vfs::File* f = open_in(fs, "cache0:\\cache010.map");
+    Expect(f && std::filesystem::exists(good / "utility-cache" / "cache0" / "cache010.map"),
+           "fix 150e: cache0: is the fallback's folder");
+    if (f) f->Destroy();
+  }
+  {
+    // The third link (cache:) cannot be registered: cache0: and cache1: are taken out again.
+    vfs::VirtualFileSystem fs;
+    fs.RegisterSymbolicLink("cache:", "\\ELSEWHERE");
+    Expect(!xbox360ps5::MountUtilityCache(fs, good), "fix 150e: the cache: link taken: the mount fails");
+    vfs::File* left0 = open_in(fs, "cache0:\\x.bin");
+    vfs::File* left1 = open_in(fs, "cache1:\\x.bin");
+    Expect(!left0 && !left1, "fix 150e: cache0: and cache1:, registered before, taken out again");
+    for (vfs::File* f : {left0, left1})
+      if (f) f->Destroy();
+    fs.UnregisterSymbolicLink("cache:");
+    Expect(xbox360ps5::MountUtilityCache(fs, good), "fix 150e: mounted cleanly afterwards (no device left twice)");
+    vfs::File* f = open_in(fs, "cache:\\videobuffer0");
+    Expect(f && std::filesystem::exists(good / "utility-cache" / "cache" / "videobuffer0"),
+           "fix 150e: cache: writes to its folder");
+    if (f) f->Destroy();
+  }
+  for (const auto& dir : {bad, good}) std::filesystem::remove_all(dir, error);
+}
+#endif
 #endif
 }  // namespace
 
@@ -609,6 +710,9 @@ int main() {
   }
 #ifdef XENIA_VFS_DEVICES_MEMORY_DEVICE_H_
   MemoryCache();  // (g) fix 150d
+#ifdef XBOX360PS5_UTILITY_CACHE_ALL_OR_NOTHING
+  MountAllOrNothing();  // (h) fix 150e
+#endif
 #endif
   std::error_code error;
   std::filesystem::remove_all(root, error);
