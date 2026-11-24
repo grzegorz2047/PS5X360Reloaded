@@ -182,6 +182,9 @@ on:
       - 'tools/check-help-card.cpp'
       - 'tools/check-ui-loop-io.cpp'
       - 'tools/check-hang-watch-sync.cpp'
+      - 'tools/check-nui-device-status.cpp'
+      - 'tools/check-kernel-timer.cpp'
+      - 'tools/check-nui-elevation.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
