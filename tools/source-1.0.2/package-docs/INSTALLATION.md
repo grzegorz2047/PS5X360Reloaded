@@ -35,6 +35,12 @@ and caches stay. The saves folder on each external drive keeps its name,
 `<drive>/PS5X360Reloaded/saves`; do not rename it. Forwarder tiles that start `PPSA83600` keep
 working.
 
+The PS5 keeps the old icon and name (PS5X360Reloaded) after such an update. To see TrinityX360's,
+start the PS5 in **Safe Mode** and choose **Rebuild Database** (it keeps your games, apps and saved
+data), or remove the `PPSA83600` app (**Options** > **Delete** on its tile) and install it again;
+before removing it, copy `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP
+(while the app is open), since its settings in `/download0` can go with the app.
+
 ## Games
 
 Put each game in its own folder under `/data/homebrew/PPSA83600/assets/roms/` (folder install),
