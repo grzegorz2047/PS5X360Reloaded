@@ -1,7 +1,7 @@
 diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench.hpp
 --- a/include/xbox360ps5/write_bench.hpp
 +++ b/include/xbox360ps5/write_bench.hpp
-@@ -8,22 +8,34 @@
+@@ -8,22 +8,50 @@
  // same ~0.92 s. This writes a test file of its own with each way of writing and logs what each gets:
  //  * switch: <data>/write-bench.txt; the library starts it once in a thread of its own (no game
  //    needed). Optional lines: mib=N (at most 2048, the default), seconds=N (at most 120, the
@@ -28,12 +28,28 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +// ~1 s), and no refill after GTA V's 3.5 h in rest mode. Ways of writing that might not be charged
 +// to it: a probe of 256 MiB first (is the burst there?), mmap (MAP_SHARED, memcpy, msync every
 +// 32 MiB), writev, aio_write (each waited for), and pwrites with the file opened anew every 64 MiB.
++// After an app restart the burst was back (1536 MiB at 70.6 MiB/s 3 min later): the budget is the
++// process's. Also: "fork" (a vfork child writes, the parent waits: does a new process get its own?),
++// "churn" (256 MiB written and removed, again and again: do removed bytes count? GTA IV reached the
++// knee at ~780 MiB written plus ~720 MiB of removed cache) and "shrink" (256 MiB written, then
++// ftruncate to 0, again and again), each round on a line of its own; a "mounts" line first (statfs
++// of /, /data, /system_tmp, /tmp, /dev/shm, /mnt/ext1, /mnt/usb0, /mnt/usb1), and dir= may name a
++// folder on /system_tmp, /tmp or /dev/shm too (a memory mount for GTA IV's cache, fix 150d).
  #pragma once
  #include <fcntl.h>
 +#include <sys/mman.h>
  #include <sys/stat.h>
 +#include <sys/uio.h>
++#include <sys/wait.h>
  #include <unistd.h>
++#if (defined(__PROSPERO__) || defined(__FreeBSD__)) && !defined(__linux__)
++#include <sys/param.h>
++#include <sys/mount.h>
++#define XBOX360PS5_WRITE_BENCH_STATFS_NAMES 1
++#else
++#include <sys/statvfs.h>
++#define XBOX360PS5_WRITE_BENCH_STATFS_NAMES 0
++#endif
  
  #include <cerrno>
  #include <chrono>
@@ -41,7 +57,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
  #include <cstdint>
  #include <cstdio>
  #include <cstdlib>
-@@ -32,6 +44,7 @@
+@@ -32,6 +60,7 @@
  #include <functional>
  #include <sstream>
  #include <string>
@@ -49,7 +65,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
  #include <vector>
  
  // The PS5's libc has no posix_fadvise (1.0.6-work-fix148i's first build: undefined symbol), and a
-@@ -42,30 +55,51 @@
+@@ -42,30 +71,59 @@
  #else
  #define XBOX360PS5_WRITE_BENCH_FADVISE 0
  #endif
@@ -74,7 +90,8 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
  constexpr double kStallMs = 100.0;
  constexpr size_t kMaxDirs = 8;
  
-+enum class Method { kPwrite, kWritev, kAio, kMmap };
++enum class Method { kPwrite, kWritev, kAio, kMmap, kFork };
++enum class Round { kNone, kUnlink, kShrink };  // fix 148j: what ends each round of churn / shrink
  struct Variant {
    const char* name;
 -  uint64_t write_mib;       // the size of each pwrite
@@ -87,6 +104,8 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +  Method method = Method::kPwrite;
 +  uint64_t reopen_every_mib = 0;  // fix 148j: close and open the file again after this many MiB
 +  uint64_t cap_mib = 0;           // fix 148j: at most this many MiB whatever mib= says (0: no cap)
++  uint64_t round_mib = 0;         // fix 148j: churn / shrink: the size of each round
++  Round round = Round::kNone;
  };
  inline constexpr Variant kVariants[] = {
 +    {"probe", 1, 0, false, false, "1 MiB pwrites, 256 MiB at most: is the burst there", Method::kPwrite, 0, 256},
@@ -100,10 +119,38 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +    {"writev", 1, 0, false, false, "1 MiB writev of 4 x 256 KiB", Method::kWritev},
 +    {"aio", 1, 0, false, false, "1 MiB aio_write, each waited for", Method::kAio},
 +    {"reopen64", 1, 0, false, false, "1 MiB pwrites, the file opened anew every 64 MiB", Method::kPwrite, 64},
++    {"fork", 1, 0, false, false, "1 MiB pwrites by a vfork child, the parent waiting", Method::kFork},
++    {"churn", 1, 0, false, false, "rounds of 256 MiB in 1 MiB pwrites, the file removed after each", Method::kPwrite,
++     0, 0, 256, Round::kUnlink},
++    {"shrink", 1, 0, false, false, "rounds of 256 MiB in 1 MiB pwrites, ftruncate to 0 after each", Method::kPwrite,
++     0, 0, 256, Round::kShrink},
  };
  inline const Variant* FindVariant(const std::string& name) {
    for (const Variant& v : kVariants)
-@@ -97,6 +131,7 @@
+@@ -85,10 +143,20 @@
+   return text.substr(a, b - a);
+ }
+ 
+-// A folder the switch file may name: under /data/ or /mnt/, absolute, without "..".
++// The mounts the "mounts" line describes (fix 148j).
++inline constexpr const char* kMounts[] = {"/", "/data", "/system_tmp", "/tmp", "/dev/shm", "/mnt/ext1", "/mnt/usb0",
++                                          "/mnt/usb1"};
++
++// A folder the switch file may name: under /data/ or /mnt/ (fix 148j: or /system_tmp, /tmp,
++// /dev/shm, the memory mounts among kMounts), absolute, without "..".
+ inline bool SafeDir(std::string& dir) {
+   while (dir.size() > 1 && dir.back() == '/') dir.pop_back();
+-  if (dir.rfind("/data/", 0) != 0 && dir.rfind("/mnt/", 0) != 0) return false;
++  bool under = dir.rfind("/data/", 0) == 0 || dir.rfind("/mnt/", 0) == 0;
++  for (const char* root : {"/system_tmp", "/tmp", "/dev/shm"}) {
++    const std::string r = root;
++    under = under || dir == r || dir.rfind(r + "/", 0) == 0;
++  }
++  if (!under) return false;
+   if (dir.find("/../") != std::string::npos || dir.find("/./") != std::string::npos) return false;
+   if (dir.size() >= 3 && dir.compare(dir.size() - 3, 3, "/..") == 0) return false;
+   return dir.find('\n') == std::string::npos;
+@@ -97,6 +165,7 @@
  struct Config {
    uint64_t mib = kMaxMiB;
    int seconds = kMaxSeconds;
@@ -111,7 +158,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    std::vector<const Variant*> variants;  // empty: all
    std::vector<std::string> dirs;         // empty: DefaultDirs
  };
-@@ -117,6 +152,9 @@
+@@ -117,6 +186,9 @@
      } else if (key == "seconds") {
        const long long n = std::atoll(value.c_str());
        c.seconds = n < 1 ? 1 : n > kMaxSeconds ? kMaxSeconds : int(n);
@@ -121,12 +168,18 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
      } else if (key == "variants") {
        c.variants.clear();
        std::istringstream names(value);
-@@ -183,8 +221,11 @@
+@@ -182,9 +254,17 @@
+   return ran.stamp != stamp || (!ran.done && ran.attempts < 2);
  }
  
++struct RoundStats {  // fix 148j: one round of churn / shrink
++  uint64_t bytes = 0;
++  double seconds = 0, end_ms = 0;  // end_ms: the unlink (churn) or ftruncate (shrink)
++};
  struct Stats {
 -  uint64_t bytes = 0, writes = 0, stalls = 0, syncs = 0;
 -  double seconds = 0, longest_write_ms = 0, longest_sync_ms = 0, sync_ms = 0, close_ms = 0, remove_ms = 0;
++  std::vector<RoundStats> rounds;
 +  uint64_t bytes = 0, writes = 0, stalls = 0, syncs = 0, reopens = 0;
 +  double started = 0;  // fix 148j: seconds since the benchmark started
 +  double seconds = 0, longest_write_ms = 0, longest_sync_ms = 0, sync_ms = 0, reopen_ms = 0, close_ms = 0,
@@ -135,7 +188,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    std::string stopped;  // "size", "time", or what failed / why skipped
    std::string note;     // e.g. a failed fadvise
  };
-@@ -194,16 +235,19 @@
+@@ -194,25 +274,131 @@
  }
  
  inline std::string Describe(const std::string& dir, const Variant& v, const Stats& s) {
@@ -161,7 +214,51 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    if (n > 0 && size_t(n) < sizeof(line))
      std::snprintf(line + n, sizeof(line) - size_t(n), "; close %.1f ms, remove %.1f ms; stopped by %s%s%s",
                    s.close_ms, s.remove_ms, s.stopped.c_str(), s.note.empty() ? "" : "; ", s.note.c_str());
-@@ -213,6 +257,35 @@
+   return line;
+ }
+ 
++// Fix 148j: one line per round of churn / shrink.
++inline std::string RoundLine(const std::string& dir, const Variant& v, size_t index, const RoundStats& r) {
++  char line[256];
++  const double mib = double(r.bytes) / double(kMiB);
++  std::snprintf(line, sizeof(line), "Write bench (fix 148i): %s %s round %zu: %.0f MiB in %.1f s, %.2f MiB/s; %s %.1f ms",
++                dir.c_str(), v.name, index + 1, mib, r.seconds, r.seconds > 0 ? mib / r.seconds : 0.0,
++                v.round == Round::kShrink ? "ftruncate to 0" : "unlink", r.end_ms);
++  return line;
++}
++
++// Fix 148j: "Write bench (fix 148i): mounts: <path> <type> on <mount point>, block B, free F of T MiB,
++// writable yes|no; ..." for each of kMounts that is there.
++inline std::string MountsLine() {
++  std::string line = "Write bench (fix 148i): mounts:";
++  bool any = false;
++  for (const char* path : kMounts) {
++    struct stat st {};
++    if (::stat(path, &st) != 0) continue;
++    char part[400];
++#if XBOX360PS5_WRITE_BENCH_STATFS_NAMES
++    struct statfs fs {};
++    if (::statfs(path, &fs) != 0) continue;
++    std::snprintf(part, sizeof(part), " %s %s on %s, block %llu, free %llu of %llu MiB, writable %s;", path,
++                  fs.f_fstypename, fs.f_mntonname, (unsigned long long)fs.f_bsize,
++                  (unsigned long long)(uint64_t(fs.f_bavail) * uint64_t(fs.f_bsize) / kMiB),
++                  (unsigned long long)(uint64_t(fs.f_blocks) * uint64_t(fs.f_bsize) / kMiB),
++                  ::access(path, W_OK) == 0 ? "yes" : "no");
++#else
++    struct statvfs fs {};
++    if (::statvfs(path, &fs) != 0) continue;
++    std::snprintf(part, sizeof(part), " %s block %llu, free %llu of %llu MiB, writable %s;", path,
++                  (unsigned long long)fs.f_bsize, (unsigned long long)(uint64_t(fs.f_bavail) * fs.f_frsize / kMiB),
++                  (unsigned long long)(uint64_t(fs.f_blocks) * fs.f_frsize / kMiB),
++                  ::access(path, W_OK) == 0 ? "yes" : "no");
++#endif
++    line += part;
++    any = true;
++  }
++  if (!any) line += " none found";
++  return line;
++}
++
  using Clock = std::chrono::steady_clock;
  inline double MsSince(Clock::time_point t) {
    return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
@@ -194,10 +291,42 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +  }
 +#endif
 +  return ::pwrite(fd, buffer, length, off_t(offset));
++}
++
++// Fix 148j: what a vfork child measured; plain data only (the child shares the parent's memory and
++// must not allocate).
++struct ChildStats {
++  uint64_t bytes, writes, stalls;
++  double longest_ms;
++  int error;     // errno of a failed pwrite, else 0
++  int timed_out;
++};
++inline void ChildWrite(int fd, const unsigned char* buffer, uint64_t chunk, uint64_t total, int seconds,
++                       ChildStats* out) {
++  const Clock::time_point start = Clock::now();
++  while (out->bytes < total) {
++    if (MsSince(start) >= seconds * 1000.0) {
++      out->timed_out = 1;
++      return;
++    }
++    const size_t length = size_t(total - out->bytes < chunk ? total - out->bytes : chunk);
++    const Clock::time_point t = Clock::now();
++    const ssize_t wrote = ::pwrite(fd, buffer, length, off_t(out->bytes));
++    const double ms = MsSince(t);
++    if (wrote <= 0) {
++      if (wrote < 0 && errno == EINTR) continue;
++      out->error = wrote < 0 ? errno : EIO;
++      return;
++    }
++    ++out->writes;
++    if (ms > kStallMs) ++out->stalls;
++    if (ms > out->longest_ms) out->longest_ms = ms;
++    out->bytes += uint64_t(wrote);
++  }
  }
  
  // One variant in `dir`: write `mib` MiB (stopping after `seconds`), then close and remove the file.
-@@ -233,17 +306,45 @@
+@@ -233,53 +419,111 @@
      s.stopped = "skipped: no posix_fadvise in this libc";
      return s;
    }
@@ -238,14 +367,38 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +      return s;
 +    }
 +  }
++  const bool guard_sigsys = v.method == Method::kAio || v.method == Method::kFork;
 +#ifdef SIGSYS
-+  void (*previous_sigsys)(int) = v.method == Method::kAio ? std::signal(SIGSYS, SIG_IGN) : SIG_DFL;
++  void (*previous_sigsys)(int) = guard_sigsys ? std::signal(SIGSYS, SIG_IGN) : SIG_DFL;
 +#endif
-+  uint64_t since_sync = 0, since_hint = 0, since_open = 0;
++  uint64_t since_sync = 0, since_hint = 0, since_open = 0, pos = 0;
    const Clock::time_point start = Clock::now();
++  Clock::time_point round_start = start;
    s.stopped = "size";
-   while (s.bytes < total) {
-@@ -253,15 +354,22 @@
+-  while (s.bytes < total) {
++  if (v.method == Method::kFork) {
++    ChildStats child{0, 0, 0, 0.0, 0, 0};
++    const pid_t pid = ::vfork();
++    if (pid == 0) {
++      ChildWrite(fd, buffer, chunk, total, seconds, &child);
++      ::_exit(0);
++    }
++    if (pid < 0) {
++      s.stopped = ErrorText("vfork", errno);
++    } else {
++      int status = 0;
++      while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
++      }
++      s.bytes = child.bytes, s.writes = child.writes, s.stalls = child.stalls, s.longest_write_ms = child.longest_ms;
++      if (child.error) s.stopped = ErrorText("pwrite in the child", child.error);
++      else if (child.timed_out) s.stopped = "time";
++    }
++    pos = total;  // the loop below has nothing left to do
++  }
++  while (v.method != Method::kFork && s.bytes < total) {
+     if (MsSince(start) >= seconds * 1000.0) {
+       s.stopped = "time";
+       break;
      }
      const size_t length = size_t(total - s.bytes < chunk ? total - s.bytes : chunk);
      const Clock::time_point t = Clock::now();
@@ -255,7 +408,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +      std::memcpy(map + s.bytes, buffer, length);
 +      wrote = ssize_t(length);
 +    } else {
-+      wrote = WriteOnce(v, fd, buffer, length, s.bytes);
++      wrote = WriteOnce(v, fd, buffer, length, pos);
 +    }
      const double ms = MsSince(t);
      if (wrote < 0) {
@@ -271,8 +424,10 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
        break;
      }
      ++s.writes;
-@@ -270,16 +378,17 @@
+     if (ms > kStallMs) ++s.stalls;
+     if (ms > s.longest_write_ms) s.longest_write_ms = ms;
      s.bytes += uint64_t(wrote);
++    pos += uint64_t(wrote);
      since_sync += uint64_t(wrote);
      since_hint += uint64_t(wrote);
 +    since_open += uint64_t(wrote);
@@ -291,10 +446,32 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
          break;
        }
      }
-@@ -290,10 +399,26 @@
+@@ -290,10 +534,48 @@
  #endif
        since_hint = 0;
      }
++    if (v.round != Round::kNone && pos >= v.round_mib * kMiB) {
++      RoundStats r;
++      r.bytes = pos;
++      r.seconds = MsSince(round_start) / 1000.0;
++      const Clock::time_point e = Clock::now();
++      int ended = 0;
++      if (v.round == Round::kShrink) {
++        ended = ::ftruncate(fd, 0);
++      } else {
++        ::close(fd);
++        ended = ::unlink(file.c_str());
++        fd = ended == 0 ? ::open(file.c_str(), flags, 0644) : -1;
++      }
++      r.end_ms = MsSince(e);
++      s.rounds.push_back(r);
++      pos = 0;
++      round_start = Clock::now();
++      if (ended != 0 || fd < 0) {
++        s.stopped = ErrorText(v.round == Round::kShrink ? "ftruncate" : ended != 0 ? "unlink" : "open again", errno);
++        break;
++      }
++    }
 +    if (v.reopen_every_mib && since_open >= v.reopen_every_mib * kMiB && s.bytes < total) {
 +      const Clock::time_point o = Clock::now();
 +      ::close(fd);
@@ -309,7 +486,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +    }
    }
 +#ifdef SIGSYS
-+  if (v.method == Method::kAio) std::signal(SIGSYS, previous_sigsys);
++  if (guard_sigsys) std::signal(SIGSYS, previous_sigsys);
 +#endif
    s.seconds = MsSince(start) / 1000.0;
    const Clock::time_point c = Clock::now();
@@ -319,13 +496,14 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    s.close_ms = MsSince(c);
    const Clock::time_point r = Clock::now();
    if (::unlink(file.c_str()) != 0 && s.note.empty()) s.note = ErrorText("unlink", errno);
-@@ -362,13 +487,23 @@
+@@ -362,13 +644,25 @@
    };
    say("Write bench (fix 148i): start (attempt " + std::to_string(ran.attempts) + "), " +
        std::to_string(dirs.size()) + " folder(s), variants " + names + ", at most " + std::to_string(config.mib) +
 -      " MiB and " + std::to_string(config.seconds) + " s each");
 +      " MiB and " + std::to_string(config.seconds) + " s each, pause " + std::to_string(config.pause) +
 +      " s between");
++  say(MountsLine());
 +  const Clock::time_point began = Clock::now();
 +  bool first = true;
    for (const std::string& dir : dirs) {
@@ -341,6 +519,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +      Stats s = Run(dir, *v, config.mib, config.seconds);
 +      s.started = started;
 +      say(Describe(dir, *v, s));
++      for (size_t i = 0; i < s.rounds.size(); ++i) say(RoundLine(dir, *v, i, s.rounds[i]));
 +    }
    }
    ran.done = true;
