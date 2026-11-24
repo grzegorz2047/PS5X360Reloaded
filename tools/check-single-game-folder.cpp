@@ -15,10 +15,13 @@
 //      title ID content folders (DLC, title updates: not read by the scan; a GOD copy in 00007000)
 //      -> one game; one single-disc ISO in its own folder -> one game, no group (today's behaviour,
 //      unchanged); nested folders: a folder of two such games is a group, their own folders are not;
-//      two regions' discs in one folder are two games; one name in two folders is two games;
+//      an extracted set InspectExtractedDiscGroup checked (its folder the set's) counts in the folder
+//      above it; two regions' discs in one folder with different or unknown title IDs are two games
+//      (one title ID: one game, fix 112d); one name in two folders is two games;
 //  (b) GameKeys' own edges: 00000000 is no title ID, case is ignored, a singleton without a title ID
-//      is "" (a game of its own, as Build takes it), title IDs join across folders (fix 112d);
-//  (c) the assembled launcher passes GameKeys (with the set names) to Build.
+//      is "" (a game of its own, as Build takes it), title IDs join across folders (fix 112d); SetKey;
+//  (c) the assembled launcher makes the set names as SetName does (each step pinned) and passes
+//      GameKeys to Build, and logs the discs of one game fix 89 left apart (with their headers).
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/disc_catalog.cpp"
@@ -29,6 +32,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -47,9 +51,13 @@ void Expect(bool condition, const std::string& what) {
 const std::string kRoot = "/mnt/ext1/xbox360";
 
 // One library entry as the scan leaves it: an image (or an extracted disc's default.xex), its title
-// ID ("" unknown), and for a fix 89 set its discs' images (the first is the one named).
+// ID ("" unknown), and its folder (GameEntry::folder: for an extracted disc the folder the scan found
+// it in, "" for its own Disc N folder; an extracted set InspectExtractedDiscGroup checked has the
+// set's folder, e.g. "RPG/Lost Odyssey").
 struct Entry {
-  std::string kind, path, title;
+  std::string kind, path, title, folder;
+  Entry(std::string kind_, std::string path_, std::string title_, std::string folder_ = "")
+      : kind(std::move(kind_)), path(std::move(path_)), title(std::move(title_)), folder(std::move(folder_)) {}
 };
 
 // What Launcher::Scan gives GameKeys for an entry (fix 159's set_names).
@@ -71,7 +79,8 @@ struct Library {
 Library Make(const std::vector<Entry>& entries) {
   Library library;
   for (const auto& entry : entries) {
-    const std::string folder = entry.kind == "XEX" ? fs::path(entry.path).parent_path().string() : "";
+    const std::string folder = entry.kind != "XEX" ? "" : !entry.folder.empty() ? kRoot + "/" + entry.folder
+                                                                                 : fs::path(entry.path).parent_path().string();
     library.folders.push_back(lg::EntryFolders(kRoot, entry.kind, entry.path, folder));
     library.titles.push_back(entry.title);
     library.sets.push_back(SetName(entry.kind, entry.path));
@@ -146,6 +155,25 @@ void OneGameFolders() {
     Expect(!HasGroup(library, "rpg/lost odyssey") && !HasGroup(library, "rpg/blue dragon"),
            "(a) an extracted set's and an image set's folder: no group");
   }
+  // An extracted set InspectExtractedDiscGroup checked but fix 89 did not join: each disc's folder is
+  // the set's ("RPG/Lost Odyssey"), so the folder above it (RPG) holds the discs. Beside another game
+  // RPG is a group of two games; alone, RPG holds one game and is no group.
+  {
+    std::vector<Entry> discs;
+    for (int disc = 1; disc <= 4; ++disc)
+      discs.push_back({"XEX", kRoot + "/RPG/Lost Odyssey/Disc " + std::to_string(disc) + "/default.xex", "", "RPG/Lost Odyssey"});
+    std::vector<Entry> entries{kTop};
+    entries.insert(entries.end(), discs.begin(), discs.end());
+    const auto alone = Make(entries);
+    Expect(alone.layout.groups.empty(), "(a) a grouped extracted set alone in RPG: no group");
+    Expect(alone.sets[1] == "Lost Odyssey" && alone.sets[4] == "Lost Odyssey", "(a) a grouped extracted set's set names");
+    entries.push_back({"ISO", kRoot + "/RPG/Blue Dragon (Disc 1).iso", ""});
+    const auto beside = Make(entries);
+    Expect(beside.layout.groups.size() == 1 && HasGroup(beside, "rpg") && beside.layout.groups[0].games.size() == 5,
+           "(a) a grouped extracted set beside another game in RPG: a group");
+    const auto keys = lg::GameKeys(beside.folders, beside.titles, beside.sets);
+    Expect(keys[1] == keys[4] && !keys[1].empty() && keys[5] != keys[1], "(a) the set's discs: one game; Blue Dragon another");
+  }
 }
 
 void OtherFolders() {
@@ -211,13 +239,17 @@ void OtherFolders() {
     Expect(HasGroup(nested, "collections") && HasGroup(nested, "collections/series") && nested.layout.groups.size() == 2,
            "(a) nested: Collections and its Series are groups, the games' folders are not");
   }
-  // Two regions' discs in one folder: two names, two games, a group.
+  // Two regions' discs in one folder, their title IDs unknown (or different): two names, two games, a
+  // group. With one title ID they are one game, as fix 112d counts copies.
   {
     const auto library = Make({kTop, {"ISO", kRoot + "/Regions/Blue Dragon (USA) (Disc 1).iso", ""},
                                {"ISO", kRoot + "/Regions/Blue Dragon (USA) (Disc 2).iso", ""},
                                {"ISO", kRoot + "/Regions/Blue Dragon (Europe) (Disc 1).iso", ""},
                                {"ISO", kRoot + "/Regions/Blue Dragon (Europe) (Disc 2).iso", ""}});
     Expect(HasGroup(library, "regions"), "(a) two regions' discs in one folder: a group");
+    const auto shared = Make({kTop, {"ISO", kRoot + "/Regions/Blue Dragon (USA) (Disc 1).iso", "4D5307F1"},
+                              {"ISO", kRoot + "/Regions/Blue Dragon (Europe) (Disc 1).iso", "4D5307F1"}});
+    Expect(shared.layout.groups.empty(), "(a) two regions' discs with one title ID: one game (fix 112d)");
   }
   // One name in two folders, no title ID: not joined across folders (each folder holds one disc).
   {
@@ -241,6 +273,9 @@ void Edges() {
   Expect(lg::HolderKey({"Racing", "4D5307E6", "00007000"}) == "racing" && lg::HolderKey({}).empty(),
          "(b) HolderKey skips a package's folders");
   Expect(lg::GameKeys({}, {}, {}).empty(), "(b) no entries");
+  Expect(lg::SetKey({"Racing", "4D5307E6", "00007000"}, "Game \t") == "racing\ngame" && lg::SetKey({"x"}, " ").empty() &&
+             lg::SetKey({}, "Game") == "\ngame",
+         "(b) SetKey: the holder and the name, lower case, trimmed; \"\" without a name");
   // Shorter title / set lists than entries are allowed.
   Expect(lg::GameKeys({{"x"}, {"x"}}, {}, {}).size() == 2, "(b) short lists");
 }
@@ -259,6 +294,26 @@ void Tree() {
   Expect(launcher.find("set_names[n] = bare != file ? bare : image.parent_path().filename().string();") != std::string::npos,
          "(c) the launcher's set names are SetName's");
   Expect(launcher.find("multidisc::NameWithoutDisc(file)") != std::string::npos, "(c) by fix 89's NameWithoutDisc");
+  // SetName's steps, each as the launcher has it.
+  const size_t names = launcher.find("std::vector<std::string> set_names(games_.size());");
+  const size_t build = launcher.find("library_groups::Build(folders, library_groups::GameKeys(", names);
+  const auto in_names = [&](const char* text) {
+    const size_t at = launcher.find(text, names);
+    return names != std::string::npos && at != std::string::npos && at < build;
+  };
+  Expect(in_names("const GameEntry& first = games_[n].discs.empty() ? games_[n] : games_[n].discs.front();"),
+         "(c) a set by its first disc");
+  Expect(in_names("if (first.kind != \"ISO\" && first.kind != \"XEX\") continue;"), "(c) only images and extracted discs");
+  Expect(in_names("const fs::path image = first.kind == \"XEX\" ? first.path.parent_path() : first.path;"),
+         "(c) an extracted disc by its folder");
+  Expect(in_names("if (!multidisc::DiscOfImage(image)) continue;"), "(c) only names with a disc number");
+  Expect(in_names("const std::string bare = multidisc::NameWithoutDisc(file);"), "(c) the name without the disc tags");
+  // The discs fix 89 left apart are logged by SetKey, with their headers.
+  Expect(launcher.find("library_groups::SetKey(folders[n], set_names[n])", build) != std::string::npos &&
+             launcher.find("LAUNCHER disc set not made:", build) != std::string::npos,
+         "(c) discs of one game fix 89 left apart are in the log");
+  Expect(launcher.find("std::string& seen = disc_headers[games_[n].path.string()];") != std::string::npos,
+         "(c) fix 89's header reads are kept for that log");
 }
 }  // namespace
 
