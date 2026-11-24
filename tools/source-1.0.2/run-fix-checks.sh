@@ -433,10 +433,13 @@ if "$python" -I "$repo/tools/check-gta5-preset.py"; then
   echo "pass check-gta5-preset.py"
 else
   echo "FAIL check-gta5-preset.py"
+  status=1
+fi
 # The shipped game patch files (assets/patches): TOML, the title's reader, GTA IV's draw distance.
 echo "=== check-game-patch-files.py"
 if "$python" -I "$repo/tools/check-game-patch-files.py"; then
   echo "pass check-game-patch-files.py"
+else
   echo "FAIL check-game-patch-files.py"
   status=1
 fi

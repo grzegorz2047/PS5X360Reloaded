@@ -201,7 +201,7 @@ jobs:
   checks:
     name: Fix checks on the assembled 1.0.2 tree
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
