@@ -424,6 +424,15 @@ void MemoryCache() {
   Expect(pool.used == 17 * kChunk, "fix 150d: 17 chunks in use (16 for the MiB, 1 after the hole): " +
                                        std::to_string(pool.used / kChunk));
   Expect(segment_maps == 1 && pool.mapped == mc::kSegmentBytes, "fix 150d: one segment mapped");
+  // The 30 s line's files part: the files, the largest by their chunks, listed again only on a change.
+  const std::string full_name = kMemoryMount + "\\" + name;
+  std::string summary = pool.Summary();
+  Expect(summary.find("; 1 files (0 deleted and still open, 0.0 MiB), 0.0 MiB given back in all") != std::string::npos &&
+             summary.find("; largest: " + full_name + " 1.1 MiB") != std::string::npos,
+         "fix 150d: the line lists 1 file, " + name + " largest with 17 chunks: " + summary);
+  summary = pool.Summary();
+  Expect(summary.find("; largest files as before") != std::string::npos && summary.find(full_name) == std::string::npos,
+         "fix 150d: nothing changed, the largest files not listed again: " + summary);
 
   // Lengths.
   Expect(file->SetLength(kMiB / 2 + 10) == X_STATUS_SUCCESS && pool.used == 9 * kChunk,
@@ -443,9 +452,30 @@ void MemoryCache() {
          "fix 150d: the name gone at the first close");
   Expect(ReadAt(other, kMiB / 2, 0) == Head(first, kMiB / 2) && pool.used > 0,
          "fix 150d: the other handle still reads the data");
+  summary = pool.Summary();
+  Expect(summary.find("; 1 files (1 deleted and still open, 0.6 MiB)") != std::string::npos &&
+             summary.find(full_name + " 0.6 MiB (deleted, open)") != std::string::npos,
+         "fix 150d: the line counts the deleted file still open apart: " + summary);
   other->Destroy();
   Expect(pool.used == 0 && pool.mapped == 0 && segment_unmaps == 1,
          "fix 150d: its data and the segment given back at the last close");
+  summary = pool.Summary();
+  Expect(pool.given_back == 17 * kChunk &&
+             summary.find("; 0 files (0 deleted and still open, 0.0 MiB), 1.1 MiB given back in all; largest: none") !=
+                 std::string::npos,
+         "fix 150d: 17 chunks given back in all (8 by the shorter length, 9 at the close): " + summary);
+
+  // A renamed file is listed by its new name.
+  if (vfs::File* renamed = OpenMemory(fs, "rename_me.img", vfs::FileDisposition::kOverwriteIf)) {
+    WriteAt(renamed, second, 0, &written);
+    renamed->entry()->Rename(std::filesystem::path("cache:\\renamed.img"));
+    summary = pool.Summary();
+    Expect(summary.find("; largest: " + kMemoryMount + "\\renamed.img 0.1 MiB") != std::string::npos,
+           "fix 150d: the renamed file listed by its new name: " + summary);
+    renamed->entry()->SetForDeletion(true);
+    renamed->Destroy();
+  }
+  Expect(pool.used == 0, "fix 150d: the renamed file freed");
 
   // An overwrite while the old file is open.
   vfs::File* old_file = OpenMemory(fs, "anim.img", vfs::FileDisposition::kOverwriteIf);

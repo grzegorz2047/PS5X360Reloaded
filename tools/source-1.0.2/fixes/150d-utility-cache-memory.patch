@@ -2,12 +2,13 @@ diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/memory_device.h b/.deps/xe
 new file mode 100644
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/vfs/devices/memory_device.h
-@@ -0,0 +1,421 @@
+@@ -0,0 +1,517 @@
 +// SPDX-License-Identifier: MIT
 +// Xbox360PS5, fix 150d: a device whose files live in memory, for the guest's utility cache.
-+// Grand Theft Auto IV copies its streaming archives (.img, about 1.4 GiB) from the disc into
-+// cache: and cache1: every session, and deletes and copies them again while you play (about
-+// 35 MiB/min). The console gives the emulator's process one burst of about 1.5 GB of drive
++// Grand Theft Auto IV copies its streaming archives (.img) from the disc into cache: and cache1:
++// every session: about 1.98 GiB in all within 5 min in memory (1.0.6-work-fix150d), while on a
++// drive past its write burst the copy never finished (1.41 GiB in a 6 min session, the old
++// session's files deleted first). The console gives the emulator's process one burst of about 1.5 GB of drive
 +// writes per start (bench 148i: then about 2 MiB/s, on /data and the M.2 alike), and from about
 +// 3 min into GTA IV every file operation waited on a ~0.95 s tick (1.0.6-work-fix146f-150-152-153).
 +// In memory the cache writes and frees nothing on a drive. Nothing needs to outlive the process:
@@ -20,7 +21,8 @@ new file mode 100644
 +// none of whose chunks is used is unmapped. At most Pool::cap bytes are in use, and no segment is
 +// mapped while the console's direct memory would fall below Pool::reserve; a write that would
 +// need more fails with STATUS_DISK_FULL (the game then streams that file from the disc). The use,
-+// the peak and the refusals are added to fix 148d's 30 s File I/O line.
++// the peak, the refusals, the files (deleted ones still open counted apart), the bytes given back
++// and the largest files are added to fix 148d's 30 s File I/O line.
 +//
 +// The entries keep fixes 129, 139 and 139b's rules (entry.cc): a deleted file's entry leaves its
 +// directory at once and keeps its data for the handles still open on it (as an unlinked host
@@ -38,6 +40,8 @@ new file mode 100644
 +#include <mutex>
 +#include <span>
 +#include <string>
++#include <unordered_set>
++#include <utility>
 +#include <vector>
 +
 +#include "xenia/base/clock.h"
@@ -89,19 +93,34 @@ new file mode 100644
 +  xe::memory::CloseFileMappingHandle(h, std::string());
 +}
 +
++class Data;
++
 +class Pool {
 + public:
 +  struct Chunk {
 +    uint8_t* data = nullptr;
 +    uint32_t segment = 0;
 +  };
-+  // In use at most (2 GiB: GTA IV's set is about 1.41 GiB); the console's direct memory kept free.
-+  std::atomic<uint64_t> cap{uint64_t(2) << 30};
++  // In use at most (3 GiB: GTA IV's whole set is about 1.98 GiB); the console's direct memory kept
++  // free (1 GiB) still decides first when memory is short.
++  std::atomic<uint64_t> cap{uint64_t(3) << 30};
 +  std::atomic<int64_t> reserve{int64_t(1) << 30};
 +  Backing backing{MapMappingSegment, UnmapMappingSegment};
 +  int64_t (*direct_free)() = [] { return xbox360ps5::resolution_scale::DirectFreeRecent(); };
 +
 +  std::atomic<uint64_t> used{0}, peak{0}, mapped{0}, refused{0};
++  std::atomic<uint64_t> given_back{0};  // bytes freed by deletes, shorter lengths and closes, in all
++  static constexpr size_t kLargestListed = 8;
++
++  // The files with data (for the 30 s line); a file's Data adds and removes itself.
++  void Register(const Data* data) {
++    std::lock_guard<std::mutex> lock(files_mutex_);
++    files_.insert(data);
++  }
++  void Unregister(const Data* data) {
++    std::lock_guard<std::mutex> lock(files_mutex_);
++    files_.erase(data);
++  }
 +
 +  Chunk Allocate() {
 +    std::lock_guard<std::mutex> lock(mutex_);
@@ -135,6 +154,7 @@ new file mode 100644
 +    segment.free_list.push_back(uint16_t((chunk.data - segment.base) / kChunkBytes));
 +    ++segment.free_count;
 +    used.fetch_sub(kChunkBytes);
++    given_back.fetch_add(kChunkBytes);
 +    if (segment.free_count == kChunksPerSegment) {
 +      if (backing.unmap) backing.unmap(segment.base, kSegmentBytes, segment.handle);
 +      segment.base = nullptr;
@@ -143,18 +163,8 @@ new file mode 100644
 +      mapped.fetch_sub(kSegmentBytes);
 +    }
 +  }
-+  // The 30 s line's part: "; utility cache in memory ...".
-+  std::string Summary() const {
-+    char text[200];
-+    const int64_t free_now = direct_free ? direct_free() : -1;
-+    std::snprintf(text, sizeof(text),
-+                  "; utility cache in memory (fix 150d): %.1f MiB used, peak %.1f MiB, %.0f MiB mapped, cap %.0f MiB, "
-+                  "%llu writes refused, direct free %lld MiB",
-+                  double(used.load()) / 1048576.0, double(peak.load()) / 1048576.0,
-+                  double(mapped.load()) / 1048576.0, double(cap.load()) / 1048576.0,
-+                  (unsigned long long)refused.load(), free_now < 0 ? -1LL : (long long)(free_now >> 20));
-+    return text;
-+  }
++  // The 30 s line's part: "; utility cache in memory ..." (defined after Data).
++  std::string Summary();
 +
 + private:
 +  struct Segment {
@@ -182,6 +192,13 @@ new file mode 100644
 +  }
 +  std::mutex mutex_;
 +  std::vector<Segment> segments_;
++  // Taken before a file's own mutex, never while holding it (Data::Write holds its own and then
++  // mutex_, so this one is separate).
++  std::mutex files_mutex_;
++  std::unordered_set<const Data*> files_;
++  // The largest files are listed again only when the use or the number of files changed.
++  uint64_t listed_used_ = ~uint64_t(0);
++  size_t listed_files_ = ~size_t(0);
 +};
 +
 +inline Pool& pool() {
@@ -192,9 +209,30 @@ new file mode 100644
 +// One file's bytes: sparse chunks, its length.
 +class Data {
 + public:
-+  explicit Data(Pool& pool) : pool_(pool) {}
++  explicit Data(Pool& pool, std::string name = {}) : pool_(pool), name_(std::move(name)) { pool_.Register(this); }
 +  ~Data() {
++    pool_.Unregister(this);  // first: the 30 s line no longer looks at it
 +    for (const auto& chunk : chunks_) pool_.Release(chunk);
++  }
++  // Its path in the guest (renames follow) and whether its entry was deleted while open.
++  void SetName(std::string name) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    name_ = std::move(name);
++  }
++  void MarkDeleted() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    deleted_ = true;
++  }
++  struct Facts {
++    std::string name;
++    uint64_t bytes = 0;  // in chunks
++    bool deleted = false;
++  };
++  Facts facts() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    Facts f{name_, 0, deleted_};
++    for (const auto& chunk : chunks_) f.bytes += chunk.data ? kChunkBytes : 0;
++    return f;
 +  }
 +  uint64_t size() const {
 +    std::lock_guard<std::mutex> lock(mutex_);
@@ -262,7 +300,55 @@ new file mode 100644
 +  mutable std::mutex mutex_;
 +  std::vector<Pool::Chunk> chunks_;
 +  uint64_t size_ = 0;
++  std::string name_;
++  bool deleted_ = false;
 +};
++
++inline std::string Pool::Summary() {
++  auto mib = [](uint64_t bytes) { return double(bytes) / 1048576.0; };
++  char text[320];
++  const int64_t free_now = direct_free ? direct_free() : -1;
++  std::snprintf(text, sizeof(text),
++                "; utility cache in memory (fix 150d): %.1f MiB used, peak %.1f MiB, %.0f MiB mapped, cap %.0f MiB, "
++                "%llu writes refused, direct free %lld MiB",
++                mib(used.load()), mib(peak.load()), mib(mapped.load()), mib(cap.load()),
++                (unsigned long long)refused.load(), free_now < 0 ? -1LL : (long long)(free_now >> 20));
++  std::string out = text;
++  std::vector<Data::Facts> all;
++  bool list;
++  {
++    std::lock_guard<std::mutex> lock(files_mutex_);
++    all.reserve(files_.size());
++    for (const Data* data : files_) all.push_back(data->facts());
++    const uint64_t now_used = used.load();
++    list = now_used != listed_used_ || all.size() != listed_files_;
++    listed_used_ = now_used;
++    listed_files_ = all.size();
++  }
++  size_t deleted = 0;
++  uint64_t deleted_bytes = 0;
++  for (const auto& f : all) {
++    if (!f.deleted) continue;
++    ++deleted;
++    deleted_bytes += f.bytes;
++  }
++  std::snprintf(text, sizeof(text), "; %zu files (%zu deleted and still open, %.1f MiB), %.1f MiB given back in all",
++                all.size(), deleted, mib(deleted_bytes), mib(given_back.load()));
++  out += text;
++  if (!list) return out + "; largest files as before";
++  const size_t n = std::min(all.size(), kLargestListed);
++  std::partial_sort(all.begin(), all.begin() + n, all.end(), [](const Data::Facts& a, const Data::Facts& b) {
++    return a.bytes != b.bytes ? a.bytes > b.bytes : a.name < b.name;
++  });
++  out += "; largest:";
++  for (size_t i = 0; i < n; ++i) {
++    std::snprintf(text, sizeof(text), "%s %s %.1f MiB%s", i ? "," : "", all[i].name.c_str(), mib(all[i].bytes),
++                  all[i].deleted ? " (deleted, open)" : "");
++    out += text;
++  }
++  if (!n) out += " none";
++  return out;
++}
 +
 +inline std::string ReportTail() { return pool().Summary(); }
 +
@@ -287,7 +373,8 @@ new file mode 100644
 +      : Entry(device, parent, path), pool_(pool) {
 +    attributes_ = attributes;
 +    create_timestamp_ = access_timestamp_ = write_timestamp_ = xe::Clock::QueryHostSystemTime();
-+    if (!(attributes & kFileAttributeDirectory)) data_ = std::make_unique<memory_cache::Data>(pool);
++    if (!(attributes & kFileAttributeDirectory))
++      data_ = std::make_unique<memory_cache::Data>(pool, absolute_path());
 +  }
 +  ~MemoryEntry() override = default;
 +
@@ -328,8 +415,17 @@ new file mode 100644
 +  std::unique_ptr<Entry> CreateEntryInternal(const std::string_view name, uint32_t attributes) override {
 +    return std::make_unique<MemoryEntry>(device_, this, xe::utf8::join_guest_paths(path_, name), attributes, pool_);
 +  }
-+  // Its data stays with the entry (open handles still use it) and goes with it.
-+  bool DeleteEntryInternal(Entry*) override { return true; }
++  // Its data stays with the entry (open handles still use it) and goes with it; a file is marked
++  // deleted for the 30 s line (this runs without the global lock, so a directory's children are
++  // not walked: they are freed with it).
++  bool DeleteEntryInternal(Entry* entry) override {
++    if (auto* data = static_cast<MemoryEntry*>(entry)->data()) data->MarkDeleted();
++    return true;
++  }
++  // The name in the 30 s line follows a rename (Entry::Rename sets the paths after this).
++  void RenameEntryInternal(const std::vector<std::string_view>& path_parts) override {
++    if (data_) data_->SetName(xe::utf8::join_guest_paths(device_->mount_path(), xe::utf8::join_guest_paths(path_parts)));
++  }
 +
 +  memory_cache::Pool& pool_;
 +  std::unique_ptr<memory_cache::Data> data_;
