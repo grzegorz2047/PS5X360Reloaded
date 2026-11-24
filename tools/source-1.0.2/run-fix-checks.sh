@@ -174,7 +174,7 @@ checks=(
   check-hang-watch-sync.cpp        # fix 153
   check-log-ring.cpp               # fix 154
   check-utility-cache-drive.cpp    # fixes 150c and 150d
-  check-write-bench.cpp            # fixes 148i, 148j, 148j2
+  check-write-bench.cpp            # fixes 148i, 148j, 148k
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
@@ -334,7 +334,7 @@ declare -A fix_of=(
   [check-dlc-incomplete.cpp]=148f
   [check-write-trace.cpp]=148g
   [check-install-notice.cpp]=148h
-  [check-write-bench.cpp]="148i 148j 148j2"
+  [check-write-bench.cpp]="148i 148j 148k"
   [check-help-card.cpp]=149d
   [check-ui-loop-io.cpp]=152
   [check-hang-watch-sync.cpp]=153
