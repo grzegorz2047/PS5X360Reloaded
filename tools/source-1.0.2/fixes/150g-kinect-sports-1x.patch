@@ -54,9 +54,9 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +        if (const auto own_scale = overrides.find("draw_scale");
 +            !status && xbox360ps5::resolution_scale::TwoXUnfit(settings_title) &&
 +            (own_scale != overrides.end() ? own_scale->second : global.draw_scale) == 1) {
-+          XELOGW("Resolution scale (fix 150g): {} runs at 1x although 2x is chosen: at 2x its Kinect camera "
-+                 "pictures (copy command 2) cannot be drawn and its render targets do not fit in memory",
-+                 settings_title);
++          XELOGW("Resolution scale (fix 150g): {} runs at 1x although 2x is chosen ({}): at 2x its Kinect "
++                 "camera pictures (copy command 2) cannot be drawn and its render targets do not fit in memory",
++                 settings_title, own_scale != overrides.end() ? "its own setting" : "the general setting");
 +          xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out."), "", false});
 +        }
          {

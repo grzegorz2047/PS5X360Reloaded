@@ -72,12 +72,16 @@ void Wiring() {
   const size_t chosen = main.find(Squeezed(
       "!status && xbox360ps5::resolution_scale::TwoXUnfit(settings_title) && (own_scale != overrides.end() ? "
       "own_scale->second : global.draw_scale) == 1"), launch);
-  const size_t line = main.find(Squeezed("Resolution scale (fix 150g): {} runs at 1x although 2x is chosen"), launch);
+  const size_t line = main.find(Squeezed("Resolution scale (fix 150g): {} runs at 1x although 2x is chosen ({})"), launch);
+  const size_t whose =
+      main.find(Squeezed("own_scale != overrides.end() ? \"its own setting\" : \"the general setting\""), line);
   const size_t notice = main.find(Squeezed("xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr(\"" + kNotice + "\"), \"\", false});"),
                                   launch);
   Expect(launch != std::string::npos && chosen != std::string::npos && line != std::string::npos &&
              notice != std::string::npos && launch < chosen && chosen < line && line < notice,
          "(c) the launch logs it and shows the notice through Tr when 2x is chosen for it");
+  Expect(whose != std::string::npos && whose < notice,
+         "(c) the line says whose choice 2x was: the game's own setting or the general one");
 }
 
 std::string Escaped(const std::string& text) {
