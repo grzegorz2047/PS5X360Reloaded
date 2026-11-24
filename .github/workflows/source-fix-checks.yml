@@ -191,6 +191,11 @@ on:
       - 'tools/check-gta5-audio-patch.cpp'
       - 'tools/check-single-game-folder.cpp'
       - 'assets/patches/**'
+      - 'assets/skin/**'
+      - 'assets/skin-dark/**'
+      - 'assets/skin-src/**'
+      - 'tools/check-skin-icons.py'
+      - 'tools/make-skin-icons.py'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

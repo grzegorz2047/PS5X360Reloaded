@@ -100,6 +100,15 @@ def main():
     for f in own_patches:
         shutil.copy2(f, app / 'assets/patches' / f.name)
     print(f'{len(own_patches)} game patch file(s) from the repository copied into assets/patches')
+    # Fix 164: this repository's home screen icons (assets/skin and assets/skin-dark, drawn by
+    # tools/make-skin-icons.py) over the base's pictures of the same names.
+    own_skin = 0
+    for skin in ('skin', 'skin-dark'):
+        for f in sorted((Path(__file__).resolve().parents[1] / 'assets' / skin).glob('*.png')):
+            (app / 'assets' / skin).mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, app / 'assets' / skin / f.name)
+            own_skin += 1
+    print(f'{own_skin} home screen icon(s) from the repository copied into assets/skin and assets/skin-dark')
     param = app / 'sce_sys/param.json'
     if len(inspect.signature(package.param_json).parameters) >= 2:
         # Release-branch package.py: contentVersion from a release version X.Y.Z[.W].

@@ -443,6 +443,14 @@ else
   echo "FAIL check-game-patch-files.py"
   status=1
 fi
+# Fix 164: the home screen's icons (assets/skin, assets/skin-dark) and their SVG sources.
+echo "=== check-skin-icons.py"
+if "$python" -I "$repo/tools/check-skin-icons.py"; then
+  echo "pass check-skin-icons.py"
+else
+  echo "FAIL check-skin-icons.py"
+  status=1
+fi
 echo "=== check-bf3-preset.py"
 if "$python" -I "$repo/tools/check-bf3-preset.py" --tree "$tree"; then
   echo "pass check-bf3-preset.py"

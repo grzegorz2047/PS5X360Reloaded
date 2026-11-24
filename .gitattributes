@@ -10,3 +10,7 @@ tools/source-1.0.2/fixes/*.patch -text
 # Made by tools/source-1.0.2/english/rekey.py and compared byte for byte by its --check.
 tools/source-1.0.2/english/lang/*.txt -text
 tools/source-1.0.2/english/official-lang/* -text
+# Fix 164: the home screen icons' sources (LF) and pictures (byte for byte).
+assets/skin-src/*.svg text eol=lf
+assets/skin/*.png binary
+assets/skin-dark/*.png binary
