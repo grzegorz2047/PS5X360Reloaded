@@ -569,23 +569,48 @@ else
   echo "FAIL check-kinect-camera-picture.mjs"
   status=1
 fi
-echo "=== check-gdfx-names.sh"
-if bash "$repo/tools/check-gdfx-names.sh" "$tree"; then
-  echo "pass check-gdfx-names.sh"
-else
-  echo "FAIL check-gdfx-names.sh"
-  status=1
-fi
+# check-gdfx-names.sh and check-content-create.sh each build xenia/base and xenia/vfs twice in one
+# compiler process (about 6 minutes apiece on the runner, one core each): they run side by side,
+# each into its own log, printed in this order once both are done. check-vfs-entry-lifetime.sh
+# times its deletes, so it runs on its own after them.
+shell_logs=$(mktemp -d)
+run_shell_check() {  # script name: its output in its log, "pass" or "fail" in its status file
+  if bash "$repo/tools/$1" "$tree" > "$shell_logs/$1.log" 2>&1; then
+    echo pass > "$shell_logs/$1.status"
+  else
+    echo fail > "$shell_logs/$1.status"
+  fi
+}
+shell_pids=()
+run_shell_check check-gdfx-names.sh &
+shell_pids+=($!)
 # Fix 101: a file created through a package folder mounted at \Device\... (left out with the fix).
-echo "=== check-content-create.sh"
+content_create=run
 if ! grep -q 'fix 101' "$tree/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc"; then
-  echo "skip check-content-create.sh (fix 101 left out)"
-elif bash "$repo/tools/check-content-create.sh" "$tree"; then
-  echo "pass check-content-create.sh"
+  content_create=skip
 else
-  echo "FAIL check-content-create.sh"
-  status=1
+  run_shell_check check-content-create.sh &
+  shell_pids+=($!)
 fi
+for pid in "${shell_pids[@]}"; do wait "$pid" || true; done
+report_shell_check() {
+  echo "=== $1"
+  cat "$shell_logs/$1.log"
+  if [[ "$(cat "$shell_logs/$1.status" 2>/dev/null)" == pass ]]; then
+    echo "pass $1"
+  else
+    echo "FAIL $1"
+    status=1
+  fi
+}
+report_shell_check check-gdfx-names.sh
+if [[ $content_create == skip ]]; then
+  echo "=== check-content-create.sh"
+  echo "skip check-content-create.sh (fix 101 left out)"
+else
+  report_shell_check check-content-create.sh
+fi
+rm -rf "$shell_logs"
 # Fix 139: a file system entry outlives its files and deletes (left out with the fix).
 echo "=== check-vfs-entry-lifetime.sh"
 if ! grep -q 'fix 139' "$tree/.deps/xenia-canary/src/xenia/vfs/entry.cc"; then
