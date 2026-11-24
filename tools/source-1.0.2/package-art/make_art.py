@@ -155,11 +155,110 @@ def banner(width=2172, height=724):
     return image
 
 
+# ---- Variant B (a preview for the user's choice, not the package's art): three interlocking rings
+# (the "trinity") in a light grey, a blue and a green, on a near-black navy gradient, and the name
+# under them. Colours only: no PlayStation or Xbox shape or mark.
+B_TOP, B_BOTTOM = (14, 20, 40), (3, 5, 11)
+B_RINGS = [(236, 239, 244), (22, 131, 232), (47, 181, 47)]  # top, bottom right, bottom left: light grey, blue, green
+B_GREEN_TEXT = (47, 181, 47)
+
+
+def b_rings(size, centre, radius, stroke):
+    """The rings on a transparent layer, woven: at each pair's two crossings one ring passes over
+    the other, then under it, each with a thin dark edge so the crossing reads."""
+    import math
+    centres = []
+    offset = radius * 0.62
+    for index in range(3):
+        angle = math.radians(-90 + 120 * index)
+        centres.append((centre[0] + offset * math.cos(angle), centre[1] + offset * math.sin(angle)))
+    layers = []
+    for (x, y), colour in zip(centres, B_RINGS):
+        layer = Image.new('RGBA', size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(layer)
+        edge = max(2, round(stroke * 0.22))
+        draw.ellipse([x - radius - edge, y - radius - edge, x + radius + edge, y + radius + edge],
+                     outline=B_BOTTOM + (255,), width=stroke + 2 * edge)
+        draw.ellipse([x - radius, y - radius, x + radius, y + radius], outline=colour + (255,), width=stroke)
+        layers.append(layer)
+    out = Image.new('RGBA', size, (0, 0, 0, 0))
+    for layer in layers:
+        out.alpha_composite(layer)
+    # Each pair crosses twice: the earlier ring of the cycle (0 over 1, 1 over 2, 2 over 0) is on top
+    # at the outer crossing, under at the inner one (where the later ring is drawn last anyway).
+    for a, b in ((0, 1), (1, 2), (2, 0)):
+        (ax, ay), (bx, by) = centres[a], centres[b]
+        mx, my = (ax + bx) / 2, (ay + by) / 2
+        dx, dy = bx - ax, by - ay
+        d = math.hypot(dx, dy)
+        h = math.sqrt(max(0.0, (radius - stroke / 2) ** 2 - (d / 2) ** 2))
+        points = [(mx - dy / d * h, my + dx / d * h), (mx + dy / d * h, my - dx / d * h)]
+        points.sort(key=lambda p: -math.hypot(p[0] - centre[0], p[1] - centre[1]))
+        for over, under, (px, py) in ((a, b, points[0]), (b, a, points[1])):
+            disk = Image.new('L', size, 0)
+            r = stroke * 1.9
+            ImageDraw.Draw(disk).ellipse([px - r, py - r, px + r, py + r], fill=255)
+            patch = Image.new('RGBA', size, (0, 0, 0, 0))
+            patch.alpha_composite(layers[under])
+            patch.alpha_composite(layers[over])
+            out.paste(patch, (0, 0), ImageChops.multiply(disk, patch.getchannel('A')))
+    return out
+
+
+def b_name(image, x, top, width, scale):
+    font, _ = fit_font(FONT, 'TrinityX360', width * scale, 0.0)
+    probe = ImageDraw.Draw(Image.new('L', (1, 1)))
+    first = probe.textlength('Trinity', font=font)
+    box = probe.textbbox((0, 0), 'TrinityX360', font=font)
+    margin = 4 * scale
+    layer = Image.new('RGBA', (box[2] - box[0] + 2 * margin, box[3] - box[1] + 2 * margin), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    origin = (margin - box[0], margin - box[1])
+    draw.text(origin, 'Trinity', font=font, fill=WHITE)
+    draw.text((origin[0] + first, origin[1]), 'X360', font=font, fill=B_GREEN_TEXT)
+    layer = layer.resize((round(layer.width / scale), round(layer.height / scale)), Image.LANCZOS)
+    image.paste(layer, (round(x - layer.width / 2 - 4), round(top - 4)), layer)
+
+
+def b_compose(width, height, ring_radius, ring_y, name_top, name_width):
+    image = gradient((width, height), B_TOP, B_BOTTOM)
+    halo = Image.new('RGB', (width, height), (0, 0, 0))
+    r = ring_radius * 1.9
+    ImageDraw.Draw(halo).ellipse([width / 2 - r, ring_y - r, width / 2 + r, ring_y + r], fill=(16, 34, 60))
+    image = ImageChops.add(image, halo.filter(ImageFilter.GaussianBlur(r * 0.6)))
+    scale = 4 if width <= 1024 else 2
+    rings = b_rings((width * scale, height * scale), (width * scale / 2, ring_y * scale), ring_radius * scale,
+                    max(scale, round(ring_radius * scale * 0.15)))
+    rings = rings.resize((width, height), Image.LANCZOS)
+    image.paste(rings, (0, 0), rings)
+    b_name(image, width / 2, name_top, name_width, scale)
+    return image
+
+
+def b_icon(size=512):
+    return b_compose(size, size, size * 0.19, size * 0.38, size * 0.71, size * 0.80)
+
+
+def b_picture(width, height):
+    return b_compose(width, height, height * 0.17, height * 0.38, height * 0.68, height * 0.80)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', type=Path, default=HERE)
     parser.add_argument('--banner', type=Path, help='also write the README banner (docs/images/banner.png)')
+    parser.add_argument('--variant', choices=('a', 'b'), default='a',
+                        help='a: the package art (the X); b: the rings, a preview only (needs --out)')
     args = parser.parse_args()
+    if args.variant == 'b':
+        if args.out.resolve() == HERE or args.banner:
+            parser.error('variant b is a preview: give --out <another folder>, no --banner')
+        args.out.mkdir(parents=True, exist_ok=True)
+        for name, image in (('icon0.png', b_icon()), ('pic0.png', b_picture(3840, 2160)),
+                            ('pic1.png', b_picture(1920, 1080))):
+            image.convert('RGB').save(args.out / name, optimize=True)
+            print('wrote', args.out / name, image.size)
+        return
     args.out.mkdir(parents=True, exist_ok=True)
     for name, image in (('icon0.png', icon()), ('pic0.png', picture(3840, 2160)),
                         ('pic1.png', picture(1920, 1080))):
