@@ -175,10 +175,15 @@ checks=(
   check-hang-watch-sync.cpp        # fix 153
   check-log-ring.cpp               # fix 154
   check-utility-cache-drive.cpp    # fixes 150c and 150d
+  check-write-bench.cpp            # fixes 148i, 148j, 148j2
+  check-xma-trace.cpp              # fixes 155, 155b
+  check-xma-progress.cpp           # fix 155b
+  check-gta5-audio-patch.cpp       # fix 155c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
+  [check-gta5-audio-patch.cpp]="$repo"
   [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -336,6 +341,9 @@ declare -A fix_of=(
   [check-hang-watch-sync.cpp]=153
   [check-log-ring.cpp]=154
   [check-utility-cache-drive.cpp]="150c 150d"
+  [check-xma-trace.cpp]="155 155b"
+  [check-xma-progress.cpp]=155b
+  [check-gta5-audio-patch.cpp]=155c
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

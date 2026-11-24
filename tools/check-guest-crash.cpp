@@ -622,7 +622,8 @@ void TreeXmaDecoder() {
                          "work_event_->SetBoostPriority();", "if (dedicated_worker_) {", "WaitForWorkDone();"}));
   const std::string worker = Body(xma, "void XmaDecoder::WorkerThreadMain() {");
   assert(InOrder(worker, {"while (worker_running_) {", "contexts_[n]->Work();", "if (paused_) {",
-                          "pause_fence_.Signal();", "resume_fence_.Wait();", "if (did_work) {",
+                          "pause_fence_.Signal();", "resume_fence_.Wait();",
+                          "if (did_work",  // fix 155b adds "&& (!continuous || progressed)"
                           "xe::threading::Wait(work_event_.get(), false);"}));
   const std::string pause = Body(xma, "void XmaDecoder::Pause() {");
   assert(InOrder(pause, {"if (paused_) {", "paused_ = true;", "if (!dedicated_worker_) {", "return;",

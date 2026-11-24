@@ -98,6 +98,9 @@ def stage_checks():
             check((app / 'eboot.bin').read_bytes() == (art / 'src102-out/eboot.bin').read_bytes(),
                   'stage: eboot.bin is the artifact\'s')
             check(len(list((app / 'assets/lang').glob('l*.txt'))) == 16, 'stage: the 16 language files are copied')
+            own = sorted((REPO / 'assets/patches').glob('*.patch.toml'))
+            check(own and all((app / 'assets/patches' / f.name).read_bytes() == f.read_bytes() for f in own),
+                  "stage: the repository's own game patches are copied into assets/patches (fix 155c)")
             param = json.loads((app / 'sce_sys/param.json').read_text())
             check(param == {'titleId': 'PPSA83600', 'contentVersion': '1.0.5'},
                   f'stage: param.json from package.py with the label\'s version ({param})')

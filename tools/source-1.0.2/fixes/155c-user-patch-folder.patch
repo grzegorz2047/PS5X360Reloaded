@@ -1,0 +1,23 @@
+diff --git a/src/game_patches.cpp b/src/game_patches.cpp
+--- a/src/game_patches.cpp
++++ b/src/game_patches.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/game_patches.hpp"
+ #include "xbox360ps5/patch_runtime.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 155c: XBOX360PS5_DATA_ROOT
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include "xenia/base/cvar.h"
+@@ -25,7 +26,10 @@
+ 
+ std::vector<fs::path> PatchFolders() {
+ #if XE_PLATFORM_PS5
+-  return {"/app0/assets/patches"};
++  // Xbox360PS5 fix 155c: the package's own patches, then the user's, in the folder the library's
++  // Patches tab names (<data>/assets/patches); until 155c nothing read that folder. A patch named in
++  // both keeps the package's (SelectPatchFiles takes the first by path).
++  return {"/app0/assets/patches", XBOX360PS5_DATA_ROOT "/assets/patches"};
+ #else
+   std::vector<fs::path> folders{"assets/patches", "patches"};
+   if (const char* folder = std::getenv("XBOX360PS5_PATCHES")) folders.insert(folders.begin(), folder);
