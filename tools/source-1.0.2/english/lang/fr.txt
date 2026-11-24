@@ -419,8 +419,6 @@ Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe
 Original\sdashboard = Tableau\sde\sbord\soriginal
 Other\scharacters = Autres\scaractères
 Overscan\scrop = Recadrage\soverscan
-PS5X360Reloaded\sGuide = Guide\sPS5X360Reloaded
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded\s:\sémulateur\sXbox\s360\sexpérimental\spour\sPlayStation\s5.
 Package\scopy\sfailed. = La\scopie\sdu\spaquet\sa\séchoué.
 Patches = Patchs
 Per\sgame = Par\sjeu
@@ -622,6 +620,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = Clic\sdu\spavé\stactile
 Touchpad:\semulator\sguide = Pavé\stactile\s:\sguide\sde\sl'émulateur
 Trial = Essai
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = Triangle\sajoute\sle\sdossier\sactuel.\sRond\sremonte\sd'un\sniveau.
+TrinityX360\sGuide = Guide\sTrinityX360
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360\s:\sémulateur\sXbox\s360\sexpérimental\spour\sPlayStation\s5.
 Turn\soff = Désactiver
 Turn\son = Activer
 Turn\son\sand\splay = Activer\set\sjouer

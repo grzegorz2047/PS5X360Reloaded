@@ -419,8 +419,6 @@ Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe
 Original\sdashboard = Оригинальная\sпанель
 Other\scharacters = Другие\sсимволы
 Overscan\scrop = Обрезка\sоверскана
-PS5X360Reloaded\sGuide = Меню\sPS5X360Reloaded
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded:\sэкспериментальный\sэмулятор\sXbox\s360\sдля\sPlayStation\s5.
 Package\scopy\sfailed. = Не\sудалось\sскопировать\sпакет.
 Patches = Патчи
 Per\sgame = Для\sигры
@@ -622,6 +620,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = Нажатие\sсенс
 Touchpad:\semulator\sguide = Сенсорная\sпанель:\sменю\sэмулятора
 Trial = Пробная\sверсия
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = Треугольник\sдобавляет\sтекущую\sпапку.\sКруг\sподнимается\sна\sуровень\sвыше.
+TrinityX360\sGuide = Меню\sTrinityX360
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360:\sэкспериментальный\sэмулятор\sXbox\s360\sдля\sPlayStation\s5.
 Turn\soff = Выключить
 Turn\son = Включить
 Turn\son\sand\splay = Включить\sи\sиграть

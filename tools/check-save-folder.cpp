@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Fix 50 (tools/source-1.0.2/fixes/50-save-folder-reloaded.patch): the saves folder fix 27 makes on
 // each external drive is named after the product, <drive>/PS5X360Reloaded/saves
-// (XBOX360PS5_PRODUCT_NAME, xbox360ps5/app_identity.hpp), and a drive's old <drive>/PS5X360/saves
+// (XBOX360PS5_FOLDER_NAME since the rename to TrinityX360, the name until 1.0.5; app_identity.hpp),
+// and a drive's old <drive>/PS5X360/saves
 // is moved there by one rename() on the same filesystem before the drives are scanned.
 //  (a) the decision and the steps (MigrateSaves) on a fake filesystem: old only (mkdir of the new
 //      parent, rename, rmdir of the empty old folder), old folder with other files (kept), new
@@ -19,7 +20,7 @@
 //      inside arrive unchanged, the old empty folder is gone, a folder with other files is kept,
 //      a regular file where the new folder should be makes the move fail and leaves all as it was;
 //      a drive's xbox360/ and homebrew/ bases each moved inside themselves, its games left alone;
-//  (d) the assembled tree: SaveRoot named after XBOX360PS5_PRODUCT_NAME, the move before the scan
+//  (d) the assembled tree: SaveRoot named after XBOX360PS5_FOLDER_NAME, the move before the scan
 //      in content_manager.cc with the exact paths logged and the notice hook, the renamed text in
 //      xam_ui.cc, canary_game_main.cpp and the window's list, and no lstat, remove_all or
 //      weakly_canonical in the migration (the console's sandbox refuses lstat).
@@ -151,6 +152,10 @@ struct FakeFs {
 };
 
 void CheckDecisions() {
+  // The rename to TrinityX360 (fixes/199-trinityx360-name.patch) kept the folder: kSaveFolder is
+  // XBOX360PS5_FOLDER_NAME, the old name, not the product name.
+  Expect(std::string(XBOX360PS5_PRODUCT_NAME) == "TrinityX360" && std::string(XBOX360PS5_FOLDER_NAME) == "PS5X360Reloaded",
+         "the product is TrinityX360, its drives' folders keep PS5X360Reloaded");
   Expect(std::string(storage::kSaveFolder) == "PS5X360Reloaded" && std::string(storage::kLegacySaveFolder) == "PS5X360",
          "the folder is the product's name, the old one fix 27's");
   Expect(storage::SaveRoot("/mnt/usb0") == "/mnt/usb0/PS5X360Reloaded/saves" &&
@@ -480,9 +485,12 @@ void ExpectNotIn(const std::string& text, const std::string& what, const std::ve
 void CheckTree() {
   const char* x = ".deps/xenia-canary/src/xenia/kernel/xam/";
   const std::string storage_h = Read((std::string(x) + "storage_devices.h").c_str());
-  Expect(storage_h.find("inline constexpr const char kSaveFolder[] = XBOX360PS5_PRODUCT_NAME;") != std::string::npos &&
+  // Fix 50 named the folder after the product; the rename to TrinityX360 keeps it on the old name
+  // (XBOX360PS5_FOLDER_NAME), so the saves already on each drive stay where they are.
+  Expect(storage_h.find("inline constexpr const char kSaveFolder[] = XBOX360PS5_FOLDER_NAME;") != std::string::npos &&
+             storage_h.find("kSaveFolder[] = XBOX360PS5_PRODUCT_NAME") == std::string::npos &&
              storage_h.find("return folder / kSaveFolder / \"saves\";") != std::string::npos,
-         "SaveRoot follows the product's name");
+         "SaveRoot keeps the drives' folder name (XBOX360PS5_FOLDER_NAME, PS5X360Reloaded)");
   const size_t begin = storage_h.find("void MergeSaves(Fs& fs, Migration& migration) {");
   const size_t end = storage_h.find("// Every mounted drive's bases", begin);
   Expect(begin != std::string::npos && end != std::string::npos && storage_h.find("Migration MigrateSaves(", begin) < end,

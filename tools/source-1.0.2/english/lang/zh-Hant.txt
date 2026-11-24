@@ -419,8 +419,6 @@ Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe
 Original\sdashboard = 原版儀表板
 Other\scharacters = 其他字元
 Overscan\scrop = 過掃描裁切
-PS5X360Reloaded\sGuide = PS5X360Reloaded\s指南
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded：適用於\sPlayStation\s5\s的實驗性\sXbox\s360\s模擬器。
 Package\scopy\sfailed. = 複製包失敗。
 Patches = 修補程式
 Per\sgame = 按遊戲
@@ -622,6 +620,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = 觸控板點選、振動
 Touchpad:\semulator\sguide = 觸控板：模擬器指南
 Trial = 試玩版
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = 三角鍵新增目前資料夾。圓圈鍵返回上一級。
+TrinityX360\sGuide = TrinityX360\s指南
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360：適用於\sPlayStation\s5\s的實驗性\sXbox\s360\s模擬器。
 Turn\soff = 關閉
 Turn\son = 開啟
 Turn\son\sand\splay = 開啟並遊玩
