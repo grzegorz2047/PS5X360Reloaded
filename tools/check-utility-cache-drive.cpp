@@ -266,8 +266,11 @@ void InMemory() {
   Expect(has("Utility cache (fix 150d): cache: and cache1: in memory") != std::string::npos,
          "fix 150d: the start logs it with the cap, the reserve and direct free memory");
   const std::string mount_code = Squeezed(Read("include/xbox360ps5/utility_cache.hpp"));
-  Expect(mount_code.find(Squeezed("std::make_unique<xe::vfs::MemoryDevice>(mount)")) != std::string::npos &&
-             mount_code.find(Squeezed("for (const char* name : {\"cache0\", \"cache1\", \"cache\"})")) != std::string::npos,
+  // The order as a loop's list (150d) or as fix 150e's kNames, which both of its loops walk.
+  const bool in_order =
+      mount_code.find(Squeezed("for (const char* name : {\"cache0\", \"cache1\", \"cache\"})")) != std::string::npos ||
+      mount_code.find(Squeezed("constexpr const char* kNames[] = {\"cache0\", \"cache1\", \"cache\"};")) != std::string::npos;
+  Expect(mount_code.find(Squeezed("std::make_unique<xe::vfs::MemoryDevice>(mount)")) != std::string::npos && in_order,
          "fix 150d: utility_cache.hpp mounts a memory device for the names asked, in the order cache0, cache1, cache");
   Expect(main.find(Squeezed("memory_caches = {\"cache0\"")) == std::string::npos &&
              main.find(Squeezed("\"cache0\", \"cache1\", \"cache\"}; // memory")) == std::string::npos,
