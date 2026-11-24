@@ -167,6 +167,7 @@ checks=(
   check-xma-progress.cpp           # fix 155b
   check-readback-deliver.cpp       # fix 142i
   check-gta5-audio-patch.cpp       # fix 155c
+  check-reader-wait.cpp            # fix 157
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -317,6 +318,7 @@ declare -A fix_of=(
   [check-readback-deliver.cpp]=142i
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
+  [check-reader-wait.cpp]=157
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
