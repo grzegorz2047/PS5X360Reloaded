@@ -1,0 +1,92 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -12,8 +12,17 @@
+ // isIdentificationResultSetted, set only by the "complete" message, 8219B110) and stayed at
+ // "Identification in progress" forever, with the phone's camera picture on as well.
+ //
+-// The answer: Identify accepts the tracked body and, on the title's next skeleton frame, its
+-// callback gets one "frame processed" (no quality issue) and one "complete" message: success,
++// Fix 156n: Fighters Uncaged's script (PlayerIdentifier:updateIdentifySkeletonState, Lua in
++// scripts/AllScripts.s) waits for the callback only when tryIdentifySkeleton returned
++// E_PENDING; on entering that wait it clears the result tables, and after "complete" it waits
++// for a punch, then reads the enrollment index (0..7: a known player). 156l answered S_OK, so
++// the script took the error path and asked again every frame (1.0.6-work-fix156m), and an
++// answer on the very next frame would be cleared by the wait's entry. Now E_PENDING, and the
++// answer comes kAnswerDelayFrames (about half a second) later.
++//
++// The answer: Identify accepts the tracked body (E_PENDING, as the library answers a queued
++// job) and, kAnswerDelayFrames skeleton frames later, its callback gets one "frame processed"
++// (no quality issue) and one "complete" message: success,
+ // enrollment 0 for the signed-in profile the virtual player is bound to (virtual_nui.hpp), or
+ // "unknown" when no profile is signed in. GetEnrollmentInformation says enrollment 0 is that
+ // profile. Both functions are found by the shape of their code and bound together, or neither.
+@@ -34,6 +43,8 @@
+ namespace xbox360ps5::nui_identity {
+ 
+ constexpr uint32_t kOk = 0;
++constexpr uint32_t kPending = 0x8000000A;  // E_PENDING: the library's answer to a queued job
++constexpr uint32_t kAnswerDelayFrames = 15;  // fix 156n
+ constexpr uint32_t kInvalidArgument = 0x80070057;
+ constexpr uint32_t kBodyNotTracked = 0x83010008;  // the library's answer for an unknown body
+ constexpr uint32_t kMessageFrameProcessed = 0, kMessageComplete = 1;
+@@ -108,12 +119,14 @@ inline Found FindIdentityFunctions(const motion::CodeView& view) {
+ // ---- Identify: requests, answered on the title's next skeleton frame ------------------------
+ struct Request {
+   uint32_t tracking_id = 0, callback = 0, context = 0;
++  uint32_t frames_left = kAnswerDelayFrames;  // fix 156n
+ };
+ inline std::mutex mutex;
+ inline std::vector<Request> pending;
+ 
+ // NuiIdentityIdentify(tracking_id, flags, callback, context) for the virtual player, whose body
+-// is live_tracking_id (0: none). The same checks as the library, in its order.
++// is live_tracking_id (0: none). The same checks as the library, in its order; a queued (or
++// already queued) request answers E_PENDING.
+ inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback,
+                          uint32_t context, uint32_t live_tracking_id) {
+   if (flags) return kInvalidArgument;
+@@ -122,16 +135,21 @@ inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback
+   std::lock_guard lock(mutex);
+   for (const Request& r : pending)
+     if (r.tracking_id == tracking_id && r.callback == callback && r.context == context)
+-      return kOk;  // already on its way
++      return kPending;  // already on its way
+   if (pending.size() >= kMaxPending) pending.erase(pending.begin());
+   pending.push_back({tracking_id, callback, context});
+-  return kOk;
++  return kPending;
+ }
+-inline std::vector<Request> TakePending() {
++// Called once per skeleton frame the title gets: the requests whose delay has run out.
++inline std::vector<Request> TakeDue() {
+   std::lock_guard lock(mutex);
+-  std::vector<Request> out;
+-  out.swap(pending);
+-  return out;
++  std::vector<Request> due, keep;
++  for (Request& r : pending) {
++    if (r.frames_left > 0) --r.frames_left;
++    (r.frames_left == 0 ? due : keep).push_back(r);
++  }
++  pending.swap(keep);
++  return due;
+ }
+ inline void Reset() {
+   std::lock_guard lock(mutex);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1131,9 +1131,10 @@ void IdentityEnrollmentHandler(cpu::ppc::PPCContext* ppc_context, KernelState* k
+ }
+ 
+ // The answers to the title's identify requests, on its own thread (the skeleton frame's
+-// caller): "frame processed", then "complete" with the signed-in profile's enrollment.
++// caller): "frame processed", then "complete" with the signed-in profile's enrollment. Fix 156n:
++// kAnswerDelayFrames skeleton frames after the request (nui_identity.hpp).
+ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+-  auto requests = xbox360ps5::nui_identity::TakePending();
++  auto requests = xbox360ps5::nui_identity::TakeDue();  // fix 156n: after a delay
+   if (requests.empty()) return;
+   auto* thread = cpu::ThreadState::Get();
+   Memory* memory = kernel_state->memory();

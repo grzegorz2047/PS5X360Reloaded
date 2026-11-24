@@ -1,0 +1,106 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -42,6 +42,7 @@
+ #include "xbox360ps5/motion_record.hpp"
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107
+ #include "xbox360ps5/kinect_diag.hpp"  // fix 108
++#include "xbox360ps5/pscam_state.hpp"  // fix 156d
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+@@ -335,6 +336,7 @@ class CameraDevice {
+         std::lock_guard<xe_mutex> lock(mutex_);
+         if (depth_reads_.size()+color_reads_.size() >= 16) return X_STATUS_INSUFFICIENT_RESOURCES;
+         streaming_ = true;
++        last_read_request_ = std::chrono::steady_clock::now();  // fix 156d
+         (stream == CameraStream::kDepth ? depth_reads_ : color_reads_)
+             .push_back(pending);
+       }
+@@ -423,11 +425,28 @@ class CameraDevice {
+   X_STATUS Handle(CameraRequestCode code, uint32_t request_ptr,
+                   uint32_t& bytes) {
+     switch (code) {
+-      case CameraRequestCode::kGetState:
+-        Guest<X_PSCAM_STATE_REQUEST>(request_ptr)->state =
+-            !camera_     ? kDeviceStateAbsent
+-            : streaming_ ? kDeviceStateStreaming
+-                         : kDeviceStateReady;
++      case CameraRequestCode::kGetState: {
++        // Fix 156d: Streaming only while the title reads frames
++        // (xbox360ps5/pscam_state.hpp); Ready once it stopped. The library's
++        // camera start skips its set-up on Streaming.
++        size_t queued = 0;
++        std::chrono::steady_clock::time_point last{};
++        {
++          std::lock_guard<xe_mutex> lock(mutex_);
++          queued = depth_reads_.size() + color_reads_.size();
++          last = last_read_request_;
++        }
++        const uint32_t state = xbox360ps5::pscam_state::CameraState(
++            camera_ != nullptr, streaming_.load(), queued,
++            std::chrono::steady_clock::now() - last);
++        Guest<X_PSCAM_STATE_REQUEST>(request_ptr)->state = state;
++        if (state != last_state_answer_.exchange(state)) {
++          static std::atomic<uint32_t> shown{0};
++          if (shown.fetch_add(1) < 16)
++            XELOGW("Virtual Kinect: GetState now answers {} ({} frame reads queued) "
++                   "(fix 156d)", state, queued);
++        }
++      }
+ #if !XE_PLATFORM_PS5
+         // Host-only contract probe; never used by a console build.
+         if (const char* probe = std::getenv("XBOX360PS5_CAMERA_STATE_PROBE")) {
+@@ -669,6 +688,10 @@ class CameraDevice {
+   uint32_t depth_sequence_ = 0;
+   uint32_t color_sequence_ = 0;
+   std::atomic<bool> streaming_ = false;
++  // Fix 156d: when the title last asked for a frame (guarded by mutex_), and
++  // the state GetState last answered (for its log line).
++  std::chrono::steady_clock::time_point last_read_request_{};
++  std::atomic<uint32_t> last_state_answer_ = kDeviceStateAbsent;
+   // Generation of the latest camera settings request, and of the latest one
+   // whose completion has run, which color frames are tagged with.
+   uint8_t requested_generation_ = 0;
+diff --git a/include/xbox360ps5/pscam_state.hpp b/include/xbox360ps5/pscam_state.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/pscam_state.hpp
+@@ -0,0 +1,37 @@
++// SPDX-License-Identifier: MIT
++// Fix 156d (Kinect Sports Season Two, 4D5309D6; issue 63): the virtual camera's GetState
++// (PsCamDeviceRequest code 0) says "streaming" only while the title is reading frames.
++//
++// The NUI library's camera start (82A642B8 in Season Two's default.xex, re-run by its camera
++// worker 82A65F00 whenever the NUI pauses the camera, as it does while a sport loads) asks
++// GetState and switches on it: Ready (4) configures the camera (code 27), asks for the depth
++// table and sets its streams up; Streaming (2) means "already running" and skips all that.
++// The virtual camera said Streaming from its first frame read until a Stop (code 2), which
++// Season Two never sends; so after the sport's load the library skipped its set-up, read no
++// more frames (the depth and color counts froze at the load, the last request a GetState) and
++// the loading screen never ended (#63 tennis on 1.0.5, darts on our console).
++//
++// Now: Streaming while frame reads are queued, or the last one was asked for within kIdleAfter
++// (a title reading at 30 fps keeps two or more queued and asks every 33 ms); Ready once the
++// title has stopped reading for longer; Absent without a camera. No Xenia headers here.
++#pragma once
++#include <chrono>
++#include <cstddef>
++#include <cstdint>
++
++namespace xbox360ps5::pscam_state {
++
++constexpr uint32_t kAbsent = 0, kStreaming = 2, kReady = 4;
++constexpr std::chrono::milliseconds kIdleAfter{1000};
++
++// `since_last_read`: the time since the title's last frame read request (any value when it
++// never asked for one: `ever_read` false).
++inline uint32_t CameraState(bool camera, bool ever_read, size_t queued_reads,
++                            std::chrono::steady_clock::duration since_last_read) {
++  if (!camera) return kAbsent;
++  if (!ever_read) return kReady;
++  if (queued_reads) return kStreaming;
++  return since_last_read <= kIdleAfter ? kStreaming : kReady;
++}
++
++}  // namespace xbox360ps5::pscam_state

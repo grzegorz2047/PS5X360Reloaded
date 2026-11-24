@@ -1,0 +1,83 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+@@ -89,12 +89,25 @@ dword_result_t XamNuiGetDeviceStatus_entry(
+     if (!NuiWritable(status_ptr.guest_address(), sizeof(X_NUI_DEVICE_STATUS)))
+       return X_E_INVALIDARG;
+     status_ptr.Zero();
+-    const bool live = xbox360ps5::motion::VirtualNuiCameraLive(true);
+-    // Camera service only: no audio/microphone device has been implemented.
+-    status_ptr->tilt_status = live ? X_STATUS_SUCCESS : 0xC000009D;
+-    status_ptr->mic_status = 0xC000009D;
+-    status_ptr->status_bits = live ? 4 : 0;
+-    return live ? X_ERROR_SUCCESS : 0xC0050006;
++    // Fix 156: connected once the camera is open and the skeleton bound, not only after a
++    // frame (Zumba asks once, before its first frame). Camera service only: no audio or
++    // microphone device has been implemented.
++    const auto status = xbox360ps5::motion::VirtualNuiStatus(
++        xbox360ps5::motion::VirtualNuiDeviceConnected(true));
++    status_ptr->camera_status = status.camera_status;
++    status_ptr->tilt_status = status.tilt_status;
++    status_ptr->mic_status = status.mic_status;
++    status_ptr->status_bits = status.status_bits;
++    // The first 16 answers, and every change after them (16 more): Harry Potter
++    // polls this every frame from before its camera opens.
++    static std::atomic<uint32_t> shown{0}, changes{0}, last{0xFFFFFFFF};
++    const bool changed = last.exchange(status.result) != status.result;
++    if (shown.fetch_add(1) < 16 || (changed && changes.fetch_add(1) < 16))
++      XELOGW("Virtual Kinect: XamNuiGetDeviceStatus -> {:08X}, status bits {:X} (camera {}, "
++             "skeleton {}) (fix 156)", status.result, status.status_bits,
++             xbox360ps5::motion::guest_camera_open.load() ? "open" : "closed",
++             xbox360ps5::motion::guest_skeleton_bound.load() ? "bound" : "not bound");
++    return status.result;
+   }
+ #if XE_PLATFORM_PS5
+   static std::atomic<bool> motion_reported{false};
+@@ -336,7 +349,8 @@ DECLARE_XAM_EXPORT1(XamIsNuiUIActive, kNone, kImplemented);
+ 
+ dword_result_t XamNuiIsDeviceReady_entry() {
+   if (VirtualNuiMode()) {
+-    return xbox360ps5::motion::VirtualNuiCameraLive(true);
++    // Fix 156: the same answer as XamNuiGetDeviceStatus (no frame needed yet).
++    return xbox360ps5::motion::VirtualNuiDeviceConnected(true);
+   }
+ #if XE_PLATFORM_PS5
+   static std::atomic<bool> motion_reported{false};
+diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui.hpp
+--- a/include/xbox360ps5/virtual_nui.hpp
++++ b/include/xbox360ps5/virtual_nui.hpp
+@@ -46,6 +46,34 @@ inline bool VirtualNuiCameraLive(bool kinect_title) {
+       std::chrono::steady_clock::now() - nui_binding.delivered <=
+           std::chrono::milliseconds(500);
+ }
++// Fix 156 (Zumba Fitness Core, issue 63): the virtual device is there once the guest opened its
++// camera and the title's skeleton frame function is bound, before any frame was delivered.
++// Zumba asks XamNuiGetDeviceStatus once, right after its NUI start-up and before it reads a
++// skeleton frame; the 500 ms rule above (a frame delivered just now) told it there was no
++// camera, so it never asked for a frame and said it could not find the Kinect. The rule stays
++// for the player binding (LiveNuiBinding: user index and enrollment), which needs a body.
++inline bool VirtualNuiDeviceConnected(bool kinect_title) {
++  return kinect_title && enabled.load() && guest_camera_open.load() &&
++      guest_skeleton_bound.load();
++}
++// XamNuiGetDeviceStatus's answer for the virtual device. status_bits 0x3, as titles read them
++// (Zumba Fitness Core's default.xex): 0x1 connected (82278688: without it 0x8007048F, "device
++// not connected"; Xenia's own answer for an initialised Kinect is 1) and 0x2 ready (Zumba's
++// per-frame Kinect update, 82332650, which is the only caller of its skeleton read, runs only
++// with it: with 4 it read no frame at all; two fallbacks there default the bits to 2). 4 is
++// not set: no title read so far tests it, and with 4 and 0x40 but no 1 the system's
++// XNuiTitleInitialize sends the player to the troubleshooter. No microphone is emulated.
++constexpr uint32_t kVirtualNuiStatusBits = 0x3;
++constexpr uint32_t kNuiDeviceNotConnected = 0xC0050006;
++constexpr uint32_t kNuiStatusNotPresent = 0xC000009D;
++struct NuiDeviceStatus {
++  uint32_t result, camera_status, tilt_status, mic_status, status_bits;
++};
++inline NuiDeviceStatus VirtualNuiStatus(bool connected) {
++  if (!connected)
++    return {kNuiDeviceNotConnected, 0, kNuiStatusNotPresent, kNuiStatusNotPresent, 0};
++  return {0, 0, 0, kNuiStatusNotPresent, kVirtualNuiStatusBits};
++}
+ inline NuiBinding LiveNuiBinding(bool kinect_title, uint32_t signed_in_mask) {
+   if (!VirtualNuiCameraLive(kinect_title)) return {};
+   const Frame pose = Snapshot();

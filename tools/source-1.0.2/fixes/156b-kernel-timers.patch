@@ -1,0 +1,472 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+@@ -7,6 +7,7 @@
+  ******************************************************************************
+  */
+ 
++#include <atomic>  // fix 156b
+ #include <ranges>
+ 
+ #include "xenia/kernel/kernel_state.h"
+@@ -664,6 +665,10 @@ void KernelState::EnsureApcRelay() {
+               batch.swap(host_apcs_);
+             }
+             for (const HostApc& apc : batch) {
++              if (apc.dpc) {  // fix 156b
++                RunTimerDpc(apc.dpc, apc.arg1, apc.arg2);
++                continue;
++              }
+               auto thread =
+                   object_table()->LookupObject<XThread>(apc.thread_handle);
+               if (!thread) {
+@@ -696,6 +701,44 @@ void KernelState::EnsureApcRelay() {
+   }
+ }
+ 
++// Fix 156b: a guest timer's DPC (KeSetTimer(Ex) with a KDPC). The host timer thread fires it
++// and has no guest context; it is queued with the APCs and run here, on the relay, as a DPC
++// (impersonated, as EmulateCPInterruptDPC runs the GPU's).
++void KernelState::QueueDpcFromHost(uint32_t dpc_ptr, uint32_t arg1,
++                                   uint32_t arg2) {
++  {
++    std::lock_guard<std::mutex> lock(host_apc_mutex_);
++    if (!host_apc_running_) {
++      ++host_apcs_unrelayed_;
++      return;
++    }
++    HostApc dpc{0, 0, 0, arg1, arg2};
++    dpc.dpc = dpc_ptr;
++    host_apcs_.push_back(dpc);
++  }
++  host_apc_cond_.notify_one();
++}
++
++void KernelState::RunTimerDpc(uint32_t dpc_ptr, uint32_t arg1, uint32_t arg2) {
++  auto* thread = XThread::GetCurrentThread();
++  auto* dpc = memory()->TranslateVirtual<XDPC*>(dpc_ptr);
++  const uint32_t routine = dpc->routine;
++  if (!thread || !routine) return;
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) == 0) {
++    XELOGW(
++        "Kernel timer (fix 156b): DPC {:08X} routine {:08X} run by the kernel's "
++        "relay (first; later ones not logged)",
++        dpc_ptr, routine);
++  }
++  auto* context = thread->thread_state()->context();
++  DPCImpersonationScope dpc_scope{};
++  BeginDPCImpersonation(context, dpc_scope);
++  uint64_t args[] = {dpc_ptr, uint32_t(dpc->context), arg1, arg2};
++  processor_->Execute(thread->thread_state(), routine, args, xe::countof(args));
++  EndDPCImpersonation(context, dpc_scope);
++}
++
+ void KernelState::LoadKernelModule(object_ref<KernelModule> kernel_module) {
+   auto global_lock = global_critical_region_.Acquire();
+   kernel_modules_.push_back(std::move(kernel_module));
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
+@@ -346,6 +346,9 @@ class KernelState {
+   // Fix 97: starts the APC relay once, on the first timer with an APC routine
+   // (a guest thread); a game that sets none never has it.
+   void EnsureApcRelay();
++  // Fix 156b: a timer's DPC (KeSetTimer(Ex) with a KDPC), asked for on the host timer thread;
++  // the relay runs its routine (dpc, context, arg1, arg2) as a DPC, in order with the APCs.
++  void QueueDpcFromHost(uint32_t dpc_ptr, uint32_t arg1, uint32_t arg2);
+ 
+   bool CancelOverlapped(uint32_t overlapped_ptr, bool wait);
+ 
+@@ -432,6 +435,7 @@ class KernelState {
+   // Fix 97: the APC relay (QueueApcFromHost).
+   struct HostApc {
+     uint32_t thread_handle, routine, routine_context, arg1, arg2;
++    uint32_t dpc = 0;  // fix 156b: a timer's KDPC, run by the relay itself
+   };
+   std::mutex host_apc_mutex_;
+   std::condition_variable host_apc_cond_;
+@@ -441,6 +445,7 @@ class KernelState {
+   std::mutex host_apc_start_mutex_;   // EnsureApcRelay
+   object_ref<XHostThread> host_apc_thread_;
+   uint64_t host_apcs_relayed_ = 0, host_apcs_skipped_ = 0;  // the relay's own
++  void RunTimerDpc(uint32_t dpc_ptr, uint32_t arg1, uint32_t arg2);  // fix 156b, on the relay
+ 
+   struct DeferredOverlappedRequest {
+     uint64_t id;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+@@ -2183,6 +2183,72 @@ void KeInitializeTimerEx_entry(pointer_t<X_KTIMER> timer, dword_t type,
+ }
+ DECLARE_XBOXKRNL_EXPORT1(KeInitializeTimerEx, kThreading, kImplemented);
+ 
++// Xbox360PS5 fix 156b (Kinect Sports Season Two and Zumba Fitness Core, issue 63): KeSetTimer,
++// KeSetTimerEx and KeCancelTimer were undefined externs. Both games set a timer on their own
++// KTIMER (the Kinect speech and identity library, after XamXlfsInitializeUploadQueue); the call
++// armed nothing, the type-9 header had no object, and Season Two's helper thread spun on
++// KeWaitForMultipleObjects (about 550k calls a second) while tennis never finished loading.
++// The header gets an XTimer (XObject::GetNativeObject), waitable like an event; the guest's
++// KTIMER is kept as the kernel keeps it (xbox360ps5/kernel_timer.hpp). Each returns whether
++// the timer was set before. The first 8 calls are logged.
++namespace {
++object_ref<XTimer> NativeTimer(X_KTIMER* timer, const char* call) {
++  if (!timer || !xbox360ps5::kernel_timer::IsTimerType(uint32_t(timer->header.type))) {
++    static std::atomic<uint32_t> said{0};
++    if (said.fetch_add(1) < 8) {
++      XELOGW("Kernel timer (fix 156b): {} on {:08X}, header type {:02X}: not a timer", call,
++             timer ? kernel_memory()->HostToGuestVirtual(timer) : 0,
++             timer ? uint32_t(timer->header.type) : 0);
++    }
++    return nullptr;
++  }
++  auto object = XObject::GetNativeObject<XObject>(kernel_state(), timer);
++  if (!object || object->type() != XObject::Type::Timer ||
++      !static_cast<XTimer*>(object.get())->is_native()) {
++    return nullptr;
++  }
++  return object_ref<XTimer>(static_cast<XTimer*>(object.release()));
++}
++void NoteTimerCall(const char* call, uint32_t timer, uint64_t due_time, uint32_t period,
++                   uint32_t dpc, bool was_set) {
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 8) {
++    XELOGW("Kernel timer (fix 156b): {}({:08X}, due {:016X}, period {} ms, DPC {:08X}) -> "
++           "{} set before", call, timer, due_time, period, dpc, was_set ? "was" : "was not");
++  }
++}
++uint32_t SetNativeTimer(X_KTIMER* timer, uint64_t due_time, uint32_t period, uint32_t dpc,
++                        const char* call) {
++  auto object = NativeTimer(timer, call);
++  if (!object) return 0;
++  const bool was_set = object->SetNative(int64_t(due_time), period, dpc);
++  NoteTimerCall(call, object->guest_object(), due_time, period, dpc, was_set);
++  return was_set ? 1 : 0;
++}
++}  // namespace
++
++dword_result_t KeSetTimerEx_entry(pointer_t<X_KTIMER> timer, qword_t due_time,
++                                  dword_t period, lpvoid_t dpc) {
++  return SetNativeTimer(timer, uint64_t(due_time), uint32_t(period), dpc.guest_address(),
++                        "KeSetTimerEx");
++}
++DECLARE_XBOXKRNL_EXPORT1(KeSetTimerEx, kThreading, kImplemented);
++
++dword_result_t KeSetTimer_entry(pointer_t<X_KTIMER> timer, qword_t due_time,
++                                lpvoid_t dpc) {
++  return SetNativeTimer(timer, uint64_t(due_time), 0, dpc.guest_address(), "KeSetTimer");
++}
++DECLARE_XBOXKRNL_EXPORT1(KeSetTimer, kThreading, kImplemented);
++
++dword_result_t KeCancelTimer_entry(pointer_t<X_KTIMER> timer) {
++  auto object = NativeTimer(timer, "KeCancelTimer");
++  if (!object) return 0;
++  const bool was_set = object->CancelNative();
++  NoteTimerCall("KeCancelTimer", object->guest_object(), 0, 0, 0, was_set);
++  return was_set ? 1 : 0;
++}
++DECLARE_XBOXKRNL_EXPORT1(KeCancelTimer, kThreading, kImplemented);
++
+ }  // namespace xboxkrnl
+ }  // namespace kernel
+ }  // namespace xe
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+@@ -25,6 +25,7 @@
+ #include "xenia/kernel/xmutant.h"
+ #include "xenia/kernel/xnotifylistener.h"
+ #include "xenia/kernel/xsemaphore.h"
++#include "xenia/kernel/xtimer.h"  // fix 156b
+ #include "xenia/kernel/xsymboliclink.h"
+ #include "xenia/kernel/xthread.h"
+ #include "xenia/xbox.h"
+@@ -579,9 +580,17 @@ object_ref<XObject> XObject::GetNativeObject(KernelState* kernel_state,
+           assert_true(success);
+           return sem;
+         }
++        case X_OBJECT_TYPES::TimerNotificationObject:
++        case X_OBJECT_TYPES::TimerSynchronizationObject: {
++          // Fix 156b: the title's own KTIMER (KeSetTimer, KeSetTimerEx,
++          // KeCancelTimer), a host timer waitable like an event.
++          auto timer = new XTimer(kernel_state);
++          timer->InitializeNative(native_ptr, header);
++          return timer;
++        }
+         default:
+-          // ProcessObject, QueueObject, ThreadObject, Spare1Object, the
+-          // timers, ApcObject, DpcObject, DeviceQueueObject, EventPairObject,
++          // ProcessObject, QueueObject, ThreadObject, Spare1Object,
++          // ApcObject, DpcObject, DeviceQueueObject, EventPairObject,
+           // InterruptObject, ProfileObject.
+           return nullptr;
+       }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xtimer.cc b/.deps/xenia-canary/src/xenia/kernel/xtimer.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xtimer.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xtimer.cc
+@@ -12,6 +12,7 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/kernel/kernel_state.h"  // fix 97: QueueApcFromHost
+ #include "xenia/kernel/xthread.h"
++#include "xenia/memory.h"  // fix 156b
+ 
+ namespace xe {
+ namespace kernel {
+@@ -21,6 +22,23 @@ XTimer::XTimer(KernelState* kernel_state)
+ 
+ XTimer::~XTimer() = default;
+ 
++namespace {
++// The due time NtSetTimerEx and KeSetTimer(Ex) are given: negative, relative in 100 ns
++// units; otherwise an absolute system time (FILETIME). Fix 156b: shared by both.
++xe::chrono::WinSystemClock::time_point GuestDueTime(int64_t due_time) {
++  using xe::chrono::WinSystemClock;
++  using xe::chrono::XSystemClock;
++  if (due_time < 0) {
++    // Any timer implementation uses absolute times eventually, convert as early
++    // as possible for increased accuracy
++    auto after = xe::chrono::hundrednanoseconds(-due_time);
++    return date::clock_cast<WinSystemClock>(XSystemClock::now() + after);
++  }
++  return date::clock_cast<WinSystemClock>(
++      XSystemClock::from_file_time(due_time));
++}
++}  // namespace
++
+ void XTimer::Initialize(uint32_t timer_type) {
+   assert_false(timer_);
+   switch (timer_type) {
+@@ -45,16 +63,7 @@ X_STATUS XTimer::SetTimer(int64_t due_time, uint32_t period_ms,
+   std::lock_guard<std::mutex> lock(timer_lock_);
+ 
+   period_ms = Clock::ScaleGuestDurationMillis(period_ms);
+-  WinSystemClock::time_point due_tp;
+-  if (due_time < 0) {
+-    // Any timer implementation uses absolute times eventually, convert as early
+-    // as possible for increased accuracy
+-    auto after = xe::chrono::hundrednanoseconds(-due_time);
+-    due_tp = date::clock_cast<WinSystemClock>(XSystemClock::now() + after);
+-  } else {
+-    due_tp = date::clock_cast<WinSystemClock>(
+-        XSystemClock::from_file_time(due_time));
+-  }
++  const WinSystemClock::time_point due_tp = GuestDueTime(due_time);  // fix 156b
+ 
+   // Stash routine for callback.
+   callback_thread_ = XThread::GetCurrentThread();
+@@ -109,5 +118,87 @@ X_STATUS XTimer::Cancel() {
+   return timer_->Cancel() ? X_STATUS_SUCCESS : X_STATUS_UNSUCCESSFUL;
+ }
+ 
++// Fix 156b: the title's own KTIMER (KeInitializeTimerEx is often inlined, so the header is
++// met first by KeSetTimer(Ex), KeCancelTimer or a wait; XObject::GetNativeObject creates this).
++void XTimer::InitializeNative(void* native_ptr, const X_DISPATCH_HEADER* header) {
++  assert_false(timer_);
++  synchronization_ =
++      header->type == X_OBJECT_TYPES::TimerSynchronizationObject;
++  timer_ = synchronization_ ? xe::threading::Timer::CreateSynchronizationTimer()
++                            : xe::threading::Timer::CreateManualResetTimer();
++  assert_not_null(timer_);
++  native_state_ = std::make_shared<xbox360ps5::kernel_timer::State>();
++  native_state_->inserted = header->inserted != 0;
++  native_state_->signaled = header->signal_state != 0;
++  if (header->signal_state) {
++    // Already signalled in the guest's header: so is the host timer.
++    timer_->SetOnceAt(xe::chrono::WinSystemClock::now());
++  }
++  SetNativePointer(memory()->HostToGuestVirtual(native_ptr), true);
++}
++
++bool XTimer::SetNative(int64_t due_time, uint32_t period_ms, uint32_t dpc_ptr) {
++  namespace kt = xbox360ps5::kernel_timer;
++  if (!native_state_ || !guest_object()) return false;
++  std::lock_guard<std::mutex> lock(timer_lock_);
++  const kt::Armed armed = kt::Arm(*native_state_, period_ms);
++  auto* ktimer = memory()->TranslateVirtual<X_KTIMER*>(guest_object());
++  ktimer->header.signal_state = 0;
++  ktimer->header.inserted = 1;
++  ktimer->due_time = uint64_t(due_time);
++  ktimer->period = period_ms;
++  ktimer->dpc = dpc_ptr;
++
++  auto* kernel = kernel_state();
++  if (dpc_ptr) {
++    // The relay runs the DPC; started here, on the guest thread, before the timer is armed.
++    kernel->EnsureApcRelay();
++  }
++  // Runs on the host timer thread, which has no guest context: it writes the guest's header
++  // and hands the DPC to the relay, and takes no lock a guest thread may hold while it
++  // re-arms or cancels this timer (that waits for a callback in progress).
++  auto state = native_state_;
++  Memory* memory_ptr = memory();
++  const uint32_t guest_ptr = guest_object();
++  const uint32_t generation = armed.generation;
++  std::function<void()> callback = [state, memory_ptr, kernel, guest_ptr, generation,
++                                    dpc_ptr]() {
++    if (!xbox360ps5::kernel_timer::Fire(*state, generation)) return;
++    auto* fired = memory_ptr->TranslateVirtual<X_KTIMER*>(guest_ptr);
++    fired->header.signal_state = 1;
++    if (!state->periodic.load()) fired->header.inserted = 0;
++    if (dpc_ptr) {
++      const uint64_t time = xe::Clock::QueryGuestSystemTime();
++      kernel->QueueDpcFromHost(dpc_ptr, uint32_t(time), uint32_t(time >> 32));
++    }
++  };
++  const auto due_tp = GuestDueTime(due_time);
++  if (!period_ms) {
++    timer_->SetOnceAt(due_tp, std::move(callback));
++  } else {
++    timer_->SetRepeatingAt(
++        due_tp,
++        std::chrono::milliseconds(Clock::ScaleGuestDurationMillis(period_ms)),
++        std::move(callback));
++  }
++  return armed.was_inserted;
++}
++
++bool XTimer::CancelNative() {
++  if (!native_state_ || !guest_object()) return false;
++  std::lock_guard<std::mutex> lock(timer_lock_);
++  const bool was_inserted = xbox360ps5::kernel_timer::Cancel(*native_state_);
++  timer_->Cancel();
++  memory()->TranslateVirtual<X_KTIMER*>(guest_object())->header.inserted = 0;
++  return was_inserted;
++}
++
++void XTimer::WaitCallback() {
++  // A satisfied wait resets a synchronization timer (the host timer resets itself).
++  if (!native_state_ || !synchronization_ || !guest_object()) return;
++  xbox360ps5::kernel_timer::Consumed(*native_state_, true);
++  memory()->TranslateVirtual<X_KTIMER*>(guest_object())->header.signal_state = 0;
++}
++
+ }  // namespace kernel
+ }  // namespace xe
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xtimer.h b/.deps/xenia-canary/src/xenia/kernel/xtimer.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xtimer.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xtimer.h
+@@ -10,11 +10,13 @@
+ #ifndef XENIA_KERNEL_XTIMER_H_
+ #define XENIA_KERNEL_XTIMER_H_
+ 
++#include <memory>
+ #include <mutex>
+ 
+ #include "xenia/base/threading.h"
+ #include "xenia/kernel/xobject.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/kernel_timer.hpp"  // fix 156b
+ 
+ namespace xe {
+ namespace kernel {
+@@ -34,6 +36,18 @@ class XTimer : public XObject {
+                     uint32_t routine_arg, bool resume);
+   X_STATUS Cancel();
+ 
++  // Fix 156b: a KTIMER the title initialised itself (KeInitializeTimerEx, often inlined),
++  // dispatch header type 8 or 9, met first by KeSetTimer(Ex), KeCancelTimer or a wait.
++  void InitializeNative(void* native_ptr, const X_DISPATCH_HEADER* header);
++  bool is_native() const { return native_state_ != nullptr; }
++  // KeSetTimerEx: arms the host timer and writes the guest's KTIMER (signal state cleared,
++  // inserted, due time, period, DPC); returns whether it was set before. The DPC, if any, is
++  // run by the kernel's relay when the timer fires.
++  bool SetNative(int64_t due_time, uint32_t period_ms, uint32_t dpc_ptr);
++  // KeCancelTimer: returns whether it was set.
++  bool CancelNative();
++  void WaitCallback() override;
++
+  protected:
+   xe::threading::WaitHandle* GetWaitHandle() override { return timer_.get(); }
+ 
+@@ -44,6 +58,11 @@ class XTimer : public XObject {
+   XThread* callback_thread_ = nullptr;
+   uint32_t callback_routine_ = 0;
+   uint32_t callback_routine_arg_ = 0;
++
++  // Fix 156b: the guest-visible state of a native timer, shared with the host timer's
++  // callback (which may still run while the timer is re-armed or cancelled).
++  std::shared_ptr<xbox360ps5::kernel_timer::State> native_state_;
++  bool synchronization_ = false;
+ };
+ 
+ }  // namespace kernel
+diff --git a/include/xbox360ps5/kernel_timer.hpp b/include/xbox360ps5/kernel_timer.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/kernel_timer.hpp
+@@ -0,0 +1,75 @@
++// SPDX-License-Identifier: MIT
++// Fix 156b (Kinect Sports Season Two and Zumba Fitness Core, issue 63): KeSetTimer,
++// KeSetTimerEx and KeCancelTimer on a KTIMER the title initialised itself (dispatch header
++// type 8, notification, or 9, synchronization). They were undefined externs: the call
++// returned without arming anything, KeWaitForMultipleObjects found no object for the type-9
++// header and failed at once, and Season Two's helper thread spun on it (about 550k calls a
++// second) while its tennis loading screen never finished.
++//
++// The kernel backs such a header with an XTimer (a host timer, waitable like an event). This
++// is the guest-visible state that goes with it, kept apart from the host timer so the host
++// check (tools/check-kernel-timer.cpp) drives the same code:
++//   Arm     KeSetTimer(Ex): clears the signal state, puts the timer in the queue, returns
++//           whether it was in the queue before (the BOOLEAN the kernel returns), and a new
++//           generation: a firing of an older arming is dropped;
++//   Fire    the host timer's due time: signalled; a one-shot timer leaves the queue, a
++//           periodic one stays in it;
++//   Cancel  KeCancelTimer: out of the queue, the signal state as it was, returns whether it
++//           was in the queue;
++//   Consumed a satisfied wait: a synchronization timer is reset, a notification one is not.
++// No Xenia headers here.
++#pragma once
++#include <atomic>
++#include <cstdint>
++
++namespace xbox360ps5::kernel_timer {
++
++struct State {
++  std::atomic<uint32_t> generation{0};
++  std::atomic<bool> inserted{false};
++  std::atomic<bool> periodic{false};
++  std::atomic<bool> signaled{false};
++  std::atomic<uint64_t> fired{0}, dropped{0};
++};
++
++struct Armed {
++  bool was_inserted;
++  uint32_t generation;
++};
++
++inline Armed Arm(State& state, uint32_t period_ms) {
++  const uint32_t generation = state.generation.fetch_add(1) + 1;
++  state.signaled = false;
++  state.periodic = period_ms != 0;
++  const bool was_inserted = state.inserted.exchange(true);
++  return {was_inserted, generation};
++}
++
++// True when this firing belongs to the current arming (the guest header is then written).
++inline bool Fire(State& state, uint32_t generation) {
++  if (state.generation.load() != generation || !state.inserted.load()) {
++    ++state.dropped;
++    return false;
++  }
++  state.signaled = true;
++  if (!state.periodic.load()) state.inserted = false;
++  ++state.fired;
++  return true;
++}
++
++inline bool Cancel(State& state) {
++  state.generation.fetch_add(1);
++  return state.inserted.exchange(false);
++}
++
++inline void Consumed(State& state, bool synchronization) {
++  if (synchronization) state.signaled = false;
++}
++
++// The type a KTIMER's dispatch header carries: 8 notification, 9 synchronization.
++constexpr uint8_t kNotificationType = 8, kSynchronizationType = 9;
++inline bool IsTimerType(uint32_t type) {
++  return type == kNotificationType || type == kSynchronizationType;
++}
++
++}  // namespace xbox360ps5::kernel_timer

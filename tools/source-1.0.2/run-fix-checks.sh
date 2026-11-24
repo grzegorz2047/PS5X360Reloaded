@@ -183,6 +183,19 @@ checks=(
   check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
   check-single-game-folder.cpp     # fix 159
+  check-nui-device-status.cpp      # fix 156
+  check-kernel-timer.cpp           # fix 156b
+  check-nui-elevation.cpp          # fix 156c
+  check-pscam-state.cpp            # fix 156d
+  check-camera-worker.cpp          # fix 156e
+  check-mic-array.cpp              # fix 156f
+  check-request-pages.cpp          # fix 156g
+  check-page-watch.cpp             # fix 156h
+  check-skeleton-frame-number.cpp  # fix 156i
+  check-xex-dll-heap.cpp           # fix 156j
+  check-diag-r31.cpp               # fixes 156k and 156m
+  check-nui-identity.cpp           # fixes 156l and 156n
+  check-diag-stuck-dump.cpp        # fix 156o
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -351,6 +364,19 @@ declare -A fix_of=(
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
   [check-single-game-folder.cpp]=159
+  [check-nui-device-status.cpp]=156
+  [check-kernel-timer.cpp]=156b
+  [check-nui-elevation.cpp]=156c
+  [check-pscam-state.cpp]=156d
+  [check-camera-worker.cpp]=156e
+  [check-mic-array.cpp]=156f
+  [check-request-pages.cpp]=156g
+  [check-page-watch.cpp]=156h
+  [check-skeleton-frame-number.cpp]=156i
+  [check-xex-dll-heap.cpp]=156j
+  [check-diag-r31.cpp]="156k 156m"
+  [check-nui-identity.cpp]="156l 156n"
+  [check-diag-stuck-dump.cpp]=156o
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

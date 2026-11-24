@@ -1,0 +1,404 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -0,0 +1,205 @@
++// SPDX-License-Identifier: MIT
++// Fix 156l (Fighters Uncaged 5553084E, issue 67): Kinect ID for titles that identify the player
++// themselves.
++//
++// Some Kinect titles link the NUI library's in-title identification (NuiIdentityIdentify and
++// NuiIdentityGetEnrollmentInformation): Fighters Uncaged (827D8A50 / 827D8B58) and Kinect Sports
++// (829DA858 / 829DA960). Identify queues a job that matches the body's face against the console's
++// enrollments with the title's own recognizer (NuiIdentityNN.bin, IDENTIFY5) and ends by calling
++// the title's callback with "frame processed" messages and one "complete" message. The virtual
++// camera has no face picture the recognizer can use and the console it emulates has no Kinect
++// enrollments, so the job never completed: Fighters Uncaged polls its result (Lua
++// isIdentificationResultSetted, set only by the "complete" message, 8219B110) and stayed at
++// "Identification in progress" forever, with the phone's camera picture on as well.
++//
++// The answer: Identify accepts the tracked body and, on the title's next skeleton frame, its
++// callback gets one "frame processed" (no quality issue) and one "complete" message: success,
++// enrollment 0 for the signed-in profile the virtual player is bound to (virtual_nui.hpp), or
++// "unknown" when no profile is signed in. GetEnrollmentInformation says enrollment 0 is that
++// profile. Both functions are found by the shape of their code and bound together, or neither.
++//
++// Messages, as the title's callback (Fighters Uncaged 8219B110) reads them, big-endian words:
++//   +0 kind (0 frame processed, 1 complete), +4 tracking ID,
++//   frame processed: +8 quality issues;
++//   complete:        +8 result (HRESULT), +0xC enrollment index, +0x10 profile matched.
++// Enrollment information (827D8B58): +0 user index (0xFE none), +4 flags (1 enrolled).
++#pragma once
++#include <cstddef>
++#include <cstdint>
++#include <mutex>
++#include <vector>
++
++#include "xbox360ps5/nui_image_scan.hpp"
++
++namespace xbox360ps5::nui_identity {
++
++constexpr uint32_t kOk = 0;
++constexpr uint32_t kInvalidArgument = 0x80070057;
++constexpr uint32_t kBodyNotTracked = 0x83010008;  // the library's answer for an unknown body
++constexpr uint32_t kMessageFrameProcessed = 0, kMessageComplete = 1;
++constexpr uint32_t kEnrollmentUnknown = 0xFFFFFFFF, kUserIndexNone = 0xFE;
++constexpr uint32_t kVirtualEnrollment = 0;  // = motion::kVirtualEnrollment
++constexpr uint32_t kMaxEnrollments = 8;     // the library refuses an index from 8 on
++constexpr uint32_t kEnrolled = 1;
++constexpr size_t kMessageBytes = 0x14;
++constexpr size_t kMaxPending = 4;
++
++// ---- The functions, by the shape of their code -------------------------------------------
++// Registers and addresses differ between builds; opcodes and constants are compared, within one
++// function (from "mflr r12" to the next one, at most 0x200 bytes).
++struct Marks {
++  bool not_connected = false;   // ori ?,?,0x48F    (8007048F)
++  bool invalid_arg = false;     // ori ?,?,0x57     (80070057)
++  bool job_size = false;        // mulli ?,?,0x150  (one body's identification job)
++  bool flags_zero = false;      // cmplwi crN,r4,0  (Identify: flags must be 0)
++  bool identify_job = false;    // li r3,1 ; bl     (queue job kind 1, identify)
++  bool index_limit = false;     // cmplwi crN,r3,8  (GetEnrollmentInformation: index < 8)
++  bool user_none = false;       // li ?,0xFE
++  bool flags_high = false;      // lis ?,0x4000     (flags 40000001)
++  bool low_one = false;         // ori ?,?,1
++  bool not_ready = false;       // ori ?,?,5        (83010005)
++};
++inline Marks MarksOf(const motion::CodeView& view, uint32_t start) {
++  Marks m;
++  constexpr uint32_t kSpan = 0x200;
++  for (uint32_t at = start; at - start < kSpan && view.Has(at); at += 4) {
++    const uint32_t w = view.Word(at), op = w >> 26, low = w & 0xFFFF, ra = (w >> 16) & 31;
++    if (at != start && w == motion::kMflrR12) break;
++    m.not_connected |= op == 24 && low == 0x048F;
++    m.invalid_arg |= op == 24 && low == 0x0057;
++    m.job_size |= op == 7 && low == 0x0150;
++    m.flags_zero |= op == 10 && ra == 4 && low == 0;
++    m.index_limit |= op == 10 && ra == 3 && low == 8;
++    m.user_none |= op == 14 && ra == 0 && low == 0x00FE;
++    m.flags_high |= op == 15 && ra == 0 && low == 0x4000;
++    m.low_one |= op == 24 && low == 1;
++    m.not_ready |= op == 24 && low == 5;
++    uint32_t target = 0;
++    if (w == 0x38600001 && view.Has(at + 4) &&
++        motion::RelativeBranch(at + 4, view.Word(at + 4), true, &target))
++      m.identify_job = true;
++  }
++  return m;
++}
++inline bool IsIdentify(const Marks& m) {
++  return m.not_connected && m.invalid_arg && m.job_size && m.flags_zero && m.identify_job;
++}
++inline bool IsEnrollmentInformation(const Marks& m) {
++  return m.index_limit && m.invalid_arg && m.user_none && m.flags_high && m.low_one &&
++         m.not_ready;
++}
++struct Found {
++  std::vector<uint32_t> identify, enrollment;
++  // Both exactly once, or the title keeps its own identification.
++  bool ok() const { return identify.size() == 1 && enrollment.size() == 1; }
++};
++inline Found FindIdentityFunctions(const motion::CodeView& view) {
++  Found found;
++  if (!view.code || (view.base & 3)) return found;
++  for (uint32_t at = view.base; view.Has(at); at += 4) {
++    if (view.Word(at) != motion::kMflrR12) continue;
++    const Marks m = MarksOf(view, at);
++    if (IsIdentify(m)) found.identify.push_back(at);
++    if (IsEnrollmentInformation(m)) found.enrollment.push_back(at);
++  }
++  return found;
++}
++
++// ---- Identify: requests, answered on the title's next skeleton frame ------------------------
++struct Request {
++  uint32_t tracking_id = 0, callback = 0, context = 0;
++};
++inline std::mutex mutex;
++inline std::vector<Request> pending;
++
++// NuiIdentityIdentify(tracking_id, flags, callback, context) for the virtual player, whose body
++// is live_tracking_id (0: none). The same checks as the library, in its order.
++inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback,
++                         uint32_t context, uint32_t live_tracking_id) {
++  if (flags) return kInvalidArgument;
++  if (!tracking_id || tracking_id != live_tracking_id) return kBodyNotTracked;
++  if (!callback) return kInvalidArgument;
++  std::lock_guard lock(mutex);
++  for (const Request& r : pending)
++    if (r.tracking_id == tracking_id && r.callback == callback && r.context == context)
++      return kOk;  // already on its way
++  if (pending.size() >= kMaxPending) pending.erase(pending.begin());
++  pending.push_back({tracking_id, callback, context});
++  return kOk;
++}
++inline std::vector<Request> TakePending() {
++  std::lock_guard lock(mutex);
++  std::vector<Request> out;
++  out.swap(pending);
++  return out;
++}
++inline void Reset() {
++  std::lock_guard lock(mutex);
++  pending.clear();
++}
++
++// What identification found: the signed-in profile the virtual player is bound to.
++struct Answer {
++  uint32_t result = kOk, enrollment = kEnrollmentUnknown;
++  bool matched = false;
++};
++inline Answer AnswerFor(uint32_t user_index) {
++  Answer a;
++  if (user_index < 4) {
++    a.enrollment = kVirtualEnrollment;
++    a.matched = true;
++  }
++  return a;
++}
++
++inline void StoreBE(uint8_t* p, uint32_t v) {
++  p[0] = uint8_t(v >> 24);
++  p[1] = uint8_t(v >> 16);
++  p[2] = uint8_t(v >> 8);
++  p[3] = uint8_t(v);
++}
++inline void WriteFrameProcessed(uint8_t* m, uint32_t tracking_id) {
++  for (size_t n = 0; n < kMessageBytes; ++n) m[n] = 0;
++  StoreBE(m + 0x0, kMessageFrameProcessed);
++  StoreBE(m + 0x4, tracking_id);
++  StoreBE(m + 0x8, 0);  // no quality issue
++}
++inline void WriteComplete(uint8_t* m, uint32_t tracking_id, const Answer& a) {
++  for (size_t n = 0; n < kMessageBytes; ++n) m[n] = 0;
++  StoreBE(m + 0x0, kMessageComplete);
++  StoreBE(m + 0x4, tracking_id);
++  StoreBE(m + 0x8, a.result);
++  StoreBE(m + 0xC, a.enrollment);
++  StoreBE(m + 0x10, a.matched ? 1 : 0);
++}
++
++// ---- GetEnrollmentInformation(index, out) ---------------------------------------------------
++struct EnrollmentInformation {
++  uint32_t result = kOk, user_index = kUserIndexNone, flags = 0;
++  bool write = false;  // the library writes its answer only on success
++};
++inline EnrollmentInformation GetEnrollmentInformation(uint32_t index, bool has_out,
++                                                      uint32_t user_index) {
++  EnrollmentInformation info;
++  if (index >= kMaxEnrollments || !has_out) {
++    info.result = kInvalidArgument;
++    return info;
++  }
++  info.write = true;
++  if (index == kVirtualEnrollment && user_index < 4) {
++    info.user_index = user_index;
++    info.flags = kEnrolled;
++  }
++  return info;
++}
++
++// The profile slot the virtual player stands for: the bound one while it is signed in, else
++// the first signed-in slot (as PublishNuiFrame picks it); kUserIndexNone when none is.
++inline uint32_t ProfileSlot(uint32_t bound_user, uint32_t signed_in_mask) {
++  if (bound_user < 4 && (signed_in_mask & (1u << bound_user))) return bound_user;
++  for (uint32_t slot = 0; slot < 4; ++slot)
++    if (signed_in_mask & (1u << slot)) return slot;
++  return kUserIndexNone;
++}
++
++}  // namespace xbox360ps5::nui_identity
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -44,6 +44,7 @@
+ #include "xbox360ps5/kinect_diag.hpp"  // fix 108
+ #include "xbox360ps5/pscam_state.hpp"  // fix 156d
+ #include "xbox360ps5/page_watch.hpp"  // fix 156h
++#include "xbox360ps5/nui_identity.hpp"  // fix 156l
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+@@ -1070,6 +1071,97 @@ void BindEstimatedHands(KernelState* kernel, cpu::XexModule* xex) {
+   (void)xex;
+ }
+ 
++// Fix 156l (Fighters Uncaged, #67): Kinect ID for titles that identify the player themselves
++// (xbox360ps5/nui_identity.hpp). The signed-in profile slots, as the skeleton frame sees them.
++uint32_t SignedInMask(KernelState* kernel_state) {
++  uint32_t mask = 0;
++  for (uint32_t slot = 0; slot < 4; ++slot)
++    if (kernel_state->xam_state()->IsUserSignedIn(slot) &&
++        kernel_state->xam_state()->GetUserProfile(slot))
++      mask |= 1u << slot;
++  return mask;
++}
++uint32_t VirtualPlayerSlot(KernelState* kernel_state) {
++  uint32_t bound = xbox360ps5::motion::kUserIndexNone;
++  {
++    std::lock_guard lock(xbox360ps5::motion::nui_mutex);
++    bound = xbox360ps5::motion::nui_binding.user_index;
++  }
++  return xbox360ps5::nui_identity::ProfileSlot(bound, SignedInMask(kernel_state));
++}
++
++// NuiIdentityIdentify(tracking_id, flags, callback, context), bound in place of the title's.
++void IdentityIdentifyHandler(cpu::ppc::PPCContext* ppc_context, KernelState* kernel_state) {
++  const uint32_t tracking_id = uint32_t(ppc_context->r[3]);
++  const uint32_t flags = uint32_t(ppc_context->r[4]);
++  const uint32_t callback = uint32_t(ppc_context->r[5]);
++  const uint32_t context = uint32_t(ppc_context->r[6]);
++  uint32_t live = 0;
++  {
++    std::lock_guard lock(xbox360ps5::motion::nui_mutex);
++    live = xbox360ps5::motion::nui_binding.tracking_id;
++  }
++  const uint32_t result = xbox360ps5::nui_identity::Identify(
++      tracking_id, flags, callback, context, xbox360ps5::motion::enabled.load() ? live : 0);
++  ppc_context->r[3] = result;
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 8)
++    XELOGW("Virtual Kinect: the title identifies body {:08X} (flags {:X}, callback {:08X}, "
++           "context {:08X}; tracked body {:08X}) -> {:08X} (fix 156l)",
++           tracking_id, flags, callback, context, live, result);
++}
++
++// NuiIdentityGetEnrollmentInformation(index, out), bound in place of the title's.
++void IdentityEnrollmentHandler(cpu::ppc::PPCContext* ppc_context, KernelState* kernel_state) {
++  const uint32_t index = uint32_t(ppc_context->r[3]);
++  const uint32_t out = uint32_t(ppc_context->r[4]);
++  Memory* memory = kernel_state->memory();
++  const bool has_out = out && IsGuestRangeMapped(memory, out, 8, true);
++  const uint32_t slot = VirtualPlayerSlot(kernel_state);
++  const auto info = xbox360ps5::nui_identity::GetEnrollmentInformation(index, has_out, slot);
++  if (info.write) {
++    xe::store_and_swap<uint32_t>(memory->TranslateVirtual(out), info.user_index);
++    xe::store_and_swap<uint32_t>(memory->TranslateVirtual(out + 4), info.flags);
++  }
++  ppc_context->r[3] = info.result;
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 8)
++    XELOGW("Virtual Kinect: enrollment {} is user {:X} (flags {:X}) -> {:08X} (fix 156l)",
++           index, info.user_index, info.flags, info.result);
++}
++
++// The answers to the title's identify requests, on its own thread (the skeleton frame's
++// caller): "frame processed", then "complete" with the signed-in profile's enrollment.
++void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
++  auto requests = xbox360ps5::nui_identity::TakePending();
++  if (requests.empty()) return;
++  auto* thread = cpu::ThreadState::Get();
++  Memory* memory = kernel_state->memory();
++  const uint32_t message =
++      thread ? memory->SystemHeapAlloc(uint32_t(xbox360ps5::nui_identity::kMessageBytes)) : 0;
++  if (!message) {
++    XELOGW("Virtual Kinect: {} identify answer(s) dropped (no guest thread or memory) "
++           "(fix 156l)", requests.size());
++    return;
++  }
++  const auto answer = xbox360ps5::nui_identity::AnswerFor(user_index);
++  static std::atomic<uint32_t> shown{0};
++  for (const auto& r : requests) {
++    if (!IsGuestRangeMapped(memory, r.callback, 4, false)) continue;
++    uint8_t* m = memory->TranslateVirtual<uint8_t*>(message);
++    uint64_t args[] = {r.context, message};
++    xbox360ps5::nui_identity::WriteFrameProcessed(m, r.tracking_id);
++    kernel_state->processor()->Execute(thread, r.callback, args, 2);
++    xbox360ps5::nui_identity::WriteComplete(m, r.tracking_id, answer);
++    kernel_state->processor()->Execute(thread, r.callback, args, 2);
++    if (shown.fetch_add(1) < 8)
++      XELOGW("Virtual Kinect: body {:08X} identified: result {:08X}, enrollment {:X}, "
++             "profile matched {} (user {:X}) (fix 156l)", r.tracking_id, answer.result,
++             answer.enrollment, answer.matched, user_index);
++  }
++  memory->SystemHeapFree(message);
++}
++
+ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+                                uint32_t frame_ptr) {
+   using clock = std::chrono::steady_clock;
+@@ -1233,6 +1325,8 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+       ++xbox360ps5::motion::nui_identity_notifications;
+     }
+   }
++  // Fix 156l: the title's identify requests, answered for the body it just got.
++  DeliverIdentityAnswers(kernel_state, binding.user_index);
+   return X_E_SUCCESS;
+ }
+ 
+@@ -1347,6 +1441,59 @@ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+   }
+ }
+ 
++// Fix 156l: has the guest run handler in place of the title's function at address, as the
++// skeleton function below is bound ("sc 2; blr" and an extern handler).
++bool BindTitleFunction(KernelState* kernel_state, cpu::XexModule* xex, uint32_t address,
++                       cpu::GuestFunction::ExternHandler handler) {
++  Memory* memory = kernel_state->memory();
++  cpu::Function* function = nullptr;
++  const cpu::Symbol::Status status = xex->DeclareFunction(address, &function);
++  if (!function || (status != cpu::Symbol::Status::kNew &&
++                    status != cpu::Symbol::Status::kDeclared))
++    return false;
++  auto* heap = memory->LookupHeap(address);
++  uint32_t protection = 0;
++  if (!heap || !heap->QueryProtect(address, &protection) ||
++      !heap->Protect(address, 8, kMemoryProtectRead | kMemoryProtectWrite))
++    return false;
++  static_cast<cpu::GuestFunction*>(function)->SetupExtern(handler);
++  uint8_t* code = memory->TranslateVirtual(address);
++  xe::store_and_swap<uint32_t>(code + 0, 0x44000042);  // sc 2
++  xe::store_and_swap<uint32_t>(code + 4, 0x4E800020);  // blr
++  heap->Protect(address, 8, protection);
++  function->set_end_address(address + 4);
++  if (status == cpu::Symbol::Status::kNew)
++    function->set_status(cpu::Symbol::Status::kDeclared);
++  return true;
++}
++
++// Fix 156l: the title's in-title Kinect ID (NuiIdentityIdentify and
++// NuiIdentityGetEnrollmentInformation), when it has it, answered for the virtual player.
++void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
++                  uint32_t size) {
++  Memory* memory = kernel_state->memory();
++  const auto found = xbox360ps5::nui_identity::FindIdentityFunctions(
++      {memory->TranslateVirtual<const uint8_t*>(base), size, base});
++  // Without NuiIdentityIdentify the title asks the system (Kinect Sports Season Two, Zumba
++  // Fitness, Dragon Ball Z have only the enrollment information function).
++  if (found.identify.empty()) return;
++  if (!found.ok()) {
++    XELOGW("Virtual Kinect: the title's Kinect ID functions were not identified ({} identify, "
++           "{} enrollment information candidates); it keeps its own (fix 156l)",
++           found.identify.size(), found.enrollment.size());
++    return;
++  }
++  const uint32_t identify = found.identify[0], enrollment = found.enrollment[0];
++  if (!BindTitleFunction(kernel_state, xex, enrollment, IdentityEnrollmentHandler) ||
++      !BindTitleFunction(kernel_state, xex, identify, IdentityIdentifyHandler)) {
++    XELOGW("Virtual Kinect: the title's Kinect ID functions at {:08X} / {:08X} could not be "
++           "bound (fix 156l)", identify, enrollment);
++    return;
++  }
++  XELOGW("Virtual Kinect: the title's Kinect ID answers for the signed-in profile (identify at "
++         "{:08X}, enrollment information at {:08X}) (fix 156l)", identify, enrollment);
++}
++
+ // Finds the title's NuiSkeletonGetNextFrame and has the guest run the handler
+ // above in its place, the way an import is bound: "sc 2; blr" at its start and
+ // an extern handler on the function. Done once, at the title's first camera
+@@ -1422,6 +1569,7 @@ void BindSkeletonSource(KernelState* kernel_state) {
+   }
+   xbox360ps5::motion::guest_skeleton_bound = true;
+   BindEstimatedHands(kernel_state, xex);
++  BindIdentity(kernel_state, xex, base, size);  // fix 156l
+   XELOGW("Virtual Kinect: skeleton frames of the title come from the "
+          "estimated pose (function at {:08X}, {} call(s); executable hash {:016X})",
+          address, calls.size(), ExecutableHash(kernel_state));
+@@ -1465,6 +1613,7 @@ void ShutdownCameraDevice() {
+   xbox360ps5::motion::guest_skeleton_frames = 0;
+   xbox360ps5::motion::guest_skeleton_bodies = 0;
+   xbox360ps5::motion::ResetVirtualNui();
++  xbox360ps5::nui_identity::Reset();  // fix 156l
+   xbox360ps5::motion::emergency_pose.Reset();  // fix 107
+   xbox360ps5::kinect_diag::enabled = false;  // fix 108
+   xbox360ps5::kinect_diag::first_calls.Reset();
