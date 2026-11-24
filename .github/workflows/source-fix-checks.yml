@@ -37,6 +37,7 @@ on:
       - 'tools/check-assemble-skip.py'
       - 'tools/check-patch-syntax.py'
       - 'tools/check-bf3-preset.py'
+      - 'tools/check-gta5-preset.py'
       - 'tools/check-save-devices.cpp'
       - 'tools/check-home-hints.cpp'
       - 'tools/check-cover-fallback.cpp'
