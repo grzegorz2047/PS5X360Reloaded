@@ -1,0 +1,182 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -265,7 +265,7 @@ class CameraDevice {
+ 
+   X_STATUS Request(uint32_t request_ptr) {
+     if (!xbox360ps5::motion::enabled.load()) return X_STATUS_UNSUCCESSFUL;
+-    if (!IsGuestRange(request_ptr, 8)) return X_STATUS_INVALID_PARAMETER;
++    if (!IsRequestRange(request_ptr, 8)) return X_STATUS_INVALID_PARAMETER;  // fix 156g
+     const auto first_code = static_cast<CameraRequestCode>(uint32_t(*Guest<xe::be<uint32_t>>(request_ptr)));
+     xbox360ps5::motion::guest_last_request=uint32_t(first_code);
+     {static std::mutex trace_mutex;static std::set<uint32_t> seen;std::lock_guard trace_lock(trace_mutex);
+@@ -277,12 +277,16 @@ class CameraDevice {
+         first_code == CameraRequestCode::kRegistration ||
+         first_code == CameraRequestCode::kDepthTable ||
+         first_code == CameraRequestCode::kTiming) {
+-      if (!IsGuestRange(request_ptr, GetRequestSize(first_code)))
++      if (!IsRequestRange(request_ptr, GetRequestSize(first_code)))  // fix 156g
+         return X_STATUS_INVALID_PARAMETER;
+       if (!camera_ && first_code != CameraRequestCode::kGetState)
+         return X_STATUS_UNSUCCESSFUL;
+       uint32_t bytes = 0;
+-      const auto status = Handle(first_code, request_ptr, bytes);
++      X_STATUS status;
++      {
++        RequestWriteWindow window(memory_, request_ptr, GetRequestSize(first_code));  // fix 156g
++        status = Handle(first_code, request_ptr, bytes);
++      }
+       if (first_code == CameraRequestCode::kGetState) {
+         static std::atomic<bool> reported{false};
+         if (!reported.exchange(true)) {
+@@ -296,12 +300,12 @@ class CameraDevice {
+       }
+       return status;
+     }
+-    if (!IsGuestRange(request_ptr, sizeof(X_PSCAM_REQUEST))) {
++    if (!IsRequestRange(request_ptr, sizeof(X_PSCAM_REQUEST))) {  // fix 156g
+       return X_STATUS_INVALID_PARAMETER;
+     }
+     auto request = Guest<X_PSCAM_REQUEST>(request_ptr);
+     const auto code = static_cast<CameraRequestCode>(uint32_t(request->code));
+-    if (!IsGuestRange(request_ptr, GetRequestSize(code))) {
++    if (!IsRequestRange(request_ptr, GetRequestSize(code))) {  // fix 156g
+       return X_STATUS_INVALID_PARAMETER;
+     }
+     uint32_t completion = request->completion_routine;
+@@ -313,6 +317,7 @@ class CameraDevice {
+     if (!camera_) {
+       if (code == CameraRequestCode::kGetState) {
+         uint32_t bytes = 0;
++        RequestWriteWindow window(memory_, request_ptr, GetRequestSize(code));  // fix 156g
+         return Handle(code, request_ptr, bytes);
+       }
+       // TODO(knuckleslee): Find the status the console returns without a
+@@ -362,7 +367,11 @@ class CameraDevice {
+       }
+     }
+     uint32_t bytes = 0;
+-    const X_STATUS status = Handle(code, request_ptr, bytes);
++    X_STATUS status;
++    {
++      RequestWriteWindow window(memory_, request_ptr, GetRequestSize(code));  // fix 156g
++      status = Handle(code, request_ptr, bytes);
++    }
+     PendingRequest pending;
+     pending.request_ptr = request_ptr;
+     pending.completion = completion;
+@@ -405,6 +414,59 @@ class CameraDevice {
+     return IsGuestRangeMapped(memory_, address, size, write);
+   }
+ 
++  // Fix 156g (Kinect Sports Season Two, #63): a request block the title passes in only has
++  // to be readable. Season Two's read requests sit in its image's data (83507E78-83508080);
++  // at a sport's load that page stopped being writable in the page table, and the camera
++  // refused every read on it, at completion and on resubmission (INVALID_PARAMETER): after 5
++  // failed reads the title read no frame again and the loading screen never ended. The
++  // console's driver writes its replies regardless of the caller's page protection; replies
++  // here go through RequestWriteWindow. The first 8 such pages are logged.
++  bool IsRequestRange(uint32_t address, size_t size) const {
++    if (!IsGuestRange(address, size, false)) return false;
++    if (!IsGuestRange(address, size, true)) {
++      static std::atomic<uint32_t> shown{0};
++      if (shown.fetch_add(1) < 8) {
++        auto* heap = memory_->LookupHeap(address);
++        uint32_t protection = 0;
++        if (heap) heap->QueryProtect(address, &protection);
++        XELOGW("Virtual Kinect: request {:08X} is on a page that is not writable "
++               "(protect {:X}); answered anyway (fix 156g)", address, protection);
++      }
++    }
++    return true;
++  }
++  // Fix 156g: makes a request's pages writable while a reply is written into it, and puts
++  // their protection back after.
++  class RequestWriteWindow {
++   public:
++    RequestWriteWindow(Memory* memory, uint32_t address, size_t size) {
++      if (!address || !size || uint64_t(address) + size > 0x100000000ull) return;
++      for (uint64_t at = address; at < uint64_t(address) + size && count_ < 2;
++           at = (at & ~uint64_t(4095)) + 4096) {
++        auto* heap = memory->LookupHeap(uint32_t(at));
++        uint32_t protection = 0;
++        if (!heap || !heap->QueryProtect(uint32_t(at), &protection) ||
++            !(protection & kMemoryProtectRead) || (protection & kMemoryProtectWrite))
++          continue;
++        if (heap->Protect(uint32_t(at), 1, protection | kMemoryProtectWrite))
++          pages_[count_++] = {heap, uint32_t(at), protection};
++      }
++    }
++    ~RequestWriteWindow() {
++      for (uint32_t n = count_; n-- > 0;)
++        pages_[n].heap->Protect(pages_[n].address, 1, pages_[n].protection);
++    }
++    RequestWriteWindow(const RequestWriteWindow&) = delete;
++    RequestWriteWindow& operator=(const RequestWriteWindow&) = delete;
++
++   private:
++    struct Page {
++      BaseHeap* heap;
++      uint32_t address, protection;
++    } pages_[2] = {};
++    uint32_t count_ = 0;
++  };
++
+   static size_t GetRequestSize(CameraRequestCode code) {
+     size_t size = 0;
+     switch (code) {
+@@ -591,7 +653,7 @@ class CameraDevice {
+     last_sequence = sequence;
+ 
+     PendingRequest done = read;
+-    if (!IsGuestRange(read.request_ptr,sizeof(X_PSCAM_READ_FRAME_REQUEST))) {done.status=X_STATUS_INVALID_PARAMETER;NoteFailedRead(done,depth,0,"request not mapped");Complete(done);return true;}
++    if (!IsRequestRange(read.request_ptr,sizeof(X_PSCAM_READ_FRAME_REQUEST))) {done.status=X_STATUS_INVALID_PARAMETER;NoteFailedRead(done,depth,0,"request not mapped");Complete(done);return true;}  // fix 156g: readable is enough
+     auto request = Guest<X_PSCAM_READ_FRAME_REQUEST>(read.request_ptr);
+     const uint32_t buffer = request->buffer_ptr;
+     // Fix 156e: a depth read with a buffer for the packed frame (11-bit
+@@ -623,7 +685,11 @@ class CameraDevice {
+       ++xbox360ps5::motion::guest_depth_frames;
+     } else {
+       std::memcpy(Guest<uint8_t>(buffer), frame_.data(), frame_bytes);
+-      request->settings_generation = settings_generation_;
++      {
++        RequestWriteWindow window(memory_, read.request_ptr,
++                                  sizeof(X_PSCAM_READ_FRAME_REQUEST));  // fix 156g
++        request->settings_generation = settings_generation_;
++      }
+       ++xbox360ps5::motion::guest_color_frames;
+       // Fix 119b: what became of the phone's pictures, every 10 s (camera_picture.hpp).
+       if (const std::string line = xbox360ps5::motion::picture_stats.Due(
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_memory.h"
++#include <atomic>  // fix 156g
+ #include "xenia/base/logging.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+@@ -268,7 +269,20 @@ dword_result_t NtProtectVirtualMemory_entry(lpdword_t base_addr_ptr,
+ 
+   // FIXME: I think it's valid for NtProtectVirtualMemory to span regions, but
+   // as of now our implementation will fail in this case. Need to verify.
+-  if (!heap->Protect(adjusted_base, adjusted_size, protect, &tmp_old_protect)) {
++  const bool protected_ok =
++      heap->Protect(adjusted_base, adjusted_size, protect, &tmp_old_protect);
++  // Xbox360PS5 fix 156g (#63): the title's protection changes, logged (the first 32). Kinect
++  // Sports Season Two's camera read requests (in its image's data) stopped being writable at
++  // a sport's load; this names who changes which pages (rounded to the heap's page size).
++  {
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1) < 32)
++      XELOGW("NtProtectVirtualMemory {:08X}+{:X} (pages {:08X}+{:X}) protect {:X} (was {:X}) "
++             "-> {} (fix 156g)", uint32_t(*base_addr_ptr), uint32_t(*region_size_ptr),
++             adjusted_base, adjusted_size, uint32_t(protect_bits), tmp_old_protect,
++             protected_ok ? "done" : "refused");
++  }
++  if (!protected_ok) {
+     return X_STATUS_ACCESS_DENIED;
+   }
+ 

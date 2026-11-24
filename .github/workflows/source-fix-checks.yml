@@ -188,6 +188,7 @@ on:
       - 'tools/check-pscam-state.cpp'
       - 'tools/check-camera-worker.cpp'
       - 'tools/check-mic-array.cpp'
+      - 'tools/check-request-pages.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
