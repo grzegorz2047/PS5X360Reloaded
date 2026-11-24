@@ -2,31 +2,15 @@ title_name = "Grand Theft Auto V"
 title_id = "545408A7" # TT-2055
 hash = "C290B43AEEFA5166" # default.xex (Disc 1 and Disc 2 boot the same executable)
 
-# GTA V freezes ~100 s into the prologue ("Dam rade. Dam rade... O Boze."): the audio mixer (83140340)
-# moves on to a prebuffered stream within one call and loops at 83140450-8314049C taking its decoded
-# bytes from the game's own copy of the XMA context, which only a lock and snapshot (836A93C8,
-# 836A9BB0) refresh; it snapshots only the first stream set of a call, so the prebuffered set's copy
-# is still the one written when it was queued and the loop never ends. Both patches are off until one
-# is confirmed on the console.
-
 [[patch]]
-    name = "Audio freeze fix: snapshot each stream set the mixer reads (experiment)"
-    desc = "The mixer locks and snapshots a stream set before reading it, not only the first set of a call: the prebuffered stream it moves on to is read from a fresh copy instead of the one written when it was queued (frames stop ~100 s into the prologue without it)."
+    name = "Audio freeze fix (prologue)"
+    desc = "Without it the game freezes ~100 s into the prologue (at the line Dam rade. Dam rade... O Boze. in the Polish subtitles): the audio mixer moves on to a prebuffered stream within one call and reads it without refreshing its copy of the stream's state, which never changes, so the audio thread waits forever. With it the mixer refreshes every stream it reads (confirmed on the console with 1.0.6-work-fix148j2-155b)."
     author = "PS5X360"
-    is_enabled = false
+    is_enabled = true
 
-    # 83140458: bne cr6, 0x83140480 (skip the lock and snapshot once one was done in this call) -> nop.
+    # 83140458: bne cr6, 0x83140480 (skip the lock 836A93C8 and snapshot 836A9BB0 once one was done
+    # in this call of the mixer 83140340) -> nop: every stream set the loop at 83140450 reads is
+    # locked and snapshotted first; the lock and snapshot return at once for a set already done.
     [[patch.be32]]
         address = 0x83140458
         value = 0x60000000
-
-[[patch]]
-    name = "Audio freeze fix: count from the game's own copy (experiment, did not help)"
-    desc = "Available (836A96D8) counts a stream's bytes from the game's copy instead of the XMA hardware context when its set is not locked. Applied on 1.0.6-work-fix148j2-155b: the freeze stayed."
-    author = "PS5X360"
-    is_enabled = false
-
-    # 836A96FC: bne cr6, +8 -> b.
-    [[patch.be32]]
-        address = 0x836a96fc
-        value = 0x48000008

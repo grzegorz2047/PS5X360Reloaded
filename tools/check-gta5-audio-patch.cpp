@@ -4,15 +4,14 @@
 // 83140450-8314049C taking its bytes (836A9768) from the game's own copy of the XMA context, which only
 // a lock and snapshot (836A93C8, 836A9BB0) refresh; it snapshots only the first stream set of a call
 // (the "bne" at 83140458), so the prebuffered set's copy is the one written when it was queued and the
-// loop never ends. Two experiments, both off until one is confirmed on the console: "snapshot each
-// stream set" (83140458 -> nop) and "count from the game's copy" (836A96FC bne -> b; applied on
-// 1.0.6-work-fix148j2-155b, the freeze stayed).
-//  (a) the patch file: title 545408A7, the default.xex hash both discs boot, two patches, both off,
-//      one be32 each (83140458 = 60000000, 836A96FC = 48000008);
+// loop never ends. "Audio freeze fix (prologue)" turns that bne into a nop (confirmed on the console:
+// past the line, no stall). An earlier experiment (836A96FC, counting from the copy) did not help and
+// is gone.
+//  (a) the patch file: title 545408A7, the default.xex hash both discs boot, one patch, on, one be32
+//      (83140458 = 60000000) and nothing else;
 //  (b) with XBOX360PS5_GTA5_IMAGE naming an unpacked default.xex image (base 82000000; the game is
-//      never in the repository), the code shape: the words replaced are 409A0028 (bne cr6, +0x28 past
-//      the lock and snapshot) and 409A0008 (bne cr6, +8 in Available); the loop tests r22's low byte
-//      first; Available reads the flags word and goes through +0x40; Take starts at 836A9768;
+//      never in the repository), the code shape: the word replaced is 409A0028 (bne cr6, past the lock
+//      and snapshot), the loop tests r22's low byte first, calls Take (836A9768) and loops back;
 //  (c) the assembled tree (when run from its root): on the PS5 the emulator reads the package's
 //      patches and then the user's from <data>/assets/patches, the folder the library's Patches tab
 //      names (before 155c it read only /app0/assets/patches, so user patch files were never loaded).
@@ -55,14 +54,14 @@ void PatchFile(const fs::path& repo) {
   Expect(toml.find("title_id = \"545408A7\"") != std::string::npos &&
              toml.find("hash = \"C290B43AEEFA5166\"") != std::string::npos,
          "(a) title 545408A7, the executable hash both discs boot");
-  Expect(Count(toml, "[[patch]]") == 2 && Count(toml, "is_enabled = false") == 2 &&
-             Count(toml, "is_enabled = true") == 0 && Count(toml, "[[patch.be32]]") == 2 &&
-             Count(toml, "address = ") == 2,
-         "(a) two patches, both off until one is confirmed, one be32 each");
-  const size_t resync = toml.find("address = 0x83140458"), count = toml.find("address = 0x836a96fc");
-  Expect(resync != std::string::npos && toml.find("value = 0x60000000", resync) < count &&
-             count != std::string::npos && toml.find("value = 0x48000008", count) != std::string::npos,
-         "(a) 83140458 = 60000000 (snapshot each set), 836A96FC = 48000008 (count from the copy)");
+  Expect(Count(toml, "[[patch]]") == 1 && Count(toml, "is_enabled = true") == 1 &&
+             Count(toml, "[[patch.be32]]") == 1 && Count(toml, "address = ") == 1 &&
+             toml.find("name = \"Audio freeze fix (prologue)\"") != std::string::npos,
+         "(a) one patch, on, \"Audio freeze fix (prologue)\", one be32");
+  const size_t at = toml.find("address = 0x83140458");
+  Expect(at != std::string::npos && toml.find("value = 0x60000000", at) != std::string::npos &&
+             toml.find("0x836a96fc") == std::string::npos,
+         "(a) 83140458 = 60000000, and not the count-from-copy experiment");
 }
 
 uint32_t Word(const std::vector<uint8_t>& image, uint32_t address) {
@@ -74,17 +73,13 @@ void Image(const char* path) {
   const std::vector<uint8_t> image(bytes.begin(), bytes.end());
   Expect(image.size() > 0x16AA000, "(b) the image is a whole default.xex memory image");
   if (image.size() <= 0x16AA000) return;
-  Expect(Word(image, 0x836A96FC) == 0x409A0008, "(b) the word replaced is bne cr6, +8");
   Expect(Word(image, 0x83140450) == 0x56CB063E && Word(image, 0x83140454) == 0x2B0B0000 &&
              Word(image, 0x83140458) == 0x409A0028 && Word(image, 0x83140490) == 0x485692D9 &&
              Word(image, 0x8314049C) == 0x4198FFB4,
          "(b) the loop: r22's low byte tested, bne past the lock and snapshot, the Take call, the loop back");
-  Expect(Word(image, 0x836A96D8) == 0x81630004 && Word(image, 0x836A96DC) == 0x556A039C &&
-             Word(image, 0x836A96F8) == 0x7D2B4B78 && Word(image, 0x836A9700) == 0x81690040 &&
-             Word(image, 0x836A9704) == 0x80EB0004,
-         "(b) Available: the flags word, the synced-flag test, the copy, the hardware path through +0x40");
-  Expect(Word(image, 0x836A9768) == 0x7D8802A6 && Word(image, 0x836A977C) == 0x81630008,
-         "(b) Take begins at 836A9768 and reads the set's own entries");
+  Expect(Word(image, 0x83140468) == 0x807F0000 && Word(image, 0x8314046C) == 0x48568F5D &&
+             Word(image, 0x83140474) == 0x4856973D,
+         "(b) the lock (836A93C8) and snapshot (836A9BB0) the bne skips");
 }
 
 void Tree() {
