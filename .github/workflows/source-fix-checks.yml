@@ -178,6 +178,7 @@ on:
       - 'tools/check-render-target-skip.cpp'
       - 'tools/check-gpu-thread-probe.cpp'
       - 'tools/check-draw-memo.cpp'
+      - 'tools/check-sims3-diag.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

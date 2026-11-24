@@ -924,3 +924,69 @@ Reading:
 - **Decision.** No gain from the option at this spot; it stays as it is. In steady play MW2 is
   bound by the GPU thread's own work: about 1,000 ms/s with no waits, 1.4 us a draw at about 370k
   draws/s.
+
+## 16. Bindless is supported; fix 142h for The Sims 3
+
+### The PS5 driver supports descriptor indexing
+
+From the 142g launcher log:
+
+```
+Vulkan descriptor indexing (fix 142f-diag, supported): shaderSampledImageArrayNonUniformIndexing true,
+descriptorBindingSampledImageUpdateAfterBind true, descriptorBindingPartiallyBound true,
+runtimeDescriptorArray true; update-after-bind limits: maxUpdateAfterBindDescriptorsInAllPools 67108863,
+maxPerStageDescriptorUpdateAfterBindSampledImages 8388606, maxPerStageDescriptorUpdateAfterBindSamplers
+8388606, maxPerStageUpdateAfterBindResources 8388606, maxDescriptorSetUpdateAfterBindSampledImages
+8388606, maxDescriptorSetUpdateAfterBindSamplers 8388606, shaderSampledImageArrayNonUniformIndexingNative false
+```
+
+A bindless texture path is possible. One large update-after-bind set would hold every live texture
+view and sampler, written once when the view or sampler is made. A draw would then pass indices
+instead of writing and binding a descriptor set.
+
+What it would remove from the GPU thread is fix 142d's descriptor work: about 7-11% of it (texture
+image infos, set allocation and writes, `vkUpdateDescriptorSets`, part of the binds).
+
+What it costs:
+- the shader translator indexes the array with `nonuniformEXT` where the index can vary. "Native
+  false" means the driver turns such an index into a loop over the distinct values, which is GPU
+  time; the GPU is 17-38% busy;
+- the indices go in a per-draw constant;
+- a view's slot is freed only after the submissions using it have completed;
+- the texture cache's binding life cycle changes, which affects fixes 104 and 120.
+
+It is a large change touching the SPIR-V translator, the pipeline layouts and the texture cache. It
+needs a design document and the coordinator's decision before any build.
+
+### Fix 142h: content-checked.txt and the big readback keys
+
+- **Base:** the fixes of section 15 on `1.0.6_candidate_3`; the memos stay at 0.
+- **Patch:** `142h-sims3-readback-diag.patch`.
+- **Label:** `1.0.6-work-fix142h`.
+
+**`content-checked.txt`** in the title folder (`on`/`1` or `off`/`0`) sets fix 125 for the whole
+run. It is read when the shared memory starts, before any unit is checked, and logged:
+`Content-checked units (fix 142h): on|off for this run, from ...`.
+
+It is not read while the game runs. Turning fix 125 off then would leave the units being checked
+neither watched nor checked. So the A/B is two runs of the game at the same spot, one with `off`,
+one with `on` (or no file).
+
+**The big keys.** Every 30 s, after fix 133's line, the log gives this for the most resolved keys of
+1 MiB or more:
+
+```
+Readback big keys, last 30 s (fix 142h, 1 MiB or more): ADDRESS/x.x MiB: n resolves (f fast,
+a automatic), o own copies, e with no earlier copy, l late as a steady family; key steady in k,
+family steady in s, CPU seen reading in c; passes up to p, presence 0.xx, streak s, every g frames
+```
+
+How it maps to the decisions:
+- fix 91k gives a key that is not steady its own copy (a wait), unless fix 133 finds its family
+  steady and the CPU has not been seen reading it;
+- "with no earlier copy" are fast resolves that found nothing to hand over, the "first copy of a
+  key" waits;
+- "key steady in" against "own copies" shows when a 3.6 MiB key turns steady (presence 0.4 or more)
+  and stops getting its own copy;
+- "passes up to" shows whether the key is resolved more than once a frame, where the pass rule
+  (fix 91) can find no earlier copy of the same pass.

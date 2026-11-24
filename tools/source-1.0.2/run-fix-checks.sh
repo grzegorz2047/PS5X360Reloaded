@@ -169,6 +169,7 @@ checks=(
   check-render-target-skip.cpp     # fix 142e
   check-gpu-thread-probe.cpp       # fix 142f-diag
   check-draw-memo.cpp              # fix 142g
+  check-sims3-diag.cpp             # fix 142h
 )
 declare -A arguments=(
   [check-draw-probe.cpp]="$repo/tools/source-1.0.2/fixes"
@@ -324,6 +325,7 @@ declare -A fix_of=(
   [check-render-target-skip.cpp]=142e
   [check-gpu-thread-probe.cpp]=142f
   [check-draw-memo.cpp]=142g
+  [check-sims3-diag.cpp]=142h
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

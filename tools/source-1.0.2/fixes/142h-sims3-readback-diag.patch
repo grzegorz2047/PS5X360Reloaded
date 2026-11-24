@@ -1,0 +1,124 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+index 489ccdc..6cdb29a 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -43,6 +43,9 @@ DEFINE_bool(gpu_content_checked_units, true,
+ #if XE_PLATFORM_PS5
+ #include <atomic>
+ #include <chrono>
++#include <cstdio>  // fix 142h
++#include <string>
++#include "xbox360ps5/app_identity.hpp"  // fix 142h: the title's folder
+ #include <cstdio>
+ 
+ namespace xbox360ps5 {
+@@ -170,6 +173,29 @@ bool SharedMemory::InitializeCommon() {
+   unwatched_seen_bits_.assign(num_system_page_flags_, 0);
+   pinned_bits_.assign(num_system_page_flags_, 0);
+   checked_bits_.assign(num_system_page_flags_, 0);  // fix 125
++  {
++    // Fix 142h: content-checked.txt in the title folder ("on"/"1" or "off"/"0") sets fix 125 for
++    // the whole run, read here, before any unit is checked. Not while the game runs: turning it
++    // off would leave the units being checked neither watched nor checked.
++    const char* const path = XBOX360PS5_DATA_ROOT "/content-checked.txt";
++    if (FILE* file = std::fopen(path, "rb")) {
++      char text[32] = {};
++      const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
++      std::fclose(file);
++      std::string word(text, got);
++      const size_t start = word.find_first_not_of(" \t\r\n");
++      word = start == std::string::npos ? std::string()
++                                        : word.substr(start, word.find_first_of(" \t\r\n#", start) - start);
++      if (word == "1" || word == "on" || word == "0" || word == "off") {
++        cvars::gpu_content_checked_units = word == "1" || word == "on";
++        XELOGW("Content-checked units (fix 142h): {} for this run, from {}",
++               cvars::gpu_content_checked_units ? "on" : "off", path);
++      } else {
++        XELOGW("Content-checked units (fix 142h): {} not understood, the setting ({}) kept", path,
++               cvars::gpu_content_checked_units ? "on" : "off");
++      }
++    }
++  }
+   gpu_only_bits_.assign(num_system_page_flags_, 0);  // fix 48
+   lossy_bits_.assign(num_system_page_flags_, 0);
+   unit_exporter_.assign(kBufferSize >> page_size_log2_, 0);
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 772d02d..ce5781e 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -1952,6 +1952,20 @@ void VulkanCommandProcessor::ShutdownContext() {
+ }
+ 
+ #if XE_PLATFORM_PS5
++// Fix 142h: the big resolve readback keys' decisions (1 MiB or more), for the 30 s summary: why
++// fix 91k gives a key its own copy or not (fix 133's OwnCopy: not when the key is steady, nor when
++// its family is steady and the CPU has not been seen reading it) and how often it found no earlier
++// copy to hand over (a "first copy" wait in fast mode).
++namespace fix142h {
++struct BigKey {
++  uint32_t length = 0;
++  uint64_t resolves = 0, fast = 0, automatic = 0, own = 0, no_earlier = 0, key_steady = 0,
++           family_steady = 0, cpu_reads = 0, family_late = 0;
++  uint32_t pass_max = 0, streak = 0;
++  float presence = 0, gap = 0;
++};
++std::unordered_map<uint64_t, BigKey> big_keys;
++}  // namespace fix142h
+ // Fix 142g (draw_memo.h): the memos' state, the GPU thread's alone.
+ namespace fix142g {
+ draw_memo::Settings settings;
+@@ -6668,6 +6682,26 @@ bool VulkanCommandProcessor::IssueCopy() {
+         readback_family_late_ = 0;
+         readback_own_batches_.Reset();
+         readback_memexport_batches_.Reset();
++        {
++          // Fix 142h: the big keys' decisions, the most resolved first.
++          std::vector<std::pair<uint64_t, uint64_t>> order;
++          for (const auto& [key, big] : fix142h::big_keys) order.emplace_back(big.resolves, key);
++          std::sort(order.begin(), order.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
++          std::string text;
++          for (size_t n = 0; n < order.size() && n < 8; ++n) {
++            const fix142h::BigKey& big = fix142h::big_keys[order[n].second];
++            text += fmt::format(
++                "{}{:08X}/{:.1f} MiB: {} resolves ({} fast, {} automatic), {} own copies, {} with no "
++                "earlier copy, {} late as a steady family; key steady in {}, family steady in {}, CPU "
++                "seen reading in {}; passes up to {}, presence {:.2f}, streak {}, every {:.1f} frames",
++                n ? "; " : "", uint32_t(order[n].second >> 32), big.length / 1048576.0, big.resolves,
++                big.fast, big.automatic, big.own, big.no_earlier, big.family_late, big.key_steady,
++                big.family_steady, big.cpu_reads, big.pass_max, big.presence, big.streak, big.gap);
++          }
++          XELOGW("Readback big keys, last 30 s (fix 142h, 1 MiB or more): {}",
++                 text.empty() ? std::string("none") : text);
++          fix142h::big_keys.clear();
++        }
+       }
+     }
+     ReadbackBuffer& rb = readback_buffers_[resolve_key];
+@@ -6841,6 +6875,27 @@ bool VulkanCommandProcessor::IssueCopy() {
+             ? readback_batching::OwnCopy(key_steady, family_steady, rb.cpu_reads,
+                                          cvars::readback_steady_by_end)
+             : rb.cpu_reads && occasional;
++#if XE_PLATFORM_PS5
++    if (readback_length >= (UINT32_C(1) << 20)) {  // fix 142h: a big key's decision
++      fix142h::BigKey& big = fix142h::big_keys[resolve_key];
++      const bool fast = readback_mode == ReadbackResolveMode::kFast;
++      big.length = readback_length;
++      ++big.resolves;
++      big.fast += fast;
++      big.automatic += auto_readback;
++      big.own += fast && !auto_readback && own_copy && newest_copy >= 0;
++      big.no_earlier += fast && newest_copy < 0;
++      big.key_steady += key_steady;
++      big.family_steady += family_steady;
++      big.cpu_reads += rb.cpu_reads;
++      big.family_late += g_readback_rules.occasional_own && !key_steady && !own_copy && fast &&
++                         !auto_readback && newest_copy >= 0;
++      big.pass_max = std::max<uint32_t>(big.pass_max, pass);
++      big.streak = rb.streak;
++      big.presence = rb.presence;
++      big.gap = rb.gap_average;
++    }
++#endif
+     if (g_readback_rules.occasional_own && !key_steady && !own_copy &&
+         readback_mode == ReadbackResolveMode::kFast && !auto_readback && newest_copy >= 0) {
+       ++readback_family_late_;
