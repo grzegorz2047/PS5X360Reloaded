@@ -896,3 +896,31 @@ a draw, even with a free key.
   the option off.
 - Sims 3's resolve "first copy of a key" waits (166 ms/s): fix 125 off A/B, and fix 91k's own copies
   in steady live mode.
+
+### MW2's memexport readback option, A/B on 1.0.6_candidate_4 (no build)
+
+"Readback of data made by video" was toggled in the guide On, Off, On, Off at the same spot. The 30
+s blocks that hold a guide visit are left out.
+
+| Block | Swaps/s | GPU thread executing | Waiting for the GPU |
+|---|---|---|---|
+| On (start) | 36.3 | 849 ms/s | 133 ms/s (memexport readback 84 in 158/s) |
+| On (start) | 30.6 | 853 ms/s | 149 ms/s (83 in 93/s) |
+| Off (1st) | 33.4 | 928 ms/s | 73 ms/s (73 in 41/s) |
+| On (2nd) | 36.7 | 1,001 ms/s | 0 |
+| Off (2nd) | 36.6 | 1,001 ms/s | 0 |
+
+Draws ran at 340-395k/s, 1.4 us each, throughout. Nothing changed on screen.
+
+Reading:
+- **The waits faded in both modes.** Once they were gone, On and Off give the same 36.6-36.7
+  swaps/s with the GPU thread saturated. The waits belong to a phase of the game after loading, not
+  to the option. Fix 133's steady families took the late copy in the early blocks (788, 681 and 845
+  resolves) and 0 later.
+- **Why "Off" still waited.** The option decides only one of memexport_loss's reasons. A small
+  export (fix 30, `readback_memexport_small`) and a shader whose exported data was lost before
+  (fix 48) are read back with the option off too. Fix 142f-diag's readback line names these
+  reasons; candidate 4 does not have it.
+- **Decision.** No gain from the option at this spot; it stays as it is. In steady play MW2 is
+  bound by the GPU thread's own work: about 1,000 ms/s with no waits, 1.4 us a draw at about 370k
+  draws/s.
