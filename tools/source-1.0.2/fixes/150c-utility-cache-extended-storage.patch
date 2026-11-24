@@ -1,0 +1,133 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -177,6 +177,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/patch_runtime.hpp"
+ #include "xenia/kernel/xam/xam_module.h"
+ #include "xbox360ps5/utility_cache.hpp"
++#include "xbox360ps5/utility_cache_drive.hpp"  // fix 150c
+ #include "xbox360ps5/canary_audio.hpp"
+ #include "xbox360ps5/dashboard_mode.hpp"
+ #include "xenia/base/cvar.h"
+@@ -3035,7 +3036,28 @@ int main(int argc, char** argv) {
+     if (status) { recover_gl_initialization(); result = 4; }
+     else {
+       BootTiming("utility cache");  // fix 93f
+-      if (!xbox360ps5::MountUtilityCache(*emulator.file_system(), bulk)) {
++      // Fix 150c: on the M.2 / extended storage when there is one (utility_cache_drive.hpp).
++      std::string cache_drive_switch;
++      {
++        std::ifstream switch_file(XBOX360PS5_DATA_ROOT "/utility-cache-drive.txt");
++        std::getline(switch_file, cache_drive_switch, '\0');
++      }
++      xe::kernel::xam::storage::PosixFs cache_drive_fs;
++      const auto cache_drive =
++          xbox360ps5::utility_cache_drive::Choose(cache_drive_fs, bulk, "/mnt", cache_drive_switch);
++      XELOGW("Utility cache (fix 150c): {} on the {}; a probe file made, renamed and deleted in "
++             "{:.1f} ms there, {:.1f} ms in the internal storage",
++             (cache_drive.base / "utility-cache").string(), cache_drive.where,
++             xbox360ps5::utility_cache_drive::ProbeMs(cache_drive.base / "utility-cache"),
++             cache_drive.base == bulk ? -1.0
++                                      : xbox360ps5::utility_cache_drive::ProbeMs(bulk / "utility-cache"));
++      bool cache_mounted = xbox360ps5::MountUtilityCache(*emulator.file_system(), cache_drive.base);
++      if (!cache_mounted && cache_drive.base != bulk) {
++        XELOGW("Utility cache (fix 150c): {} not usable; the internal storage instead",
++               cache_drive.base.string());
++        cache_mounted = xbox360ps5::MountUtilityCache(*emulator.file_system(), bulk);
++      }
++      if (!cache_mounted) {
+         XELOGE("Required utility cache is unavailable; launch cancelled");
+         return 7;
+       }
+diff --git a/include/xbox360ps5/utility_cache_drive.hpp b/include/xbox360ps5/utility_cache_drive.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/utility_cache_drive.hpp
+@@ -0,0 +1,87 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 150c: where the guest's utility cache (cache0:, cache1:, cache:) lives. Grand
++// Theft Auto IV fills it while you play: it deletes cache files of hundreds of MB and makes them
++// again, and on the console's internal storage (/data) each of those took the file system for up
++// to 0.95 s (1.0.6-work-fix146f-150-152-153). The PS5's M.2 SSD (extended storage, /mnt/ext0 to
++// ext3) is another drive: the cache goes there when one is mounted and takes a probe file, under
++// the folder the saves use (fix 27/50: the drive's top, else its homebrew or xbox360 folder, then
++// XBOX360PS5_PRODUCT_NAME). Without one (or with "data" in utility-cache-drive.txt in the title
++// folder) it stays in the internal storage as before. For every game, not one title.
++#pragma once
++#include <chrono>
++#include <cstdint>
++#include <filesystem>
++#include <fstream>
++#include <string>
++
++#include "xenia/kernel/xam/storage_devices.h"
++
++namespace xbox360ps5 {
++namespace utility_cache_drive {
++
++struct Choice {
++  std::filesystem::path base;  // its utility-cache folder goes here (MountUtilityCache)
++  std::string where;           // for the log
++};
++
++// A drive with less free space is passed over (the guest's cache partitions take a few GB).
++inline constexpr uint64_t kMinFreeBytes = uint64_t(4) << 30;
++
++// utility-cache-drive.txt: "data" (or "console") keeps the internal storage.
++inline bool AsksForConsole(const std::string& text) {
++  return text.find("data") != std::string::npos || text.find("console") != std::string::npos;
++}
++
++// Fs as storage_devices.h's Scan wants it (PosixFs on the console, a fake in the check).
++template <class Fs>
++Choice Choose(Fs& fs, const std::filesystem::path& internal, const std::filesystem::path& mount_root,
++              const std::string& switch_text) {
++  namespace st = xe::kernel::xam::storage;
++  if (AsksForConsole(switch_text)) {
++    return {internal, "internal storage (utility-cache-drive.txt)"};
++  }
++  const st::FsInfo internal_fs = fs.Info(internal);
++  for (const auto& slot : st::kSlots) {
++    if (slot.kind != st::Kind::kExtended) continue;
++    const auto mount = mount_root / slot.mount;
++    if (!fs.IsMountPoint(mount)) continue;
++    const st::FsInfo mount_fs = fs.Info(mount);
++    if (st::SameFilesystem(mount_fs, internal_fs)) continue;
++    if (mount_fs.space_ok && mount_fs.free < kMinFreeBytes) continue;  // nearly full
++    for (const char* folder_name : st::kSaveBases) {
++      const auto folder = *folder_name ? mount / folder_name : mount;
++      if (!fs.IsDirectory(folder)) continue;
++      const auto product = folder / st::kSaveFolder;
++      if ((fs.IsDirectory(product) && fs.ProbeWritable(product)) || fs.ProbeWritable(folder)) {
++        return {product, std::string("extended storage ") + slot.mount};
++      }
++    }
++  }
++  return {internal, "internal storage (no extended storage mounted and writable)"};
++}
++
++// A small file made, renamed and deleted in `directory` (made when missing), in ms; -1 when a
++// step failed. Logged at the start for the chosen drive and the internal storage.
++inline double ProbeMs(const std::filesystem::path& directory) {
++  std::error_code error;
++  std::filesystem::create_directories(directory, error);
++  const auto start = std::chrono::steady_clock::now();
++  const auto first = directory / ".ps5x360-probe-a";
++  const auto second = directory / ".ps5x360-probe-b";
++  {
++    std::ofstream file(first, std::ios::trunc);
++    file << "probe";
++    if (!file.good()) return -1;
++  }
++  std::filesystem::rename(first, second, error);
++  if (error) {
++    std::filesystem::remove(first, error);
++    return -1;
++  }
++  std::filesystem::remove(second, error);
++  if (error) return -1;
++  return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
++}
++
++}  // namespace utility_cache_drive
++}  // namespace xbox360ps5

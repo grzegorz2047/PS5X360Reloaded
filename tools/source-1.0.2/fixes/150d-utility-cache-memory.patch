@@ -1,0 +1,676 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/memory_device.h b/.deps/xenia-canary/src/xenia/vfs/devices/memory_device.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/memory_device.h
+@@ -0,0 +1,517 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 150d: a device whose files live in memory, for the guest's utility cache.
++// Grand Theft Auto IV copies its streaming archives (.img) from the disc into cache: and cache1:
++// every session: about 1.98 GiB in all within 5 min in memory (1.0.6-work-fix150d), while on a
++// drive past its write burst the copy never finished (1.41 GiB in a 6 min session, the old
++// session's files deleted first). The console gives the emulator's process one burst of about 1.5 GB of drive
++// writes per start (bench 148i: then about 2 MiB/s, on /data and the M.2 alike), and from about
++// 3 min into GTA IV every file operation waited on a ~0.95 s tick (1.0.6-work-fix146f-150-152-153).
++// In memory the cache writes and frees nothing on a drive. Nothing needs to outlive the process:
++// the game copies the files again when they are missing (it did so every session anyway).
++//
++// The bytes come from file mappings (xe::memory::CreateFileMappingHandle, as the guest's own
++// memory: direct memory on the console, not the small flexible heap of malloc), in segments of
++// kSegmentBytes cut into kChunkBytes chunks. A file holds its chunks sparsely (a hole reads as
++// zeros); a delete, a shorter length or the end of the entry gives them back at once, and a segment
++// none of whose chunks is used is unmapped. At most Pool::cap bytes are in use, and no segment is
++// mapped while the console's direct memory would fall below Pool::reserve; a write that would
++// need more fails with STATUS_DISK_FULL (the game then streams that file from the disc). The use,
++// the peak, the refusals, the files (deleted ones still open counted apart), the bytes given back
++// and the largest files are added to fix 148d's 30 s File I/O line.
++//
++// The entries keep fixes 129, 139 and 139b's rules (entry.cc): a deleted file's entry leaves its
++// directory at once and keeps its data for the handles still open on it (as an unlinked host
++// file), freed with the entry when the last one closes.
++#ifndef XENIA_VFS_DEVICES_MEMORY_DEVICE_H_
++#define XENIA_VFS_DEVICES_MEMORY_DEVICE_H_
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <memory>
++#include <mutex>
++#include <span>
++#include <string>
++#include <unordered_set>
++#include <utility>
++#include <vector>
++
++#include "xenia/base/clock.h"
++#include "xenia/base/logging.h"
++#include "xenia/base/math.h"
++#include "xenia/base/memory.h"
++#include "xenia/base/string.h"
++#include "xenia/vfs/device.h"
++#include "xenia/vfs/entry.h"
++#include "xenia/vfs/file.h"
++#include "xenia/xbox.h"
++#include "xbox360ps5/package_io.hpp"       // fix 148d's File I/O line
++#include "xbox360ps5/resolution_scale.hpp"  // the console's direct memory
++
++namespace xe {
++namespace vfs {
++namespace memory_cache {
++
++inline constexpr size_t kChunkBytes = 64 * 1024;
++inline constexpr size_t kSegmentBytes = 16 * 1024 * 1024;
++inline constexpr size_t kChunksPerSegment = kSegmentBytes / kChunkBytes;
++static_assert(kChunksPerSegment == 256);
++
++// Where the segments' memory comes from (file mappings by default; the check counts its own).
++// The handle stays open while the view is mapped: on the console, closing it gives the direct
++// memory back (platform/ps5/memory_ps5.cpp).
++struct Backing {
++  void* (*map)(size_t bytes, int64_t* handle) = nullptr;
++  void (*unmap)(void* base, size_t bytes, int64_t handle) = nullptr;
++};
++
++inline void* MapMappingSegment(size_t bytes, int64_t* out_handle) {
++  static std::atomic<uint32_t> next{0};
++  const std::string name = "xenia_utility_cache_n" + std::to_string(next.fetch_add(1));
++  const auto handle = xe::memory::CreateFileMappingHandle(name, bytes, xe::memory::PageAccess::kReadWrite, true);
++  if (handle == xe::memory::kFileMappingHandleInvalid) return nullptr;
++  void* base = xe::memory::MapFileView(handle, nullptr, bytes, xe::memory::PageAccess::kReadWrite, 0);
++  if (!base) {
++    xe::memory::CloseFileMappingHandle(handle, name);
++    return nullptr;
++  }
++  *out_handle = int64_t(handle);
++  return base;
++}
++inline void UnmapMappingSegment(void* base, size_t bytes, int64_t handle) {
++  const auto h = xe::memory::FileMappingHandle(handle);
++  xe::memory::UnmapFileView(h, base, bytes);
++  // The name only matters for shm_open handles (unlinked here); memfd and the console ignore it.
++  xe::memory::CloseFileMappingHandle(h, std::string());
++}
++
++class Data;
++
++class Pool {
++ public:
++  struct Chunk {
++    uint8_t* data = nullptr;
++    uint32_t segment = 0;
++  };
++  // In use at most (3 GiB: GTA IV's whole set is about 1.98 GiB); the console's direct memory kept
++  // free (1 GiB) still decides first when memory is short.
++  std::atomic<uint64_t> cap{uint64_t(3) << 30};
++  std::atomic<int64_t> reserve{int64_t(1) << 30};
++  Backing backing{MapMappingSegment, UnmapMappingSegment};
++  int64_t (*direct_free)() = [] { return xbox360ps5::resolution_scale::DirectFreeRecent(); };
++
++  std::atomic<uint64_t> used{0}, peak{0}, mapped{0}, refused{0};
++  std::atomic<uint64_t> given_back{0};  // bytes freed by deletes, shorter lengths and closes, in all
++  static constexpr size_t kLargestListed = 8;
++
++  // The files with data (for the 30 s line); a file's Data adds and removes itself.
++  void Register(const Data* data) {
++    std::lock_guard<std::mutex> lock(files_mutex_);
++    files_.insert(data);
++  }
++  void Unregister(const Data* data) {
++    std::lock_guard<std::mutex> lock(files_mutex_);
++    files_.erase(data);
++  }
++
++  Chunk Allocate() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (used.load() + kChunkBytes > cap.load()) return Refuse();
++    for (uint32_t i = 0; i < segments_.size(); ++i) {
++      Segment& segment = segments_[i];
++      if (segment.base && segment.free_count) return Take(i);
++    }
++    const int64_t free_now = direct_free ? direct_free() : -1;
++    if (free_now >= 0 && free_now - int64_t(kSegmentBytes) < reserve.load()) return Refuse();
++    int64_t handle = -1;
++    void* base = backing.map ? backing.map(kSegmentBytes, &handle) : nullptr;
++    if (!base) return Refuse();
++    xbox360ps5::resolution_scale::NoteAdmitted(kSegmentBytes);
++    uint32_t index = 0;
++    while (index < segments_.size() && segments_[index].base) ++index;
++    if (index == segments_.size()) segments_.emplace_back();
++    Segment& segment = segments_[index];
++    segment.base = static_cast<uint8_t*>(base);
++    segment.handle = handle;
++    segment.free_list.clear();
++    for (uint32_t c = kChunksPerSegment; c-- > 0;) segment.free_list.push_back(uint16_t(c));
++    segment.free_count = kChunksPerSegment;
++    mapped.fetch_add(kSegmentBytes);
++    return Take(index);
++  }
++  void Release(const Chunk& chunk) {
++    if (!chunk.data) return;
++    std::lock_guard<std::mutex> lock(mutex_);
++    Segment& segment = segments_[chunk.segment];
++    segment.free_list.push_back(uint16_t((chunk.data - segment.base) / kChunkBytes));
++    ++segment.free_count;
++    used.fetch_sub(kChunkBytes);
++    given_back.fetch_add(kChunkBytes);
++    if (segment.free_count == kChunksPerSegment) {
++      if (backing.unmap) backing.unmap(segment.base, kSegmentBytes, segment.handle);
++      segment.base = nullptr;
++      segment.free_list.clear();
++      segment.free_count = 0;
++      mapped.fetch_sub(kSegmentBytes);
++    }
++  }
++  // The 30 s line's part: "; utility cache in memory ..." (defined after Data).
++  std::string Summary();
++
++ private:
++  struct Segment {
++    uint8_t* base = nullptr;
++    int64_t handle = -1;
++    std::vector<uint16_t> free_list;
++    uint32_t free_count = 0;
++  };
++  Chunk Refuse() {
++    refused.fetch_add(1);
++    return {};
++  }
++  Chunk Take(uint32_t index) {
++    Segment& segment = segments_[index];
++    const uint16_t c = segment.free_list.back();
++    segment.free_list.pop_back();
++    --segment.free_count;
++    const uint64_t now = used.fetch_add(kChunkBytes) + kChunkBytes;
++    uint64_t high = peak.load();
++    while (now > high && !peak.compare_exchange_weak(high, now)) {
++    }
++    Chunk chunk{segment.base + size_t(c) * kChunkBytes, index};
++    std::memset(chunk.data, 0, kChunkBytes);
++    return chunk;
++  }
++  std::mutex mutex_;
++  std::vector<Segment> segments_;
++  // Taken before a file's own mutex, never while holding it (Data::Write holds its own and then
++  // mutex_, so this one is separate).
++  std::mutex files_mutex_;
++  std::unordered_set<const Data*> files_;
++  // The largest files are listed again only when the use or the number of files changed.
++  uint64_t listed_used_ = ~uint64_t(0);
++  size_t listed_files_ = ~size_t(0);
++};
++
++inline Pool& pool() {
++  static Pool* instance = new Pool();  // never destroyed (entries may outlive static destruction)
++  return *instance;
++}
++
++// One file's bytes: sparse chunks, its length.
++class Data {
++ public:
++  explicit Data(Pool& pool, std::string name = {}) : pool_(pool), name_(std::move(name)) { pool_.Register(this); }
++  ~Data() {
++    pool_.Unregister(this);  // first: the 30 s line no longer looks at it
++    for (const auto& chunk : chunks_) pool_.Release(chunk);
++  }
++  // Its path in the guest (renames follow) and whether its entry was deleted while open.
++  void SetName(std::string name) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    name_ = std::move(name);
++  }
++  void MarkDeleted() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    deleted_ = true;
++  }
++  struct Facts {
++    std::string name;
++    uint64_t bytes = 0;  // in chunks
++    bool deleted = false;
++  };
++  Facts facts() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    Facts f{name_, 0, deleted_};
++    for (const auto& chunk : chunks_) f.bytes += chunk.data ? kChunkBytes : 0;
++    return f;
++  }
++  uint64_t size() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return size_;
++  }
++  // Bytes read (0 at or past the end).
++  size_t Read(uint8_t* out, size_t length, uint64_t offset) const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (offset >= size_) return 0;
++    length = size_t(std::min<uint64_t>(length, size_ - offset));
++    size_t done = 0;
++    while (done < length) {
++      const uint64_t at = offset + done;
++      const size_t index = size_t(at / kChunkBytes), within = size_t(at % kChunkBytes);
++      const size_t n = std::min(length - done, kChunkBytes - within);
++      if (index < chunks_.size() && chunks_[index].data) {
++        std::memcpy(out + done, chunks_[index].data + within, n);
++      } else {
++        std::memset(out + done, 0, n);
++      }
++      done += n;
++    }
++    return length;
++  }
++  // Bytes written; fewer when the pool refused a chunk.
++  size_t Write(const uint8_t* in, size_t length, uint64_t offset) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    size_t done = 0;
++    while (done < length) {
++      const uint64_t at = offset + done;
++      const size_t index = size_t(at / kChunkBytes), within = size_t(at % kChunkBytes);
++      const size_t n = std::min(length - done, kChunkBytes - within);
++      if (index >= chunks_.size()) chunks_.resize(index + 1);
++      if (!chunks_[index].data) {
++        chunks_[index] = pool_.Allocate();
++        if (!chunks_[index].data) break;
++      }
++      std::memcpy(chunks_[index].data + within, in + done, n);
++      done += n;
++    }
++    size_ = std::max<uint64_t>(size_, offset + done);
++    return done;
++  }
++  // A longer length reads as zeros; a shorter one gives the chunks past it back.
++  void SetLength(uint64_t length) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    const size_t keep = size_t((length + kChunkBytes - 1) / kChunkBytes);
++    for (size_t i = keep; i < chunks_.size(); ++i) pool_.Release(chunks_[i]);
++    if (chunks_.size() > keep) chunks_.resize(keep);
++    const size_t within = size_t(length % kChunkBytes);
++    if (length < size_ && within && keep && keep <= chunks_.size() && chunks_[keep - 1].data) {
++      std::memset(chunks_[keep - 1].data + within, 0, kChunkBytes - within);
++    }
++    size_ = length;
++  }
++  size_t chunk_count() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    size_t n = 0;
++    for (const auto& chunk : chunks_) n += chunk.data != nullptr;
++    return n;
++  }
++
++ private:
++  Pool& pool_;
++  mutable std::mutex mutex_;
++  std::vector<Pool::Chunk> chunks_;
++  uint64_t size_ = 0;
++  std::string name_;
++  bool deleted_ = false;
++};
++
++inline std::string Pool::Summary() {
++  auto mib = [](uint64_t bytes) { return double(bytes) / 1048576.0; };
++  char text[320];
++  const int64_t free_now = direct_free ? direct_free() : -1;
++  std::snprintf(text, sizeof(text),
++                "; utility cache in memory (fix 150d): %.1f MiB used, peak %.1f MiB, %.0f MiB mapped, cap %.0f MiB, "
++                "%llu writes refused, direct free %lld MiB",
++                mib(used.load()), mib(peak.load()), mib(mapped.load()), mib(cap.load()),
++                (unsigned long long)refused.load(), free_now < 0 ? -1LL : (long long)(free_now >> 20));
++  std::string out = text;
++  std::vector<Data::Facts> all;
++  bool list;
++  {
++    std::lock_guard<std::mutex> lock(files_mutex_);
++    all.reserve(files_.size());
++    for (const Data* data : files_) all.push_back(data->facts());
++    const uint64_t now_used = used.load();
++    list = now_used != listed_used_ || all.size() != listed_files_;
++    listed_used_ = now_used;
++    listed_files_ = all.size();
++  }
++  size_t deleted = 0;
++  uint64_t deleted_bytes = 0;
++  for (const auto& f : all) {
++    if (!f.deleted) continue;
++    ++deleted;
++    deleted_bytes += f.bytes;
++  }
++  std::snprintf(text, sizeof(text), "; %zu files (%zu deleted and still open, %.1f MiB), %.1f MiB given back in all",
++                all.size(), deleted, mib(deleted_bytes), mib(given_back.load()));
++  out += text;
++  if (!list) return out + "; largest files as before";
++  const size_t n = std::min(all.size(), kLargestListed);
++  std::partial_sort(all.begin(), all.begin() + n, all.end(), [](const Data::Facts& a, const Data::Facts& b) {
++    return a.bytes != b.bytes ? a.bytes > b.bytes : a.name < b.name;
++  });
++  out += "; largest:";
++  for (size_t i = 0; i < n; ++i) {
++    std::snprintf(text, sizeof(text), "%s %s %.1f MiB%s", i ? "," : "", all[i].name.c_str(), mib(all[i].bytes),
++                  all[i].deleted ? " (deleted, open)" : "");
++    out += text;
++  }
++  if (!n) out += " none";
++  return out;
++}
++
++inline std::string ReportTail() { return pool().Summary(); }
++
++}  // namespace memory_cache
++
++class MemoryEntry;
++
++class MemoryFile : public File {
++ public:
++  MemoryFile(uint32_t file_access, MemoryEntry* entry);
++  ~MemoryFile() override = default;
++  void Destroy() override;
++  X_STATUS ReadSync(std::span<uint8_t> buffer, size_t byte_offset, size_t* out_bytes_read) override;
++  X_STATUS WriteSync(std::span<const uint8_t> buffer, size_t byte_offset, size_t* out_bytes_written) override;
++  X_STATUS SetLength(size_t length) override;
++};
++
++class MemoryEntry : public Entry {
++ public:
++  MemoryEntry(Device* device, Entry* parent, const std::string_view path, uint32_t attributes,
++              memory_cache::Pool& pool)
++      : Entry(device, parent, path), pool_(pool) {
++    attributes_ = attributes;
++    create_timestamp_ = access_timestamp_ = write_timestamp_ = xe::Clock::QueryHostSystemTime();
++    if (!(attributes & kFileAttributeDirectory))
++      data_ = std::make_unique<memory_cache::Data>(pool, absolute_path());
++  }
++  ~MemoryEntry() override = default;
++
++  X_STATUS Open(uint32_t desired_access, File** out_file) override {
++    *out_file = new MemoryFile(desired_access, this);
++    return X_STATUS_SUCCESS;
++  }
++  void update() override { SyncSize(); }
++  bool SetAttributes(uint64_t attributes) override {
++    attributes_ = (attributes_ & kFileAttributeDirectory) | (uint32_t(attributes) & ~kFileAttributeDirectory);
++    return true;
++  }
++  bool SetCreateTimestamp(uint64_t timestamp) override {
++    create_timestamp_ = timestamp;
++    return true;
++  }
++  bool SetAccessTimestamp(uint64_t timestamp) override {
++    access_timestamp_ = timestamp;
++    return true;
++  }
++  bool SetWriteTimestamp(uint64_t timestamp) override {
++    write_timestamp_ = timestamp;
++    return true;
++  }
++
++  memory_cache::Data* data() { return data_.get(); }
++  void SyncSize() {
++    if (!data_) return;
++    size_ = size_t(data_->size());
++    allocation_size_ = xe::round_up(size_, size_t(device_->bytes_per_sector()));
++  }
++  void Wrote() {
++    SyncSize();
++    write_timestamp_ = xe::Clock::QueryHostSystemTime();
++  }
++
++ private:
++  std::unique_ptr<Entry> CreateEntryInternal(const std::string_view name, uint32_t attributes) override {
++    return std::make_unique<MemoryEntry>(device_, this, xe::utf8::join_guest_paths(path_, name), attributes, pool_);
++  }
++  // Its data stays with the entry (open handles still use it) and goes with it; a file is marked
++  // deleted for the 30 s line (this runs without the global lock, so a directory's children are
++  // not walked: they are freed with it).
++  bool DeleteEntryInternal(Entry* entry) override {
++    if (auto* data = static_cast<MemoryEntry*>(entry)->data()) data->MarkDeleted();
++    return true;
++  }
++  // The name in the 30 s line follows a rename (Entry::Rename sets the paths after this).
++  void RenameEntryInternal(const std::vector<std::string_view>& path_parts) override {
++    if (data_) data_->SetName(xe::utf8::join_guest_paths(device_->mount_path(), xe::utf8::join_guest_paths(path_parts)));
++  }
++
++  memory_cache::Pool& pool_;
++  std::unique_ptr<memory_cache::Data> data_;
++};
++
++inline MemoryFile::MemoryFile(uint32_t file_access, MemoryEntry* entry) : File(file_access, entry) {}
++
++inline void MemoryFile::Destroy() {
++  // As HostPathFile (fix 139): the entry is still allocated while this file uses it.
++  if (entry_ && Entry::InUse(entry_) && entry_->delete_on_close()) entry()->Delete();
++  delete this;
++}
++
++inline X_STATUS MemoryFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset, size_t* out_bytes_read) {
++  if (!(file_access_ & (FileAccess::kGenericRead | FileAccess::kFileReadData))) return X_STATUS_ACCESS_DENIED;
++  auto* data = static_cast<MemoryEntry*>(entry_)->data();
++  if (!data) return X_STATUS_INVALID_DEVICE_REQUEST;
++  namespace pio = xbox360ps5::package_io;
++  const auto start = std::chrono::steady_clock::now();
++  *out_bytes_read = data->Read(buffer.data(), buffer.size(), byte_offset);
++  const uint64_t ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                   std::chrono::steady_clock::now() - start).count());
++  pio::Add(pio::file_io.memory_reads, *out_bytes_read, ns);
++  // As HostPathFile (fix 148c): EOF only for a read of nothing at or past the end.
++  if (!buffer.empty() && *out_bytes_read == 0) return X_STATUS_END_OF_FILE;
++  return X_STATUS_SUCCESS;
++}
++
++inline X_STATUS MemoryFile::WriteSync(std::span<const uint8_t> buffer, size_t byte_offset,
++                                      size_t* out_bytes_written) {
++  if (!(file_access_ & (FileAccess::kGenericWrite | FileAccess::kFileWriteData | FileAccess::kFileAppendData)))
++    return X_STATUS_ACCESS_DENIED;
++  auto* entry = static_cast<MemoryEntry*>(entry_);
++  if (!entry->data()) return X_STATUS_INVALID_DEVICE_REQUEST;
++  namespace pio = xbox360ps5::package_io;
++  const auto start = std::chrono::steady_clock::now();
++  *out_bytes_written = entry->data()->Write(buffer.data(), buffer.size(), byte_offset);
++  const uint64_t ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                   std::chrono::steady_clock::now() - start).count());
++  pio::Add(pio::file_io.memory_writes, *out_bytes_written, ns);
++  entry->Wrote();
++  const uint64_t now_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                                       std::chrono::steady_clock::now().time_since_epoch()).count());
++  const std::string line = pio::FileIoReport(pio::file_io, now_ns);
++  if (!line.empty()) XELOGW("{}", line);
++  return *out_bytes_written == buffer.size() ? X_STATUS_SUCCESS : X_STATUS_DISK_FULL;
++}
++
++inline X_STATUS MemoryFile::SetLength(size_t length) {
++  if (!(file_access_ & (FileAccess::kGenericWrite | FileAccess::kFileWriteData))) return X_STATUS_ACCESS_DENIED;
++  auto* entry = static_cast<MemoryEntry*>(entry_);
++  if (!entry->data()) return X_STATUS_INVALID_DEVICE_REQUEST;
++  entry->data()->SetLength(length);
++  entry->Wrote();
++  return X_STATUS_SUCCESS;
++}
++
++class MemoryDevice : public Device {
++ public:
++  explicit MemoryDevice(const std::string_view mount_path, memory_cache::Pool& pool = memory_cache::pool())
++      : Device(mount_path), pool_(pool) {}
++  ~MemoryDevice() override = default;
++
++  bool Initialize() override {
++    root_entry_ = std::make_unique<MemoryEntry>(this, nullptr, "", kFileAttributeDirectory, pool_);
++    xbox360ps5::package_io::memory_tail.store(&memory_cache::ReportTail);
++    return true;
++  }
++  void Dump(StringBuffer* string_buffer) override {
++    auto global_lock = global_critical_region_.Acquire();
++    root_entry_->Dump(string_buffer, 0);
++  }
++  Entry* ResolvePath(const std::string_view path) override { return root_entry_->ResolvePath(path); }
++  bool is_read_only() const override { return false; }
++
++  const std::string& name() const override { return name_; }
++  uint32_t attributes() const override { return 0; }
++  uint32_t component_name_max_length() const override { return 255; }
++  // As HostPathDevice (64 MiB, all free): GTA IV does not size its cache from it.
++  uint32_t total_allocation_units() const override { return 128 * 1024; }
++  uint32_t available_allocation_units() const override { return 128 * 1024; }
++  uint32_t sectors_per_allocation_unit() const override { return 1; }
++  uint32_t bytes_per_sector() const override { return 0x200; }
++
++ private:
++  memory_cache::Pool& pool_;
++  std::string name_ = "FATX";
++  std::unique_ptr<Entry> root_entry_;
++};
++
++}  // namespace vfs
++}  // namespace xe
++
++#endif  // XENIA_VFS_DEVICES_MEMORY_DEVICE_H_
+diff --git a/include/xbox360ps5/package_io.hpp b/include/xbox360ps5/package_io.hpp
+--- a/include/xbox360ps5/package_io.hpp
++++ b/include/xbox360ps5/package_io.hpp
+@@ -121,10 +121,13 @@ struct Kind {
+ };
+ struct FileIo {
+   Kind disc_reads, host_reads, host_writes, set_length;
++  Kind memory_reads, memory_writes;  // fix 150d: files of a device in memory (memory_device.h)
+   std::atomic<uint64_t> delays{0}, asked_100ns{0}, slept_ns{0};
+   std::atomic<uint64_t> last_report_ns{0};
+ };
+ inline FileIo file_io;
++// Fix 150d: the memory device's use, peak and refusals, added to the line when it is mounted.
++inline std::atomic<std::string (*)()> memory_tail{nullptr};
+ inline thread_local uint64_t last_file_io_ns = 0;
+ 
+ inline void Add(Kind& kind, uint64_t bytes, uint64_t ns) {
+@@ -157,9 +160,10 @@ inline std::string FileIoReport(FileIo& io, uint64_t now_ns, uint64_t period_ns
+   const double seconds = double(now_ns - last) / 1e9;
+   const KindPeriod d = TakeKind(io.disc_reads), r = TakeKind(io.host_reads), w = TakeKind(io.host_writes),
+                    l = TakeKind(io.set_length);
++  const KindPeriod mr = TakeKind(io.memory_reads), mw = TakeKind(io.memory_writes);  // fix 150d
+   const uint64_t delays = io.delays.exchange(0), asked = io.asked_100ns.exchange(0),
+                  slept = io.slept_ns.exchange(0);
+-  if (!d.calls && !r.calls && !w.calls && !l.calls) return {};
++  if (!d.calls && !r.calls && !w.calls && !l.calls && !mr.calls && !mw.calls) return {};
+   const auto part = [seconds](const char* name, const KindPeriod& k) {
+     char text[200];
+     std::snprintf(text, sizeof(text), "%s %llu (%.1f MiB, %.0f KiB each, largest %.0f KiB, %.2f MiB/s, %.0f us each)",
+@@ -179,7 +183,9 @@ inline std::string FileIoReport(FileIo& io, uint64_t now_ns, uint64_t period_ns
+   char head[64];
+   std::snprintf(head, sizeof(head), "File I/O (fix 148d), last %.0f s: ", seconds);
+   return std::string(head) + part("disc image reads", d) + "; " + part("drive reads", r) + "; " +
+-         part("drive writes", w) + tail +
++         part("drive writes", w) +
++         (mr.calls || mw.calls ? "; " + part("memory reads", mr) + "; " + part("memory writes", mw) : std::string()) +
++         tail + (memory_tail.load() ? memory_tail.load()() : std::string()) +  // fix 150d
+          write_trace::TakeSummary(write_trace::totals, write_trace::bounce_state.load() == 1);  // fix 148g
+ }
+ 
+diff --git a/include/xbox360ps5/utility_cache.hpp b/include/xbox360ps5/utility_cache.hpp
+--- a/include/xbox360ps5/utility_cache.hpp
++++ b/include/xbox360ps5/utility_cache.hpp
+@@ -3,26 +3,37 @@
+ #include <filesystem>
+ #include "xenia/base/logging.h"
+ #include "xenia/vfs/devices/host_path_device.h"
++#include "xenia/vfs/devices/memory_device.h"  // fix 150d
+ #include "xenia/vfs/virtual_file_system.h"
+ namespace xbox360ps5 {
++// Fix 150d: the devices named in `in_memory` ("cache1", "cache") are kept in memory
++// (memory_device.h) instead of in storage/utility-cache.
+ inline bool MountUtilityCache(xe::vfs::VirtualFileSystem& fs,
+-                              const std::filesystem::path& storage) {
++                              const std::filesystem::path& storage,
++                              std::initializer_list<const char*> in_memory = {}) {
+   // Match the desktop frontend's order: CACHE must follow CACHE0/CACHE1,
+   // since VFS device resolution matches mount prefixes.
+   for (const char* name : {"cache0", "cache1", "cache"}) {
+     const auto root = storage / "utility-cache" / name;
+-    std::error_code error;
+-    std::filesystem::create_directories(root, error);
+-    if (error) { XELOGE("Utility cache {}: {}", root.string(), error.message()); return false; }
+     std::string mount = "\\" + std::string(name);
+     for (auto& c : mount) if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+-    auto device = std::make_unique<xe::vfs::HostPathDevice>(mount, root, false);
++    bool memory = false;
++    for (const char* wanted : in_memory) memory = memory || std::string(wanted) == name;
++    std::unique_ptr<xe::vfs::Device> device;
++    if (memory) {
++      device = std::make_unique<xe::vfs::MemoryDevice>(mount);
++    } else {
++      std::error_code error;
++      std::filesystem::create_directories(root, error);
++      if (error) { XELOGE("Utility cache {}: {}", root.string(), error.message()); return false; }
++      device = std::make_unique<xe::vfs::HostPathDevice>(mount, root, false);
++    }
+     if (!device->Initialize() || !fs.RegisterDevice(std::move(device)) ||
+         !fs.RegisterSymbolicLink(std::string(name) + ":", mount)) {
+       XELOGE("Utility cache {} registration failed", name);
+       return false;
+     }
+-    XELOGI("Utility cache {}: -> {}", name, root.string());
++    XELOGI("Utility cache {}: -> {}", name, memory ? std::string("memory (fix 150d)") : root.string());
+   }
+   return true;
+ }
+diff --git a/include/xbox360ps5/utility_cache_drive.hpp b/include/xbox360ps5/utility_cache_drive.hpp
+--- a/include/xbox360ps5/utility_cache_drive.hpp
++++ b/include/xbox360ps5/utility_cache_drive.hpp
+@@ -13,6 +13,7 @@
+ #include <filesystem>
+ #include <fstream>
+ #include <string>
++#include <strings.h>  // strncasecmp
+ 
+ #include "xenia/kernel/xam/storage_devices.h"
+ 
+@@ -27,6 +28,23 @@ struct Choice {
+ // A drive with less free space is passed over (the guest's cache partitions take a few GB).
+ inline constexpr uint64_t kMinFreeBytes = uint64_t(4) << 30;
+ 
++// Fix 150d: the titles whose cache: and cache1: are kept in memory (memory_device.h): Grand Theft
++// Auto IV (its streaming archives) and Kinect Sports (its replay video buffers: about 1900 files of
++// 320 KiB made and deleted per 30 s while playing, 1.0.6-work-fix154). "ram" in
++// utility-cache-drive.txt keeps them in memory for every game, "drive" (or "data"/"console") on a
++// drive for every game.
++inline constexpr const char* kInMemoryTitles[] = {"545407F2", "4D5308C9"};
++inline bool CacheInMemory(const std::string& title_id, const std::string& text) {
++  if (text.find("ram") != std::string::npos) return true;
++  if (text.find("drive") != std::string::npos || text.find("data") != std::string::npos ||
++      text.find("console") != std::string::npos)
++    return false;
++  for (const char* id : kInMemoryTitles) {
++    if (title_id.size() == 8 && strncasecmp(title_id.c_str(), id, 8) == 0) return true;
++  }
++  return false;
++}
++
+ // utility-cache-drive.txt: "data" (or "console") keeps the internal storage.
+ inline bool AsksForConsole(const std::string& text) {
+   return text.find("data") != std::string::npos || text.find("console") != std::string::npos;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3115,11 +3115,26 @@ int main(int argc, char** argv) {
+              xbox360ps5::utility_cache_drive::ProbeMs(cache_drive.base / "utility-cache"),
+              cache_drive.base == bulk ? -1.0
+                                       : xbox360ps5::utility_cache_drive::ProbeMs(bulk / "utility-cache"));
+-      bool cache_mounted = xbox360ps5::MountUtilityCache(*emulator.file_system(), cache_drive.base);
++      // Fix 150d: Grand Theft Auto IV's cache: and cache1: in memory (memory_device.h).
++      const bool cache_in_memory =
++          xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch);
++      const std::initializer_list<const char*> memory_caches = {"cache1", "cache"};
++      const std::initializer_list<const char*> no_memory_caches = {};
++      if (cache_in_memory) {
++        XELOGW("Utility cache (fix 150d): cache: and cache1: in memory ({}), at most {} MiB, direct "
++               "memory kept above {} MiB; direct free {} MiB",
++               settings_title.empty() ? std::string("utility-cache-drive.txt") : settings_title,
++               xe::vfs::memory_cache::pool().cap.load() >> 20,
++               xe::vfs::memory_cache::pool().reserve.load() >> 20,
++               xbox360ps5::resolution_scale::DirectFreeFresh() >> 20);
++      }
++      bool cache_mounted = xbox360ps5::MountUtilityCache(
++          *emulator.file_system(), cache_drive.base, cache_in_memory ? memory_caches : no_memory_caches);
+       if (!cache_mounted && cache_drive.base != bulk) {
+         XELOGW("Utility cache (fix 150c): {} not usable; the internal storage instead",
+                cache_drive.base.string());
+-        cache_mounted = xbox360ps5::MountUtilityCache(*emulator.file_system(), bulk);
++        cache_mounted = xbox360ps5::MountUtilityCache(
++            *emulator.file_system(), bulk, cache_in_memory ? memory_caches : no_memory_caches);
+       }
+       if (!cache_mounted) {
+         XELOGE("Required utility cache is unavailable; launch cancelled");

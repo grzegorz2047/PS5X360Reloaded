@@ -183,6 +183,7 @@ on:
       - 'tools/check-ui-loop-io.cpp'
       - 'tools/check-hang-watch-sync.cpp'
       - 'tools/check-log-ring.cpp'
+      - 'tools/check-utility-cache-drive.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
