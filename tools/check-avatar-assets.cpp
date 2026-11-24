@@ -105,9 +105,10 @@ int main() {
           std::string::npos);
     CHECK(size_body.find("*result_buffer_size_ptr = 0;") == std::string::npos);
     CHECK(size_body.find("(fix 99)") != std::string::npos);
-    const std::string get_body = xam.substr(get, 1600);
+    // Fix 156p: the overlapped's result is chosen there (success in a Kinect title), after the set.
+    const std::string get_body = xam.substr(get, 2600);
     const size_t clear = get_body.find("xbox360ps5::avatar_assets::PrepareEmptyAssets(");
-    const size_t fail = get_body.find("X_ERROR_FUNCTION_FAILED");
+    const size_t fail = get_body.find("CompleteOverlappedImmediateEx(");
     CHECK(clear != std::string::npos && fail != std::string::npos && clear < fail);
     CHECK(get_body.find("if (result_buffer_ptr) {") < clear);
     CHECK(get_body.find("result_buffer_ptr.guest_address());") != std::string::npos);
