@@ -864,3 +864,35 @@ two rounds):
 - **The open question.** Whether the game itself does more per frame in that mode: more draws a
   frame, or other query results. The summary's 30 s blocks straddled the 35 s switches, so they
   cannot tell. A system-only run with 90 s windows (two whole blocks each) would.
+
+**System memo alone, 90 s windows** (whole 30 s blocks of one mode):
+
+| | System at 2 | Off |
+|---|---|---|
+| fps | 24.5, 26.5 | 30.3, 33.5 |
+| Draws/s | 268-296k | 323-368k |
+| Draws per frame | 11.0-11.2k | 11.0k |
+| Own time per draw | 2.3 us | 1.6 us |
+
+Draws per frame do not change, and the own time per draw rises by 0.7 us. So the game does the
+same work; the memo's own code in `UpdateSystemConstantValues` costs about 0.7 us a draw on the
+console. That is about five times what its key (about 110 words appended one at a time into a
+`std::vector`, then compared) costs on the host at -O3. The core also builds at -O3, so this
+investigation does not explain the gap.
+
+**What any version of it could save.** About 45% repeats of a 0.075 us computation: at most 0.03 us
+a draw, even with a free key.
+
+**Decision: the 142g memos are closed.**
+- They stay at 0, and are not for a candidate.
+- The system memo cannot pay at any key cost.
+- For the samplers and the viewport, a fixed-size key (one memcpy and one memcmp) would be cheaper
+  than the vector key. But their ceiling is about 0.2 us a draw, and the console has just shown that
+  host estimates of such code can be five times off. No work goes into them without a cost
+  measured on the console first.
+
+**The larger bounds left:**
+- MW2's memexport readback waits ("the option", 38-88 ms/s, tracking the frame rate): an A/B with
+  the option off.
+- Sims 3's resolve "first copy of a key" waits (166 ms/s): fix 125 off A/B, and fix 91k's own copies
+  in steady live mode.
