@@ -8,9 +8,10 @@
 //
 //   check-nui-elevation        run from an assembled tree's root
 //
-//  (a) the angle: level (0) at first and after ResetVirtualNui; the last SetAngle target,
-//      clamped to +-27 degrees (Zumba's -25 as the guest passes it, 0xFFFFFFE7, is -25);
-//      never moving;
+//  (a) the angle: the virtual camera stands level, so GetAngle answers 0 and never moving,
+//      whatever was asked (the NUI library's own -25 at start-up, 0xFFFFFFE7, included: with
+//      it answered, Zumba read -25 while its skeleton frames said level); the last target is
+//      kept, clamped to +-27 degrees, for the log;
 //  (b) the tree: GetAngle answers from it with success while the guest's camera is open in the
 //      virtual mode (both pointers checked, camera_moving may be null), and fails otherwise
 //      as before; SetAngle stores the target in the virtual mode and still succeeds; no
@@ -57,24 +58,21 @@ static bool Has(const std::string& text, const char* what) {
 static void CheckAngle() {
   m::ResetVirtualNui();
   CHECK(m::VirtualTiltAngle().angle == 0 && m::VirtualTiltAngle().moving == 0);
-  m::SetVirtualTiltAngle(4);
-  CHECK(m::VirtualTiltAngle().angle == 4);
-  m::SetVirtualTiltAngle(12);
-  CHECK(m::VirtualTiltAngle().angle == 12 && m::VirtualTiltAngle().moving == 0);
+  for (int32_t asked : {4, 12, -25, 27, 28, -1000, int32_t(uint32_t(0xFFFFFFE7u)),
+                        int32_t(uint32_t(0x7018EBE4u))}) {
+    m::SetVirtualTiltAngle(asked);
+    CHECK(m::VirtualTiltAngle().angle == 0 && m::VirtualTiltAngle().moving == 0);
+  }
   m::SetVirtualTiltAngle(int32_t(uint32_t(0xFFFFFFE7u)));
-  CHECK(m::VirtualTiltAngle().angle == -25);
-  m::SetVirtualTiltAngle(27);
-  CHECK(m::VirtualTiltAngle().angle == 27);
+  CHECK(m::RequestedTiltAngle() == -25);
   m::SetVirtualTiltAngle(28);
-  CHECK(m::VirtualTiltAngle().angle == 27);
+  CHECK(m::RequestedTiltAngle() == 27);
   m::SetVirtualTiltAngle(-1000);
-  CHECK(m::VirtualTiltAngle().angle == -27);
-  m::SetVirtualTiltAngle(int32_t(uint32_t(0x7018EBE4u)));  // a pointer-like value
-  CHECK(m::VirtualTiltAngle().angle == 27);
+  CHECK(m::RequestedTiltAngle() == -27);
   CHECK(m::ClampTiltAngle(INT32_MIN) == -27 && m::ClampTiltAngle(INT32_MAX) == 27);
   CHECK(m::ClampTiltAngle(-27) == -27 && m::ClampTiltAngle(0) == 0);
   m::ResetVirtualNui();
-  CHECK(m::VirtualTiltAngle().angle == 0);
+  CHECK(m::RequestedTiltAngle() == 0);
 }
 
 static void CheckTree() {
@@ -96,7 +94,7 @@ static void CheckTree() {
         checked < angle && angle < wrote && wrote < ok);
   CHECK(Has(get, "if (camera_moving) *camera_moving = tilt.moving;"));
   CHECK(get.find("return X_E_FAIL;", ok) != std::string::npos);  // outside it, as before
-  CHECK(Has(get, "Virtual Kinect: XamNuiCameraElevationGetAngle -> {} degrees, not moving"));
+  CHECK(Has(get, "Virtual Kinect: XamNuiCameraElevationGetAngle -> {} degrees (asked for {}), "));
   // No struct on the host's stack for a function that takes a guest pointer.
   CHECK(!Has(nui, "XamNuiCameraTiltGetStatus_entry(&"));
   const std::string flags = Body(nui, "dword_result_t XamNuiCameraSetFlags_entry(");
@@ -106,6 +104,7 @@ static void CheckTree() {
   CHECK(Has(set, "return X_ERROR_SUCCESS;"));
   const std::string header = ReadText("include/xbox360ps5/virtual_nui.hpp");
   CHECK(Has(Body(header, "inline void ResetVirtualNui() {"), "nui_tilt_angle = 0;"));
+  CHECK(Has(header, "inline TiltAngle VirtualTiltAngle() { return {0, 0}; }"));
 }
 
 int main() {
