@@ -13,7 +13,9 @@
 //  (f) the setting is off by default, the file read at most once a second, the line every 30 s;
 //  (g) small keys (readback_deliver_wait_below_kib, 64 KiB) and keys the CPU read before their
 //      copy was put in memory keep the wait, and fix 59's late copy is left out for them as before;
-//  (h) early reads are counted per key, each key a read covers, and listed in the 30 s line.
+//  (h) early reads are counted per key, each key a read covers, and listed in the 30 s line;
+//  (i) a learned key waits only while wait-after-early is on (1.0.6-work-fix142i2 kept them
+//      waiting after "wait-after-early off"); keys listed by address always wait.
 // Runs from the assembled 1.0.2 tree's root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -113,7 +115,7 @@ void CheckTree() {
   // (g)
   const std::string queue = Body(cp, "bool Queue(uint64_t key, uint32_t length, bool instead_of_wait) {");
   Expect(!queue.empty() && Has(queue, "const bool small = length <= wait_below;") &&
-             Has(queue, "const bool early = !small && read_early.count(key) != 0;") &&
+             Has(queue, "const bool early = !small && ((wait_after_early && read_early.count(key) != 0) ||") &&
              Has(queue, "if (!small && !early) return true;") &&
              Has(queue, "++(small ? kept_small : kept_early);") &&
              Has(queue, "++(small ? late_small : late_early);"),
@@ -132,8 +134,18 @@ void CheckTree() {
              loop != std::string::npos && early.find("return true;") > loop &&
              early.find("++fix142i::early_reads;") > early.find("if (keys.empty()) return false;"),
          "every key a read covers counted once, the read once, the key moved to the wait");
-  Expect(Has(cp, "early reads by \"\n             \"key: {}\"") && Has(cp, "early_by_key.clear();"),
+  Expect(Has(cp, "early reads by key: {}\",") && Has(cp, "early_by_key.clear();"),
          "the keys with early reads in the 30 s line, forgotten after it");
+  // (i)
+  Expect(queue.find("read_early.count(key)") != std::string::npos &&
+             queue.find("wait_after_early && read_early.count(key)") == queue.find("read_early.count(key)") - 20 &&
+             Has(queue, "std::binary_search(listed.begin(), listed.end(),") &&
+             Has(cp, "DEFINE_string(readback_deliver_wait_keys, \"\",") &&
+             Has(cp, "} else if (w == \"wait-key\") {") &&
+             Has(cp, "if (!file_listed) next_listed.clear();") &&
+             Has(cp, "next_after_early != wait_after_early || next_listed != listed) {"),
+         "learned keys wait only while wait-after-early is on; listed keys always, from the "
+         "settings or the file");
 }
 
 }  // namespace
