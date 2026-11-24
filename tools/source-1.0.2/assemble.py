@@ -475,10 +475,19 @@ def select_fixes(patches, skip):
     return [p for p in patches if p not in left_out], [p for p in patches if p in left_out]
 
 
+FIX_NAME = re.compile(r'(\d+)([a-z]*)-')
+
+
+def unordered_fixes(patches):
+    """The fix patches whose names fix_order cannot read (a number, letters, then a dash: 148k-...,
+    not 148j2-...); such a name would sort after every other fix whatever its number."""
+    return [patch.name for patch in patches if not FIX_NAME.match(patch.name)]
+
+
 def fix_order(patch):
     """A fix's place in the order the fixes apply: by number, then letter (08, 08b, 09, ..., 99,
     100). Name order alone would put 100-... before 11-...; names without a number go last."""
-    match = re.match(r'(\d+)([a-z]*)-', patch.name)
+    match = FIX_NAME.match(patch.name)
     return (int(match.group(1)), match.group(2), patch.name) if match else (1 << 30, '', patch.name)
 
 
@@ -494,6 +503,10 @@ def apply_fixes(out, report, with_core, skip=()):
     env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(out.parent))
     manifest = report['files']
     applied = []
+    unordered = unordered_fixes(FIXES.glob('*.patch'))
+    if unordered:
+        # Fix 148k: 148j2-... sorted after 155c; a fix's name must say its place.
+        sys.exit(f'fix patches named outside the number order (<number><letters>-...): {", ".join(sorted(unordered))}')
     selected, left_out = select_fixes(sorted(FIXES.glob('*.patch'), key=fix_order), skip)
     for patch in left_out:
         print('skipped', patch.name, flush=True)

@@ -6,7 +6,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
  // of /, /data, /system_tmp, /tmp, /dev/shm, /mnt/ext1, /mnt/usb0, /mnt/usb1), and dir= may name a
  // folder on /system_tmp, /tmp or /dev/shm too (a memory mount for GTA IV's cache, fix 150d).
 +//
-+// Fix 148j2: 1.0.6-work-fix148j-155 ended the app right after the start line: the mounts line called
++// Fix 148k: 1.0.6-work-fix148j-155 ended the app right after the start line: the mounts line called
 +// statfs, a system call the PS5's sandbox does not have (SIGSYS ends the process without a crash
 +// report; candidate 24 died the same way, fix 27 uses libc's statvfs since). The mounts line uses
 +// statvfs only; "fork" runs only with fork=on; <data>/write-bench.progress names the variant running,
@@ -55,7 +55,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
  inline std::string RanFile(const std::string& data_root) { return data_root + "/write-bench.ran"; }
  inline std::string ResultFile(const std::string& data_root) { return data_root + "/write-bench-result.txt"; }
  inline std::string TestFile(const std::string& dir) { return dir + "/write-bench.tmp"; }
-+inline std::string RenamedFile(const std::string& dir) { return dir + "/write-bench.tmp2"; }  // fix 148j2
++inline std::string RenamedFile(const std::string& dir) { return dir + "/write-bench.tmp2"; }  // fix 148k
 +inline std::string ProgressFile(const std::string& data_root) { return data_root + "/write-bench.progress"; }
  
  inline std::string Trim(const std::string& text) {
@@ -64,7 +64,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    uint64_t mib = kMaxMiB;
    int seconds = kMaxSeconds;
    int pause = 0;                         // fix 148j: idle seconds before each variant but the first
-+  bool fork = false;                     // fix 148j2: "fork" runs only with fork=on
++  bool fork = false;                     // fix 148k: "fork" runs only with fork=on
    std::vector<const Variant*> variants;  // empty: all
    std::vector<std::string> dirs;         // empty: DefaultDirs
  };
@@ -81,7 +81,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
  inline std::string SerializeRan(const Ran& r) {
    return r.stamp + " " + std::to_string(r.attempts) + " " + (r.done ? "1" : "0") + "\n";
  }
-+// Fix 148j2: 4 attempts, each skipping the variants that ended the app before (write-bench.progress).
++// Fix 148k: 4 attempts, each skipping the variants that ended the app before (write-bench.progress).
 +constexpr int kAttempts = 4;
  inline bool ShouldRun(const Ran& ran, const std::string& stamp) {
 -  return ran.stamp != stamp || (!ran.done && ran.attempts < 2);
@@ -95,7 +95,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    const char* sync_name = "fsyncs";
    std::string stopped;  // "size", "time", or what failed / why skipped
    std::string note;     // e.g. a failed fadvise
-+  std::vector<std::string> lines;  // fix 148j2: "small"'s 10 s windows
++  std::vector<std::string> lines;  // fix 148k: "small"'s 10 s windows
  };
  
  inline std::string ErrorText(const char* what, int error) {
@@ -106,7 +106,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 -// Fix 148j: "Write bench (fix 148i): mounts: <path> <type> on <mount point>, block B, free F of T MiB,
 -// writable yes|no; ..." for each of kMounts that is there.
 +// Fix 148j: "Write bench (fix 148i): mounts: <path> block B, free F of T MiB, writable yes|no; ..." for
-+// each of kMounts that is there. Fix 148j2: libc's statvfs only, never the statfs system call (the
++// each of kMounts that is there. Fix 148k: libc's statvfs only, never the statfs system call (the
 +// PS5's sandbox has none: SIGSYS ended 1.0.6-work-fix148j-155 here).
  inline std::string MountsLine() {
    std::string line = "Write bench (fix 148i): mounts:";
@@ -148,7 +148,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
    }
  }
  
-+// Fix 148j2: "small": 320 KiB files, each created (O_CREAT | O_TRUNC), set to its length (ftruncate),
++// Fix 148k: "small": 320 KiB files, each created (O_CREAT | O_TRUNC), set to its length (ftruncate),
 +// written in 128 + 128 + 64 KiB, closed, renamed and removed, until `seconds` or `mib`; a line per
 +// 10 s window. Creates count the open and the ftruncate; renames and removes their own call.
 +struct SmallWindow {
@@ -289,7 +289,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
          "; change or write it again to run again");
      return;
 +  }
-+  // Fix 148j2: the variants an earlier attempt of this switch file was running when the app ended.
++  // Fix 148k: the variants an earlier attempt of this switch file was running when the app ended.
 +  std::vector<std::string> ended;
 +  if (ran.stamp == stamp) {
 +    std::istringstream progress(ReadText(ProgressFile(data_root)));
@@ -317,7 +317,7 @@ diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench
 +      }
        if (!first && config.pause > 0) std::this_thread::sleep_for(std::chrono::seconds(config.pause));
        first = false;
-+      // Fix 148j2: named before it runs, so an attempt after the app ended skips it.
++      // Fix 148k: named before it runs, so an attempt after the app ended skips it.
 +      std::string progress;
 +      for (const auto& e : ended) progress += e + "\n";
 +      WriteText(ProgressFile(data_root), progress + key + "\n");

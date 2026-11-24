@@ -162,7 +162,7 @@ checks=(
   check-dlc-incomplete.cpp         # fix 148f
   check-write-trace.cpp            # fix 148g
   check-install-notice.cpp         # fix 148h
-  check-write-bench.cpp            # fixes 148i, 148j, 148j2
+  check-write-bench.cpp            # fixes 148i, 148j, 148k
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
@@ -311,7 +311,7 @@ declare -A fix_of=(
   [check-dlc-incomplete.cpp]=148f
   [check-write-trace.cpp]=148g
   [check-install-notice.cpp]=148h
-  [check-write-bench.cpp]="148i 148j 148j2"
+  [check-write-bench.cpp]="148i 148j 148k"
   [check-xma-trace.cpp]="155 155b"
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
