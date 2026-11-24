@@ -1,5 +1,5 @@
 diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
-index 2570017..bd63a8b 100644
+index 2570017..80a5821 100644
 --- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 +++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
 @@ -71,6 +71,78 @@ DEFINE_uint32(gpu_async_submit, 0,
@@ -107,8 +107,8 @@ index 2570017..bd63a8b 100644
 +        fix142i::pending.push_back({resolve_key, write_index, rb.submissions[write_index],
 +                                    written_address, readback_length, frame_current_, true});
 +        ++fix142i::deferred_wait;
-+        memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,
-+                                                     true);
++        memory_->EnablePhysicalMemoryAccessCallbacks(
++            written_address, readback_length, false, true);  // fix 142i
 +        return true;
 +      }
 +#endif

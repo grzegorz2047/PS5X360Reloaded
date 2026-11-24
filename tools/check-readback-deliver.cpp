@@ -57,9 +57,14 @@ void CheckTree() {
   const std::string defer = cp.substr(miss, fallback - miss);
   Expect(miss != std::string::npos && Has(defer, "if (fix142i::enabled) {") &&
              Has(defer, "fix142i::pending.push_back({resolve_key, write_index, rb.submissions[write_index],") &&
-             Has(defer, "memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,") &&
+             Has(defer, "memory_->EnablePhysicalMemoryAccessCallbacks(\n            written_address, readback_length, false, true);  // fix 142i") &&
              Has(defer, "return true;"),
          "the wait is replaced only while on: the copy queued, a read watch armed, no wait");
+  // Its read watch is wrapped apart from fix 91's, so checks that find fix 91's copy-then-arm order
+  // by the first such call still find fix 91's own.
+  Expect(cp.find("memory_->EnablePhysicalMemoryAccessCallbacks(written_address, readback_length, false,") >
+             cp.find("memory::vastcpy(memory_->TranslatePhysical(written_address),"),
+         "fix 91's first read watch still comes after its copy");
   Expect(cp.find("AwaitAllQueueOperationsCompletion()", fallback) < cp.find("const uint64_t read_submission = rb.submissions[read_index];", fallback),
          "off, the wait is as before");
   // (b)
