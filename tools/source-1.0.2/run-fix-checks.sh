@@ -169,7 +169,6 @@ checks=(
   check-dlc-incomplete.cpp         # fix 148f
   check-write-trace.cpp            # fix 148g
   check-install-notice.cpp         # fix 148h
-  check-write-bench.cpp            # fix 148i
   check-help-card.cpp              # fix 149d
   check-ui-loop-io.cpp             # fix 152
   check-hang-watch-sync.cpp        # fix 153
@@ -335,7 +334,7 @@ declare -A fix_of=(
   [check-dlc-incomplete.cpp]=148f
   [check-write-trace.cpp]=148g
   [check-install-notice.cpp]=148h
-  [check-write-bench.cpp]=148i
+  [check-write-bench.cpp]="148i 148j 148j2"
   [check-help-card.cpp]=149d
   [check-ui-loop-io.cpp]=152
   [check-hang-watch-sync.cpp]=153

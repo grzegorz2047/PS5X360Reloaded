@@ -481,7 +481,7 @@ readback=1
 # FIFA Street - https://github.com/xenia-canary/game-compatibility/issues/436 (labels: gpu-readback)
 [4541097B]
 no_promotion=1
-readback=1
+readback=2
 
 # Madden NFL 13 - https://github.com/xenia-canary/game-compatibility/issues/1225 (labels: gpu-readback)
 [4541098B]
