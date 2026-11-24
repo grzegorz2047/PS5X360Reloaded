@@ -76,6 +76,18 @@ void Pure() {
              xt::BlocksAdded(xt::Decode(Context(6, 0).b), xt::Decode(Context(1, 0).b)) == 3 &&
              xt::BlocksAdded(xt::Decode(Context(4, 0).b), xt::Decode(Context(4, 0).b)) == 0,
          "(a) BlocksAdded around the ring of 8");
+  // Fix 155b: a pass that filled the ring (write back on read, output-valid cleared) added every free block.
+  Raw full = Context(2, 2);
+  Put(full.b, 1, 5u);  // output-valid cleared
+  Expect(xt::BlocksAdded(xt::Decode(Context(2, 2).b), xt::Decode(full.b)) == 8 &&
+             xt::BlocksAdded(xt::Decode(Context(6, 2).b), xt::Decode(full.b)) == 4,
+         "(a) fix 155b: a full ring counts its free blocks");
+  xt::Trace w;
+  for (int i = 0; i < 18; ++i) {
+    const auto line = w.Write0601(i == 0 ? 0u : 0x03000000u, 12345);
+    Expect(bool(line) == (i < 16), "(b) fix 155b: 16 lines of 0601h writes");
+    if (i == 1) Expect(line && *line == "XMA trace (fix 155): register 0601h written 03000000 (write 2, at 12.3 s)", "(b) the 0601h line");
+  }
 }
 
 void Tracing() {
@@ -136,8 +148,8 @@ void Tracing() {
   const auto summary = s.Poll(30200, raw);
   Expect(summary.size() == 1 &&
              summary[0] == "XMA trace (fix 155): last 30 s: 12 kicks on 1 contexts, 1 without output; 1 locks, 1 clears, "
-                           "2 allocated, 1 released (1 allocated now); register 0606h read 1 times (last 65); 0 new "
-                           "errors",
+                           "2 allocated, 1 released (1 allocated now); register 0606h read 1 times (last 65); register "
+                           "0601h written 0 times (last 00000000); 0 new errors",
          "(b) the summary: " + (summary.empty() ? std::string() : summary[0]));
   Expect(s.Poll(34000, raw).size() == 2, "(b) the next silence is dumped");
   Expect(s.Poll(70000, raw).empty(), "(b) no summary without activity, no second dump of one silence");

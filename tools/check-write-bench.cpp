@@ -15,7 +15,11 @@
 //      reopen64 (a new descriptor every 64 MiB), each for real here; pause= (0..600) sleeps before
 //      each variant but the first; each line says when its variant started; fork (a vfork child
 //      writes), churn (rounds removed) and shrink (rounds truncated), a line per round; the mounts
-//      line; dir= on /system_tmp, /tmp or /dev/shm.
+//      line; dir= on /system_tmp, /tmp or /dev/shm;
+//  (e) fix 148j2: the mounts line uses statvfs only (no statfs anywhere in the header); fork runs only
+//      with fork=on; a variant named in write-bench.progress (the app ended during it) is skipped with
+//      a line on the next attempt, 4 attempts in all; "small" makes 320 KiB files in 3 writes, renames
+//      and removes each, a line per window.
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include <cstdio>
@@ -53,7 +57,7 @@ std::string Names(const wb::Config& c) {
 
 void Pure() {
   const wb::Config d = wb::Parse("");
-  Expect(d.mib == 2048 && d.seconds == 120 && Names(d) == "probe,1m,8m,32m,sync32,direct,dontneed,mmap,writev,aio,reopen64,fork,churn,shrink" &&
+  Expect(d.mib == 2048 && d.seconds == 120 && Names(d) == "probe,1m,8m,32m,sync32,direct,dontneed,mmap,writev,aio,reopen64,fork,churn,shrink,small" &&
              d.dirs.empty() && d.pause == 0,
          "(a) defaults: 2048 MiB, 120 s, all variants, the default folders");
   const wb::Config c = wb::Parse(
@@ -166,6 +170,52 @@ void Processes(const fs::path& scratch) {
          "(d) the mounts line starts with / and says whether each is writable: " + mounts);
 }
 
+void Crashes(const fs::path& scratch) {
+  const std::string header = Read("include/xbox360ps5/write_bench.hpp");
+  Expect(header.empty() || (header.find("::statfs(") == std::string::npos &&
+                            header.find("struct statfs") == std::string::npos),
+         "(e) no statfs system call (SIGSYS on the PS5), statvfs only");
+  const std::string dir = scratch.string();
+  const wb::Stats small = wb::RunSmall(dir, 1, 60, 1e9);
+  Expect(small.bytes == 4 * 320 * 1024 && small.writes == 12 && small.stopped == "size" && small.lines.size() == 1 &&
+             small.lines[0].find(" small window 1 (") != std::string::npos &&
+             small.lines[0].find("): 4 files (") != std::string::npos && small.note == "4 files" &&
+             !fs::exists(wb::TestFile(dir)) && !fs::exists(wb::RenamedFile(dir)),
+         "(e) small: four 320 KiB files for 1 MiB, 3 writes each, renamed and removed: " +
+             (small.lines.empty() ? small.stopped : small.lines[0]));
+  const wb::Stats windows = wb::RunSmall(dir, 64, 60, 0.0);
+  Expect(windows.lines.size() == 205 && windows.lines[0].find(" small window 1 (") != std::string::npos,
+         "(e) a line per window: " + std::to_string(windows.lines.size()));
+
+  for (const char* f : {"write-bench.txt", "write-bench.ran", "write-bench-result.txt", "write-bench.progress"})
+    fs::remove(scratch / f);
+  { std::ofstream(wb::SwitchFile(dir)) << "mib=2\nvariants=writev,probe,fork\n"; }
+  std::vector<std::string> lines;
+  wb::Launch(dir, [&](const std::string& l) { lines.push_back(l); });
+  Expect(lines.size() == 6 && lines[4].find(" fork skipped: add fork=on to run it") != std::string::npos &&
+             !fs::exists(scratch / "write-bench.progress"),
+         "(e) fork only with fork=on; the progress file gone once done");
+  // An attempt the app ended during writev: the next attempt skips it and runs the rest.
+  for (const char* f : {"write-bench.ran", "write-bench-result.txt"}) fs::remove(scratch / f);
+  { std::ofstream(wb::SwitchFile(dir)) << "mib=2\nvariants=writev,probe\n"; }
+  struct stat st {};
+  ::stat(wb::SwitchFile(dir).c_str(), &st);
+  const std::string stamp = std::to_string((long long)st.st_size) + ":" + std::to_string((long long)st.st_mtime);
+  { std::ofstream(wb::RanFile(dir)) << stamp << " 1 0\n"; }
+  { std::ofstream(wb::ProgressFile(dir)) << dir << " writev\n"; }
+  lines.clear();
+  wb::Launch(dir, [&](const std::string& l) { lines.push_back(l); });
+  Expect(lines.size() == 5 && lines[0].find("start (attempt 2)") != std::string::npos &&
+             lines[2] == "Write bench (fix 148i): " + dir + " writev ended the app on an earlier attempt; skipped" &&
+             lines[3].find(" probe (") != std::string::npos,
+         "(e) the variant the app ended during is skipped on the next attempt" +
+             (lines.size() > 2 ? ": " + lines[2] : std::string()));
+  { std::ofstream(wb::RanFile(dir)) << stamp << " 4 0\n"; }
+  lines.clear();
+  wb::Launch(dir, [&](const std::string& l) { lines.push_back(l); });
+  Expect(lines.size() == 1 && lines[0].find("already tried 4 times") != std::string::npos, "(e) 4 attempts at most");
+}
+
 void Real(const fs::path& scratch) {
   const std::string dir = scratch.string();
   for (const char* name : {"1m", "8m", "32m", "dontneed"}) {
@@ -228,6 +278,7 @@ int main() {
   Real(scratch);
   Paths(scratch);
   Processes(scratch);
+  Crashes(scratch);
   fs::remove_all(scratch, error);
   if (fs::exists("src/launcher.cpp")) Tree();
   else std::printf("note: no assembled tree here, tree checks skipped\n");
