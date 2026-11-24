@@ -1,0 +1,359 @@
+diff --git a/include/xbox360ps5/auto_scale.hpp b/include/xbox360ps5/auto_scale.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/auto_scale.hpp
+@@ -0,0 +1,143 @@
++// SPDX-License-Identifier: MIT
++// Fix 163: "Automatic" resolution scale, the default. draw_scale's third choice (2): a game runs at
++// 2x unless 2x was found not to suit it, then at 1x from its next start. 2x does not suit a game
++// when, at 2x by Automatic,
++//  - memory: fix 117b's floor was hit (a render target class kept at 1x, a render target refused)
++//    or fix 117d's (free direct memory under 1 GiB): the picture mixes 1x and 2x from then on;
++//  - speed: in play it stays under 30 frames: the median game swaps a second of the last kWindows
++//    30 s windows, after the first kWarmupSeconds, is under kMinSwaps (a game held at 30 shows
++//    29.x, so 28); a window in which the game swapped less than once a second (a pause, the
++//    guide, a stall, a loading screen that does not draw) does not count.
++// The scale is not changed while the game runs (half the picture would be 1x); the player is told
++// and the verdict (game-settings/<TITLE ID>.scale.txt) holds 1x from the next start. Resetting the
++// game's own settings removes it. An explicit 1x or 2x (the general setting or the game's own)
++// is used as it is; fix 150g's 1x for Kinect Sports comes after.
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::auto_scale {
++
++inline constexpr int kAutomatic = 2;          // draw_scale: 0 1x, 1 2x, 2 Automatic
++inline constexpr double kMinSwaps = 28.0;     // under it: too slow (a cap of 30 shows 29.x)
++inline constexpr double kPlaying = 1.0;       // a window under it is not play (pause, guide, stall)
++inline constexpr int kWarmupSeconds = 60;     // the first minute (loading, menus) does not count
++inline constexpr int kWindowSeconds = 30;
++inline constexpr size_t kWindows = 6;         // three minutes of play
++
++// The choice a game runs with (0 1x, 1 2x) and why, for the start line.
++struct Start {
++  int choice = 0;
++  std::string why;
++};
++inline Start Resolve(int choice, const std::string& title_id, bool verdict_1x) {
++  if (choice == 0) return {0, "1x chosen"};
++  if (choice == 1) return {1, "2x chosen"};
++  if (title_id.empty()) return {1, "Automatic, no game yet: 2x"};
++  if (verdict_1x) return {0, "Automatic: 1x remembered for this game"};
++  return {1, "Automatic: 2x (no verdict for this game)"};
++}
++
++// The verdict file's text: "1x <trigger>: <numbers>".
++enum class Trigger { none, memory, speed };
++inline const char* TriggerName(Trigger t) {
++  return t == Trigger::memory ? "memory" : t == Trigger::speed ? "speed" : "none";
++}
++inline std::string VerdictText(Trigger trigger, const std::string& numbers) {
++  return std::string("1x ") + TriggerName(trigger) + ": " + numbers;
++}
++inline bool SaysOneX(const std::string& text) { return text.rfind("1x ", 0) == 0; }
++
++inline double Median(std::vector<double> values) {
++  if (values.empty()) return 0;
++  std::sort(values.begin(), values.end());
++  const size_t n = values.size();
++  return n % 2 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
++}
++
++// One session at 2x by Automatic: fed once a second, decides at most once.
++class Watch {
++ public:
++  void Begin(bool active) {
++    *this = Watch();
++    active_ = active;
++  }
++  bool active() const { return active_; }
++  bool decided() const { return trigger_ != Trigger::none; }
++  Trigger trigger() const { return trigger_; }
++  const std::string& numbers() const { return numbers_; }
++  const std::vector<double>& windows() const { return windows_; }
++
++  // `seconds` since the game started; `swaps` its swaps a second over the last second.
++  Trigger Second(double seconds, double swaps) {
++    if (!active_ || decided() || seconds < kWarmupSeconds) return Trigger::none;
++    const long window = long((seconds - kWarmupSeconds) / kWindowSeconds);
++    if (window != window_) {
++      Close();
++      window_ = window;
++    }
++    sum_ += swaps;
++    ++count_;
++    return trigger_;
++  }
++  // `floor_hit`: fix 117b's or 117d's floor; `detail` goes into the verdict.
++  Trigger Memory(bool floor_hit, const std::string& detail) {
++    if (!active_ || decided() || !floor_hit) return Trigger::none;
++    trigger_ = Trigger::memory;
++    numbers_ = detail;
++    return trigger_;
++  }
++
++ private:
++  void Close() {
++    if (count_ >= kWindowSeconds / 2) {
++      const double mean = sum_ / count_;
++      if (mean >= kPlaying) {
++        windows_.push_back(mean);
++        if (windows_.size() > kWindows) windows_.erase(windows_.begin());
++        if (windows_.size() == kWindows && Median(windows_) < kMinSwaps) {
++          trigger_ = Trigger::speed;
++          char text[160];
++          std::snprintf(text, sizeof(text), "median %.1f game swaps/s over %zu windows of %d s (", Median(windows_),
++                        windows_.size(), kWindowSeconds);
++          numbers_ = text;
++          for (size_t i = 0; i < windows_.size(); ++i) {
++            std::snprintf(text, sizeof(text), "%s%.1f", i ? " " : "", windows_[i]);
++            numbers_ += text;
++          }
++          numbers_ += "), under " + std::to_string(int(kMinSwaps));
++        }
++      }
++    }
++    sum_ = 0;
++    count_ = 0;
++  }
++  bool active_ = false;
++  Trigger trigger_ = Trigger::none;
++  std::string numbers_;
++  std::vector<double> windows_;
++  long window_ = -1;
++  double sum_ = 0;
++  int count_ = 0;
++};
++
++// The running game's watch, its title and whether the player was told (once a session).
++struct Session {
++  Watch watch;
++  std::string title;
++  bool reported = false;
++  void Begin(const std::string& title_id, bool active) {
++    title = title_id;
++    reported = false;
++    watch.Begin(active);
++  }
++};
++inline Session& session() {
++  static Session* s = new Session();
++  return *s;
++}
++
++}  // namespace xbox360ps5::auto_scale
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -64,7 +64,7 @@ struct Settings {
+   int resolution_scale = 1;   // Games render at 1, 2 or 3 times their resolution. Read when the title starts.
+   // Fix 117: the draw resolution scale as an option (resolution_scale above stays unread, as
+   // settings.txt of every earlier build holds resolution_scale=1): 0 1x, 1 2x (a test).
+-  int draw_scale = 0;
++  int draw_scale = 2;  // fix 163: Automatic (auto_scale.hpp)
+   int image_filter = 0;       // How a game's picture is stretched to the screen: 0 plain, 1 CAS, 2 FSR.
+   // Fix 137: FXAA in the Vulkan swap, before the image filter: 0 Off, 1 FXAA, 2 FXAA Extreme
+   // (CommandProcessor::SwapPostEffect). Live; Off on OpenGL.
+@@ -155,6 +155,11 @@ inline constexpr const char* kOptionCategories[] = {"Picture and smoothness", "E
+ using GameOverrides = std::map<std::string, int>;
+ GameOverrides LoadGameOverrides(const std::string& title_id);
+ bool SaveGameOverrides(const std::string& title_id, const GameOverrides& overrides);
++// Fix 163: Automatic resolution scale's verdict for a game (game-settings/<TITLE ID>.scale.txt,
++// "1x <trigger>: <numbers>"); empty when there is none. Resetting the game's own settings clears it.
++std::string ScaleVerdict(const std::string& title_id);
++bool SaveScaleVerdict(const std::string& title_id, const std::string& text);
++void ClearScaleVerdict(const std::string& title_id);
+ Settings WithOverrides(Settings settings, const GameOverrides& overrides);
+ // Recommendations for one game, based on console or upstream evidence,
+ // and any the title folder adds (assets/presets.txt: a [TITLE ID] line, then
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -26,6 +26,7 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/bug_report.hpp"  // fix 93
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/auto_scale.hpp"  // fix 163
+ #include "xbox360ps5/present_limit.hpp"  // fix 146
+ #include "xbox360ps5/video_mode.hpp"  // fix 140
+ #include "xenia/base/cvar.h"
+@@ -485,9 +486,10 @@ const std::vector<Option>& Options() {
+       // Fix 117: the core reads the scale as it starts (VulkanCommandProcessor::SetupContext), so
+       // a game with its own value restarts the emulator into it. 3x is not offered: its scaled
+       // resolve memory needs four 2 GiB sparse buffers, more than the PS5 driver's 4 GiB window.
+-      {"draw_scale", &S::draw_scale, 0, W::start, 0, true, "Resolution scale (test)",
+-       "Draws the game at twice its own resolution for a sharper picture. Uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong. A test: if the game closes or looks broken, go back to 1x.",
+-       {"1x (720p, native)", "2x (1440p, demanding)"}},
++      // Fix 163: Automatic (2), recommended and the default: 2x unless 2x did not suit the game.
++      {"draw_scale", &S::draw_scale, 0, W::start, 2, true, "Resolution scale (test)",
++       "Draws the game at twice its own resolution for a sharper picture. Automatic, the recommended choice, uses 2x and switches a game to 1x from its next start when 2x makes it run under 30 frames a second or runs out of memory; resetting the game's own settings tries 2x again. 2x uses much more video memory and graphics power; some effects (glow, shadows, pictures the game reads back) may look wrong.",
++       {"1x (720p, native)", "2x (1440p, demanding)", "Automatic (2x while the game keeps 30 fps)"}},
+       {"video_clock", &S::video_clock, 0, W::live, 0, true, "Emulated video rate",
+        "How many times a second the emulated console tells the game a new frame is due. At 120 Hz some games held at 30 frames go to 60, but others run fast. It is a test, game by game; it does not guarantee 60 frames.",
+        {"60 Hz", "120 Hz (test)"}},
+@@ -712,6 +714,12 @@ GameOverrides GamePreset(const std::string& title_id) {
+ }
+ Settings ForGame(const Settings& general, const std::string& title_id, const GameOverrides& own) {
+   auto effective = WithOverrides(WithOverrides(general, GamePreset(title_id)), own);
++  // Fix 163: Automatic is 2x, or 1x for a game 2x did not suit (its verdict); the launcher (no
++  // game) is at 2x, so a game with a verdict starts again at 1x (a start option).
++  effective.draw_scale = xbox360ps5::auto_scale::Resolve(
++      effective.draw_scale, title_id,
++      effective.draw_scale == xbox360ps5::auto_scale::kAutomatic &&
++          xbox360ps5::auto_scale::SaysOneX(ScaleVerdict(title_id))).choice;
+   // Fix 150g: Kinect Sports runs at 1x even when 2x is chosen (resolution_scale.hpp, TwoXUnfit).
+   // A start option: chosen in the launcher at 2x, the game starts again at 1x.
+   effective.draw_scale = xbox360ps5::resolution_scale::ChoiceFor(effective.draw_scale, title_id);
+@@ -726,6 +734,27 @@ Settings ForGame(const Settings& general, const std::string& title_id, const Gam
+   }
+   return effective;
+ }
++std::string ScaleVerdict(const std::string& title_id) {
++  if (title_id.empty()) return {};
++  std::ifstream input(kStorage / "game-settings" / (title_id + ".scale.txt"));
++  std::string line;
++  std::getline(input, line);
++  return line;
++}
++bool SaveScaleVerdict(const std::string& title_id, const std::string& text) {
++  if (title_id.empty()) return false;
++  std::error_code error;
++  fs::create_directories(kStorage / "game-settings", error);
++  std::ofstream output(kStorage / "game-settings" / (title_id + ".scale.txt"), std::ios::trunc);
++  output << text << "\n";
++  output.flush();
++  return output.good();
++}
++void ClearScaleVerdict(const std::string& title_id) {
++  if (title_id.empty()) return;
++  std::error_code error;
++  fs::remove(kStorage / "game-settings" / (title_id + ".scale.txt"), error);
++}
+ GameOverrides LoadGameOverrides(const std::string& title_id) {
+   return title_id.empty() ? GameOverrides() : Checked(ReadValues(kStorage / "game-settings" / (title_id + ".txt")));
+ }
+@@ -790,6 +819,18 @@ void Settings::Load() {
+     else if (const Option* option = FindOption(key))
+       this->*option->field = std::clamp(value, 0, int(option->choices.size()) - 1);
+   }
++  // Fix 163: Automatic is the default resolution scale. Save writes every option, so each
++  // settings.txt holds draw_scale=0 (1x, the old default) unless 2x was chosen: once, 1x becomes
++  // Automatic; 2x stays 2x.
++  {
++    std::error_code marker_error;
++    const fs::path marker = kStorage / "draw_scale.fix163";
++    if (!fs::exists(marker, marker_error)) {
++      if (draw_scale == 0) draw_scale = xbox360ps5::auto_scale::kAutomatic;
++      std::ofstream(marker.string(), std::ios::trunc) << "draw_scale 1x became Automatic once (fix 163)\n";
++      Save();
++    }
++  }
+   if (language < 0 || language > 17) language = 0;
+   if (interface_language < 0 || interface_language > 19) interface_language = 0;
+   ui_language.store(SupportedUiLanguage(interface_language ? interface_language : console_ui_language));
+@@ -2422,6 +2463,7 @@ void Launcher::Press(Key key) {
+           // Back to what is recommended for this game, or to the general options.
+           overrides_.clear();
+           SaveGameOverrides(Selected()->title_id, overrides_);
++          ClearScaleVerdict(Selected()->title_id);  // fix 163: Automatic tries 2x again
+         }
+         // Fix 149b: Circle goes up one level: from a section's options to the sections.
+         if (key == Key::circle) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -153,6 +153,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/display_surface.hpp"
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
++#include "xbox360ps5/auto_scale.hpp"  // fix 163
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
+ #include "xbox360ps5/video_mode.hpp"  // fix 140c
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by holder
+@@ -1539,6 +1540,19 @@ std::string ImportAt(const std::map<uint32_t, std::string>& thunks, uint32_t tar
+   --found;
+   return target - found->first < 16 ? found->second : "";
+ }
++// Fix 163: Automatic found that 2x does not suit the running game: 1x from its next start (the
++// scale is not changed while it runs), the verdict saved and the player told, once a session.
++void NoteAutoScaleVerdict(xbox360ps5::auto_scale::Trigger trigger) {
++  namespace as = xbox360ps5::auto_scale;
++  as::Session& session = as::session();
++  if (trigger == as::Trigger::none || session.reported) return;
++  session.reported = true;
++  const std::string text = as::VerdictText(trigger, session.watch.numbers());
++  const bool saved = xbox360ps5::SaveScaleVerdict(session.title, text);
++  XELOGW("Resolution scale (fix 163): {} goes to 1x from its next start, Automatic ({}){}", session.title, text,
++         saved ? "" : "; the verdict could not be saved");
++  xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("This game runs better at 1x: from its next start it runs at 1x."), "", false});
++}
+ void ReportStall(xe::Emulator& emulator, int pass) {
+   namespace sd = xbox360ps5::stall_dump;
+   namespace oh = xbox360ps5::object_history;
+@@ -3844,6 +3858,23 @@ int main(int argc, char** argv) {
+                  settings_title, own_scale != overrides.end() ? "its own setting" : "the general setting");
+           xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out."), "", false});
+         }
++        // Fix 163: the scale this game runs at and why; Automatic at 2x is watched (memory, speed).
++        if (!status) {
++          namespace as = xbox360ps5::auto_scale;
++          const auto own_draw = overrides.find("draw_scale");
++          const int chosen_scale = own_draw != overrides.end() ? own_draw->second : global.draw_scale;
++          const std::string verdict =
++              chosen_scale == as::kAutomatic ? xbox360ps5::ScaleVerdict(settings_title) : std::string();
++          const as::Start start = as::Resolve(chosen_scale, settings_title, as::SaysOneX(verdict));
++          const uint32_t running = xbox360ps5::resolution_scale::ScaleForChoice(started.draw_scale);
++          XELOGW("Resolution scale (fix 163): {} runs at {}x: {} ({}){}{}",
++                 settings_title.empty() ? std::string("no identified title") : settings_title, running, start.why,
++                 own_draw != overrides.end() ? "the game's own setting" : "the general setting",
++                 verdict.empty() ? std::string() : "; verdict: " + verdict,
++                 start.choice == 1 && running == 1 ? "; fix 150g keeps it at 1x" : "");
++          as::session().Begin(settings_title,
++                              chosen_scale == as::kAutomatic && running == 2 && !settings_title.empty());
++        }
+         {
+           const auto core_config = std::filesystem::path("/app0/assets/config") / fmt::format("{:08X}.config.toml", emulator.title_id());
+           std::error_code exists_error;
+@@ -4346,7 +4377,11 @@ int main(int argc, char** argv) {
+             const uint64_t swaps = processor->swap_count();
+             const float elapsed = std::chrono::duration<float>(at - sample_at).count();
+             fps = float(frames - sampled_frames) / elapsed;
+-            swaps_sum += float(swaps - sampled_swaps) / elapsed;
++            const float swaps_this_second = float(swaps - sampled_swaps) / elapsed;
++            swaps_sum += swaps_this_second;
++            // Fix 163: Automatic at 2x: the frame rate in play.
++            NoteAutoScaleVerdict(xbox360ps5::auto_scale::session().watch.Second(
++                std::chrono::duration<double>(at - watch_started).count(), swaps_this_second));
+             sampled_swaps = swaps;
+             sample_at = at; sampled_frames = frames;
+             const double watch_seconds=std::chrono::duration<double>(at-watch_started).count();
+@@ -4393,8 +4428,23 @@ int main(int argc, char** argv) {
+                 XELOGW("{}", xbox360ps5::resolution_scale::Line(
+                                  xbox360ps5::resolution_scale::counters,
+                                  xbox360ps5::resolution_scale::driver_memory.Get(), scale_free));
+-                // Fix 117d: once a session, when 2x runs under the free memory floor.
+-                if (xbox360ps5::resolution_scale::ShouldWarn(xbox360ps5::resolution_scale::counters, scale_free)) {
++                // Fix 163: Automatic at 2x: fix 117b's floor (classes kept at 1x, render targets
++                // refused) or 117d's (free direct memory under 1 GiB).
++                {
++                  auto& scale_counters = xbox360ps5::resolution_scale::counters;
++                  const uint64_t kept = scale_counters.native_classes.load();
++                  const uint64_t refused_targets = scale_counters.rt_refused.load();
++                  const bool under_floor =
++                      scale_free >= 0 && uint64_t(scale_free) < xbox360ps5::resolution_scale::kDirectFloor;
++                  NoteAutoScaleVerdict(xbox360ps5::auto_scale::session().watch.Memory(
++                      kept || refused_targets || under_floor,
++                      fmt::format("render target classes kept at 1x {}, render targets refused {}, direct free {} MiB",
++                                  kept, refused_targets, scale_free < 0 ? -1 : scale_free >> 20)));
++                }
++                // Fix 117d: once a session, when 2x runs under the free memory floor (not with
++                // Automatic, whose own notice says what happens next).
++                if (!xbox360ps5::auto_scale::session().watch.active() &&
++                    xbox360ps5::resolution_scale::ShouldWarn(xbox360ps5::resolution_scale::counters, scale_free)) {
+                   XELOGW("Resolution scale (fix 117d): under the free memory floor at 2x; the player was told");
+                   xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME,
+                                       Tr("Resolution scale (test) 2x: this game needs more memory than is left. The picture may break; set it to 1x in this game's settings."),
