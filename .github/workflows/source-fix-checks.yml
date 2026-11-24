@@ -184,6 +184,7 @@ on:
       - 'tools/check-hang-watch-sync.cpp'
       - 'tools/check-log-ring.cpp'
       - 'tools/check-utility-cache-drive.cpp'
+      - 'tools/check-copy2-diag.cpp'
       - 'tools/check-xma-trace.cpp'
       - 'tools/check-xma-progress.cpp'
       - 'tools/check-gta5-audio-patch.cpp'

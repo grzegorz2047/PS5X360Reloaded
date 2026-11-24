@@ -1,0 +1,161 @@
+diff --git a/include/xbox360ps5/copy2_diag.hpp b/include/xbox360ps5/copy2_diag.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/copy2_diag.hpp
+@@ -0,0 +1,88 @@
++// SPDX-License-Identifier: MIT
++// Fix 161: what the resolves skipped at resolution scale 2x with copy command 2 (kConvertTo1111)
++// read. Fix 154 counts them (Kinect titles' camera and body tracking pictures); the core cannot
++// do them scaled, but does them at 1x when every render target owning the source is of a class
++// kept at 1x (fix 117k: "<pitch px>x<samples>", resolution-scale/<TITLE ID>.txt or the compiled-in
++// list). So the line names the source (its size, EDRAM base, pitch, MSAA, format) and each owner
++// with its 117k class, ready to be kept at 1x. Logged on fix 154's lines (the first 4, every
++// 4096th) and whenever an owner of a class not seen before shows up (16 classes at most).
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::copy2_diag {
++
++// The owner's class as fix 117k writes it: the pitch in pixels at 1x (80 per tile, 40 with
++// 4xMSAA, as RenderTargetKey::GetWidth) and the samples.
++inline std::string ClassText(uint32_t pitch_tiles, uint32_t msaa_index) {
++  const uint32_t samples = 1u << std::min<uint32_t>(msaa_index, 2);
++  const uint32_t pitch_px = pitch_tiles * (msaa_index >= 2 ? 40u : 80u);
++  return std::to_string(pitch_px) + "x" + std::to_string(samples);
++}
++
++struct Owner {
++  std::string name;  // RenderTargetKey::GetDebugName()
++  uint32_t pitch_tiles = 0, msaa_index = 0;
++  bool native = false;
++};
++struct Source {
++  uint32_t width = 0, height = 0;        // the resolve rectangle, guest pixels
++  uint32_t offset_x = 0, offset_y = 0;   // in the base tile
++  uint32_t base_tiles = 0, pitch_tiles = 0, msaa_index = 0, format = 0;
++  bool depth = false;
++  uint32_t dest_pitch = 0, dest_height = 0;
++};
++
++// Classes seen so far; Note is true the first time a class shows up, while fewer than kMax.
++class SeenClasses {
++ public:
++  static constexpr size_t kMax = 16;
++  bool Note(uint32_t pitch_tiles, uint32_t msaa_index) {
++    const uint32_t id = (pitch_tiles << 2) | (msaa_index & 3);
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (std::find(ids_.begin(), ids_.end(), id) != ids_.end() || ids_.size() >= kMax) return false;
++    ids_.push_back(id);
++    return true;
++  }
++  size_t size() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return ids_.size();
++  }
++
++ private:
++  std::mutex mutex_;
++  std::vector<uint32_t> ids_;
++};
++inline SeenClasses& Seen() {
++  static SeenClasses* seen = new SeenClasses();
++  return *seen;
++}
++
++inline std::string Line(uint32_t count, const Source& s, const std::vector<Owner>& owners) {
++  char head[400];
++  std::snprintf(head, sizeof(head),
++                "Resolve copy command 2 (fix 161), skip %u: source %ux%u at %u,%u, EDRAM base %u, pitch %u tiles, "
++                "%uxMSAA, %s format %u; destination %ux%u; owners:",
++                count, s.width, s.height, s.offset_x, s.offset_y, s.base_tiles, s.pitch_tiles,
++                1u << std::min<uint32_t>(s.msaa_index, 2), s.depth ? "depth" : "colour", s.format, s.dest_pitch,
++                s.dest_height);
++  std::string line = head;
++  if (owners.empty()) return line + " none";
++  size_t shown = 0;
++  for (const Owner& o : owners) {
++    if (shown == 6) {
++      line += "; " + std::to_string(owners.size() - shown) + " more";
++      break;
++    }
++    line += (shown ? "; " : " ") + o.name + " (117k class " + ClassText(o.pitch_tiles, o.msaa_index) + ", " +
++            (o.native ? "at 1x" : "scaled") + ")";
++    ++shown;
++  }
++  return line;
++}
++
++}  // namespace xbox360ps5::copy2_diag
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -29,6 +29,7 @@
+ #include "xenia/gpu/vulkan/deferred_command_buffer.h"
+ #include "xenia/gpu/vulkan/vulkan_command_processor.h"
+ #include "xenia/gpu/xenos.h"
++#include "xbox360ps5/copy2_diag.hpp"  // fix 161
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117b
+@@ -1249,6 +1250,56 @@ bool VulkanRenderTargetCache::Resolve(
+           "so far)",
+           count + 1);
+     }
++    // Xbox360PS5 (fix 161): what it reads - the source and the render targets
++    // owning it, as fix 117k classes (a class kept at 1x makes the copy work)
++    // - on the lines above and when an owner of a new class shows up.
++    {
++      namespace diag = xbox360ps5::copy2_diag;
++      std::vector<ResolveCopyDumpRectangle> owner_rectangles;
++      if (GetPath() == Path::kHostRenderTargets) {
++        GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used,
++                                       dump_rows, dump_pitch,
++                                       owner_rectangles);
++      }
++      std::vector<diag::Owner> owners;
++      bool new_class = false;
++      for (const ResolveCopyDumpRectangle& rectangle : owner_rectangles) {
++        if (!rectangle.render_target) continue;
++        const RenderTargetKey owner_key = rectangle.render_target->key();
++        bool listed = false;
++        for (const diag::Owner& owner : owners) {
++          listed = listed || owner.name == owner_key.GetDebugName();
++        }
++        if (listed) continue;
++        owners.push_back({owner_key.GetDebugName(),
++                          owner_key.pitch_tiles_at_32bpp,
++                          uint32_t(owner_key.msaa_samples),
++                          bool(owner_key.scale_native)});
++        new_class = diag::Seen().Note(owner_key.pitch_tiles_at_32bpp,
++                                      uint32_t(owner_key.msaa_samples)) ||
++                    new_class;
++      }
++      if (count < 4 || !(count & 0xFFF) || new_class) {
++        const draw_util::ResolveEdramInfo edram =
++            resolve_info.IsCopyingDepth() ? resolve_info.depth_edram_info
++                                          : resolve_info.color_edram_info;
++        diag::Source source;
++        source.width = resolve_info.coordinate_info.width_div_8 << 3;
++        source.height = resolve_info.height_div_8 << 3;
++        source.offset_x = resolve_info.coordinate_info.edram_offset_x_div_8 << 3;
++        source.offset_y = resolve_info.coordinate_info.edram_offset_y_div_8 << 3;
++        source.base_tiles = edram.base_tiles;
++        source.pitch_tiles = edram.pitch_tiles;
++        source.msaa_index = uint32_t(edram.msaa_samples);
++        source.format = edram.format;
++        source.depth = resolve_info.IsCopyingDepth();
++        source.dest_pitch =
++            resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32 << 5;
++        source.dest_height =
++            resolve_info.copy_dest_coordinate_info.height_aligned_div_32 << 5;
++        XELOGW("{}", diag::Line(count + 1, source, owners));
++      }
++    }
+     // Skip the copy, but still perform the clears.
+     resolve_info.copy_dest_extent_length = 0;
+   }

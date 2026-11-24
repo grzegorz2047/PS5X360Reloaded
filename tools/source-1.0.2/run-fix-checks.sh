@@ -174,6 +174,7 @@ checks=(
   check-hang-watch-sync.cpp        # fix 153
   check-log-ring.cpp               # fix 154
   check-utility-cache-drive.cpp    # fixes 150c and 150d
+  check-copy2-diag.cpp             # fix 161
   check-write-bench.cpp            # fixes 148i, 148j, 148k
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
@@ -340,6 +341,7 @@ declare -A fix_of=(
   [check-hang-watch-sync.cpp]=153
   [check-log-ring.cpp]=154
   [check-utility-cache-drive.cpp]="150c 150d"
+  [check-copy2-diag.cpp]=161
   [check-xma-trace.cpp]="155 155b"
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
