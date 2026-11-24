@@ -9,8 +9,8 @@
 // a fake filesystem laid out as the console's /mnt (fix 27's check: ext1's top not writable, its
 // xbox360 folder writable; placeholders that are not mount points), then on the host's own
 // filesystem; the title's start (src/canary_game_main.cpp) is checked to mount the chosen folder,
-// with the internal storage as the fallback. Fix 150d: Grand Theft Auto IV's cache: and cache1: in
-// memory (CacheInMemory: its title ID; "ram"/"drive" in utility-cache-drive.txt for every game),
+// with the internal storage as the fallback. Fix 150d: Grand Theft Auto IV's and Kinect Sports'
+// cache: and cache1: in memory (CacheInMemory: its title ID; "ram"/"drive" in utility-cache-drive.txt for every game),
 // cache0: and xstorage: on the drive; the title and utility_cache.hpp wired so. Run from the
 // assembled tree's root.
 #undef NDEBUG
@@ -246,6 +246,8 @@ void InMemory() {
   using drive::CacheInMemory;
   Expect(CacheInMemory("545407F2", ""), "fix 150d: GTA IV (545407F2): cache in memory");
   Expect(CacheInMemory("545407f2", "\n"), "fix 150d: its title ID in lower case too");
+  Expect(CacheInMemory("4D5308C9", ""), "fix 150d: Kinect Sports (4D5308C9): cache in memory");
+  Expect(!CacheInMemory("4D5309D6", ""), "fix 150d: Kinect Sports Season Two (not measured): on the drive");
   Expect(!CacheInMemory("4D53085B", ""), "fix 150d: another game (Halo: Reach): on the drive");
   Expect(!CacheInMemory("", ""), "fix 150d: no title ID: on the drive");
   Expect(CacheInMemory("4D53085B", "ram\n"), "fix 150d: \"ram\" in the file: in memory for every game");

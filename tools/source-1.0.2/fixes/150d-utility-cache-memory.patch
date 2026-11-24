@@ -522,14 +522,16 @@ diff --git a/include/xbox360ps5/utility_cache_drive.hpp b/include/xbox360ps5/uti
  
  #include "xenia/kernel/xam/storage_devices.h"
  
-@@ -27,6 +28,21 @@ struct Choice {
+@@ -27,6 +28,23 @@ struct Choice {
  // A drive with less free space is passed over (the guest's cache partitions take a few GB).
  inline constexpr uint64_t kMinFreeBytes = uint64_t(4) << 30;
  
 +// Fix 150d: the titles whose cache: and cache1: are kept in memory (memory_device.h): Grand Theft
-+// Auto IV. "ram" in utility-cache-drive.txt keeps them in memory for every game, "drive" (or
-+// "data"/"console") on a drive for every game.
-+inline constexpr const char* kInMemoryTitles[] = {"545407F2"};
++// Auto IV (its streaming archives) and Kinect Sports (its replay video buffers: about 1900 files of
++// 320 KiB made and deleted per 30 s while playing, 1.0.6-work-fix154). "ram" in
++// utility-cache-drive.txt keeps them in memory for every game, "drive" (or "data"/"console") on a
++// drive for every game.
++inline constexpr const char* kInMemoryTitles[] = {"545407F2", "4D5308C9"};
 +inline bool CacheInMemory(const std::string& title_id, const std::string& text) {
 +  if (text.find("ram") != std::string::npos) return true;
 +  if (text.find("drive") != std::string::npos || text.find("data") != std::string::npos ||
