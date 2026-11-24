@@ -51,7 +51,9 @@
 #include "xenia/vfs/devices/host_delete_steps.h"  // fix 150b
 #endif
 #include "xenia/vfs/virtual_file_system.h"
-#if __has_include("xenia/vfs/devices/memory_device.h")
+// Fix 150d's device needs fixes 139 and 150 (the tree without them, built by the .sh, still finds
+// the assembled tree's header on its include path).
+#if __has_include("xenia/vfs/devices/memory_device.h") && defined(XE_VFS_BACKGROUND_DELETE)
 #include "xenia/vfs/devices/memory_device.h"  // fix 150d
 #endif
 
