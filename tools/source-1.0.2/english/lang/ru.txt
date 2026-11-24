@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Рендерер\sи\sточность
 Rendering = Отрисовка
 Resolution\sscale\s(test) = Масштаб\sрендеринга\s(тест)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Масштаб\sрендеринга\s(тест)\s2x:\sэтой\sигре\sнужно\sбольше\sпамяти,\sчем\sосталось.\sИзображение\sможет\sиспортиться;\sвыберите\s1x\sв\sнастройках\sэтой\sигры.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Масштаб\sрендеринга\s(тест):\sэта\sигра\sвсегда\sработает\sв\s1x.\sВ\s2x\sизображения\sс\sкамеры\sKinect\sне\sмогут\sбыть\sотрисованы,\sа\sвидеопамяти\sне\sхватает.
 Restart\semulator = Перезапустить\sэмулятор
 Restart\sgame = Перезапустить\sигру
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Перезапустить\sэту\sигру\sс\sжурналами\sдля\sотчёта\sоб\sошибке

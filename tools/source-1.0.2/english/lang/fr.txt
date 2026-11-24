@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Moteur\sde\srendu\set\sprécision
 Rendering = Rendu
 Resolution\sscale\s(test) = Échelle\sde\srendu\s(test)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Échelle\sde\srendu\s(test)\s2x\s:\sce\sjeu\sa\sbesoin\sde\splus\sde\smémoire\squ'il\sn'en\sreste.\sL'image\speut\sse\sdégrader\s;\schoisissez\s1x\sdans\sles\sréglages\sde\sce\sjeu.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Échelle\sde\srendu\s(test)\s:\sce\sjeu\stourne\stoujours\sen\s1x.\sEn\s2x,\sles\simages\sde\sla\scaméra\sKinect\sne\speuvent\spas\sêtre\sdessinées\set\sla\smémoire\svidéo\ss'épuise.
 Restart\semulator = Redémarrer\sl'émulateur
 Restart\sgame = Relancer\sle\sjeu
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Relancer\sce\sjeu\savec\sdes\sjournaux\spour\sun\srapport\sde\sbug

@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Renderer\se\sprecisione
 Rendering = Rendering
 Resolution\sscale\s(test) = Scala\sdi\srendering\s(test)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Scala\sdi\srendering\s(test)\s2x:\squesto\sgioco\srichiede\spiù\smemoria\sdi\squella\srimasta.\sL'immagine\spotrebbe\sguastarsi;\simposta\s1x\snelle\simpostazioni\sdi\squesto\sgioco.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Scala\sdi\srendering\s(test):\squesto\sgioco\sfunziona\ssempre\sa\s1x.\sA\s2x\sle\simmagini\sdella\svideocamera\sKinect\snon\spossono\sessere\sdisegnate\se\sla\smemoria\svideo\ssi\sesaurisce.
 Restart\semulator = Riavvia\sl'emulatore
 Restart\sgame = Riavvia\sil\sgioco
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Riavvia\squesto\sgioco\scon\si\slog\sper\suna\ssegnalazione\sdi\sbug

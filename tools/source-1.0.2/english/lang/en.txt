@@ -480,6 +480,7 @@ Renderer\sand\saccuracy = Renderer\sand\saccuracy
 Rendering = Rendering
 Resolution\sscale\s(test) = Resolution\sscale\s(test)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout.
 Restart\semulator = Restart\semulator
 Restart\sgame = Restart\sgame
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport

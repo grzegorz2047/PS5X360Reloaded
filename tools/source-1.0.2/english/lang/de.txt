@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Renderer\sund\sGenauigkeit
 Rendering = Darstellung
 Resolution\sscale\s(test) = Renderskalierung\s(Test)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Renderskalierung\s(Test)\s2x:\sDieses\sSpiel\sbraucht\smehr\sSpeicher,\sals\snoch\sfrei\sist.\sDas\sBild\skann\sfehlerhaft\swerden;\sstelle\sin\sden\sEinstellungen\sdieses\sSpiels\s1x\sein.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Renderskalierung\s(Test):\sDieses\sSpiel\släuft\simmer\smit\s1x.\sBei\s2x\skönnen\sdie\sBilder\sder\sKinect-Kamera\snicht\sgezeichnet\swerden\sund\sder\sGrafikspeicher\sreicht\snicht\saus.
 Restart\semulator = Emulator\sneu\sstarten
 Restart\sgame = Spiel\sneu\sstarten
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Dieses\sSpiel\smit\sProtokollen\sfür\seinen\sFehlerbericht\sneu\sstarten

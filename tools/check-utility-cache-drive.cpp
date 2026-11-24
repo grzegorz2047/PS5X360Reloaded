@@ -255,7 +255,8 @@ void InMemory() {
   Expect(!CacheInMemory("545407F2", "data"), "fix 150d: \"data\": GTA IV in the internal storage (150c's switch)");
   const std::string main = Squeezed(Read("src/canary_game_main.cpp"));
   const auto has = [&main](const std::string& text) { return main.find(Squeezed(text)); };
-  const size_t decide = has("utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch)");
+  // The call with or without fix 150f's scale argument.
+  const size_t decide = has("utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch");
   const size_t names = has("memory_caches = {\"cache1\", \"cache\"}");
   const size_t mount = has("MountUtilityCache(*emulator.file_system(), cache_drive.base, cache_in_memory ? memory_caches : no_memory_caches)");
   const size_t fallback = has("MountUtilityCache(*emulator.file_system(), bulk, cache_in_memory ? memory_caches : no_memory_caches)");
@@ -283,10 +284,11 @@ void InMemory() {
          "fix 150d3: the launcher's start (no title): on the drive; Kinect Sports chosen: in memory");
   const size_t known = has("settings_title = log_id;");
   const size_t again = has("if (!cache_in_memory_now && xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, "
-                           "cache_drive_switch)) { cache_in_memory_now = xbox360ps5::MoveUtilityCacheToMemory(*emulator.file_system());");
+                           "cache_drive_switch");
+  const size_t moved = has("cache_in_memory_now = xbox360ps5::MoveUtilityCacheToMemory(*emulator.file_system());");
   const size_t now = has("bool cache_in_memory_now = cache_in_memory;");
   Expect(known != std::string::npos && again != std::string::npos && now != std::string::npos && decide < now &&
-             now < mount && mount < known && known < again,
+             now < mount && mount < known && known < again && again < moved && moved != std::string::npos,
          "fix 150d3: the launch decides again after the chosen game's title ID is known, and moves cache1: and cache: "
          "into memory once");
   Expect(has("in memory ({}, chosen in the launcher)") > known,
@@ -295,6 +297,40 @@ void InMemory() {
                  std::string::npos &&
              mount_code.find(Squeezed("std::make_unique<xe::vfs::MemoryDevice>(mount, pool)")) != std::string::npos,
          "fix 150d3: utility_cache.hpp takes CACHE1 and CACHE out first and mounts them in memory in that order");
+
+#ifdef XBOX360PS5_CACHE_IN_MEMORY_BY_SCALE
+  // Fix 150f: at resolution scale 2x the render targets need the direct memory (Kinect Sports at
+  // 2x on candidate 6: the cache refused 5537 writes, a 4xMSAA target could not be made).
+  using drive::KeptOnDriveForScale;
+  Expect(CacheInMemory("4D5308C9", "", 1) && CacheInMemory("545407F2", "", 1),
+         "fix 150f: at 1x Kinect Sports and GTA IV keep the cache in memory as before");
+  Expect(!CacheInMemory("4D5308C9", "", 2) && !CacheInMemory("545407F2", "", 2),
+         "fix 150f: at 2x Kinect Sports and GTA IV keep it on the drive");
+  Expect(KeptOnDriveForScale("4D5308C9", "", 2) && !KeptOnDriveForScale("4D5308C9", "", 1) &&
+             !KeptOnDriveForScale("4D53085B", "", 2) && !KeptOnDriveForScale("4D5308C9", "drive", 2),
+         "fix 150f: the scale's log line only for a title the preset would have kept in memory");
+  Expect(CacheInMemory("4D53085B", "ram", 2) && !KeptOnDriveForScale("4D5308C9", "ram", 2),
+         "fix 150f: \"ram\" still keeps it in memory at 2x");
+  Expect(!CacheInMemory("4D5308C9", "drive", 1) && !CacheInMemory("", "", 1),
+         "fix 150f: \"drive\" and no title: on the drive at 1x too");
+  const size_t scale = has("const uint32_t cache_draw_scale = xbox360ps5::resolution_scale::ScaleForChoice(started.draw_scale);");
+  const size_t start_decides = has("CacheInMemory(settings_title, cache_drive_switch, cache_draw_scale); if "
+                                   "(xbox360ps5::utility_cache_drive::KeptOnDriveForScale(settings_title, cache_drive_switch, "
+                                   "cache_draw_scale))");
+  const size_t start_log = has("Utility cache (fix 150f): cache: and cache1: on the drive ({}): resolution scale {}x needs the");
+  const size_t restarts = has("has start options of its own; restarting into it");
+  const size_t launch_decides = has("if (!cache_in_memory_now && xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, "
+                                    "cache_drive_switch, cache_draw_scale)) {");
+  const size_t launch_log = has("Utility cache (fix 150f): cache: and cache1: on the drive ({}, chosen in the launcher): ");
+  Expect(scale != std::string::npos && start_decides != std::string::npos && start_log != std::string::npos &&
+             scale < start_decides && start_decides < mount,
+         "fix 150f: the start decides with the resolution scale it started with and logs a 2x on the drive");
+  Expect(restarts != std::string::npos && launch_decides != std::string::npos && launch_log != std::string::npos &&
+             restarts < launch_decides && launch_decides < launch_log &&
+             has("CacheInMemory(settings_title, cache_drive_switch)) {") == std::string::npos,
+         "fix 150f: the launcher's game decides after the restarts into its start options, with the scale, and "
+         "logs a 2x on the drive; no decision left without the scale");
+#endif
 }
 }  // namespace
 
