@@ -177,6 +177,7 @@ checks=(
   check-kernel-timer.cpp           # fix 156b
   check-nui-elevation.cpp          # fix 156c
   check-pscam-state.cpp            # fix 156d
+  check-camera-worker.cpp          # fix 156e
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -340,6 +341,7 @@ declare -A fix_of=(
   [check-kernel-timer.cpp]=156b
   [check-nui-elevation.cpp]=156c
   [check-pscam-state.cpp]=156d
+  [check-camera-worker.cpp]=156e
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
