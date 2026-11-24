@@ -391,7 +391,10 @@ void CheckLauncher() {
   Expect(Has(launcher, "float Raised(char button, const std::string& label, float x, float y, bool danger = false) const {"),
          "the canvas draws raised buttons");
   const std::string tab = Body(launcher, "void Launcher::DrawDlcs(Canvas& c, float x) {");
-  Expect(Has(tab, "dlc2::SizeText(item.bytes) + (item.device.empty() ? std::string() : \"  \\u00b7  \" + item.device)"),
+  // Fix 148f: the size line may be the "incomplete: X of Y" text of a cut-short package (size_line).
+  Expect(Has(tab, "dlc2::SizeText(item.bytes) + (item.device.empty() ? std::string() : \"  \\u00b7  \" + item.device)") ||
+             (Has(tab, "std::string size_line = dlc2::SizeText(item.bytes);") &&
+              Has(tab, "size_line + (item.device.empty() ? std::string() : \"  \\u00b7  \" + item.device)")),
          "each row shows its size and drive");
   Expect(Has(tab, "if (state != dlc2::State::available) hint = c.Hint('t', Tr(\"Remove\"), hint, 1004);"),
          "the Triangle hint for an installed package");

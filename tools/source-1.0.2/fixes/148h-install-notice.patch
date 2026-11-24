@@ -1,0 +1,296 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+@@ -27,6 +27,7 @@
+ #include "xenia/kernel/xfile.h"
+ #include "xenia/kernel/xobject.h"
+ #include "xenia/vfs/devices/host_path_device.h"
++#include "xbox360ps5/install_notice.hpp"  // fix 148h
+ 
+ DECLARE_int32(license_mask);
+ 
+@@ -585,6 +586,12 @@
+          : root_path.empty() ? ""
+                              : fmt::format(" (from its {})", root_path));
+   if (!package) {
++    // Xbox360PS5 fix 148h: a package file that does not mount (fix 148e refuses
++    // a cut-short one) is noted for the library's explanation, should the
++    // game then stop on its dirty-disc error (install_notice.hpp).
++    if (!std::filesystem::is_directory(package_path)) {
++      xbox360ps5::install_notice::NoteRefused(package_path.string());
++    }
+     return X_ERROR_FILE_NOT_FOUND;
+   }
+   package->set_device_id(MetadataDeviceId(data.device_id));
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -14,6 +14,9 @@
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/title_switch.hpp"
+ #include "xbox360ps5/crash_report.hpp"
++#include "xbox360ps5/app_identity.hpp"  // fix 148h
++#include "xbox360ps5/install_notice.hpp"  // fix 148h
++#include <fstream>  // fix 148h
+ #include <cstdio>
+ #endif
+ #if !XE_PLATFORM_PS5
+@@ -1062,6 +1065,24 @@
+   char breadcrumb[160];
+   std::snprintf(breadcrumb, sizeof(breadcrumb), "BULLYTRACE dirty-disc title=%08X user=%u guest_lr=%08X", kernel_state()->title_id(), uint32_t(user_index), uint32_t(ctx->lr));
+   xbox360ps5::Stage(breadcrumb);
++  // Xbox360PS5 fix 148h: when a package of this session did not mount because
++  // it is cut short (fix 148e: an install that stopped), the library explains
++  // what to do instead of a silent return (install_notice.hpp).
++  for (const std::string& path : xbox360ps5::install_notice::RefusedPaths()) {
++    const auto notice = xbox360ps5::install_notice::Check(
++        path, kernel_state()->emulator()->title_name());
++    if (!notice) continue;
++    const std::string file =
++        xbox360ps5::install_notice::FileName(XBOX360PS5_DATA_ROOT);
++    std::ofstream out(file, std::ios::binary | std::ios::trunc);
++    out << xbox360ps5::install_notice::Serialize(*notice);
++    XELOGW(
++        "Install notice (fix 148h): {} is cut short ({} of {} bytes); the "
++        "library explains it{}",
++        path, notice->have, notice->need,
++        out ? "" : " (the notice could not be written)");
++    break;
++  }
+   xbox360ps5::RelaunchInto(std::string(), {});
+   // LoadExec only returns on failure. Never resume a fatal guest path and never
+   // fall through to libc exit; park this thread so the platform menu can close it.
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -32,6 +32,10 @@
+ #include <cstdio>
+ #include <cstring>
+ #include <fstream>
++#include <cerrno>  // fix 148h
++#include <sstream>  // fix 148h
++#include <unistd.h>  // fix 148h
++#include "xbox360ps5/install_notice.hpp"  // fix 148h
+ #include <chrono>
+ #include <functional>
+ #include <thread>
+@@ -214,6 +218,11 @@
+ float g_dlc_remove_shown = 0.0f;
+ dlc2::Item g_dlc_remove_item;
+ uint32_t g_dlc_remove_title = 0;
++// Fix 148h: the explanation a game left after its dirty-disc error, when fix 148e had refused a
++// cut-short install package of it (install_notice.hpp); shown once, X or Circle closes it.
++bool g_install_notice_checked = false, g_install_notice_open = false;
++float g_install_notice_shown = 0.0f;
++std::string g_install_notice_text;
+ // Fix 109: the game sheet tab whose list has the pad (a row highlighted, X acts on it); for any
+ // other value the tab bar has it: a sheet or a tab opens with no row highlighted, and Down enters
+ // the list (a single row looked chosen from the start).
+@@ -2040,6 +2049,11 @@
+   }
+   if (!loading_.empty()) return;
+   message_.clear();
++  if (g_install_notice_open) {
++    // Fix 148h: X or Circle closes the install explanation.
++    if (key == Key::cross || key == Key::circle) g_install_notice_open = false;
++    return;
++  }
+   if (g_dlc_remove_open) {
+     // Fix 109: "Remove DLC?": X removes the package file, Circle keeps it.
+     if (key == Key::cross) {
+@@ -3275,6 +3289,45 @@
+     c.Text(Tr("Unsaved progress in the open game will be lost."), x + 48, y + 196, 20, kWarning, 1.0f, 0, w - 96);
+     float hint = c.Hint('x', Tr("Close and open"), x + 48, y + h - 56);
+     c.Hint('o', Tr("Cancel"), hint, y + h - 56);
++    c.alpha = 1.0f;
++  }
++  // Fix 148h: once per start, the notice a game left (<data>/install-notice.txt): what was cut
++  // short and the steps, with the DLCs tab's and the Remove action's own names; the file is removed.
++  if (!g_install_notice_checked) {
++    g_install_notice_checked = true;
++    namespace notice_file = xbox360ps5::install_notice;
++    const std::string file = notice_file::FileName(XBOX360PS5_DATA_ROOT);
++    std::ifstream input(file, std::ios::binary);
++    if (input) {
++      std::stringstream text;
++      text << input.rdbuf();
++      input.close();
++      if (const auto notice = notice_file::Parse(text.str())) {
++        g_install_notice_text = notice_file::Message(Tr("%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again."), *notice,
++                                                     dlc2::SizeText(notice->have), dlc2::SizeText(notice->need),
++                                                     Tr("DLCs"), Tr("Remove"));
++        g_install_notice_open = true;
++        XELOGW("LAUNCHER install notice (fix 148h): {}, {} ({} of {} bytes) shown", notice->game, notice->package,
++               notice->have, notice->need);
++      }
++      if (::unlink(file.c_str()) != 0)
++        XELOGW("LAUNCHER install notice (fix 148h): {} not removed (errno {})", file, errno);
++    }
++  }
++  g_install_notice_shown = Smooth(g_install_notice_shown, g_install_notice_open ? 1.0f : 0.0f, dt, 18);
++  if (g_install_notice_shown > 0.01f) {
++    const float t = g_install_notice_shown;
++    const float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
++    c.alpha = 1.0f;
++    c.Fill(0, 0, 1920, 1080, 0x000000, 0.6f * ease);
++    c.alpha = ease;
++    const float w = 1040 * (0.92f + 0.08f * ease), h = 400 * (0.92f + 0.08f * ease);
++    const float x = 960 - w / 2, y = 540 - h / 2;
++    c.Fill(x, y, w, h, kSheet, 0.99f, 22);
++    c.Edge(x, y, w, h, kWarning, 0.7f, 22, 2.0f);
++    c.Text(Tr("Install data incomplete"), x + 48, y + 36, 34, kText);
++    c.Wrapped(g_install_notice_text, x + 48, y + 100, 24, kBody, w - 96);
++    c.Hint('x', Tr("OK"), x + 48, y + h - 56);
+     c.alpha = 1.0f;
+   }
+   // Fix 109: "Remove DLC?", the same kind of window, standing off the screen with the guide's
+diff --git a/include/xbox360ps5/install_notice.hpp b/include/xbox360ps5/install_notice.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/install_notice.hpp
+@@ -0,0 +1,145 @@
++// SPDX-License-Identifier: MIT
++// Fix 148h: a game that ends on its dirty-disc error after fix 148e refused a cut-short package of
++// it gets an explanation in the library, instead of a silent return.
++//
++// Grand Theft Auto V with an install that had stopped half-way (part1 948 MB of 2.1 GB): 148e no
++// longer mounted the cut package, the game took that part from the disc, and with part0 installed
++// and the rest from the disc it showed its dirty-disc error; the emulator went back to the library
++// without a word. The game does not offer to install again while any of its install packages is
++// on a drive. Now:
++//  * the core notes the host path of each package it refused as cut short (NoteRefused);
++//  * on the dirty-disc path it reads those files' headers, and for the first that is still cut
++//    short writes <data>/install-notice.txt: the game's name, the package's name (the header's
++//    display name, else the file name), the bytes it has and the bytes its header needs;
++//  * the library shows that once, as a message naming the game's sheet's DLCs tab and its Remove
++//    action in the player's language (the steps the player takes; nothing is deleted for them),
++//    then removes the file.
++#pragma once
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <fstream>
++#include <mutex>
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "xbox360ps5/stfs_size.hpp"
++
++namespace xbox360ps5::install_notice {
++
++struct Notice {
++  std::string game, package;
++  uint64_t have = 0, need = 0;
++};
++
++inline std::string FileName(const std::string& data_root) { return data_root + "/install-notice.txt"; }
++
++// One value per line; a value cannot hold a line break.
++inline std::string Clean(std::string text) {
++  for (char& c : text)
++    if (c == '\n' || c == '\r') c = ' ';
++  return text;
++}
++inline std::string Serialize(const Notice& n) {
++  return "game=" + Clean(n.game) + "\npackage=" + Clean(n.package) + "\nhave=" + std::to_string(n.have) +
++         "\nneed=" + std::to_string(n.need) + "\n";
++}
++inline std::optional<Notice> Parse(const std::string& text) {
++  Notice n;
++  bool have = false, need = false;
++  size_t at = 0;
++  while (at < text.size()) {
++    size_t end = text.find('\n', at);
++    if (end == std::string::npos) end = text.size();
++    std::string line = text.substr(at, end - at);
++    if (!line.empty() && line.back() == '\r') line.pop_back();
++    at = end + 1;
++    const size_t eq = line.find('=');
++    if (eq == std::string::npos) continue;
++    const std::string key = line.substr(0, eq), value = line.substr(eq + 1);
++    if (key == "game") n.game = value;
++    else if (key == "package") n.package = value;
++    else if (key == "have") have = !value.empty(), n.have = std::strtoull(value.c_str(), nullptr, 10);
++    else if (key == "need") need = !value.empty(), n.need = std::strtoull(value.c_str(), nullptr, 10);
++  }
++  if (n.game.empty() || n.package.empty() || !have || !need || n.have >= n.need) return std::nullopt;
++  return n;
++}
++
++// From a package's first 0x511 bytes: the size its STFS header says the file has (0 when not an
++// STFS package) and its display name (UTF-16BE at 0x411, ASCII kept, others as '?').
++inline uint32_t Be32(const unsigned char* p) {
++  return uint32_t(p[0]) << 24 | uint32_t(p[1]) << 16 | uint32_t(p[2]) << 8 | uint32_t(p[3]);
++}
++inline uint64_t ExpectedSize(const unsigned char* b, size_t size) {
++  if (size < 0x511) return 0;
++  const bool magic = (b[0] == 'C' && b[1] == 'O' && b[2] == 'N' && b[3] == ' ') ||
++                     (b[0] == 'L' && b[1] == 'I' && b[2] == 'V' && b[3] == 'E') ||
++                     (b[0] == 'P' && b[1] == 'I' && b[2] == 'R' && b[3] == 'S');
++  if (!magic || Be32(b + 0x3A9) != 0) return 0;
++  const uint64_t header = (uint64_t(Be32(b + 0x340)) + 0xFFF) & ~uint64_t(0xFFF);
++  const uint32_t blocks = Be32(b + 0x379 + 0x1C);
++  if (!blocks) return 0;
++  return header + stfs_size::DataNeeded(blocks, (b[0x379 + 2] & 1) ? 1 : 2);
++}
++inline std::string DisplayName(const unsigned char* b, size_t size) {
++  std::string name;
++  for (size_t i = 0; i < 128 && 0x412 + 2 * i < size; ++i) {
++    const unsigned c = unsigned(b[0x411 + 2 * i]) << 8 | b[0x412 + 2 * i];
++    if (!c) break;
++    name += c < 0x80 ? char(c) : '?';
++  }
++  return name;
++}
++
++// A package file on the host: its notice when it is cut short.
++inline std::optional<Notice> Check(const std::string& path, const std::string& game) {
++  std::ifstream file(path, std::ios::binary | std::ios::ate);
++  if (!file) return std::nullopt;
++  const uint64_t size = uint64_t(file.tellg());
++  file.seekg(0);
++  unsigned char header[0x511] = {};
++  if (!file.read(reinterpret_cast<char*>(header), sizeof(header))) return std::nullopt;
++  const uint64_t need = ExpectedSize(header, sizeof(header));
++  if (!need || size >= need) return std::nullopt;
++  Notice n;
++  n.game = game;
++  n.package = DisplayName(header, sizeof(header));
++  if (n.package.empty()) {
++    const size_t slash = path.find_last_of("/\\");
++    n.package = slash == std::string::npos ? path : path.substr(slash + 1);
++  }
++  n.have = size;
++  n.need = need;
++  return n;
++}
++
++// The packages fix 148e refused in this session (host paths), for the dirty-disc path.
++struct Refused {
++  std::mutex mutex;
++  std::vector<std::string> paths;
++};
++inline Refused refused;
++inline void NoteRefused(const std::string& path) {
++  std::lock_guard<std::mutex> lock(refused.mutex);
++  for (const auto& p : refused.paths)
++    if (p == path) return;
++  if (refused.paths.size() < 32) refused.paths.push_back(path);
++}
++inline std::vector<std::string> RefusedPaths() {
++  std::lock_guard<std::mutex> lock(refused.mutex);
++  return refused.paths;
++}
++
++// The message: the English key's placeholders are the game, the package, the two sizes, the DLCs
++// tab's name and the Remove action's, in that order (every translation keeps that order).
++inline std::string Message(const char* format, const Notice& n, const std::string& have, const std::string& need,
++                           const char* tab, const char* remove) {
++  char text[1024];
++  std::snprintf(text, sizeof(text), format, n.game.c_str(), n.package.c_str(), have.c_str(), need.c_str(), tab,
++                remove);
++  return text;
++}
++
++}  // namespace xbox360ps5::install_notice

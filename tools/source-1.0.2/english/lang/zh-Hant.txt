@@ -25,6 +25,7 @@
 %d\sown\ssettings = %d\s項自有設定
 %d\ssettings\sof\sthis\sgame's\sown = 此遊戲的\s%d\s項自有設定
 %s\sGB\sfree = 可用\s%s\sGB
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s：安裝資料不完整（%s：%s\s/\s%s）。在遊戲庫中對該遊戲按叉鍵，開啟「%s」分頁，選擇每個安裝套件並按三角鍵「%s」。然後啟動遊戲以重新安裝。
 120\sHz\s(test) = 120\sHz（測試）
 1x\s(720p,\snative) = 1x（720p，原生）
 2x\s(1440p,\sdemanding) = 2x（1440p，吃效能）
@@ -284,6 +285,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = 遊戲回讀畫面
 In\sXenia\sCanary = 在\sXenia\sCanary\s中
 Install = 安裝
+Install\sdata\sincomplete = 安裝資料不完整
 Installation\sinterrupted. = 安裝已中斷。
 Installed\spackage\svalidation\sfailed. = 已安裝包的校驗失敗。
 Installing\s = 正在安裝：\s
@@ -692,6 +694,7 @@ game = 個遊戲
 game\sname\sor\sID = 遊戲名稱或\sID
 games = 個遊戲
 incomplete\sresponse = 響應不完整
+incomplete:\s%s\sof\s%s = 不完整：%s\s/\s%s
 invalid\simage = 影像無效
 new = 新
 new||plural = 新

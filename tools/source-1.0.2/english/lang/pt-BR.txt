@@ -26,6 +26,7 @@
 %d\sown\ssettings = %d\sajustes\spróprios
 %d\ssettings\sof\sthis\sgame's\sown = %d\sajustes\spróprios\sdeste\sjogo
 %s\sGB\sfree = %s\sGB\slivres
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s:\sos\sdados\sde\sinstalação\sestão\sincompletos\s(%s:\s%s\sde\s%s).\sNa\sbiblioteca,\spressione\sX\sno\sjogo,\sabra\sa\saba\s"%s",\sselecione\scada\spacote\sde\sinstalação\se\spressione\sTriângulo\s"%s".\sDepois\sinicie\so\sjogo\spara\sinstalar\sde\snovo.
 120\sHz\s(test) = 120\sHz\s(teste)
 1x\s(720p,\snative) = 1x\s(720p,\soriginal)
 2x\s(1440p,\sdemanding) = 2x\s(1440p,\spesado)
@@ -285,6 +286,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = Leitura\sda\simagem\spelo\sjogo
 In\sXenia\sCanary = No\sXenia\sCanary
 Install = Instalar
+Install\sdata\sincomplete = Dados\sde\sinstalação\sincompletos
 Installation\sinterrupted. = Instalação\sinterrompida.
 Installed\spackage\svalidation\sfailed. = Falha\sna\svalidação\sdo\spacote\sinstalado.
 Installing\s = Instalando\s
@@ -694,6 +696,7 @@ game = jogo
 game\sname\sor\sID = nome\sou\sID\sdo\sjogo
 games = jogos
 incomplete\sresponse = resposta\sincompleta
+incomplete:\s%s\sof\s%s = incompleto:\s%s\sde\s%s
 invalid\simage = imagem\sinválida
 new = novo
 new||plural = novos

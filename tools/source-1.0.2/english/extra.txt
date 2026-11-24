@@ -417,6 +417,11 @@ Sends the phone camera's picture to games that show the camera. = Envia a imagem
 Shows the frames per second in a corner. = Mostra os quadros por segundo num canto.
 Shows a notification when you unlock an achievement. = Mostra uma notificação quando você desbloqueia uma conquista.
 Where the game keeps its saves. = Onde o jogo guarda os saves.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Dados de instalação incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: os dados de instalação estão incompletos (%s: %s de %s). Na biblioteca, pressione X no jogo, abra a aba "%s", selecione cada pacote de instalação e pressione Triângulo "%s". Depois inicie o jogo para instalar de novo.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -646,6 +651,11 @@ Sends the phone camera's picture to games that show the camera. = Envia a imagem
 Shows the frames per second in a corner. = Mostra as imagens por segundo num canto.
 Shows a notification when you unlock an achievement. = Mostra uma notificação quando desbloqueia uma conquista.
 Where the game keeps its saves. = Onde o jogo guarda os dados guardados.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Dados de instalação incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: os dados de instalação estão incompletos (%s: %s de %s). Na biblioteca, prima Cruz no jogo, abra o separador "%s", selecione cada pacote de instalação e prima Triângulo "%s". Depois inicie o jogo para voltar a instalar.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -875,6 +885,11 @@ Sends the phone camera's picture to games that show the camera. = Envía la imag
 Shows the frames per second in a corner. = Muestra los fotogramas por segundo en una esquina.
 Shows a notification when you unlock an achievement. = Muestra una notificación al desbloquear un logro.
 Where the game keeps its saves. = Dónde guarda el juego sus partidas.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Datos de instalación incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: los datos de instalación están incompletos (%s: %s de %s). En la biblioteca, pulsa Cruz sobre el juego, abre la pestaña "%s", selecciona cada paquete de instalación y pulsa Triángulo "%s". Después inicia el juego para volver a instalarlo.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -1104,6 +1119,11 @@ Sends the phone camera's picture to games that show the camera. = Envía la imag
 Shows the frames per second in a corner. = Muestra los fotogramas por segundo en una esquina.
 Shows a notification when you unlock an achievement. = Muestra una notificación al desbloquear un logro.
 Where the game keeps its saves. = Dónde guarda el juego sus partidas.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s de %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Datos de instalación incompletos
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: los datos de instalación están incompletos (%s: %s de %s). En la biblioteca, presiona Cruz sobre el juego, abre la pestaña "%s", selecciona cada paquete de instalación y presiona Triángulo "%s". Después inicia el juego para volver a instalarlo.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1333,6 +1353,11 @@ Sends the phone camera's picture to games that show the camera. = Sendet das Kam
 Shows the frames per second in a corner. = Zeigt die Bilder pro Sekunde in einer Ecke.
 Shows a notification when you unlock an achievement. = Zeigt eine Benachrichtigung, wenn ein Erfolg freigeschaltet wird.
 Where the game keeps its saves. = Wo das Spiel seine Spielstände speichert.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = unvollständig: %s von %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Installationsdaten unvollständig
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: Die Installationsdaten sind unvollständig (%s: %s von %s). Drücke in der Bibliothek Kreuz auf dem Spiel, öffne den Tab "%s", wähle jedes Installationspaket aus und drücke Dreieck "%s". Starte danach das Spiel, um es neu zu installieren.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1562,6 +1587,11 @@ Sends the phone camera's picture to games that show the camera. = Envoie l'image
 Shows the frames per second in a corner. = Affiche les images par seconde dans un coin.
 Shows a notification when you unlock an achievement. = Affiche une notification quand un succès est débloqué.
 Where the game keeps its saves. = Où le jeu garde ses sauvegardes.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incomplet : %s sur %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Données d'installation incomplètes
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s : les données d'installation sont incomplètes (%s : %s sur %s). Dans la bibliothèque, appuyez sur Croix sur le jeu, ouvrez l'onglet « %s », sélectionnez chacun de ses paquets d'installation et appuyez sur Triangle « %s ». Lancez ensuite le jeu pour le réinstaller.
 
 [added it]
 Console storage = Memoria della console
@@ -1791,6 +1821,11 @@ Sends the phone camera's picture to games that show the camera. = Invia l'immagi
 Shows the frames per second in a corner. = Mostra i fotogrammi al secondo in un angolo.
 Shows a notification when you unlock an achievement. = Mostra una notifica quando sblocchi un obiettivo.
 Where the game keeps its saves. = Dove il gioco tiene i salvataggi.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = incompleto: %s di %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Dati di installazione incompleti
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: i dati di installazione sono incompleti (%s: %s di %s). Nella libreria premi Croce sul gioco, apri la scheda "%s", seleziona ciascun pacchetto di installazione e premi Triangolo "%s". Poi avvia il gioco per installarlo di nuovo.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -2020,6 +2055,11 @@ Sends the phone camera's picture to games that show the camera. = カメラ映�
 Shows the frames per second in a corner. = 隅に1秒あたりのフレーム数を表示します。
 Shows a notification when you unlock an achievement. = 実績を解除したときに通知を表示します。
 Where the game keeps its saves. = ゲームがセーブデータを保存する場所です。
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 不完全：%s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = インストールデータが不完全です
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：インストールデータが不完全です（%s：%s / %s）。ライブラリでゲームを×で開き、「%s」タブで各インストールパッケージを選んで△「%s」を押してください。その後ゲームを起動すると再インストールされます。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -2249,6 +2289,11 @@ Sends the phone camera's picture to games that show the camera. = 카메라를 �
 Shows the frames per second in a corner. = 모서리에 초당 프레임 수를 표시합니다.
 Shows a notification when you unlock an achievement. = 업적을 달성하면 알림을 표시합니다.
 Where the game keeps its saves. = 게임이 저장 데이터를 보관하는 곳입니다.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 불완전: %s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = 설치 데이터가 불완전합니다
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: 설치 데이터가 불완전합니다(%s: %s / %s). 라이브러리에서 게임을 X로 열고 "%s" 탭에서 각 설치 패키지를 선택한 뒤 △ "%s"를 누르세요. 그런 다음 게임을 시작하면 다시 설치합니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -2478,6 +2523,11 @@ Sends the phone camera's picture to games that show the camera. = Stuurt het cam
 Shows the frames per second in a corner. = Toont de beelden per seconde in een hoek.
 Shows a notification when you unlock an achievement. = Toont een melding als een prestatie wordt ontgrendeld.
 Where the game keeps its saves. = Waar de game zijn opslag bewaart.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = onvolledig: %s van %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Installatiegegevens onvolledig
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: de installatiegegevens zijn onvolledig (%s: %s van %s). Druk in de bibliotheek op Kruisje bij de game, open het tabblad "%s", selecteer elk installatiepakket en druk op Driehoek "%s". Start daarna de game om opnieuw te installeren.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -2707,6 +2757,11 @@ Sends the phone camera's picture to games that show the camera. = Wysyła obraz 
 Shows the frames per second in a corner. = Pokazuje liczbę klatek na sekundę w rogu.
 Shows a notification when you unlock an achievement. = Pokazuje powiadomienie po zdobyciu osiągnięcia.
 Where the game keeps its saves. = Gdzie gra trzyma zapisy.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = niepełna: %s z %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Niepełne dane instalacji
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: dane instalacji są niepełne (%s: %s z %s). W bibliotece naciśnij Krzyżyk na grze, otwórz zakładkę „%s”, zaznacz kolejno jej pakiety instalacyjne i naciśnij Trójkąt „%s”. Potem uruchom grę, aby zainstalować ją ponownie.
 
 [added ru]
 Console storage = Память консоли
@@ -2936,6 +2991,11 @@ Sends the phone camera's picture to games that show the camera. = Отправл
 Shows the frames per second in a corner. = Показывает число кадров в секунду в углу.
 Shows a notification when you unlock an achievement. = Показывает уведомление при получении достижения.
 Where the game keeps its saves. = Где игра хранит сохранения.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = неполный: %s из %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Неполные данные установки
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: данные установки неполные (%s: %s из %s). В библиотеке нажмите «Крест» на игре, откройте вкладку «%s», выберите каждый установочный пакет и нажмите «Треугольник» «%s». Затем запустите игру, чтобы установить её заново.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -3165,6 +3225,11 @@ Sends the phone camera's picture to games that show the camera. = Telefon kamera
 Shows the frames per second in a corner. = Köşede saniyedeki kare sayısını gösterir.
 Shows a notification when you unlock an achievement. = Bir başarım açıldığında bildirim gösterir.
 Where the game keeps its saves. = Oyunun kayıtlarını tuttuğu yer.
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = eksik: %s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = Kurulum verileri eksik
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: kurulum verileri eksik (%s: %s / %s). Kütüphanede oyunun üzerinde Çarpı'ya basın, "%s" sekmesini açın, her kurulum paketini seçip Üçgen "%s" tuşuna basın. Ardından yeniden kurmak için oyunu başlatın.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -3394,6 +3459,11 @@ Sends the phone camera's picture to games that show the camera. = 把手机摄�
 Shows the frames per second in a corner. = 在角落显示每秒帧数。
 Shows a notification when you unlock an achievement. = 解锁成就时显示通知。
 Where the game keeps its saves. = 游戏存放存档的位置。
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 不完整：%s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = 安装数据不完整
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：安装数据不完整（%s：%s / %s）。在游戏库中对该游戏按叉键，打开“%s”标签，选择每个安装包并按三角键“%s”。然后启动游戏以重新安装。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -3623,3 +3693,8 @@ Sends the phone camera's picture to games that show the camera. = 把手機攝�
 Shows the frames per second in a corner. = 在角落顯示每秒影格數。
 Shows a notification when you unlock an achievement. = 解鎖成就時顯示通知。
 Where the game keeps its saves. = 遊戲存放存檔的位置。
+# Fix 148f: a package shorter than its header says (the DLCs tab).
+incomplete: %s of %s = 不完整：%s / %s
+# Fix 148h: an install that stopped (the library's message after the dirty-disc error).
+Install data incomplete = 安裝資料不完整
+%s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：安裝資料不完整（%s：%s / %s）。在遊戲庫中對該遊戲按叉鍵，開啟「%s」分頁，選擇每個安裝套件並按三角鍵「%s」。然後啟動遊戲以重新安裝。

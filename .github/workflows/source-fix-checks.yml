@@ -174,6 +174,11 @@ on:
       - 'tools/check-option-groups.cpp'
       - 'tools/check-settings-tree.cpp'
       - 'tools/check-readability.cpp'
+      - 'tools/check-stfs-cut-short.cpp'
+      - 'tools/check-dlc-incomplete.cpp'
+      - 'tools/check-write-trace.cpp'
+      - 'tools/check-install-notice.cpp'
+      - 'tools/check-write-bench.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

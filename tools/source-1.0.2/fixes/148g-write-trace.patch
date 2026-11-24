@@ -1,0 +1,228 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/filesystem_posix.cc b/.deps/xenia-canary/src/xenia/base/filesystem_posix.cc
+--- a/.deps/xenia-canary/src/xenia/base/filesystem_posix.cc
++++ b/.deps/xenia-canary/src/xenia/base/filesystem_posix.cc
+@@ -12,6 +12,10 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/base/string.h"
+ #include "xenia/xbox.h"
++#include "xbox360ps5/app_identity.hpp"  // fix 148g
++#include "xbox360ps5/write_trace.hpp"  // fix 148g
++#include <chrono>  // fix 148g
++#include <vector>  // fix 148g
+ 
+ #include <assert.h>
+ #include <dirent.h>
+@@ -173,11 +177,64 @@
+   }
+   bool Write(size_t file_offset, const void* buffer, size_t buffer_length,
+              size_t* out_bytes_written) override {
++    // Xbox360PS5 fix 148g: what the write costs here (write_trace.hpp): the
++    // pwrite's time, whether it continues the last write, and with
++    // <data>/write-bounce.on the guest buffer copied to a host buffer first
++    // (the copy timed apart). The first writes of a handle and slow ones are
++    // logged with the file's size and open flags.
++    namespace wt = xbox360ps5::write_trace;
++    if (wt::bounce_state.load() < 0) {
++      struct stat bounce_switch {};
++      wt::bounce_state.store(
++          ::stat(XBOX360PS5_DATA_ROOT "/write-bounce.on", &bounce_switch) == 0
++              ? 1
++              : 0);
++    }
++    const bool bounce = wt::bounce_state.load() == 1;
++    const void* source = buffer;
++    uint64_t copy_ns = 0;
++    thread_local std::vector<uint8_t> bounce_buffer;
++    if (bounce && buffer_length) {
++      const auto copy_start = std::chrono::steady_clock::now();
++      bounce_buffer.resize(buffer_length);
++      std::memcpy(bounce_buffer.data(), buffer, buffer_length);
++      copy_ns = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                             std::chrono::steady_clock::now() - copy_start)
++                             .count());
++      source = bounce_buffer.data();
++    }
++    const auto write_start = std::chrono::steady_clock::now();
+     // Linux pwrite(2) ignores the offset on an O_APPEND descriptor and
+     // appends instead, so an append-only handle has to use write().
+     ssize_t out = append_only_
+-                      ? write(handle_, buffer, buffer_length)
+-                      : pwrite(handle_, buffer, buffer_length, file_offset);
++                      ? write(handle_, source, buffer_length)
++                      : pwrite(handle_, source, buffer_length, file_offset);
++    const uint64_t pwrite_ns =
++        uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                     std::chrono::steady_clock::now() - write_start)
++                     .count());
++    const bool sequential =
++        wt::Sequential(writes_, next_offset_, file_offset, append_only_);
++    ++writes_;
++    if (out > 0) next_offset_ = uint64_t(file_offset) + uint64_t(out);
++    wt::Count(wt::totals, sequential, pwrite_ns, copy_ns);
++    if (wt::ShouldLog(wt::totals, writes_, pwrite_ns)) {
++      struct stat now_stat {};
++      const long long file_size =
++          fstat(handle_, &now_stat) == 0 ? (long long)now_stat.st_size : -1;
++#ifdef O_DIRECT
++      const int direct_flag = O_DIRECT;
++#else
++      const int direct_flag = 0;
++#endif
++      XELOGW("{}", wt::Describe(path().filename().string(), writes_,
++                                file_offset, buffer_length, (long long)out,
++                                file_size,
++                                wt::FlagText(fcntl(handle_, F_GETFL), O_RDONLY,
++                                             O_WRONLY, O_RDWR, O_APPEND,
++                                             O_SYNC, direct_flag),
++                                sequential, pwrite_ns, copy_ns, bounce));
++    }
+     if (out >= 0) {
+       *out_bytes_written = out;
+       return true;
+@@ -194,6 +251,7 @@
+  private:
+   int handle_ = -1;
+   bool append_only_ = false;
++  uint64_t writes_ = 0, next_offset_ = 0;  // fix 148g
+ };
+ 
+ std::unique_ptr<FileHandle> FileHandle::OpenExisting(
+diff --git a/include/xbox360ps5/package_io.hpp b/include/xbox360ps5/package_io.hpp
+--- a/include/xbox360ps5/package_io.hpp
++++ b/include/xbox360ps5/package_io.hpp
+@@ -20,6 +20,8 @@
+ #include <cstdio>
+ #include <string>
+ #include <vector>
++
++#include "xbox360ps5/write_trace.hpp"  // fix 148g
+ 
+ namespace xbox360ps5::package_io {
+ 
+@@ -177,7 +179,8 @@
+   char head[64];
+   std::snprintf(head, sizeof(head), "File I/O (fix 148d), last %.0f s: ", seconds);
+   return std::string(head) + part("disc image reads", d) + "; " + part("drive reads", r) + "; " +
+-         part("drive writes", w) + tail;
++         part("drive writes", w) + tail +
++         write_trace::TakeSummary(write_trace::totals, write_trace::bounce_state.load() == 1);  // fix 148g
+ }
+ 
+ }  // namespace xbox360ps5::package_io
+diff --git a/include/xbox360ps5/write_trace.hpp b/include/xbox360ps5/write_trace.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/write_trace.hpp
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: MIT
++// Fix 148g: what each drive write costs inside the emulator's own write call.
++//
++// Grand Theft Auto V's install wrote 1 MiB per guest NtWriteFile. Each write took 17.5 ms for about
++// 2 GB, then 110 ms, then 0.5-0.6 s (148d). At the same moment the FTP server wrote to the same drive
++// at 15+ MB/s, so the drive is not the limit: something about the emulator's writes is. This measures
++// it in PosixFileHandle::Write itself (base/filesystem_posix.cc), below every layer the guest call
++// passes through:
++//  * per handle: whether each write continues the last (sequential) or jumps;
++//  * the first 3 writes of each handle and every write over 100 ms (60 lines a session at most):
++//    the file, offset, size, bytes written, the file's size (fstat), its open flags (F_GETFL), the
++//    pwrite's time, and the copy time with the bounce switch;
++//  * the bounce switch: with <data>/write-bounce.on the guest's buffer is first copied into a host
++//    buffer of this thread and written from there, so the copy's time (touching guest memory: a
++//    watched or protected page faults there, not inside the kernel's pwrite) and the pwrite's time
++//    are apart. Read once per session.
++// The 30 s "File I/O (fix 148d)" line gains the totals: writes not sequential, pwrite and copy time.
++#pragma once
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xbox360ps5::write_trace {
++
++constexpr uint64_t kSlowNs = 100000000ull;  // 100 ms
++constexpr int kFirstWrites = 3;
++constexpr int kMostLines = 60;
++
++struct Totals {
++  std::atomic<uint64_t> writes{0}, not_sequential{0}, slow{0}, pwrite_ns{0}, copy_ns{0};
++  std::atomic<int> lines{0};
++};
++inline Totals totals;
++
++// A write continues the last one of its handle when it starts where that one ended (the first write
++// of a handle, at any offset, counts as sequential; an append-only handle always continues).
++inline bool Sequential(uint64_t writes_before, uint64_t expected_offset, uint64_t offset, bool append_only) {
++  return append_only || writes_before == 0 || offset == expected_offset;
++}
++
++// Whether a write gets its own line: one of the first writes of its handle, or a slow one, while the
++// session's lines last.
++inline bool ShouldLog(Totals& t, uint64_t writes_of_handle, uint64_t pwrite_ns) {
++  if (writes_of_handle > uint64_t(kFirstWrites) && pwrite_ns <= kSlowNs) return false;
++  return t.lines.fetch_add(1) < kMostLines;
++}
++
++inline void Count(Totals& t, bool sequential, uint64_t pwrite_ns, uint64_t copy_ns) {
++  t.writes.fetch_add(1);
++  if (!sequential) t.not_sequential.fetch_add(1);
++  if (pwrite_ns > kSlowNs) t.slow.fetch_add(1);
++  t.pwrite_ns.fetch_add(pwrite_ns);
++  t.copy_ns.fetch_add(copy_ns);
++}
++
++// The open flags as text (O_ACCMODE, then the ones that change how writes reach the drive).
++inline std::string FlagText(int flags, int rdonly, int wronly, int rdwr, int append, int sync, int direct) {
++  std::string text;
++  const int mode = flags & (rdonly | wronly | rdwr);
++  text = mode == rdwr ? "O_RDWR" : mode == wronly ? "O_WRONLY" : "O_RDONLY";
++  if (flags & append) text += "|O_APPEND";
++  if (sync && (flags & sync)) text += "|O_SYNC";
++  if (direct && (flags & direct)) text += "|O_DIRECT";
++  char hex[24];
++  std::snprintf(hex, sizeof(hex), " (0x%X)", unsigned(flags));
++  return text + hex;
++}
++
++inline std::string Describe(const std::string& file, uint64_t write_number, uint64_t offset, uint64_t size,
++                            long long written, long long file_size, const std::string& flags, bool sequential,
++                            uint64_t pwrite_ns, uint64_t copy_ns, bool bounce) {
++  char text[400];
++  std::snprintf(text, sizeof(text),
++                "Write (fix 148g): %s write %llu at %llu, %llu bytes, wrote %lld, file now %lld bytes, %s, %s, "
++                "pwrite %.1f ms%s",
++                file.c_str(), (unsigned long long)write_number, (unsigned long long)offset,
++                (unsigned long long)size, written, file_size, flags.c_str(),
++                sequential ? "sequential" : "NOT sequential", double(pwrite_ns) / 1e6,
++                bounce ? "" : " (no bounce)");
++  std::string line = text;
++  if (bounce) {
++    char copy[64];
++    std::snprintf(copy, sizeof(copy), ", copy from guest memory %.1f ms", double(copy_ns) / 1e6);
++    line += copy;
++  }
++  return line;
++}
++
++// The totals for the 30 s line, taken (and reset) with it.
++inline std::string TakeSummary(Totals& t, bool bounce) {
++  const uint64_t writes = t.writes.exchange(0), jumps = t.not_sequential.exchange(0), slow = t.slow.exchange(0),
++                 pwrite = t.pwrite_ns.exchange(0), copy = t.copy_ns.exchange(0);
++  if (!writes) return {};
++  char text[220];
++  std::snprintf(text, sizeof(text),
++                "; drive write calls (fix 148g): %llu, %llu not sequential, %llu over 100 ms, pwrite %.1f ms each%s",
++                (unsigned long long)writes, (unsigned long long)jumps, (unsigned long long)slow,
++                double(pwrite) / double(writes) / 1e6, bounce ? "" : ", bounce off");
++  std::string line = text;
++  if (bounce) {
++    char more[64];
++    std::snprintf(more, sizeof(more), ", copy %.1f ms each", double(copy) / double(writes) / 1e6);
++    line += more;
++  }
++  return line;
++}
++
++// The bounce switch, read once.
++inline std::atomic<int> bounce_state{-1};  // -1 not read yet, 0 off, 1 on
++
++}  // namespace xbox360ps5::write_trace

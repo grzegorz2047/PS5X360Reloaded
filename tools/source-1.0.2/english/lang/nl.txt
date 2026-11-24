@@ -25,6 +25,7 @@
 %d\sown\ssettings = %d\seigen\sinstellingen
 %d\ssettings\sof\sthis\sgame's\sown = %d\seigen\sinstellingen\svan\sdeze\sgame
 %s\sGB\sfree = %s\sGB\svrij
+%s:\sits\sinstall\sdata\sis\sincomplete\s(%s:\s%s\sof\s%s).\sIn\sthe\slibrary\spress\sCross\son\sthe\sgame,\sopen\sthe\s%s\stab,\sselect\seach\sof\sits\sinstall\spackages\sand\spress\sTriangle\s(%s).\sThen\sstart\sthe\sgame\sto\sinstall\sit\sagain. = %s:\sde\sinstallatiegegevens\szijn\sonvolledig\s(%s:\s%s\svan\s%s).\sDruk\sin\sde\sbibliotheek\sop\sKruisje\sbij\sde\sgame,\sopen\shet\stabblad\s"%s",\sselecteer\selk\sinstallatiepakket\sen\sdruk\sop\sDriehoek\s"%s".\sStart\sdaarna\sde\sgame\som\sopnieuw\ste\sinstalleren.
 120\sHz\s(test) = 120\sHz\s(test)
 1x\s(720p,\snative) = 1x\s(720p,\sorigineel)
 2x\s(1440p,\sdemanding) = 2x\s(1440p,\szwaar)
@@ -284,6 +285,7 @@ Image\sfilter\s(Plain,\sCAS,\sFSR),\ssharpness,\sanisotropic\sfiltering,\sthe\se
 Image\sreadback\sby\sthe\sgame = Beeld\steruglezen\sdoor\sde\sgame
 In\sXenia\sCanary = In\sXenia\sCanary
 Install = Installeren
+Install\sdata\sincomplete = Installatiegegevens\sonvolledig
 Installation\sinterrupted. = Installatie\sonderbroken.
 Installed\spackage\svalidation\sfailed. = Controle\svan\shet\sgeïnstalleerde\spakket\smislukt.
 Installing\s = Installeren:\s
@@ -692,6 +694,7 @@ game = game
 game\sname\sor\sID = gamenaam\sof\sID
 games = games
 incomplete\sresponse = onvolledig\santwoord
+incomplete:\s%s\sof\s%s = onvolledig:\s%s\svan\s%s
 invalid\simage = ongeldige\safbeelding
 new = nieuw
 new||plural = nieuw

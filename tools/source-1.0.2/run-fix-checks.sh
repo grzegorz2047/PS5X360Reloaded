@@ -165,10 +165,17 @@ checks=(
   check-option-groups.cpp          # fix 149
   check-settings-tree.cpp          # fix 149b
   check-readability.cpp            # fix 149c
+  check-stfs-cut-short.cpp         # fix 148e
+  check-dlc-incomplete.cpp         # fix 148f
+  check-write-trace.cpp            # fix 148g
+  check-install-notice.cpp         # fix 148h
+  check-write-bench.cpp            # fix 148i
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
+  [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -313,6 +320,11 @@ declare -A fix_of=(
   [check-option-groups.cpp]=149
   [check-settings-tree.cpp]=149b
   [check-readability.cpp]=149c
+  [check-stfs-cut-short.cpp]=148e
+  [check-dlc-incomplete.cpp]=148f
+  [check-write-trace.cpp]=148g
+  [check-install-notice.cpp]=148h
+  [check-write-bench.cpp]=148i
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
