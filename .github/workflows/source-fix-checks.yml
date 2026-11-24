@@ -189,6 +189,7 @@ on:
       - 'tools/check-camera-worker.cpp'
       - 'tools/check-mic-array.cpp'
       - 'tools/check-request-pages.cpp'
+      - 'tools/check-page-watch.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

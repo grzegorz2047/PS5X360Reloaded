@@ -180,6 +180,7 @@ checks=(
   check-camera-worker.cpp          # fix 156e
   check-mic-array.cpp              # fix 156f
   check-request-pages.cpp          # fix 156g
+  check-page-watch.cpp             # fix 156h
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -346,6 +347,7 @@ declare -A fix_of=(
   [check-camera-worker.cpp]=156e
   [check-mic-array.cpp]=156f
   [check-request-pages.cpp]=156g
+  [check-page-watch.cpp]=156h
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

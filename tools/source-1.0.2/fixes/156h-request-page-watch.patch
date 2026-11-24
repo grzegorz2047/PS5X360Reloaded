@@ -1,0 +1,225 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -43,6 +43,7 @@
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107
+ #include "xbox360ps5/kinect_diag.hpp"  // fix 108
+ #include "xbox360ps5/pscam_state.hpp"  // fix 156d
++#include "xbox360ps5/page_watch.hpp"  // fix 156h
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+@@ -248,10 +249,13 @@ class CameraDevice {
+     worker_thread_->set_name("Camera Worker");
+     if (XFAILED(worker_thread_->Create())) {worker_thread_.reset();camera_.reset();return;}
+     xbox360ps5::motion::guest_camera_open=true;
++    xbox360ps5::page_watch::reporter = &ReportRequestPageChange;  // fix 156h
+     XELOGW("Virtual Kinect: pose-derived depth frame backend opened (research)");
+   }
+ 
+   ~CameraDevice() {
++    xbox360ps5::page_watch::reporter = nullptr;  // fix 156h
++    xbox360ps5::page_watch::Reset();
+     xbox360ps5::motion::guest_camera_open=false;
+     worker_running_ = false;
+     Notify();
+@@ -351,6 +355,7 @@ class CameraDevice {
+         if (depth_reads_.size()+color_reads_.size() >= 16) return X_STATUS_INSUFFICIENT_RESOURCES;
+         streaming_ = true;
+         last_read_request_ = std::chrono::steady_clock::now();  // fix 156d
++        xbox360ps5::page_watch::Watch(request_ptr);  // fix 156h
+         (stream == CameraStream::kDepth ? depth_reads_ : color_reads_)
+             .push_back(pending);
+       }
+@@ -435,6 +440,21 @@ class CameraDevice {
+     }
+     return true;
+   }
++  // Fix 156h: a refused request's page as the page table has it (the first 8).
++  void NoteRequestPage(uint32_t address) const {
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1) >= 8) return;
++    auto* heap = memory_->LookupHeap(address);
++    HeapAllocationInfo info = {};
++    uint32_t protection = 0;
++    const bool known = heap && heap->QueryRegionInfo(address & ~0xFFFu, &info);
++    if (heap) heap->QueryProtect(address, &protection);
++    XELOGW("Virtual Kinect: request {:08X}: heap {:08X} (page {:X}), protect {:X}, region "
++           "{:08X}+{:X} state {:X}{} (fix 156h)", address, heap ? heap->heap_base() : 0,
++           heap ? heap->page_size() : 0, protection, known ? info.allocation_base : 0,
++           known ? info.region_size : 0, known ? info.state : 0, known ? "" : ", no region");
++  }
++
+   // Fix 156g: makes a request's pages writable while a reply is written into it, and puts
+   // their protection back after.
+   class RequestWriteWindow {
+@@ -653,7 +673,13 @@ class CameraDevice {
+     last_sequence = sequence;
+ 
+     PendingRequest done = read;
+-    if (!IsRequestRange(read.request_ptr,sizeof(X_PSCAM_READ_FRAME_REQUEST))) {done.status=X_STATUS_INVALID_PARAMETER;NoteFailedRead(done,depth,0,"request not mapped");Complete(done);return true;}  // fix 156g: readable is enough
++    if (!IsRequestRange(read.request_ptr,sizeof(X_PSCAM_READ_FRAME_REQUEST))) {  // fix 156g: readable is enough
++      done.status=X_STATUS_INVALID_PARAMETER;
++      NoteFailedRead(done,depth,0,"request not mapped");
++      NoteRequestPage(read.request_ptr);  // fix 156h
++      Complete(done);
++      return true;
++    }
+     auto request = Guest<X_PSCAM_READ_FRAME_REQUEST>(read.request_ptr);
+     const uint32_t buffer = request->buffer_ptr;
+     // Fix 156e: a depth read with a buffer for the packed frame (11-bit
+@@ -706,6 +732,20 @@ class CameraDevice {
+     return true;
+   }
+ 
++  // Fix 156h: a heap change under a page holding an accepted request (page_watch.hpp),
++  // with the guest thread and the caller's return address (the first 24).
++  static void ReportRequestPageChange(const char* op, uint32_t address, uint32_t size,
++                                      uint32_t protect, uint32_t before) {
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1) >= 24) return;
++    auto* state = cpu::ThreadState::Get();
++    auto* context = state ? state->context() : nullptr;
++    auto* thread = XThread::IsInThread() ? XThread::GetCurrentThread() : nullptr;
++    XELOGW("Virtual Kinect: {} {:08X}+{:X} (protect {:X}, was {:X}) covers a camera request "
++           "page; thread {:08X}, lr {:08X} (fix 156h)", op, address, size, protect, before,
++           thread ? thread->handle() : 0, context ? uint32_t(context->lr) : 0);
++  }
++
+   // Fix 156e: a frame read completed with a failure, counted and logged (the first 32).
+   static void NoteFailedRead(const PendingRequest& read, bool depth, uint32_t buffer_size,
+                              const char* why) {
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -28,6 +28,7 @@
+ #include "xbox360ps5/frame_cost.hpp"  // fix 74: watch arming by view
+ #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by caller
+ #include "xbox360ps5/readback_keys.hpp"  // fix 91i: a write to a read-watched page
++#include "xbox360ps5/page_watch.hpp"  // fix 156h: changes under a camera request
+ #endif
+ 
+ // TODO(benvanik): move xbox.h out
+@@ -1257,6 +1258,8 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size,
+     }
+     page_entry.state = kMemoryAllocationReserve | allocation_type;
+   }
++  xbox360ps5::page_watch::Note("AllocFixed", base_address,  // fix 156h
++                               uint64_t(page_count) * page_size_, protect, 0);
+ 
+   // Update free block tracker if any pages transitioned from free.
+   if (had_free_pages) {
+@@ -1442,6 +1445,9 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address,
+     page_entry.state = kMemoryAllocationReserve | allocation_type;
+     unreserved_page_count_--;
+   }
++  xbox360ps5::page_watch::Note(  // fix 156h
++      "AllocRange", heap_base_ + (start_page_number << page_size_shift_),
++      uint64_t(page_count) << page_size_shift_, protect, 0);
+ 
+   *out_address = heap_base_ + (start_page_number << page_size_shift_);
+   return true;
+@@ -1487,6 +1493,10 @@ bool BaseHeap::Decommit(uint32_t address, uint32_t size) {
+   }*/
+ 
+   // Perform table change.
++  xbox360ps5::page_watch::Note(  // fix 156h
++      "Decommit", heap_base_ + start_page_number * page_size_,
++      uint64_t(end_page_number - start_page_number + 1) * page_size_, 0,
++      page_table_[start_page_number].current_protect);
+   for (uint32_t page_number = start_page_number; page_number <= end_page_number;
+        ++page_number) {
+     auto& page_entry = page_table_[page_number];
+@@ -1545,6 +1555,10 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
+   // Perform table change.
+   uint32_t end_page_number =
+       base_page_number + base_page_entry.region_page_count - 1;
++  xbox360ps5::page_watch::Note(  // fix 156h
++      "Release", base_address,
++      uint64_t(base_page_entry.region_page_count) * page_size_, 0,
++      base_page_entry.current_protect);
+   for (uint32_t page_number = base_page_number; page_number <= end_page_number;
+        ++page_number) {
+     auto& page_entry = page_table_[page_number];
+@@ -1704,6 +1718,10 @@ bool BaseHeap::Protect(uint32_t address, uint32_t size, uint32_t protect,
+   }
+ 
+   // Perform table change.
++  xbox360ps5::page_watch::Note(  // fix 156h
++      "Protect", heap_base_ + (start_page_number << page_size_shift_),
++      uint64_t(end_page_number - start_page_number + 1) << page_size_shift_, protect,
++      page_table_[start_page_number].current_protect);
+   for (uint32_t page_number = start_page_number; page_number <= end_page_number;
+        ++page_number) {
+     auto& page_entry = page_table_[page_number];
+diff --git a/include/xbox360ps5/page_watch.hpp b/include/xbox360ps5/page_watch.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/page_watch.hpp
+@@ -0,0 +1,66 @@
++// SPDX-License-Identifier: MIT
++// Fix 156h (Kinect Sports Season Two, #63): which heap operation changes the page table under
++// a camera request. On 1.0.6-work-fix156g2 the darts load still failed 5 frame reads with
++// "request not mapped", and fix 156g's "not writable" line never came: the page holding the
++// NUI library's read requests (83507E78-83508100, in the title's image data) stopped being
++// even readable in the page table, while the title went on using the same page (its NUI state
++// at 83507D50), so the host memory stayed accessible. BaseHeap::Release clears a region's
++// table entries and leaves the host mapping (protect_on_release is off): a release of a
++// region over that page fits. The camera registers the pages of the requests it accepts; the
++// heap reports every allocation, protection, decommit and release that covers one of them
++// through `reporter` (set by the camera, which logs the guest thread and caller).
++// No Xenia headers here.
++#pragma once
++#include <atomic>
++#include <cstdint>
++
++namespace xbox360ps5::page_watch {
++
++constexpr uint32_t kSlots = 8;
++constexpr uint32_t kPageMask = 0xFFFF;  // the 64 KiB guest pages of the image heaps
++inline std::atomic<uint32_t> pages[kSlots] = {};
++inline std::atomic<uint32_t> watched{0};
++// op ("release", ...), first guest address, size, new protect, page table protect before.
++inline std::atomic<void (*)(const char*, uint32_t, uint32_t, uint32_t, uint32_t)> reporter{
++    nullptr};
++
++// Adds the 64 KiB page holding `address`; false when it was there or no slot is free.
++inline bool Watch(uint32_t address) {
++  const uint32_t page = address & ~kPageMask;
++  if (!page) return false;
++  for (auto& slot : pages)
++    if (slot.load() == page) return false;
++  for (auto& slot : pages) {
++    uint32_t empty = 0;
++    if (slot.compare_exchange_strong(empty, page)) {
++      watched.fetch_add(1);
++      return true;
++    }
++  }
++  return false;
++}
++
++// True when [address, address + size) covers a watched page.
++inline bool Hits(uint32_t address, uint64_t size) {
++  if (!watched.load() || !size) return false;
++  const uint64_t end = uint64_t(address) + size;
++  for (auto& slot : pages) {
++    const uint32_t page = slot.load();
++    if (page && uint64_t(page) + kPageMask + 1 > address && page < end) return true;
++  }
++  return false;
++}
++
++inline void Note(const char* op, uint32_t address, uint64_t size, uint32_t protect,
++                 uint32_t before) {
++  if (!Hits(address, size)) return;
++  if (auto* report = reporter.load())
++    report(op, address, uint32_t(size > 0xFFFFFFFFull ? 0xFFFFFFFFull : size), protect, before);
++}
++
++inline void Reset() {
++  for (auto& slot : pages) slot = 0;
++  watched = 0;
++}
++
++}  // namespace xbox360ps5::page_watch
