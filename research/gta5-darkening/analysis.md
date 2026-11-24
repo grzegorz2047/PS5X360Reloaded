@@ -185,6 +185,34 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
   is no ordering change between a resolve and its use from fix 134. Readback batching (fix 133) only
   changes when readback copies are waited for, and Full waits for all of them.
 
+## Conclusion so far (after the memory_boost control run)
+
+- **memory_boost removes the flashes.** Off, they came back (`research/gta5-perf/runs/noboost.log`,
+  readback Off, 19.4-26.8 swaps/s). On, there were none (`boost.log`, a steady 29.3-30 swaps/s).
+  Every run with flashes, in any readback or query mode, had memory_boost off.
+- **Fix for users:** a GTA V preset with `memory_boost=1` and `readback=0` (the coordinator's
+  `fix/gta5-preset`).
+- **Still open: upload path or frame rate.** It matters beyond GTA V. memory_boost Off is the
+  documented fallback ("the 0.5.5 behaviour") for games that break with it on. If the off path can
+  hand the GPU stale or half-written data for a frame, every such game is exposed, and fixes 36, 87,
+  111 and 125 then belong in that path too.
+- **Frame rate cannot be capped on the game side.** The frame rate limit (fix 146) holds pictures on
+  the screen; the game runs as before. So the clean split is the other way round: keep memory_boost
+  On (30 swaps/s) and put back one part of the Off path at a time.
+- "Okno aktualizacji pamięci" (memory_window) and "Optymalizuj bufory dynamiczne" (dynamic_buffers)
+  are both live options, so one drive can test both:
+  1. memory_boost On, readback Off, about 1 minute as usual: no flashes expected.
+  2. "Okno aktualizacji pamięci" = 256 KiB, the Off path's 256 KiB invalidation window, about
+     2 minutes. Flashes back at about 30 swaps/s means the window (re-uploading neighbours of a
+     write) is the cause.
+  3. Window back to 16 KiB, "Optymalizuj bufory dynamiczne" = Off, about 2 minutes. Flashes back
+     means it is the dynamic-buffer watching.
+  4. Neither: it is the content-checked units (fix 125, no UI switch) or the frame rate. A fix 158b
+     would then add a switch for fix 125 and the invalidation lines.
+- Put `hdr-trace.txt` = `on` on the fix 158 image for that drive. Its jump lines, in the console
+  clock, then show which step made the brightness values jump, even where a flash is hard to see.
+  The swap rate per step is in the 30 s lines.
+
 ## Upstream
 
 - No public report of brief global darkening in GTA V was found:
