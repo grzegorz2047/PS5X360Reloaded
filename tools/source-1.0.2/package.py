@@ -129,11 +129,11 @@ LICENCES = [
 # package-art/README.md. The sizes are the official package's.
 ART = [
     ('icon0.png', 'sce_sys/icon0.png', (512, 512),
-     '4228bd442a3c803668c92fa211bf39ae69f1789d770bd22325ed2a5ef6499e24'),
+     '12a4ccc54cff625a4576c39336a15f093ab046b5965639975d08d29a39d3a41f'),
     ('pic0.png', 'sce_sys/pic0.png', (3840, 2160),
-     'ad4017e8f303ae57f7d34f4fd38076ee6d7584a9d81fc2a0505f8605384ed142'),
+     'ecd2f37967541d1e33bc995c52ba27cf983f82fe88aa8e2b6a19f6ce8e020851'),
     ('pic1.png', 'sce_sys/pic1.png', (1920, 1080),
-     '60588bb128b50c9fb9275628f6944c1d1959eba21b1d8a5d07abba1dd5501ec7'),
+     'f9c26b190a2a3d427e7ab233009835df03f3082292d04dde26ce4e827a4e9db7'),
 ]
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 # The package's files the repository also carries, at its root, in the commit a release tag points

@@ -88,9 +88,9 @@ RELEASE_PARAM = (OFFICIAL_PARAM.replace(b'"conceptId": "50011"', b'"conceptId": 
                   .replace(b'"titleName": "PS5X360"', b'"titleName": "TrinityX360"')
                   .replace(b'"titleId": "PPSA50011"', b'"titleId": "PPSA83600"'))
 # The reviewed TrinityX360 art (package-art/make_art.py): file, (width, height), SHA-256.
-ART = {'icon0.png': ((512, 512), '4228bd442a3c803668c92fa211bf39ae69f1789d770bd22325ed2a5ef6499e24'),
-       'pic0.png': ((3840, 2160), 'ad4017e8f303ae57f7d34f4fd38076ee6d7584a9d81fc2a0505f8605384ed142'),
-       'pic1.png': ((1920, 1080), '60588bb128b50c9fb9275628f6944c1d1959eba21b1d8a5d07abba1dd5501ec7')}
+ART = {'icon0.png': ((512, 512), '12a4ccc54cff625a4576c39336a15f093ab046b5965639975d08d29a39d3a41f'),
+       'pic0.png': ((3840, 2160), 'ecd2f37967541d1e33bc995c52ba27cf983f82fe88aa8e2b6a19f6ce8e020851'),
+       'pic1.png': ((1920, 1080), 'f9c26b190a2a3d427e7ab233009835df03f3082292d04dde26ce4e827a4e9db7')}
 # The official package's user docs that name its folder (shortened; the lines naming it verbatim).
 OFFICIAL_DOCS = {
     B + 'INSTALLATION.md': b'# Installation and usage\n\n4. Copy the **entire** `PPSA50011` folder to `/data/homebrew/`. '
