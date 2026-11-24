@@ -185,6 +185,7 @@ checks=(
   check-xex-dll-heap.cpp           # fix 156j
   check-diag-r31.cpp               # fixes 156k and 156m
   check-nui-identity.cpp           # fixes 156l and 156n
+  check-diag-stuck-dump.cpp        # fix 156o
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -356,6 +357,7 @@ declare -A fix_of=(
   [check-xex-dll-heap.cpp]=156j
   [check-diag-r31.cpp]="156k 156m"
   [check-nui-identity.cpp]="156l 156n"
+  [check-diag-stuck-dump.cpp]=156o
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

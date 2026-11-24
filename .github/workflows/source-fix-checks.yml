@@ -194,6 +194,7 @@ on:
       - 'tools/check-xex-dll-heap.cpp'
       - 'tools/check-diag-r31.cpp'
       - 'tools/check-nui-identity.cpp'
+      - 'tools/check-diag-stuck-dump.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
