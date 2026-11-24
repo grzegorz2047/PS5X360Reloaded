@@ -419,8 +419,6 @@ Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe
 Original\sdashboard = Origineel\sdashboard
 Other\scharacters = Andere\stekens
 Overscan\scrop = Overscan\sbijsnijden
-PS5X360Reloaded\sGuide = PS5X360Reloaded-gids
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded:\sexperimentele\sXbox\s360-emulator\svoor\sPlayStation\s5.
 Package\scopy\sfailed. = Pakket\skopiëren\smislukt.
 Patches = Patches
 Per\sgame = Per\sgame
@@ -623,6 +621,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = Touchpad-klik,\strillen\
 Touchpad:\semulator\sguide = Touchpad:\sgids\svan\sde\semulator
 Trial = Proefversie
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = Driehoek\svoegt\sde\shuidige\smap\stoe.\sRondje\sgaat\seen\sniveau\somhoog.
+TrinityX360\sGuide = TrinityX360-gids
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360:\sexperimentele\sXbox\s360-emulator\svoor\sPlayStation\s5.
 Turn\soff = Uitschakelen
 Turn\son = Inschakelen
 Turn\son\sand\splay = Inschakelen\sen\sspelen

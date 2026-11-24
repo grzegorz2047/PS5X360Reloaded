@@ -419,8 +419,6 @@ Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe
 Original\sdashboard = 원래\s대시보드
 Other\scharacters = 기타\s문자
 Overscan\scrop = 오버스캔\s자르기
-PS5X360Reloaded\sGuide = PS5X360Reloaded\s가이드
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded:\sPlayStation\s5용\s실험적\sXbox\s360\s에뮬레이터.
 Package\scopy\sfailed. = 패키지\s복사에\s실패했습니다.
 Patches = 패치
 Per\sgame = 게임별
@@ -623,6 +621,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = 터치패드\s클릭,\s�
 Touchpad:\semulator\sguide = 터치패드:\s에뮬레이터\s가이드
 Trial = 체험판
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = △는\s현재\s폴더를\s추가합니다.\s○는\s한\s단계\s위로\s갑니다.
+TrinityX360\sGuide = TrinityX360\s가이드
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360:\sPlayStation\s5용\s실험적\sXbox\s360\s에뮬레이터.
 Turn\soff = 끄기
 Turn\son = 켜기
 Turn\son\sand\splay = 켜고\s플레이

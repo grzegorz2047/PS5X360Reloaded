@@ -25,7 +25,8 @@ Portuguese (Brazil) as an ordinary translation (pt-BR.txt):
     comments that quote Portuguese interface text changed to the English (TEXT_EDITS).
   * english/lang/<code>.txt for every interface language: the language files keyed by English.
     The eboot reads them from /app0/assets/lang/ (fixes/README.md). Keys that a later fix renames
-    (RENAMES: fix 46, PS5X360Reloaded's own title ID and name; fix 54, the measurement's 10 s) are written renamed, each
+    (RENAMES: fix 46, PS5X360Reloaded's own title ID; fixes/199-trinityx360-name.patch, the name TrinityX360 since 1.0.6;
+    fix 54, the measurement's 10 s) are written renamed, each
     language's text with the same replacement; fix 25's code keeps the keys it was made with.
 
 Inputs: --tree, an assembled tree (assemble.py) with fixes up to 24; when fix 25 is already
@@ -118,7 +119,9 @@ NOT_KEYS = []
 # text must be in the key and in each language's translation (a translation that dropped it stops
 # the script), and the renamed key must be no other key.
 # Fix 46 (fixes/46-ps5x360reloaded-identity.patch): PS5X360Reloaded has a title ID and a folder of
-# its own (PPSA83600) and its own name; "PS5X360/saves" on a drive (fix 27) stays as it is.
+# its own (PPSA83600) and its own name; "PS5X360/saves" on a drive (fix 27) stays as it is. The name
+# is TrinityX360 since 1.0.6 (fixes/199-trinityx360-name.patch, which renames fix 46's
+# Tr("PS5X360Reloaded ...") keys): the two keys that carry the name are written with it.
 RENAMES = [
     ('Copy your dash.xex to /data/homebrew/PPSA50011/dashboard.', 'PPSA50011', 'PPSA83600', 46),
     ('On: the game finds the DLC. Off: kept, but the game does not see it. Copy new packages to '
@@ -129,8 +132,8 @@ RENAMES = [
      'for the game without an update do not apply while one is active.', 'PPSA50011', 'PPSA83600', 46),
     ('Place .patch.toml files (Xenia Canary format) in /data/homebrew/PPSA50011/assets/patches/.',
      'PPSA50011', 'PPSA83600', 46),
-    ('PS5X360 Guide', 'PS5X360', 'PS5X360Reloaded', 46),
-    ('PS5X360: experimental Xbox 360 emulator for PlayStation 5.', 'PS5X360', 'PS5X360Reloaded', 46),
+    ('PS5X360 Guide', 'PS5X360', 'TrinityX360', '199-trinityx360-name'),
+    ('PS5X360: experimental Xbox 360 emulator for PlayStation 5.', 'PS5X360', 'TrinityX360', '199-trinityx360-name'),
     # Fix 54: the guide's measurement samples for 10 s (every translation has its one "5").
     ('Measure performance (5 s)', '5', '10', 54),
 ]

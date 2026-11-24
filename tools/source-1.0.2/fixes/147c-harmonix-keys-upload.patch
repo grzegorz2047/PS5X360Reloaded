@@ -71,7 +71,7 @@ diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
 +// Fix 147c: the page that takes the Harmonix music keys (harmonix_keys.hpp). Only keys whose
 +// SHA-256 matches a built-in fingerprint are kept; the texts come translated in __KEYS_BOOT__.
 +const char kKeysPage[] = R"HTML(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-+<title>PS5X360Reloaded</title><style>
++<title>TrinityX360</title><style>
 +body{font-family:system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:16px;max-width:720px}
 +h1{font-size:20px}p{color:#bbb;line-height:1.4}textarea{width:100%;height:180px;background:#222;color:#eee;border:1px solid #444;border-radius:6px;font-family:monospace;font-size:12px;box-sizing:border-box}
 +button{margin-top:10px;padding:10px 18px;font-size:16px;border:0;border-radius:6px;background:#2a7;color:#fff}code{color:#8ce;word-break:break-all}#out{margin-top:12px;font-weight:600}

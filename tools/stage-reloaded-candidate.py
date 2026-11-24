@@ -1,4 +1,5 @@
-"""Stages a PS5X360Reloaded (PPSA83600) console test package from a build-source-1.0.2.yml artifact.
+"""Stages a PPSA83600 console test package (TrinityX360, PS5X360Reloaded until 1.0.5) from a
+build-source-1.0.2.yml artifact.
 
     python -I tools/stage-reloaded-candidate.py --base <work-dir>/base/PPSA50011 \
         --artifact <work-dir>/art-<label> --label <label> \
@@ -9,7 +10,9 @@
             works the same (they are replaced anyway).
 --artifact  the downloaded artifact folder (contains src102-out/eboot.bin, eboot.elf, lang/*.txt)
 --label     the label BUILD_VERSION had (1.0.5-work-fix91e, 1.0.5_candidate_62, ...); the ELF must
-            carry "PS5X360Reloaded v<label>"
+            carry the home-screen label of --package-repo's package.py (HOME_LABEL: "TrinityX360
+            v<label>" since the rename, "PS5X360Reloaded v<label>" for a package.py without it), and
+            no older name's label (its OFFICIAL_LABEL_RE)
 --package-repo  a checkout with tools/source-1.0.2/package.py (the release branches have it);
             it supplies PPSA83600's param.json, art and the doc renames
 --out       an empty or disposable folder; <out>/PPSA83600 is written
@@ -63,11 +66,16 @@ def main():
 
     out_dir = a.artifact / 'src102-out'
     elf = (out_dir / 'eboot.elf').read_bytes()
-    want = f'PS5X360Reloaded v{a.label}'.encode() + b'\0'
+    # The package's own label: a build with the rename to TrinityX360 goes with a package.py that
+    # names it (HOME_LABEL), an older build with an older package.py.
+    want = getattr(package, 'HOME_LABEL', b'PS5X360Reloaded v') + a.label.encode() + b'\0'
     if want not in elf:
-        sys.exit(f'eboot.elf does not carry {want!r}: wrong artifact or wrong label')
-    if package.OFFICIAL_LABEL_RE.search(elf):
-        sys.exit('eboot.elf carries the official "PS5X360 v<digit>" label')
+        sys.exit(f'eboot.elf does not carry {want!r}: wrong artifact, wrong label, or a package repo '
+                 'of the other name (TrinityX360 since 1.0.6, PS5X360Reloaded before)')
+    found = package.OFFICIAL_LABEL_RE.search(elf)
+    if found:
+        sys.exit(f'eboot.elf carries an older name\'s label ({elf[found.start():found.end() + 8]!r}): '
+                 'the official "PS5X360 v<digit>", or PS5X360Reloaded\'s for a TrinityX360 package')
     langs = sorted((out_dir / 'lang').glob('*.txt'))
     if len(langs) != LANG_FILES:
         sys.exit(f'{len(langs)} language files in the artifact, expected {LANG_FILES}')
@@ -101,6 +109,15 @@ def main():
         param.write_bytes(package.param_json(param.read_bytes()))
     for target, data in package.art_files().items():
         (app / target).write_bytes(data)
+    # No picture of the official package's PS5X360 logo stays in the image (package.py's
+    # OFFICIAL_LOGOS; an older package.py without it checks nothing).
+    logos = getattr(package, 'OFFICIAL_LOGOS', {})
+    if logos:
+        import hashlib
+        left = sorted(str(f.relative_to(app)) for f in (app / 'assets').rglob('*')
+                      if f.is_file() and hashlib.sha256(f.read_bytes()).hexdigest() in logos)
+        if left:
+            sys.exit(f'the stage still has the official PS5X360 logo pictures: {", ".join(left)}')
     for name, count in package.DOC_RENAMES:
         f = app / name
         data = f.read_bytes()

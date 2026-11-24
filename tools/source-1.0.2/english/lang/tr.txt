@@ -419,8 +419,6 @@ Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe
 Original\sdashboard = Orijinal\spano
 Other\scharacters = Diğer\skarakterler
 Overscan\scrop = Overscan\skırpma
-PS5X360Reloaded\sGuide = PS5X360Reloaded\sRehberi
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded:\sPlayStation\s5\siçin\sdeneysel\sXbox\s360\semülatörü.
 Package\scopy\sfailed. = Paket\skopyalama\sbaşarısız\soldu.
 Patches = Yamalar
 Per\sgame = Oyuna\sgöre
@@ -623,6 +621,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = Dokunmatik\syüzey\stık
 Touchpad:\semulator\sguide = Dokunmatik\syüzey:\semülatör\srehberi
 Trial = Deneme
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = Üçgen\sgeçerli\sklasörü\sekler.\sDaire\sbir\süst\sdüzeye\sçıkar.
+TrinityX360\sGuide = TrinityX360\sRehberi
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360:\sPlayStation\s5\siçin\sdeneysel\sXbox\s360\semülatörü.
 Turn\soff = Kapat
 Turn\son = Aç
 Turn\son\sand\splay = Aç\sve\soyna
