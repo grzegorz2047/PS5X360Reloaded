@@ -73,7 +73,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-ca
 diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui.hpp
 --- a/include/xbox360ps5/virtual_nui.hpp
 +++ b/include/xbox360ps5/virtual_nui.hpp
-@@ -80,6 +80,22 @@ inline NuiBinding LiveNuiBinding(bool kinect_title, uint32_t signed_in_mask) {
+@@ -83,6 +83,22 @@ inline NuiBinding LiveNuiBinding(bool kinect_title, uint32_t signed_in_mask) {
        !(signed_in_mask & (1u << nui_binding.user_index))) return {};
    return nui_binding;
  }
@@ -96,7 +96,7 @@ diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui
  // Fix 57: a Kinect game asked for its camera while "Camera motion" was off. The title
  // side shows the player how to turn it on (set at start-up; called once per game).
  inline void (*kinect_needed)() = nullptr;
-@@ -93,5 +109,6 @@ inline void ResetVirtualNui() {
+@@ -96,5 +112,6 @@ inline void ResetVirtualNui() {
    nui_identity_callback = 0;
    nui_identity_notifications = 0;
    kinect_needed_reported = false;

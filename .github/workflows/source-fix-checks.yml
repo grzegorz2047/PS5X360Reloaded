@@ -187,6 +187,7 @@ on:
       - 'tools/check-nui-elevation.cpp'
       - 'tools/check-pscam-state.cpp'
       - 'tools/check-camera-worker.cpp'
+      - 'tools/check-mic-array.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

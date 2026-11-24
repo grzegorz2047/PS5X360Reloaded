@@ -46,7 +46,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-ca
 diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui.hpp
 --- a/include/xbox360ps5/virtual_nui.hpp
 +++ b/include/xbox360ps5/virtual_nui.hpp
-@@ -46,6 +46,31 @@ inline bool VirtualNuiCameraLive(bool kinect_title) {
+@@ -46,6 +46,34 @@ inline bool VirtualNuiCameraLive(bool kinect_title) {
        std::chrono::steady_clock::now() - nui_binding.delivered <=
            std::chrono::milliseconds(500);
  }
@@ -60,11 +60,14 @@ diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui
 +  return kinect_title && enabled.load() && guest_camera_open.load() &&
 +      guest_skeleton_bound.load();
 +}
-+// XamNuiGetDeviceStatus's answer for the virtual device. status_bits: 1, the bit the system's
-+// XNuiTitleInitialize takes for a ready device (4 and 0x40 without 1 send the player to the
-+// troubleshooter; Xenia's own answer for an initialised Kinect is 1), and 4, what the virtual
-+// device said before (Kinect Sports Season Two got it and played). No microphone is emulated.
-+constexpr uint32_t kVirtualNuiStatusBits = 0x5;
++// XamNuiGetDeviceStatus's answer for the virtual device. status_bits 0x3, as titles read them
++// (Zumba Fitness Core's default.xex): 0x1 connected (82278688: without it 0x8007048F, "device
++// not connected"; Xenia's own answer for an initialised Kinect is 1) and 0x2 ready (Zumba's
++// per-frame Kinect update, 82332650, which is the only caller of its skeleton read, runs only
++// with it: with 4 it read no frame at all; two fallbacks there default the bits to 2). 4 is
++// not set: no title read so far tests it, and with 4 and 0x40 but no 1 the system's
++// XNuiTitleInitialize sends the player to the troubleshooter. No microphone is emulated.
++constexpr uint32_t kVirtualNuiStatusBits = 0x3;
 +constexpr uint32_t kNuiDeviceNotConnected = 0xC0050006;
 +constexpr uint32_t kNuiStatusNotPresent = 0xC000009D;
 +struct NuiDeviceStatus {

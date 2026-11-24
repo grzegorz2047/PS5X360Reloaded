@@ -15,8 +15,9 @@
 //  (b) the 500 ms rule stays for the player binding: VirtualNuiCameraLive and LiveNuiBinding
 //      want a frame just delivered;
 //  (c) VirtualNuiStatus: connected is success, camera and tilt success, no microphone,
-//      status bits 5 (1, the system's "ready" bit, and 4, the earlier answer); not connected
-//      is 0xC0050006 with no bits;
+//      status bits 0x3 as Zumba's default.xex reads them (0x1 connected: 82278688; 0x2 ready:
+//      its per-frame Kinect update 82332650, the only path to its skeleton read, needs it;
+//      with 5 it read no frame); not connected is 0xC0050006 with no bits;
 //  (d) the tree: XamNuiGetDeviceStatus and XamNuiIsDeviceReady answer from it in the virtual
 //      mode, the first 16 answers and then each change are logged, LiveNuiBinding keeps the
 //      frame rule;
@@ -106,7 +107,7 @@ static void CheckStatus() {
   CHECK(on.result == 0);
   CHECK(on.camera_status == 0 && on.tilt_status == 0);
   CHECK(on.mic_status == 0xC000009Du);
-  CHECK(on.status_bits == 5u && (on.status_bits & 1u) && (on.status_bits & 4u));
+  CHECK(on.status_bits == 3u && (on.status_bits & 1u) && (on.status_bits & 2u));
   CHECK(!(on.status_bits & 0x40u));  // never "4 and 0x40 without 1" (the troubleshooter)
   const m::NuiDeviceStatus off = m::VirtualNuiStatus(false);
   CHECK(off.result == 0xC0050006u);
@@ -140,7 +141,7 @@ static void CheckTree() {
   CHECK(!Has(ready, "VirtualNuiCameraLive"));
   const std::string binding = Body(header, "inline NuiBinding LiveNuiBinding(");
   CHECK(Has(binding, "if (!VirtualNuiCameraLive(kinect_title)) return {};"));
-  CHECK(Has(header, "constexpr uint32_t kVirtualNuiStatusBits = 0x5;"));
+  CHECK(Has(header, "constexpr uint32_t kVirtualNuiStatusBits = 0x3;"));
 }
 
 // (e) the answer a title gets from XamNuiGetDeviceStatus on each poll.
@@ -155,7 +156,7 @@ static void CheckLateCamera() {
   CHECK(Poll() == 0u);          // the next poll: connected, no frame delivered
   CHECK(!m::VirtualNuiCameraLive(true));
   for (int frame = 0; frame < 30; ++frame) CHECK(Poll() == 0u);
-  CHECK(m::VirtualNuiStatus(true).status_bits == 5u);
+  CHECK(m::VirtualNuiStatus(true).status_bits == 3u);
   // Nike+: one question, with the camera open and the skeleton bound, no frame yet.
   m::ResetVirtualNui();
   SetDevice(true, true, true);
