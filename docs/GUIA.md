@@ -1,8 +1,9 @@
 > Translated from the original author's Portuguese text.
 
-# PS5X360 — user guide
+# TrinityX360 — user guide
 
-Experimental Xbox 360 emulator for PlayStation 5, based on Xenia Canary.
+Experimental Xbox 360 emulator for PlayStation 5, based on PS5X360 by BrinooTk and on Xenia
+Canary (named PS5X360Reloaded until v1.0.5; title id `PPSA83600`).
 No games, BIOS or keys come with the emulator: use copies of your own games.
 
 ## What you need
@@ -12,14 +13,14 @@ No games, BIOS or keys come with the emulator: use copies of your own games.
 
 ## Installation
 
-1. Copy the `PPSA50011` folder to `/data/homebrew/PPSA50011` on the PS5.
+1. Copy the `PPSA83600` folder to `/data/homebrew/PPSA83600` on the PS5.
 2. ShadowMountPlus registers the title on its own; it shows up in the menu as
-   **PS5X360**.
+   **TrinityX360**.
 
 ## Games
 
 Each game goes in its own folder, inside
-`/data/homebrew/PPSA50011/assets/roms/`:
+`/data/homebrew/PPSA83600/assets/roms/`:
 
 ```
 roms/Sonic the Hedgehog (2006)/default.xex
@@ -125,7 +126,7 @@ disabled. To enable one: Triangle on the game → choose the patch → X.
   `/download0/xbox360ps5/LOGS`. Older runs are preserved. Large
   sessions also use three `.partN.log` files; send the whole set for the session.
 - With the app open, FTP normally reaches
-  `/mnt/sandbox/PPSA50011_000/download0/xbox360ps5/LOGS`. The suffix may vary.
+  `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5/LOGS`. The suffix may vary.
 - `python tools/console.py game-logs --host IP_DO_PS5` downloads the logs and builds
   a ZIP in `build`, ready to share (`IP_DO_PS5` = the PS5's IP address).
 - On Windows with Python installed, you can also open

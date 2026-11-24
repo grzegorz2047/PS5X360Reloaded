@@ -1,8 +1,14 @@
 # Installation and usage
 
+> TrinityX360 (named PS5X360Reloaded until v1.0.5) is an Xbox 360 emulator for the PS5, based on
+> [PS5X360](https://github.com/BrinooTk/PS5X360) by BrinooTk and on
+> [Xenia Canary](https://github.com/xenia-canary/xenia-canary). Its title id is `PPSA83600`, so its
+> folder is `/data/homebrew/PPSA83600`; the official PS5X360 is `PPSA50011` and stays installed
+> beside it.
+
 ## Visible log folder (development v0.4.2-preview)
 
-Game-session files prefer `/data/homebrew/PPSA50011/logs`. Each filename includes
+Game-session files prefer `/data/homebrew/PPSA83600/logs`. Each filename includes
 the game name, source key and session date. The file header includes title ID,
 source path and emulator version. Every launch starts a separate file.
 
@@ -20,11 +26,11 @@ Early startup logs are collected separately as sandbox-prefixed boot files.
 
 ## Install the release
 
-1. Download the latest **PPSA50011.zip** from the [GitHub Releases page](https://github.com/BrinooTk/PS5X360/releases). GitHub's automatic “Source code” archives are not the installable build.
-2. Extract the ZIP. You should see `PPSA50011`, containing the executable, assets, installation guide, release notes and license notices.
+1. Download the latest **PPSA83600.zip** from the [GitHub Releases page](https://github.com/grzegorz2047/TrinityX360/releases). GitHub's automatic “Source code” archives are not the installable build.
+2. Extract the ZIP. You should see `PPSA83600`, containing the executable, assets, installation guide, release notes and license notices.
 3. Connect your FTP client to your PS5's IP address and configured FTP port.
-4. Copy the **entire** `PPSA50011` folder to `/data/homebrew/`. The final executable path must be `/data/homebrew/PPSA50011/eboot.bin`.
-5. Allow ShadowMountPlus to register the title. Open **PS5X360** from the PS5 home screen.
+4. Copy the **entire** `PPSA83600` folder to `/data/homebrew/`. The final executable path must be `/data/homebrew/PPSA83600/eboot.bin`.
+5. Allow ShadowMountPlus to register the title. Open **TrinityX360** from the PS5 home screen.
 
 Keep `sce_module`, `sce_sys` and `assets` alongside `eboot.bin`. Copying only the executable is insufficient.
 
@@ -33,7 +39,7 @@ Keep `sce_module`, `sce_sys` and `assets` alongside `eboot.bin`. Copying only th
 Use a separate folder for every game inside:
 
 ```text
-/data/homebrew/PPSA50011/assets/roms/
+/data/homebrew/PPSA83600/assets/roms/
 ```
 
 Examples:
@@ -167,7 +173,7 @@ After updating, reopen the title so it loads the new executable. Existing settin
 | Symptom | What to check |
 | --- | --- |
 | No games listed | Correct `assets/roms` path, one folder per game, complete game files, then refresh the list |
-| Title missing from home screen | Complete folder copied to `/data/homebrew/PPSA50011`; check your working ShadowMountPlus setup |
+| Title missing from home screen | Complete folder copied to `/data/homebrew/PPSA83600`; check your working ShadowMountPlus setup |
 | Old interface after an update | Fully close and reopen the emulator |
 | Black screen, crash or graphical corruption | Disable patches; note the exact scene; check [compatibility notes](COMPATIBILITY.md) |
 | Cover download fails | Internet/DNS access; use local artwork as an alternative |
@@ -175,7 +181,7 @@ After updating, reopen the title so it loads the new executable. Existing settin
 ### Saved data (v0.5.4-preview)
 
 Open **Settings > Saved data** to see the active directory and data grouped by
-game and profile. The preferred location is `/data/homebrew/PPSA50011/saves`.
+game and profile. The preferred location is `/data/homebrew/PPSA83600/saves`.
 If direct `/data` access is blocked, `/app0/saves` is tried through the title's
 installation mount. The UI may display that equivalent mount path.
 The folder also contains profiles and achievements; back it up as a complete
@@ -190,7 +196,7 @@ Do not delete the old content until your saves and profiles have been checked.
 
 ### Separate game logs
 
-Logs prefer `/data/homebrew/PPSA50011/logs/`. If that location is inaccessible,
+Logs prefer `/data/homebrew/PPSA83600/logs/`. If that location is inaccessible,
 the title uses `/app0/logs/`, then `/download0/xbox360ps5/LOGS/` as a fallback.
 Each launch creates a new file containing the selected game's name, a source
 identifier, UTC date/time and a collision counter. Its header includes the
@@ -204,9 +210,9 @@ the original session file; errors before game selection remain in `boot.log`.
 Old sessions are kept until you remove them. Detailed logs slow games down;
 enable them only while diagnosing a problem.
 
-To download through FTP **while PS5X360 is open**, browse to the title sandbox,
-usually `/mnt/sandbox/PPSA50011_000/download0/xbox360ps5/LOGS/`.
-The sandbox suffix may vary. The persistent `/user/download/PPSA50011/download0.dat`
+To download through FTP **while TrinityX360 is open**, browse to the title sandbox,
+usually `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5/LOGS/`.
+The sandbox suffix may vary. The persistent `/user/download/PPSA83600/download0.dat`
 is a mounted image, not a plain directory to browse. Log files remain stored
 between runs, but the FTP sandbox mount may disappear when the title closes.
 

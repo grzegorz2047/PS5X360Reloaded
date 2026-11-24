@@ -1,6 +1,6 @@
 # Credits and source origins
 
-PS5X360 brings together an emulator core and native PS5 platform work. Upstream authors retain credit for their components.
+TrinityX360 (named PS5X360Reloaded until v1.0.5), based on PS5X360 by BrinooTk and on Xenia Canary, brings together an emulator core and native PS5 platform work. Upstream authors retain credit for their components.
 
 | Component | Source / role |
 | --- | --- |

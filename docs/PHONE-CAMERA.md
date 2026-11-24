@@ -35,9 +35,9 @@ a CA certificate through Security settings. On iOS install its profile, then exp
 enable full trust in Certificate Trust Settings. Compare its fingerprint to
 `public/certificate-receipt.json`. Never share `runtime/keys/relay.key`.
 
-Copy `public/phone-camera.conf` into `/data/homebrew/PPSA50011/phone-camera.conf`.
+Copy `public/phone-camera.conf` into `/data/homebrew/PPSA83600/phone-camera.conf`.
 Copy `runtime/phone-camera-ca.crt` into
-`/data/homebrew/PPSA50011/assets/phone-camera-ca.crt`. Restart the emulator if needed.
+`/data/homebrew/PPSA83600/assets/phone-camera-ca.crt`. Restart the emulator if needed.
 The PS5 QR settings page's Camera tab can now open your HTTPS phone relay.
 Alternatively open `https://YOUR_PC_LAN_IP:8781/` directly. Enter the PS5 pairing key,
 connect, select front or back camera and grant camera permission.

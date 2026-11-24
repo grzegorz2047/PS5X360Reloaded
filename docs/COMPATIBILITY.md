@@ -1,6 +1,6 @@
 # Compatibility — v0.5.6 (2026-10-06)
 
-PS5X360 is functional on the development console, but **game compatibility is still being refined**. A boot screen or menu is not evidence of complete gameplay compatibility.
+TrinityX360 is functional on the development console, but **game compatibility is still being refined**. A boot screen or menu is not evidence of complete gameplay compatibility.
 
 ## Evidence and known issues
 
