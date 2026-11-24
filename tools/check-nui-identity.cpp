@@ -5,17 +5,23 @@
 // NuiIdentityGetEnrollmentInformation 827D8B58); its face recognition never completed on the
 // virtual camera, so the title stayed at "Identification in progress". Identify now answers the
 // tracked body on the next skeleton frame: "frame processed", then "complete" with enrollment 0
-// for the signed-in profile, which GetEnrollmentInformation reports.
+// for the signed-in profile, which GetEnrollmentInformation reports. Fix 156n
+// (156n-identify-pending.patch): Identify answers E_PENDING, as the library does for a queued
+// job (the script waits for the callback only then), and the answer comes kAnswerDelayFrames
+// skeleton frames later, after the script's wait cleared its result tables.
 //
 //   check-nui-identity        run from an assembled tree's root
 //
 //  (a) the shapes: both functions found in synthetic code, a function missing one mark is not,
 //      a mark in the next function is not borrowed;
-//  (b) Identify's checks and queue (flags, untracked body, no callback, duplicates, the limit);
+//  (b) Identify's checks and queue (flags, untracked body, no callback, duplicates, the limit,
+//      E_PENDING and the delay);
 //      GetEnrollmentInformation; the profile slot;
 //  (c) the messages, read by a model of Fighters Uncaged's callback (8219B110) and its Lua
 //      getters: the result is set, enrollment 0, the profile's user index;
-//  (d) the tree: the handlers, the binding with the skeleton function, the delivery after the
+//  (d) a model of the script's identification states: 156l's S_OK never reaches the wait,
+//      156n's E_PENDING and delayed answer are read;
+//  (e) the tree: the handlers, the binding with the skeleton function, the delivery after the
 //      skeleton frame, the reset.
 #include <cstdint>
 #include <cstdio>
@@ -120,18 +126,22 @@ static void CheckIdentify() {
   CHECK(ni::Identify(0x00020002, 0, cb, 0, body) == ni::kBodyNotTracked);  // another body
   CHECK(ni::Identify(0, 0, cb, 0, 0) == ni::kBodyNotTracked);
   CHECK(ni::Identify(body, 0, 0, 0, body) == ni::kInvalidArgument);
-  CHECK(ni::TakePending().empty());
-  CHECK(ni::Identify(body, 0, cb, 0, body) == ni::kOk);
-  CHECK(ni::Identify(body, 0, cb, 0, body) == ni::kOk);  // the same request again: once
-  auto taken = ni::TakePending();
+  CHECK(ni::TakeDue().empty());
+  // Fix 156n: a queued request answers E_PENDING (the script waits only then) and is due
+  // kAnswerDelayFrames skeleton frames later.
+  CHECK(ni::Identify(body, 0, cb, 0, body) == ni::kPending);
+  CHECK(ni::Identify(body, 0, cb, 0, body) == ni::kPending);  // the same request again: once
+  for (uint32_t f = 1; f < ni::kAnswerDelayFrames; ++f) CHECK(ni::TakeDue().empty());
+  auto taken = ni::TakeDue();
   CHECK(taken.size() == 1 && taken[0].tracking_id == body && taken[0].callback == cb);
-  CHECK(ni::TakePending().empty());
-  for (uint32_t n = 0; n < 6; ++n) CHECK(ni::Identify(body, 0, cb, n, body) == ni::kOk);
-  taken = ni::TakePending();
+  CHECK(ni::TakeDue().empty());
+  for (uint32_t n = 0; n < 6; ++n) CHECK(ni::Identify(body, 0, cb, n, body) == ni::kPending);
+  for (uint32_t f = 1; f < ni::kAnswerDelayFrames; ++f) ni::TakeDue();
+  taken = ni::TakeDue();
   CHECK(taken.size() == ni::kMaxPending && taken.front().context == 2 && taken.back().context == 5);
-  CHECK(ni::Identify(body, 0, cb, 0, body) == ni::kOk);
+  CHECK(ni::Identify(body, 0, cb, 0, body) == ni::kPending);
   ni::Reset();
-  CHECK(ni::TakePending().empty());
+  for (uint32_t f = 0; f <= ni::kAnswerDelayFrames; ++f) CHECK(ni::TakeDue().empty());
 
   CHECK(ni::ProfileSlot(1, 0x3) == 1);
   CHECK(ni::ProfileSlot(2, 0x3) == 0);  // the bound slot signed out: the first signed in
@@ -205,6 +215,57 @@ static void CheckMessages() {
   }
 }
 
+// Fighters Uncaged's PlayerIdentifier (scripts/AllScripts.s), reduced: frame 1 calls
+// tryIdentifySkeleton and waits only on E_PENDING; entering the wait (the next update) clears
+// the results; each update the result is read; a skeleton frame (and the answers due then)
+// comes before each update.
+static bool ScriptIdentifies(bool pending_answer, uint32_t delay) {
+  ni::Reset();
+  Title title;
+  enum { Identify, EnterWait, Wait, Done } state = Identify;
+  std::vector<std::pair<uint32_t, ni::Request>> queue;  // (frames left, request), old way
+  for (int frame = 0; frame < 120; ++frame) {
+    // Skeleton frame: the answers due now.
+    std::vector<ni::Request> due;
+    if (pending_answer) {
+      due = ni::TakeDue();
+    } else {
+      for (auto it = queue.begin(); it != queue.end();) {
+        if (--it->first == 0) { due.push_back(it->second); it = queue.erase(it); } else ++it;
+      }
+    }
+    for (const auto& r : due) {
+      uint8_t m[ni::kMessageBytes];
+      ni::WriteFrameProcessed(m, r.tracking_id);
+      title.Callback(m);
+      ni::WriteComplete(m, r.tracking_id, ni::AnswerFor(0));
+      title.Callback(m);
+    }
+    // Script update.
+    if (state == Identify) {
+      uint32_t result = ni::Identify(0x00010001, 0, 0x8219B110, 0, 0x00010001);
+      if (!pending_answer) {  // 156l: S_OK, answered on the next skeleton frame
+        for (auto& r : ni::TakeDue()) (void)r;
+        queue.push_back({delay, {0x00010001, 0x8219B110, 0, 0}});
+        result = ni::kOk;
+      }
+      if (result == ni::kPending) state = EnterWait;  // else: the error path, asked again
+    } else if (state == EnterWait) {
+      title.result_set[0] = title.quality_set[0] = false;  // enterWaitIdentifySkeletonCallback
+      state = Wait;
+    } else if (state == Wait) {
+      if (title.result_set[0] && title.result[0] == ni::kOk) state = Done;
+    }
+  }
+  return state == Done;
+}
+
+static void CheckScript() {
+  CHECK(!ScriptIdentifies(false, 1));  // 156l: S_OK, the script never waits
+  CHECK(ScriptIdentifies(true, ni::kAnswerDelayFrames));
+  CHECK(ni::kAnswerDelayFrames >= 3);  // after the wait's entry cleared the results
+}
+
 static void CheckTree() {
   const std::string cam = ReadText(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc");
   if (cam.empty()) {
@@ -225,6 +286,7 @@ static void CheckTree() {
   const size_t unlock = cam.rfind("  lock.unlock();", notice);
   CHECK(notice != std::string::npos && deliver != std::string::npos && notice < deliver);
   CHECK(unlock != std::string::npos && unlock < deliver);
+  CHECK(Has(cam, "auto requests = xbox360ps5::nui_identity::TakeDue();  // fix 156n"));
   const size_t body = cam.find("void DeliverIdentityAnswers(");
   const std::string fn = body == std::string::npos ? "" : cam.substr(body, 2200);
   const size_t frame = fn.find("WriteFrameProcessed(m, r.tracking_id);");
@@ -239,6 +301,7 @@ int main() {
   CheckShapes();
   CheckIdentify();
   CheckMessages();
+  CheckScript();
   CheckTree();
   if (failures) {
     std::printf("check-nui-identity: %d failure(s)\n", failures);
