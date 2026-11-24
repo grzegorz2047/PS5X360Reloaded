@@ -193,6 +193,7 @@ on:
       - 'tools/check-skeleton-frame-number.cpp'
       - 'tools/check-xex-dll-heap.cpp'
       - 'tools/check-diag-r31.cpp'
+      - 'tools/check-nui-identity.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
