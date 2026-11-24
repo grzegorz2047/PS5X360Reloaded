@@ -87,8 +87,9 @@ void Pure() {
   Expect(wb::ShouldRun(fresh, "10:20"), "(a) a switch file never run runs");
   Expect(!wb::ShouldRun(wb::ParseRan("10:20 1 1\n"), "10:20") && wb::ShouldRun(wb::ParseRan("10:20 1 1\n"), "11:20"),
          "(a) a finished one does not run again until it changes");
-  Expect(wb::ShouldRun(wb::ParseRan("10:20 1 0"), "10:20") && !wb::ShouldRun(wb::ParseRan("10:20 2 0"), "10:20"),
-         "(a) an unfinished one is tried twice");
+  // Fix 148j2: 4 attempts (each skipping a variant that ended the app), not 2.
+  Expect(wb::ShouldRun(wb::ParseRan("10:20 3 0"), "10:20") && !wb::ShouldRun(wb::ParseRan("10:20 4 0"), "10:20"),
+         "(a) an unfinished one is tried 4 times");
   Expect(wb::SerializeRan({"10:20", 2, true}) == "10:20 2 1\n", "(a) the marker's form");
 
   wb::Stats s;
