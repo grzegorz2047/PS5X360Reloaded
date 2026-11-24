@@ -63,7 +63,7 @@ import check_release_elf  # noqa: E402
 B = package.BASE_PREFIX
 P = package.PREFIX
 assert B == 'PPSA50011/' and P == 'PPSA83600/', (B, P)
-VERSION = '1.0.5'
+VERSION = '1.0.6'
 # sce_sys/param.json of the official v1.0.2 PPSA50011.zip, verbatim (881 bytes, CRLF).
 OFFICIAL_PARAM = ('{\r\n  "ageLevel": {\r\n    "default": 0\r\n  },\r\n  "applicationCategoryType": 0,\r\n'
                   '  "applicationDrmType": "free",\r\n  "attribute": 0,\r\n  "attribute2": 0,\r\n'
@@ -78,9 +78,9 @@ OFFICIAL_PARAM = ('{\r\n  "ageLevel": {\r\n    "default": 0\r\n  },\r\n  "applic
                   '  "requiredSystemSoftwareVersion": "0x0000000000000000",\r\n'
                   '  "sdkVersion": "0x0000000000000000",\r\n  "titleId": "PPSA50011",\r\n'
                   '  "versionFileUri": ""\r\n}\r\n').encode()
-# contentVersion of VERSION (1.0.5): 01.005.000, above the 00.001.000 v1.0.3 shipped, v1.0.4's 01.004.000 and the
-# hotfixes' 01.004.001 (v1.0.4.1) and 01.004.002 (v1.0.4.2).
-CONTENT_VERSION = '01.005.000'
+# contentVersion of VERSION (1.0.6): 01.006.000, above the 00.001.000 v1.0.3 shipped, v1.0.4's 01.004.000, the
+# hotfixes' 01.004.001 (v1.0.4.1) and 01.004.002 (v1.0.4.2), and v1.0.5's 01.005.000.
+CONTENT_VERSION = '01.006.000'
 # What package.py must make of it: these five lines differ, nothing else.
 RELEASE_PARAM = (OFFICIAL_PARAM.replace(b'"conceptId": "50011"', b'"conceptId": "83600"')
                   .replace(b'"contentVersion": "00.001.000"', f'"contentVersion": "{CONTENT_VERSION}"'.encode())
@@ -294,11 +294,11 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     assert installation == (template.replace('@VERSION@', VERSION)
                             .replace('@REPOSITORY@', 'https://github.com/example/TrinityX360')
                             .replace('@COMMIT@', COMMIT)), installation
-    for needle in ('# TrinityX360 1.0.5: installation', '`/data/homebrew/PPSA83600/eboot.bin`',
+    for needle in ('# TrinityX360 1.0.6: installation', '`/data/homebrew/PPSA83600/eboot.bin`',
                    '`/data/homebrew/PPSA83600/assets/roms/`', '`/data/homebrew/PPSA83600/logs`',
                    'Never copy this folder or its files into\n`/data/homebrew/PPSA50011`',
                    f'https://github.com/example/TrinityX360/blob/{COMMIT}/README.md',
-                   'licenses/PS5X360-1.0.5-NOTICE.txt'):
+                   'licenses/PS5X360-1.0.6-NOTICE.txt'):
         assert needle in installation, needle
     assert not re.search(r'@[A-Z]+@', installation) and 'PPSA50011.zip' not in installation
     # Each paragraph naming the official folder says it is the official app's.
@@ -362,7 +362,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     assert P + 'licenses/PS5X360-OPT-NOTICE.txt' not in files
     assert P + 'readback-auto.off' not in files
 
-    assert files[P + 'VERSION'] == b'1.0.5\n'
+    assert files[P + 'VERSION'] == b'1.0.6\n'
     release = json.loads(files[P + 'RELEASE.json'])
     assert release['version'] == VERSION
     assert release['title_id'] == 'PPSA83600' and release['title_name'] == 'TrinityX360'
@@ -387,7 +387,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     for needle in ('GNU General Public License', 'version 3', 'licenses/GPL-3.0.txt',
                    'Modified version (GPL-3.0 section 5)', f'modified {DATE}',
                    f'https://github.com/example/TrinityX360 commit {COMMIT}',
-                   'https://github.com/example/TrinityX360/releases/tag/v1.0.5',
+                   'https://github.com/example/TrinityX360/releases/tag/v1.0.6',
                    sha(eboot()), sha(SOURCES_BYTES),
                    'PS5X360-source-1.0.2-changes.zip (v1.0.2)  sha256 d9bd' + '0' * 60,
                    'xenia-canary.git d2cf527aa', '01-jit-reserved-barriers.patch  sha256 ' + '1' * 64,
@@ -402,7 +402,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                    'RADV', 'app_crt.cpp', 'payload SDK runtime', 'ps5-native-tool',
                    'at the commits listed under Toolchain',
                    # The new identity, and the upstream attribution kept as it is.
-                   'TrinityX360 1.0.5 (PPSA83600)', 'UP9000-PPSA83600_00-PS5X360RELOADED0',
+                   'TrinityX360 1.0.6 (PPSA83600)', 'UP9000-PPSA83600_00-PS5X360RELOADED0',
                    'moved from PPSA50011/ to PPSA83600/', 'tools/source-1.0.2/package-art',
                    'tools/source-1.0.2/package-docs', 'AUTOLOG.md is left out',
                    'This is a modified version of PS5X360 1.0.2 by BrinooTk (https://github.com/BrinooTk/PS5X360/releases)',
@@ -513,16 +513,16 @@ def main():
     for version in ('1.0.3_candidate_37', '', 'v1.0.3', '1.0', '1.0.3.0', '1.0.3.1.1', '1.0.3 '):
         refused('is not X.Y.Z', version=version)
     refused('carries a candidate label', eboot=eboot(extra=b'1.0.3_candidate_37\0'))
-    refused("label 'TrinityX360 v1.0.5'", eboot=eboot('1.0.3_candidate_37'))
-    refused("label 'TrinityX360 v1.0.5'", eboot=eboot('1.0.30'))
+    refused("label 'TrinityX360 v1.0.6'", eboot=eboot('1.0.3_candidate_37'))
+    refused("label 'TrinityX360 v1.0.6'", eboot=eboot('1.0.30'))
     # Built without fix 46 or without the rename to TrinityX360: an older name's label, alone or
     # next to the new one.
-    refused("label 'TrinityX360 v1.0.5'", eboot=eboot().replace(b'TrinityX360 v', b'PS5X360 v'))
-    refused("label 'TrinityX360 v1.0.5'", eboot=eboot().replace(b'TrinityX360 v', b'PS5X360Reloaded v'))
+    refused("label 'TrinityX360 v1.0.6'", eboot=eboot().replace(b'TrinityX360 v', b'PS5X360 v'))
+    refused("label 'TrinityX360 v1.0.6'", eboot=eboot().replace(b'TrinityX360 v', b'PS5X360Reloaded v'))
     refused("older name's label", eboot=eboot(extra=b'PS5X360 v1.0.3\0'))
     refused("older name's label", eboot=eboot(extra=b'PS5X360 v1.0.2\0'))
-    refused("older name's label", eboot=eboot(extra=b'PS5X360Reloaded v1.0.5\0'))
-    refused("label 'BOOT version 1.0.5'", eboot=eboot().replace(b'BOOT version', b'BOOT versio_'))
+    refused("older name's label", eboot=eboot(extra=b'PS5X360Reloaded v1.0.6\0'))
+    refused("label 'BOOT version 1.0.6'", eboot=eboot().replace(b'BOOT version', b'BOOT versio_'))
     refused('not a signed PS5 SELF', eboot=b'\x7fELF' + eboot()[4:])
     refused('lists skipped fixes', sources=dict(SOURCES, fixes_skipped=['tools/source-1.0.2/fixes/01-x.patch']))
     refused("SOURCES.json version '1.0.3_candidate_37'", sources=dict(SOURCES, version='1.0.3_candidate_37'))
@@ -578,17 +578,17 @@ def main():
                'localizedParameters': {'defaultLanguage': 'en-US', 'en-US': {'titleName': 'PS5X360'},
                                        'pl-PL': {'titleName': 'PS5X360', 'titleNameSort': 'x'}, 'ja-JP': {}},
                'downloadDataSize': 256}
-    made = package.param_json(json.dumps(several, indent=2).encode() + b'\n', '1.0.5')
+    made = package.param_json(json.dumps(several, indent=2).encode() + b'\n', '1.0.6')
     assert b'\r' not in made and made.endswith(b'}\n'), made
     made = json.loads(made)
     assert made['localizedParameters'] == {
         'defaultLanguage': 'en-US', 'en-US': {'titleName': 'TrinityX360'},
         'pl-PL': {'titleName': 'TrinityX360', 'titleNameSort': 'x'}, 'ja-JP': {'titleName': 'TrinityX360'}}
     assert made['downloadDataSize'] == 256 and made['titleId'] == 'PPSA83600'
-    assert made['contentVersion'] == '01.005.000' and made['masterVersion'] == '00.01'
+    assert made['contentVersion'] == '01.006.000' and made['masterVersion'] == '00.01'
     assert package.param_json(OFFICIAL_PARAM, VERSION) == RELEASE_PARAM
-    assert package.param_json(OFFICIAL_PARAM, '1.0.5') == \
-        RELEASE_PARAM.replace(f'"{CONTENT_VERSION}"'.encode(), b'"01.005.000"')
+    assert package.param_json(OFFICIAL_PARAM, '1.0.6') == \
+        RELEASE_PARAM.replace(f'"{CONTENT_VERSION}"'.encode(), b'"01.006.000"')
     # The official docs: a changed text (the folder named another number of times) or a missing
     # one stops the packaging, and so does any other text file still naming PPSA50011.
     dlc = OFFICIAL_DOCS[B + 'dlc/README.md']
@@ -612,10 +612,10 @@ def main():
         (other / 'licenses/PS5X360-MIT.txt').write_bytes(OFFICIAL_LICENSE)
         refused('licenses/PS5X360-MIT.txt does not end with the base package\'s LICENSE', repo_root=other)
         (other / 'licenses/PS5X360-MIT.txt').write_bytes(MIT_FILE.replace(b'\n', b'\r\n'))
-        refused('no release notes docs/release-notes/v1.0.5.md', repo_root=other)
+        refused('no release notes docs/release-notes/v1.0.6.md', repo_root=other)
         (other / 'docs/release-notes').mkdir(parents=True)
-        (other / 'docs/release-notes/v1.0.5.md').write_bytes(b'## TrinityX360 v1.0.5\n')
-        assert build(repo_root=other)[P + 'RELEASE_NOTES.md'] == b'## TrinityX360 v1.0.5\n'
+        (other / 'docs/release-notes/v1.0.6.md').write_bytes(b'## TrinityX360 v1.0.6\n')
+        assert build(repo_root=other)[P + 'RELEASE_NOTES.md'] == b'## TrinityX360 v1.0.6\n'
         (other / 'assets/presets.txt').write_bytes(b'# /data/homebrew/PPSA50011/assets/roms\n')
         refused('still name the official title id PPSA50011: assets/presets.txt', repo_root=other)
     # Art that is not the reviewed files (here: wrong pinned digest or size) stops the packaging.
@@ -666,7 +666,7 @@ def main():
     assert cv('0.0.0') == '00.000.000' and cv('99.9.99') == '99.999.000' and cv('2.0.0') == '02.000.000'
     # A hotfix X.Y.Z.W: the third field (1.0.4.1 -> 01.004.001, between 1.0.4 and 1.0.5).
     assert cv('1.0.4.1') == '01.004.001' and cv('1.0.4.999') == '01.004.999'
-    run = ['0.9.99', '1.0.3', '1.0.4', '1.0.4.1', '1.0.4.2', '1.0.4.999', '1.0.5', '1.0.10', '1.0.99', '1.1.0',
+    run = ['0.9.99', '1.0.3', '1.0.4', '1.0.4.1', '1.0.4.2', '1.0.4.999', '1.0.6', '1.0.10', '1.0.99', '1.1.0',
            '1.1.5', '1.9.99', '2.0.0', '10.0.1', '99.9.99']
     values = [cv(version) for version in run]
     assert all(package.CONTENT_VERSION_RE.fullmatch(value) for value in values), values
@@ -676,9 +676,17 @@ def main():
         sorted(tuple(int(x) for x in v.split('.')) for v in values)
     shipped = package.SHIPPED_CONTENT_VERSIONS
     assert shipped == {'1.0.3': '00.001.000', '1.0.4': '01.004.000', '1.0.4.1': '01.004.001',
-                       '1.0.4.2': '01.004.002'}, shipped
-    assert cv('1.0.5') > max(shipped.values()) and cv('1.0.4.2') > cv('1.0.4.1') > cv('1.0.4') > cv('1.0.3')
-    assert package.check_content_version('01.005.000', '00.001.000') == '01.005.000'
+                       '1.0.4.2': '01.004.002', '1.0.5': '01.005.000'}, shipped
+    # v1.0.5 shipped (as PS5X360Reloaded): packaging it again is refused, 1.0.6 goes above it.
+    assert cv('1.0.5') == shipped['1.0.5'] == '01.005.000' < cv('1.0.6')
+    try:
+        package.param_json(OFFICIAL_PARAM, '1.0.5')
+    except SystemExit as error:
+        assert 'contentVersion 01.005.000 is not higher than 01.005.000 of v1.0.5' in str(error.code), error.code
+    else:
+        raise AssertionError('1.0.5 accepted after it shipped')
+    assert cv('1.0.6') > max(shipped.values()) and cv('1.0.4.2') > cv('1.0.4.1') > cv('1.0.4') > cv('1.0.3')
+    assert package.check_content_version('01.006.000', '00.001.000') == '01.006.000'
     for version in ('1.10.0', '1.0.100', '100.0.0'):
         try:
             cv(version)
@@ -692,7 +700,7 @@ def main():
     # release that shipped 01.004.000) is refused.
     try:
         package.SHIPPED_CONTENT_VERSIONS = dict(shipped, **{'1.0.4': '01.004.000'})
-        assert package.param_json(OFFICIAL_PARAM, '1.0.5').count(b'"01.005.000"') == 1
+        assert package.param_json(OFFICIAL_PARAM, '1.0.6').count(b'"01.006.000"') == 1
         for version, message in (('1.0.4', 'contentVersion 01.004.000 is not higher than 01.004.000 of v1.0.4'),
                                  ('1.0.3', 'contentVersion 01.003.000 is not higher than 01.004.000 of v1.0.4')):
             try:
@@ -701,14 +709,14 @@ def main():
                 assert message in str(error.code), error.code
             else:
                 raise AssertionError(f'{version} accepted after 01.004.000 shipped')
-        # The same release packaged again after it shipped (VERSION is 1.0.5): refused.
-        package.SHIPPED_CONTENT_VERSIONS = dict(shipped, **{'1.0.5': '01.005.000'})
-        refused('contentVersion 01.005.000 is not higher than 01.005.000 of v1.0.5')
+        # The same release packaged again after it shipped (VERSION is 1.0.6): refused.
+        package.SHIPPED_CONTENT_VERSIONS = dict(shipped, **{'1.0.6': '01.006.000'})
+        refused('contentVersion 01.006.000 is not higher than 01.006.000 of v1.0.6')
         package.SHIPPED_CONTENT_VERSIONS = dict(shipped, **{'1.0.4': '1.4'})
         refused("contentVersion '1.4' of v1.0.4 is not NN.NNN.NNN")
     finally:
         package.SHIPPED_CONTENT_VERSIONS = shipped
-    print('[OK] contentVersion: 1.0.4 -> 01.004.000, 1.0.5 -> 01.005.000, increasing, above the shipped 01.004.002')
+    print('[OK] contentVersion: 1.0.4 -> 01.004.000, 1.0.6 -> 01.006.000, increasing, above the shipped 01.005.000')
 
     try:
         package.toolchain_pins('env:\n  PS5_MESA_REV: ' + '0' * 40 + '\n')
