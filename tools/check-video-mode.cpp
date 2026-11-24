@@ -162,9 +162,10 @@ void CheckTree() {
          "Load reads the saved value through LoadedChoice");
   const std::string header = Read("include/xbox360ps5/launcher.hpp");
   Expect(Has(header, "int internal_resolution = 0;"), "the default is still 0 (720p)");
-  // Fix 117's option is untouched: its own key, its two choices.
-  Expect(Has(launcher, "{\"draw_scale\", &S::draw_scale, 0, W::start, 0, true, \"Resolution scale (test)\","),
-         "fix 117's draw_scale option unchanged");
+  // Fix 117's option is untouched: its own key (fix 163 makes Automatic, 2, its recommended value).
+  Expect(Has(launcher, "{\"draw_scale\", &S::draw_scale, 0, W::start, 0, true, \"Resolution scale (test)\",") ||
+             Has(launcher, "{\"draw_scale\", &S::draw_scale, 0, W::start, 2, true, \"Resolution scale (test)\","),
+         "fix 117's draw_scale option unchanged (or with fix 163's Automatic recommended)");
 
   const std::string video = Read(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc");
   const size_t fn = video.find("void VdQueryVideoMode(X_VIDEO_MODE* video_mode,");
