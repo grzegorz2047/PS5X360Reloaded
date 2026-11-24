@@ -130,6 +130,13 @@ ART = [
      'a44a30407639a3859a6efbffb9ec555a9a220f86c9b886e09e2e48bd8776e377'),
 ]
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+# The package's files the repository also carries, at its root, in the commit a release tag points
+# at: homebrew catalogs and stores (github.com/darkxex/ps5-homebrew-catalog, docs/versioning.md)
+# read the title id, the name and contentVersion from sce_sys/param.json and the icon from
+# sce_sys/icon0.png in the repository, so the committed copies must be the release's bytes.
+# tools/source-1.0.2/repo_sce_sys.py writes them (--write) and checks them (--check); the release
+# workflow stops when they are not the package's.
+REPO_SCE_SYS = ('sce_sys/param.json', 'sce_sys/icon0.png')
 
 # The official package's user docs name its folder PPSA50011 (copy the folder there, put DLC and
 # updates in PPSA50011/..., logs in /data/homebrew/PPSA50011/logs); shipped as they are, they
@@ -315,6 +322,42 @@ def art_files():
             fail(f'tools/source-1.0.2/package-art/{name} is not a {size[0]}x{size[1]} PNG')
         files[target] = data
     return files
+
+
+def read_base_zip(path):
+    """The official PPSA50011.zip's files ({name: bytes}), after its SHA-256 check."""
+    base = Path(path).read_bytes()
+    if sha256(base) != BASE_ZIP_SHA256:
+        fail(f'{path} is not the official v{BASE_VERSION} PPSA50011.zip')
+    with zipfile.ZipFile(path) as zin:
+        return {i.filename: zin.read(i) for i in zin.infolist() if not i.is_dir()}
+
+
+def repo_sce_sys(base_files, version):
+    """{path at the repository root: bytes} of REPO_SCE_SYS for release `version`: the same bytes
+    build() puts under PPSA83600/ (param_json() of the base's param.json, the reviewed icon0.png)."""
+    check_version(version)
+    param = base_files.get(BASE_PREFIX + 'sce_sys/param.json')
+    if param is None:
+        fail('base package has no sce_sys/param.json')
+    files = {'sce_sys/param.json': param_json(param, version),
+             'sce_sys/icon0.png': art_files()['sce_sys/icon0.png']}
+    assert tuple(files) == REPO_SCE_SYS
+    return files
+
+
+def check_repo_sce_sys(expected, version, repo_root=ROOT):
+    """Stops when a REPO_SCE_SYS file at the repository root is missing or is not `expected`'s."""
+    wrong = []
+    for name, data in expected.items():
+        path = Path(repo_root) / name
+        if not path.is_file():
+            wrong.append(f'{name} is missing')
+        elif path.read_bytes() != data:
+            wrong.append(f"{name} is not the v{version} package's")
+    if wrong:
+        fail('; '.join(wrong) + ' in the repository: run python3 -I tools/source-1.0.2/repo_sce_sys.py '
+             f'--base-zip <official PPSA50011.zip> --version {version} --write and commit sce_sys/')
 
 
 def package_docs(files, version, repo, commit, repo_root=ROOT):
@@ -649,11 +692,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     version = check_version(args.version)
-    base = args.base_zip.read_bytes()
-    if sha256(base) != BASE_ZIP_SHA256:
-        fail(f'{args.base_zip} is not the official v{BASE_VERSION} PPSA50011.zip')
-    with zipfile.ZipFile(args.base_zip) as zin:
-        base_files = {i.filename: zin.read(i) for i in zin.infolist() if not i.is_dir()}
+    base_files = read_base_zip(args.base_zip)
     sources_bytes = args.sources_json.read_bytes()
     sources = json.loads(sources_bytes)
     lang = {path.name: path.read_bytes() for path in sorted(args.lang_dir.glob('*.txt'))}

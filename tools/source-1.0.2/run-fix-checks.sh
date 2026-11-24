@@ -381,6 +381,13 @@ else
   echo "FAIL check-source-package.py"
   status=1
 fi
+echo "=== check-repo-sce-sys.py"
+if "$python" -I "$repo/tools/check-repo-sce-sys.py"; then
+  echo "pass check-repo-sce-sys.py"
+else
+  echo "FAIL check-repo-sce-sys.py"
+  status=1
+fi
 echo "=== check-release-images.py"
 if "$python" -I "$repo/tools/check-release-images.py"; then
   echo "pass check-release-images.py"

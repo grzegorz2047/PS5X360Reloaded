@@ -12,3 +12,6 @@ tools/source-1.0.2/english/lang/*.txt -text
 tools/source-1.0.2/english/official-lang/* -text
 # Package art, checked by SHA-256 in tools/source-1.0.2/package.py.
 *.png binary
+# Copies of the release package's sce_sys files (tools/source-1.0.2/repo_sce_sys.py), byte for byte:
+# param.json keeps the official CRLF lines.
+sce_sys/param.json -text

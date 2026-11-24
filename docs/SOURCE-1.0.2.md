@@ -376,6 +376,18 @@ pushed to a branch `release/source-X.Y.Z` (the version is the branch name's suff
 workflow is on the default branch. A tag push does not start it: GitHub makes the tag when the
 draft is published, at the commit the draft targets.
 
+Before the release commit is pushed, write the repository's copies of the package's
+`sce_sys/param.json` and `sce_sys/icon0.png` for the version and commit them in it:
+
+    python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip PPSA50011-v1.0.2.zip --version X.Y.Z --write
+
+Homebrew catalogs and stores (for example
+[ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/versioning.md))
+read the title id, the name, `contentVersion` and the icon from `sce_sys/` in the repository at
+the release tag. The workflow checks them before the build (`--check`) and compares them with the
+package after it, and stops when they are missing or are not the release's bytes
+(`tools/check-repo-sce-sys.py` is the host check).
+
 1. `build-source-1.0.2.yml` in release mode: the version label is `X.Y.Z` instead of
    `BUILD_VERSION`'s candidate label (`PS5X360Reloaded vX.Y.Z` on the home screen, `BOOT version X.Y.Z` in
    `boot.log`), no fix may be left out, and the linked `eboot.elf` is checked for both strings and

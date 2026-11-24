@@ -71,6 +71,20 @@ jobs:
           echo "tag=v$version" >> "$GITHUB_OUTPUT"
           echo "Release v$version from $GITHUB_SHA ($GITHUB_REF_NAME)"
 
+      # Homebrew catalogs read sce_sys/param.json and icon0.png from the repository at the
+      # release tag, so the release commit must carry the package's copies
+      # (tools/source-1.0.2/repo_sce_sys.py --write); checked here, before the build.
+      - name: Repository sce_sys/ is the release's
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \
+            https://github.com/BrinooTk/PS5X360/releases/download/v1.0.2/PPSA50011.zip
+          echo "230359c2638f99add3972147e1690e62d8984a37c00181501680bdda7c1096c8  $RUNNER_TEMP/PPSA50011-v1.0.2.zip" | sha256sum --check --strict
+          python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \
+            --version "$VERSION" --check
+
   build:
     name: Build
     needs: prepare
@@ -147,6 +161,14 @@ jobs:
             --version "$VERSION" \
             --source-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA" \
             --out-dir dist/source-release
+
+      - name: Repository sce_sys/ is the package's
+        run: |
+          set -euo pipefail
+          for f in param.json icon0.png; do
+            cmp dist/source-release/stage/PPSA83600/sce_sys/$f sce_sys/$f || {
+              echo "::error file=sce_sys/$f::sce_sys/$f is not the package's (tools/source-1.0.2/repo_sce_sys.py --write)"; exit 1; }
+          done
 
       - name: Make PPSA83600.ffpkg and PPSA83600.ffpfsc
         run: bash tools/binary-release/make_images.sh dist/source-release/stage/PPSA83600 dist/source-release PPSA83600
