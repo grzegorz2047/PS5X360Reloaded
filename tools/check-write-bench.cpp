@@ -16,7 +16,7 @@
 //      each variant but the first; each line says when its variant started; fork (a vfork child
 //      writes), churn (rounds removed) and shrink (rounds truncated), a line per round; the mounts
 //      line; dir= on /system_tmp, /tmp or /dev/shm;
-//  (e) fix 148j2: the mounts line uses statvfs only (no statfs anywhere in the header); fork runs only
+//  (e) fix 148k: the mounts line uses statvfs only (no statfs anywhere in the header); fork runs only
 //      with fork=on; a variant named in write-bench.progress (the app ended during it) is skipped with
 //      a line on the next attempt, 4 attempts in all; "small" makes 320 KiB files in 3 writes, renames
 //      and removes each, a line per window.
@@ -87,7 +87,7 @@ void Pure() {
   Expect(wb::ShouldRun(fresh, "10:20"), "(a) a switch file never run runs");
   Expect(!wb::ShouldRun(wb::ParseRan("10:20 1 1\n"), "10:20") && wb::ShouldRun(wb::ParseRan("10:20 1 1\n"), "11:20"),
          "(a) a finished one does not run again until it changes");
-  // Fix 148j2: 4 attempts (each skipping a variant that ended the app), not 2.
+  // Fix 148k: 4 attempts (each skipping a variant that ended the app), not 2.
   Expect(wb::ShouldRun(wb::ParseRan("10:20 3 0"), "10:20") && !wb::ShouldRun(wb::ParseRan("10:20 4 0"), "10:20"),
          "(a) an unfinished one is tried 4 times");
   Expect(wb::SerializeRan({"10:20", 2, true}) == "10:20 2 1\n", "(a) the marker's form");
