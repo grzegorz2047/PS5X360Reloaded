@@ -324,6 +324,7 @@ also listed here.
 | 149 (`149-option-groups`) | a player set GTA IV's "Emulated video rate" to 120 Hz taking it for the TV's rate: the settings are split into "Picture and smoothness" (quality and fluidity) and "Emulation (advanced)" (options that change how a game is emulated), each option in one group with short help, and a notice when an advanced option was changed for a game |
 | 149b (`149b-settings-tree`) | the launcher's settings and a game's settings were long flat pages: a multi-level settings menu (categories, then groups, then options) with a help card beside the focused option saying what it changes |
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
+| 149d (`149d-help-card-sides`) | review of candidate 3: the guide's help card no longer covers the motion panel or the Harmonix keys panel (it moves to the free side, or hides), and "Emulated console resolution"'s help says 540p tells the game 720p and the mode applies when the game starts |
 
 ## Comparison with the official executable
 

@@ -170,6 +170,7 @@ checks=(
   check-write-trace.cpp            # fix 148g
   check-install-notice.cpp         # fix 148h
   check-write-bench.cpp            # fix 148i
+  check-help-card.cpp              # fix 149d
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -198,6 +199,7 @@ declare -A arguments=(
   [check-option-groups.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-settings-tree.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-readability.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-help-card.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -325,6 +327,7 @@ declare -A fix_of=(
   [check-write-trace.cpp]=148g
   [check-install-notice.cpp]=148h
   [check-write-bench.cpp]=148i
+  [check-help-card.cpp]=149d
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

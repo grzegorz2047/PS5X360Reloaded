@@ -179,6 +179,7 @@ on:
       - 'tools/check-write-trace.cpp'
       - 'tools/check-install-notice.cpp'
       - 'tools/check-write-bench.cpp'
+      - 'tools/check-help-card.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

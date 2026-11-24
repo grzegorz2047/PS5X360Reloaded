@@ -245,7 +245,9 @@ void CheckHelp() {
              Has(card, "groups::ChangesHowGameRuns(option.key)") && Has(card, "Tr(groups::kRiskLine)") &&
              Has(card, "text(text_font, 24, colour(44, 48, 54), Tr(brief));"),
          "(g) the card: name, choices, short text (24 px), risk");
-  Expect(Has(main, "DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, right + 14, state_.focus_y, 238, 860);") &&
+  // Fix 149d: on the side no overlay panel uses (check-help-card.cpp).
+  Expect((Has(main, "DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, right + 14, state_.focus_y, 238, 860);") ||
+          Has(main, "DrawHelpCard(list, medium, large, scale, reveal, *items[size_t(state_.row)].option, groups::CardX(card_side, left, right),")) &&
              main.find("DrawHelpCard(list, medium") > main.find("    list->PopClipRect();\n    // Fix 149b: beside the focused option") &&
              main.find("DrawHelpCard(list, medium") < main.find("    // The 3D unfold:"),
          "(g) beside the guide, outside its clip, unfolding with it");
