@@ -26,6 +26,7 @@
 // Fix 112f: MergeCopies (identical copies on ext1 and usb0: one tile on ext1; another size or title
 // ID: two tiles; the console's storage first; unknown title IDs and sizes apart), DriveOf, DriveRank,
 // and the launcher keeping the other copies for GamePaths, the forwarder and the recent list.
+// Fix 159: the launcher may count the games with GameKeys (check-single-game-folder.cpp).
 // Built against the assembled 1.0.2 tree and run from its root (run-fix-checks.sh).
 #undef NDEBUG
 #include "../port/library_groups.hpp"
@@ -526,7 +527,10 @@ void CheckTree() {
   Expect(root != std::string::npos && walk != std::string::npos && cleared != std::string::npos && drive != std::string::npos,
          "a game folder is named while it is walked, the drive's disc has none");
   const size_t order = launcher.find("std::stable_sort(games_.begin(), games_.end()");
-  const size_t build = launcher.find("g_groups = library_groups::Build(folders, ids);", order);
+  // Fix 159: the games are counted with GameKeys (title IDs and the discs' set names).
+  const char* const kBuild = "g_groups = library_groups::Build(folders, ids);";
+  const char* const kBuild159 = "g_groups = library_groups::Build(folders, library_groups::GameKeys(folders, ids, set_names));";
+  const size_t build = std::min(launcher.find(kBuild, order), launcher.find(kBuild159, order));
   const size_t filter = launcher.find("ApplyFilter();", build);
   Expect(order != std::string::npos && build != std::string::npos && filter != std::string::npos,
          "the groups are made after the shelf's order, before the view");
@@ -568,7 +572,7 @@ void CheckTree() {
              listed - iso < 500,
          "an original Xbox disc is skipped with its log line before an image is listed");
   // Fix 112d: copies of one game count once; non-game content type folders are not read; the log.
-  Expect(Has(launcher, "g_groups = library_groups::Build(folders, ids);") &&
+  Expect((Has(launcher, kBuild) || Has(launcher, kBuild159)) &&
              Has(launcher, "if (!games_[n].title_id.empty() && games_[n].title_id != \"00000000\") ids[n] = games_[n].title_id;"),
          "the groups count games by title ID");
   const size_t skip = launcher.find("if (!library_groups::GamePackageFolder(directory.filename().string())) continue;");
