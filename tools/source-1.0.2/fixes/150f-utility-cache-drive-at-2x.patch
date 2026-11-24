@@ -1,0 +1,92 @@
+diff --git a/include/xbox360ps5/utility_cache_drive.hpp b/include/xbox360ps5/utility_cache_drive.hpp
+--- a/include/xbox360ps5/utility_cache_drive.hpp
++++ b/include/xbox360ps5/utility_cache_drive.hpp
+@@ -45,6 +45,21 @@ inline bool CacheInMemory(const std::string& title_id, const std::string& text)
+   return false;
+ }
+ 
++#define XBOX360PS5_CACHE_IN_MEMORY_BY_SCALE 1  // fix 150f (the host check looks for it)
++// Fix 150f: at resolution scale 2x the game's render targets need the direct memory (Kinect
++// Sports at 2x on 1.0.6_candidate_6: 4258 MiB of them; the cache refused 5537 writes at direct
++// free 938 MiB and a 4xMSAA target could not be made, so 4xMSAA went to 1x and the replays came
++// out dark): the titles' preset keeps the cache on the drive then. "ram" still keeps it in memory.
++inline bool ForcedInMemory(const std::string& text) { return text.find("ram") != std::string::npos; }
++inline bool CacheInMemory(const std::string& title_id, const std::string& text, uint32_t draw_scale) {
++  if (!CacheInMemory(title_id, text)) return false;
++  return draw_scale <= 1 || ForcedInMemory(text);
++}
++// For the log: in memory by the title, but on the drive for the scale.
++inline bool KeptOnDriveForScale(const std::string& title_id, const std::string& text, uint32_t draw_scale) {
++  return CacheInMemory(title_id, text) && !CacheInMemory(title_id, text, draw_scale);
++}
++
+ // utility-cache-drive.txt: "data" (or "console") keeps the internal storage.
+ inline bool AsksForConsole(const std::string& text) {
+   return text.find("data") != std::string::npos || text.find("console") != std::string::npos;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3116,8 +3116,16 @@ int main(int argc, char** argv) {
+              cache_drive.base == bulk ? -1.0
+                                       : xbox360ps5::utility_cache_drive::ProbeMs(bulk / "utility-cache"));
+       // Fix 150d: Grand Theft Auto IV's cache: and cache1: in memory (memory_device.h).
++      // Fix 150f: not at resolution scale 2x (the render targets need the direct memory).
++      const uint32_t cache_draw_scale = xbox360ps5::resolution_scale::ScaleForChoice(started.draw_scale);
+       const bool cache_in_memory =
+-          xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch);
++          xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch, cache_draw_scale);
++      if (xbox360ps5::utility_cache_drive::KeptOnDriveForScale(settings_title, cache_drive_switch,
++                                                              cache_draw_scale)) {
++        XELOGW("Utility cache (fix 150f): cache: and cache1: on the drive ({}): resolution scale {}x needs the "
++               "memory; direct free {} MiB",
++               settings_title, cache_draw_scale, xbox360ps5::resolution_scale::DirectFreeFresh() >> 20);
++      }
+       // Fix 150d3: decided again when the launcher's game is known (see below).
+       bool cache_in_memory_now = cache_in_memory;
+       const std::initializer_list<const char*> memory_caches = {"cache1", "cache"};
+@@ -3656,19 +3664,6 @@ int main(int argc, char** argv) {
+         if (log_id.empty()) log_id = GameTitleId(game);
+         // This game's own options over the general ones.
+         settings_title = log_id;
+-        // Fix 150d3: a game chosen in the launcher (Kinect Sports) is known only now; the caches
+-        // were mounted at the start without a title, so its cache: and cache1: go into memory
+-        // here, before it runs (GTA IV restarts into its start options and was known already).
+-        if (!cache_in_memory_now &&
+-            xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch)) {
+-          cache_in_memory_now = xbox360ps5::MoveUtilityCacheToMemory(*emulator.file_system());
+-          XELOGW("Utility cache (fix 150d): cache: and cache1: in memory ({}, chosen in the launcher){}, at "
+-                 "most {} MiB, direct memory kept above {} MiB; direct free {} MiB",
+-                 settings_title, cache_in_memory_now ? "" : " failed; on the drive",
+-                 xe::vfs::memory_cache::pool().cap.load() >> 20,
+-                 xe::vfs::memory_cache::pool().reserve.load() >> 20,
+-                 xbox360ps5::resolution_scale::DirectFreeFresh() >> 20);
+-        }
+         // Candidate 21: the probes' lines for Battlefield 3 only (the JIT inserts them only into
+         // its code anyway; counts are kept either way).
+         // Fix 30: only with detailed logs (they log about 2,500 lines in a level's first seconds).
+@@ -3707,6 +3702,25 @@ int main(int argc, char** argv) {
+           restart = true;
+           break;
+         }
++        // Fix 150d3: a game chosen in the launcher (Kinect Sports) is known only now; the caches
++        // were mounted at the start without a title, so its cache: and cache1: go into memory
++        // here, before it runs (GTA IV restarts into its start options and was known already).
++        // Fix 150f: after the restarts above, with the resolution scale in effect (not at 2x).
++        if (!cache_in_memory_now &&
++            xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch, cache_draw_scale)) {
++          cache_in_memory_now = xbox360ps5::MoveUtilityCacheToMemory(*emulator.file_system());
++          XELOGW("Utility cache (fix 150d): cache: and cache1: in memory ({}, chosen in the launcher){}, at "
++                 "most {} MiB, direct memory kept above {} MiB; direct free {} MiB",
++                 settings_title, cache_in_memory_now ? "" : " failed; on the drive",
++                 xe::vfs::memory_cache::pool().cap.load() >> 20,
++                 xe::vfs::memory_cache::pool().reserve.load() >> 20,
++                 xbox360ps5::resolution_scale::DirectFreeFresh() >> 20);
++        } else if (!cache_in_memory_now && xbox360ps5::utility_cache_drive::KeptOnDriveForScale(
++                                               settings_title, cache_drive_switch, cache_draw_scale)) {
++          XELOGW("Utility cache (fix 150f): cache: and cache1: on the drive ({}, chosen in the launcher): "
++                 "resolution scale {}x needs the memory",
++                 settings_title, cache_draw_scale);
++        }
+         // Fix 117e: at 2x, the game's preset may keep its small surfaces at 1x.
+         {
+           const char* scale_threshold_from = "";

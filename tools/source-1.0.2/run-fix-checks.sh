@@ -173,7 +173,7 @@ checks=(
   check-ui-loop-io.cpp             # fix 152
   check-hang-watch-sync.cpp        # fix 153
   check-log-ring.cpp               # fix 154
-  check-utility-cache-drive.cpp    # fixes 150c and 150d
+  check-utility-cache-drive.cpp    # fixes 150c, 150d and 150f
   check-write-bench.cpp            # fixes 148i, 148j, 148k
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
