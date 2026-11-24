@@ -4,7 +4,7 @@ Created with the built-in `image_gen` tool. These are decorative branding and an
 
 ## banner.png
 
-Since 1.0.6 (the rename to TrinityX360) the banner is drawn by [`tools/source-1.0.2/package-art/make_art.py`](../../tools/source-1.0.2/package-art/make_art.py) (`--banner`), in the style of the package art: the name "TrinityX360" (white and green) and "Xbox 360 emulation on PlayStation 5" in Noto Sans (`assets/fonts`, SIL Open Font License) on black, and the white and green "X" of the app's icon. No official logos.
+Since 1.0.6 (the rename to TrinityX360) the banner is drawn by [`tools/source-1.0.2/package-art/make_art.py`](../../tools/source-1.0.2/package-art/make_art.py) (`--banner`), in the style of the package art: the name "TrinityX360" (white and green) and "Xbox 360 emulation on PlayStation 5" in Noto Sans (`assets/fonts`, SIL Open Font License) on a navy gradient, and the three interlocking rings of the app's icon. No official logos.
 
 Until 1.0.5 it was a generated image (prompt: wide 3:1 GitHub README banner for PS5X360; graphite background, emerald light trails, an original translucent cube and two interlocking luminous rings, subtle circuits) with a red "RELOADED" plate over the name.
 

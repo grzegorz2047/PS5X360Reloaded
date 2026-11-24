@@ -2,12 +2,13 @@
 
     python3 -I tools/source-1.0.2/package-art/make_art.py [--out <folder>] [--banner docs/images/banner.png]
 
-Made for the rename to TrinityX360 (1.0.6), in the style of the art the app had until then (the
-official PS5X360 art with a "RELOADED" plate): a black background, a large white and green "X" of
-two slanted bars, and the name in white and green, "Trinity" + "X360", now in place of "PS5X360"
-and the plate. Everything is drawn here from shapes and Noto Sans SemiBold (assets/fonts, SIL Open
-Font License); no pixel of the official art is used, and no Xbox or PlayStation logo, shape or
-typeface. The icon's name is set as large as the tile allows, so it reads at small sizes.
+Made for the rename to TrinityX360 (1.0.6). The package art is variant B, the user's choice: three
+interlocking rings (the "trinity") in a light grey, a blue and a green, woven over and under each
+other on a near-black navy gradient, and the name, "Trinity" in white and "X360" in green. Variant
+A (--variant a, a preview only, with --out elsewhere) keeps the style of the art until 1.0.5: a
+white and green "X" of two slanted bars on black with the name under it. Both are drawn here from
+shapes and Noto Sans SemiBold (assets/fonts, SIL Open Font License); no pixel of the official art
+is used, and no Xbox or PlayStation logo, shape or typeface: colours only.
 Also the README banner (docs/images/banner.png, 2172x724) with --banner.
 
 Needs Pillow. package.py pins the committed files by SHA-256 (package-art/README.md); another
@@ -155,7 +156,7 @@ def banner(width=2172, height=724):
     return image
 
 
-# ---- Variant B (a preview for the user's choice, not the package's art): three interlocking rings
+# ---- Variant B, the package art (the user's choice): three interlocking rings
 # (the "trinity") in a light grey, a blue and a green, on a near-black navy gradient, and the name
 # under them. Colours only: no PlayStation or Xbox shape or mark.
 B_TOP, B_BOTTOM = (14, 20, 40), (3, 5, 11)
@@ -205,7 +206,7 @@ def b_rings(size, centre, radius, stroke):
     return out
 
 
-def b_name(image, x, top, width, scale):
+def b_name(image, x, top, width, scale, left_aligned=False):
     font, _ = fit_font(FONT, 'TrinityX360', width * scale, 0.0)
     probe = ImageDraw.Draw(Image.new('L', (1, 1)))
     first = probe.textlength('Trinity', font=font)
@@ -217,55 +218,67 @@ def b_name(image, x, top, width, scale):
     draw.text(origin, 'Trinity', font=font, fill=WHITE)
     draw.text((origin[0] + first, origin[1]), 'X360', font=font, fill=B_GREEN_TEXT)
     layer = layer.resize((round(layer.width / scale), round(layer.height / scale)), Image.LANCZOS)
-    image.paste(layer, (round(x - layer.width / 2 - 4), round(top - 4)), layer)
+    left = x if left_aligned else x - layer.width / 2
+    image.paste(layer, (round(left - 4), round(top - 4)), layer)
+    return layer.height - 8
 
 
-def b_compose(width, height, ring_radius, ring_y, name_top, name_width):
+def b_compose(width, height, ring_radius, ring_y, name_top, name_width, ring_x=None, name_x=None):
+    """The gradient, a soft light behind the rings, the rings and the name: centred, or with the
+    rings at ring_x and the name starting at name_x (the banner). Returns (image, name height)."""
+    ring_x = width / 2 if ring_x is None else ring_x
     image = gradient((width, height), B_TOP, B_BOTTOM)
     halo = Image.new('RGB', (width, height), (0, 0, 0))
     r = ring_radius * 1.9
-    ImageDraw.Draw(halo).ellipse([width / 2 - r, ring_y - r, width / 2 + r, ring_y + r], fill=(16, 34, 60))
+    ImageDraw.Draw(halo).ellipse([ring_x - r, ring_y - r, ring_x + r, ring_y + r], fill=(16, 34, 60))
     image = ImageChops.add(image, halo.filter(ImageFilter.GaussianBlur(r * 0.6)))
     scale = 4 if width <= 1024 else 2
-    rings = b_rings((width * scale, height * scale), (width * scale / 2, ring_y * scale), ring_radius * scale,
+    rings = b_rings((width * scale, height * scale), (ring_x * scale, ring_y * scale), ring_radius * scale,
                     max(scale, round(ring_radius * scale * 0.15)))
     rings = rings.resize((width, height), Image.LANCZOS)
     image.paste(rings, (0, 0), rings)
-    b_name(image, width / 2, name_top, name_width, scale)
-    return image
+    if name_x is None:
+        name_height = b_name(image, width / 2, name_top, name_width, scale)
+    else:
+        name_height = b_name(image, name_x, name_top, name_width, scale, left_aligned=True)
+    return image, name_height
 
 
 def b_icon(size=512):
-    return b_compose(size, size, size * 0.19, size * 0.38, size * 0.71, size * 0.80)
+    return b_compose(size, size, size * 0.19, size * 0.38, size * 0.71, size * 0.80)[0]
 
 
 def b_picture(width, height):
-    return b_compose(width, height, height * 0.17, height * 0.38, height * 0.68, height * 0.80)
+    return b_compose(width, height, height * 0.17, height * 0.38, height * 0.68, height * 0.80)[0]
+
+
+def b_banner(width=2172, height=724):
+    """The README banner: the name and a subtitle on the left, the rings on the right."""
+    image, name_height = b_compose(width, height, height * 0.25, height * 0.48, height * 0.31, width * 0.48,
+                                   ring_x=width * 0.78, name_x=width * 0.045)
+    subtitle(image, width * 0.048, height * 0.31 + name_height + height * 0.08, height * 0.062,
+             'Xbox 360 emulation on PlayStation 5')
+    return image
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--out', type=Path, default=HERE)
     parser.add_argument('--banner', type=Path, help='also write the README banner (docs/images/banner.png)')
-    parser.add_argument('--variant', choices=('a', 'b'), default='a',
-                        help='a: the package art (the X); b: the rings, a preview only (needs --out)')
+    parser.add_argument('--variant', choices=('a', 'b'), default='b',
+                        help='b: the package art (the rings, chosen by the user); a: the X, a preview only '
+                             '(needs --out)')
     args = parser.parse_args()
-    if args.variant == 'b':
-        if args.out.resolve() == HERE or args.banner:
-            parser.error('variant b is a preview: give --out <another folder>, no --banner')
-        args.out.mkdir(parents=True, exist_ok=True)
-        for name, image in (('icon0.png', b_icon()), ('pic0.png', b_picture(3840, 2160)),
-                            ('pic1.png', b_picture(1920, 1080))):
-            image.convert('RGB').save(args.out / name, optimize=True)
-            print('wrote', args.out / name, image.size)
-        return
+    if args.variant == 'a' and args.out.resolve() == HERE:
+        parser.error('variant a is a preview: give --out <another folder>')
+    make = {'a': (icon, picture, banner), 'b': (b_icon, b_picture, b_banner)}[args.variant]
     args.out.mkdir(parents=True, exist_ok=True)
-    for name, image in (('icon0.png', icon()), ('pic0.png', picture(3840, 2160)),
-                        ('pic1.png', picture(1920, 1080))):
+    for name, image in (('icon0.png', make[0]()), ('pic0.png', make[1](3840, 2160)),
+                        ('pic1.png', make[1](1920, 1080))):
         image.convert('RGB').save(args.out / name, optimize=True)
         print('wrote', args.out / name, image.size)
     if args.banner:
-        banner().convert('RGB').save(args.banner, optimize=True)
+        make[2]().convert('RGB').save(args.banner, optimize=True)
         print('wrote', args.banner)
 
 

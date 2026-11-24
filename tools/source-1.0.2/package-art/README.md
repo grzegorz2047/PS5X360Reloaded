@@ -5,20 +5,21 @@ from source, in place of the official package's art, so the console shows Trinit
 app of its own next to the official PS5X360 (PPSA50011). `package.py` checks each file against
 the SHA-256 and the size below before using it, so a changed copy stops the packaging.
 
-Since 1.0.6 (the rename from PS5X360Reloaded to TrinityX360) the images keep the style of the
-art the app had until then: a black background, a large white and green "X" of two slanted
-bars, and the name in white and green, "Trinity" + "X360", in place of "PS5X360" and the red
-"RELOADED" plate. The icon's name is as wide as the tile, so it reads at small sizes. They are
-drawn from shapes and Noto Sans SemiBold (`assets/fonts`, SIL Open Font License) by
-[`make_art.py`](make_art.py) (Pillow 13); no pixel of the official art is used, and no Xbox or
-PlayStation logo, shape or typeface. Same sizes and format as the official files (8-bit RGB
-PNG). The script also draws the README banner (`docs/images/banner.png`, `--banner`). Another Pillow or FreeType version can draw slightly
-different bytes: after drawing them again, update the SHA-256 below, in `package.py` (`ART`)
-and in `tools/check-source-package.py`. Until 1.0.5 these were the official v1.0.2 images with a
-red "RELOADED" plate stamped on them.
+Since 1.0.6 (the rename from PS5X360Reloaded to TrinityX360) the images are the user's choice of
+two drafts (`research/rename-trinityx360` in the workspace): three interlocking rings, the
+"trinity", in a light grey, a blue and a green (colours only: no PlayStation or Xbox shape or
+mark), woven over and under each other on a near-black navy gradient, and the name, "Trinity" in
+white and "X360" in green, in Noto Sans SemiBold (`assets/fonts`, SIL Open Font License).
+[`make_art.py`](make_art.py) draws them (Pillow 13) at the official files' sizes and format (8-bit
+RGB PNG), and the README banner in the same style (`docs/images/banner.png`, `--banner`);
+`--variant a --out <folder>` draws the other draft (a white and green "X" on black), a preview
+only. Another Pillow or FreeType version can draw slightly different bytes: after drawing them
+again, update the SHA-256 below, in `package.py` (`ART`) and in `tools/check-source-package.py`,
+and write `sce_sys/` again (`repo_sce_sys.py --write`). Until 1.0.5 these were the official v1.0.2
+images with a red "RELOADED" plate stamped on them.
 
 | File | Package path | Size | SHA-256 |
 |---|---|---|---|
-| `icon0.png` | `sce_sys/icon0.png` | 512x512 | `12a4ccc54cff625a4576c39336a15f093ab046b5965639975d08d29a39d3a41f` |
-| `pic0.png` | `sce_sys/pic0.png` | 3840x2160 | `ecd2f37967541d1e33bc995c52ba27cf983f82fe88aa8e2b6a19f6ce8e020851` |
-| `pic1.png` | `sce_sys/pic1.png` | 1920x1080 | `f9c26b190a2a3d427e7ab233009835df03f3082292d04dde26ce4e827a4e9db7` |
+| `icon0.png` | `sce_sys/icon0.png` | 512x512 | `7b55e75d4293b5bbb01b40c5831855bb626cab80d149a7a01f4c2adeecf7b26f` |
+| `pic0.png` | `sce_sys/pic0.png` | 3840x2160 | `e0541c1987d983bb50ca04eb7b2c653afc4316f63d84620c7017cdacbfe5d350` |
+| `pic1.png` | `sce_sys/pic1.png` | 1920x1080 | `d25b1bb70a158f1a07825a3b5bf0633469af8ae62e5cd791f004db9d54b90a62` |
