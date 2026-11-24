@@ -1069,8 +1069,15 @@ accurate_targets=1
 readback=1
 
 # Grand Theft Auto V - https://github.com/xenia-canary/game-compatibility/issues/1140 (labels: gpu-readback)
+# 1.0.6 console tests (2026-11-24): nothing wrong without readback in the open world (minimap, map,
+# mirrors, phone, weapon wheel, thumbnails, ocean water looks the same as with Fast); readback Off
+# 24-26 fps driving against 13-23 with Fast. memory_boost cuts write-watch arming from ~200-240 to
+# ~7 ms/s: a steady 30 fps (the game cap) with readback Off. The brief dark flashes while driving
+# happen with Off, Fast and Full alike (not a readback problem). Do not restore readback=1 from the
+# upstream list without a new test.
 [545408A7]
-readback=1
+readback=0
+memory_boost=1
 
 # WWE 2K14 - https://github.com/xenia-canary/game-compatibility/issues/32
 [545408B2]

@@ -420,6 +420,13 @@ else
   echo "FAIL check-patch-syntax.py"
   status=1
 fi
+echo "=== check-gta5-preset.py"
+if "$python" -I "$repo/tools/check-gta5-preset.py"; then
+  echo "pass check-gta5-preset.py"
+else
+  echo "FAIL check-gta5-preset.py"
+  status=1
+fi
 echo "=== check-bf3-preset.py"
 if "$python" -I "$repo/tools/check-bf3-preset.py" --tree "$tree"; then
   echo "pass check-bf3-preset.py"
