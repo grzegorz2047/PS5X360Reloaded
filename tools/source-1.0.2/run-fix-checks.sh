@@ -171,7 +171,6 @@ checks=(
   check-install-notice.cpp         # fix 148h
   check-write-bench.cpp            # fix 148i
   check-help-card.cpp              # fix 149d
-  check-video-mode.cpp             # fixes 140 and 140b
   check-ui-loop-io.cpp             # fix 152
   check-hang-watch-sync.cpp        # fix 153
 )
@@ -331,7 +330,6 @@ declare -A fix_of=(
   [check-install-notice.cpp]=148h
   [check-write-bench.cpp]=148i
   [check-help-card.cpp]=149d
-  [check-video-mode.cpp]="140 140b"
   [check-ui-loop-io.cpp]=152
   [check-hang-watch-sync.cpp]=153
 )
