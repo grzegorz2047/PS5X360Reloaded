@@ -11,7 +11,11 @@ Runs on the made-up base PPSA50011.zip of tools/check-source-package.py. It chec
     are another version's; a base zip other than the official one is refused;
   * .gitattributes keeps both files byte for byte (param.json has the official CRLF lines);
   * the release workflow checks them before the build (prepare job) and compares them with the
-    package after it (package job).
+    package after it (package job);
+  * the committed sce_sys/param.json keeps the console identity of the installed app through the
+    rename to TrinityX360 (titleId PPSA83600, conceptId 83600, contentId
+    UP9000-PPSA83600_00-PS5X360RELOADED0, as package.py), names TrinityX360 in every language,
+    has a contentVersion above every shipped one, and sce_sys/icon0.png is the package's icon.
 """
 import importlib.util
 import io
@@ -111,6 +115,23 @@ def main():
     assert 'tools/source-1.0.2/repo_sce_sys.py' in prepare and '--check' in prepare
     assert 'cmp dist/source-release/stage/PPSA83600/sce_sys/' in packaging
     print('[OK] .gitattributes and the release workflow')
+
+    # The committed copies (what the catalogs read): the console identity the rename to
+    # TrinityX360 kept, the new name in every language, and the package's icon.
+    committed = json.loads((REPO / 'sce_sys/param.json').read_bytes())
+    assert (committed['titleId'], committed['conceptId'], committed['contentId']) == \
+        ('PPSA83600', '83600', 'UP9000-PPSA83600_00-PS5X360RELOADED0'), committed
+    assert (committed['titleId'], committed['conceptId'], committed['contentId']) == \
+        (package.TITLE_ID, package.CONCEPT_ID, package.CONTENT_ID)
+    names = {code: entry.get('titleName') for code, entry in committed['localizedParameters'].items()
+             if isinstance(entry, dict)}
+    assert names and set(names.values()) == {package.TITLE_NAME} == {'TrinityX360'}, names
+    assert package.CONTENT_VERSION_RE.fullmatch(committed['contentVersion'])
+    assert committed['contentVersion'] > max(package.SHIPPED_CONTENT_VERSIONS.values()), committed['contentVersion']
+    icon = (REPO / 'sce_sys/icon0.png').read_bytes()
+    assert icon == (REPO / 'tools/source-1.0.2/package-art/icon0.png').read_bytes()
+    print(f'[OK] the committed sce_sys: {committed["titleId"]}, {committed["contentId"]}, '
+          f'"{package.TITLE_NAME}", contentVersion {committed["contentVersion"]}, the package icon')
     print('check-repo-sce-sys: all checks passed')
     return 0
 

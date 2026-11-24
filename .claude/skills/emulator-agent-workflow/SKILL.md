@@ -1,11 +1,11 @@
 ---
 name: emulator-agent-workflow
-description: How Claude sessions work together on PS5X360Reloaded (the Xenia Canary port for PS5, repo grzegorz2047/PS5X360Reloaded, built from source as a numbered patch stack under tools/source-1.0.2/fixes). Use it whenever you write, number or test a source fix, add a host check, run the CI build, label a candidate, build or upload a console test image over FTP, read console logs or screenshots, bisect a bug on the console, change settings through the console's web API, prepare a release, or reply to a GitHub issue for this project, and whenever you work next to other sessions on it (coordinator, fix owner, area sessions).
+description: How Claude sessions work together on TrinityX360 (PS5X360Reloaded until 1.0.5; the Xenia Canary port for PS5, repo grzegorz2047/PS5X360Reloaded, built from source as a numbered patch stack under tools/source-1.0.2/fixes). Use it whenever you write, number or test a source fix, add a host check, run the CI build, label a candidate, build or upload a console test image over FTP, read console logs or screenshots, bisect a bug on the console, change settings through the console's web API, prepare a release, or reply to a GitHub issue for this project, and whenever you work next to other sessions on it (coordinator, fix owner, area sessions).
 ---
 
-# PS5X360Reloaded: working as one of several agents
+# TrinityX360: working as one of several agents
 
-PS5X360Reloaded rebuilds the PS5X360 v1.0.2 eboot from the author's public source drops
+TrinityX360 (PS5X360Reloaded until 1.0.5) rebuilds the PS5X360 v1.0.2 eboot from the author's public source drops
 (`tools/source-1.0.2/assemble.py`) and applies a numbered patch stack
 (`tools/source-1.0.2/fixes/NN-slug.patch`). The PS5 compile only happens in GitHub Actions.
 A console test needs a CI artifact, a UFS2 image (`.ffpkg`) and an FTP upload to a console

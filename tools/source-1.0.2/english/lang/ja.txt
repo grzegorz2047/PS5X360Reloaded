@@ -368,8 +368,6 @@ Or\sa\sburned\sdisc\sin\sthe\sUSB\sDVD\sdrive\s(a\sburned\sgame,\sor\sa\sDVD\swi
 Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe\sgame.\sUse\sa\sburned\sdisc. = ドライブに\sXbox\s360\sのオリジナルディスク:\s通常のドライブではゲームを読めません。焼いたディスクを使ってください。
 Original\sdashboard = 元のダッシュボード
 Other\scharacters = その他の文字
-PS5X360Reloaded\sGuide = PS5X360Reloaded\sガイド
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded：PlayStation\s5\s用の実験的な\sXbox\s360\sエミュレーター。
 Package\scopy\sfailed. = パッケージのコピーに失敗しました。
 Patches = パッチ
 Per\sgame = ゲームごと
@@ -544,6 +542,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = タッチパッドのク
 Touchpad:\semulator\sguide = タッチパッド：エミュレーターのガイド
 Trial = 体験版
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = △で現在のフォルダーを追加。○で\s1\sつ上の階層へ。
+TrinityX360\sGuide = TrinityX360\sガイド
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360：PlayStation\s5\s用の実験的な\sXbox\s360\sエミュレーター。
 Turn\soff = オフにする
 Turn\son = オンにする
 Turn\son\sand\splay = オンにしてプレイ

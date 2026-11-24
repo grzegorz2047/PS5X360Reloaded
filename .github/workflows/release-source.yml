@@ -1,8 +1,8 @@
 name: Source release (draft)
 
 # Turns the source build (build-source-1.0.2.yml, release mode) into a DRAFT GitHub release
-# v<version> with the PS5X360Reloaded package (title id PPSA83600, next to the official PS5X360's
-# PPSA50011) and its GPL-3.0 corresponding source.
+# v<version> with the TrinityX360 package (PS5X360Reloaded until 1.0.5; title id PPSA83600, next to
+# the official PS5X360's PPSA50011) and its GPL-3.0 corresponding source.
 #
 # Start: push the release commit to a branch release/source-X.Y.Z (the version is the branch
 # name's suffix, e.g. release/source-1.0.3 -> 1.0.3); workflow_dispatch on such a branch does the
@@ -16,7 +16,7 @@ name: Source release (draft)
 #    left out); artifacts eboot-<version>-from-source and source-<version>
 #    (PS5X360-<version>-source.tar.xz, the assembled tree that was compiled).
 # 3. package: PPSA83600.zip, made from the official v1.0.2 PPSA50011.zip (SHA-256 pinned) with
-#    the source-built eboot.bin, English-keyed language files and PS5X360Reloaded's param.json and
+#    the source-built eboot.bin, English-keyed language files and TrinityX360's param.json and
 #    art (tools/source-1.0.2/package.py), the PPSA83600.ffpkg and .ffpfsc
 #    images (tools/binary-release/make_images.sh), the source tarball, the toolchain source
 #    (PS5_Vulkan, PS5_Mesa, PS5_PayloadSDK at the build's pins: RADV, app_crt and the payload SDK
@@ -233,8 +233,8 @@ jobs:
           # ... the toolchain parts linked into it, at the pinned commits ...
           cp "dist/toolchain/PS5X360-$VERSION-toolchain-source.tar.xz" "$rel/"
           # ... and the scripts that assembled and built it: this repository at the commit.
-          git archive --format=tar.gz --prefix="PS5X360Reloaded-$VERSION/" \
-            -o "$rel/PS5X360Reloaded-$VERSION-scripts.tar.gz" "$GITHUB_SHA"
+          git archive --format=tar.gz --prefix="TrinityX360-$VERSION/" \
+            -o "$rel/TrinityX360-$VERSION-scripts.tar.gz" "$GITHUB_SHA"
           # Game patches, named as GitHub stores them (spaces become dots, as on v1.0.2-opt-r2).
           shopt -s nullglob
           for f in assets/patches/*.patch.toml; do
@@ -300,7 +300,7 @@ jobs:
               --remote-tag "$RUNNER_TEMP/tags.txt"
           }
           notes=docs/release-notes/v$VERSION.md
-          title="PS5X360Reloaded v$VERSION"
+          title="TrinityX360 v$VERSION"
           action=$(decide)
           echo "Release $TAG: $action"
           if [[ $action == create ]]; then

@@ -368,8 +368,6 @@ Or\sa\sburned\sdisc\sin\sthe\sUSB\sDVD\sdrive\s(a\sburned\sgame,\sor\sa\sDVD\swi
 Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe\sgame.\sUse\sa\sburned\sdisc. = 驱动器中是\sXbox\s360\s原版光盘：普通驱动器无法读取游戏。请使用刻录光盘。
 Original\sdashboard = 原版仪表板
 Other\scharacters = 其他字符
-PS5X360Reloaded\sGuide = PS5X360Reloaded\s指南
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded：适用于\sPlayStation\s5\s的实验性\sXbox\s360\s模拟器。
 Package\scopy\sfailed. = 复制包失败。
 Patches = 补丁
 Per\sgame = 按游戏
@@ -544,6 +542,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = 触摸板点击、振动
 Touchpad:\semulator\sguide = 触摸板：模拟器指南
 Trial = 试玩版
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = 三角键添加当前文件夹。圆圈键返回上一级。
+TrinityX360\sGuide = TrinityX360\s指南
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360：适用于\sPlayStation\s5\s的实验性\sXbox\s360\s模拟器。
 Turn\soff = 关闭
 Turn\son = 开启
 Turn\son\sand\splay = 开启并游玩

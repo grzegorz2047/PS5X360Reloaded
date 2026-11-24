@@ -16,8 +16,9 @@ name: Rebuild v1.0.2 from source drops (not for release)
 # the version label is that version (assemble.py --release, PS5X360_BUILD_VERSION) instead of
 # tools/source-1.0.2/BUILD_VERSION's candidate label, no fix is left out, and after the link
 # tools/source-1.0.2/check_release_elf.py checks eboot.elf/eboot.bin carry
-# "PS5X360Reloaded v<version>" and "BOOT version <version>", no candidate label and not the
-# official app's "PS5X360 v<version>", and SOURCES.json leaves no fix out. Only
+# "TrinityX360 v<version>" and "BOOT version <version>", no candidate label and no older name's
+# label (the official app's "PS5X360 v<version>", "PS5X360Reloaded v<version>"), and SOURCES.json
+# leaves no fix out. Only
 # then is the artifact named eboot-<version>-from-source (a failed release run uploads its logs
 # under the old NOT-FOR-RELEASE name), and the assembled tree build/src102 goes out as the GPL-3.0
 # corresponding source PS5X360-<version>-source.tar.xz (artifact source-<version>): a

@@ -1,4 +1,4 @@
-"""Builds the PPSA83600 package of a PS5X360Reloaded release compiled from source (tools/source-1.0.2).
+"""Builds the PPSA83600 package of a TrinityX360 release compiled from source (tools/source-1.0.2).
 
     python3 -I tools/source-1.0.2/package.py --base-zip PPSA50011-v1.0.2.zip \
         --eboot build/src102-out/eboot.bin --lang-dir build/src102-out/lang \
@@ -7,27 +7,29 @@
 
 The base is the official PS5X360 v1.0.2 PPSA50011.zip, checked against its SHA-256 as
 tools/binary-release/build_package.py checks it. Unlike that script, nothing is patched or
-signed again: eboot.bin is the source build's, already signed by build.sh. PS5X360Reloaded has
-its own title id, PPSA83600, so it installs next to the official PS5X360 (PPSA50011) instead of
-replacing it. This script:
+signed again: eboot.bin is the source build's, already signed by build.sh. TrinityX360 (named
+PS5X360Reloaded until 1.0.5) has its own title id, PPSA83600, so it installs next to the official
+PS5X360 (PPSA50011) instead of replacing it. The rename to TrinityX360 changed only the name: the
+title id, conceptId and contentId stay those of PS5X360Reloaded, so the console updates the
+installed app and keeps its saves. This script:
 
   * reads the base's files under PPSA50011/ and writes them under PPSA83600/;
   * rewrites sce_sys/param.json: titleId PPSA83600, conceptId 83600, contentId
-    UP9000-PPSA83600_00-PS5X360RELOADED0, the titleName PS5X360Reloaded in every language
+    UP9000-PPSA83600_00-PS5X360RELOADED0 (unchanged by the rename), the titleName TrinityX360 in every language
     entry and contentVersion from the release version (content_version(): X.Y.Z ->
     "%02d.%03d.000" % (X, Y * 100 + Z), so 1.0.4 -> 01.004.000), which must be higher than the
     base's and than every contentVersion already shipped (SHIPPED_CONTENT_VERSIONS); every other
     field (masterVersion included) and the file's layout (key order, indent, CRLF) stay the base's;
-  * replaces sce_sys/icon0.png, pic0.png and pic1.png with the PS5X360Reloaded art in
+  * replaces sce_sys/icon0.png, pic0.png and pic1.png with the TrinityX360 art in
     tools/source-1.0.2/package-art (checked by SHA-256 and size, see its README.md);
   * replaces the official user docs that name its folder PPSA50011 (tools/source-1.0.2/package-docs,
-    see its README.md): INSTALLATION.md with PS5X360Reloaded's own, RELEASE_NOTES.md with
+    see its README.md): INSTALLATION.md with TrinityX360's own, RELEASE_NOTES.md with
     docs/release-notes/v<version>.md, dlc/README.md and updates/README.md with the folder
     renamed, and leaves out AUTOLOG.md; then refuses the package if any other text file still
     names PPSA50011 (the English-keyed language files included);
   * replaces eboot.bin, after checking the SELF magic and that the binary carries the release's
-    version labels ("PS5X360Reloaded v<version>", "BOOT version <version>"), no candidate label
-    and not the official app's "PS5X360 v<version>" label;
+    version labels ("TrinityX360 v<version>", "BOOT version <version>"), no candidate label
+    and no older name's label ("PS5X360 v<version>", "PS5X360Reloaded v<version>");
   * replaces every assets/lang/*.txt with the English-keyed files of the build (fix 25; the
     eboot reads /app0/assets/lang/). It does not merge assets/lang-overrides, because those are
     keyed by Portuguese for the official executable and their texts are already in
@@ -71,14 +73,18 @@ PREFIX = TITLE_ID + '/'
 # sce_sys/param.json of the release. The contentId keeps the official package's form
 # (<service id UP9000>-<titleId>_00-<16 uppercase letters or digits>) with a label of its own, so
 # the console and ShadowMountPlus see a different app from the official UP9000-PPSA50011_00-...
+# The rename to TrinityX360 (1.0.6) kept the title id, conceptId and contentId of PS5X360Reloaded
+# (1.0.3 to 1.0.5): a new one would make the console see another app, installed beside the old one
+# without its saves. Only titleName changed. tools/check-source-package.py pins all four.
 CONCEPT_ID = TITLE_ID[4:]
 CONTENT_ID = f'UP9000-{TITLE_ID}_00-PS5X360RELOADED0'
-TITLE_NAME = 'PS5X360Reloaded'
+TITLE_NAME = 'TrinityX360'
 CONTENT_ID_RE = re.compile(r'UP9000-(PPSA[0-9]{5})_00-[A-Z0-9]{16}')
-# The home-screen label of the release (build_version.hpp) and the official app's, which a
-# PS5X360Reloaded eboot must not carry.
-HOME_LABEL = b'PS5X360Reloaded v'
-OFFICIAL_LABEL_RE = re.compile(rb'PS5X360 v[0-9]')
+# The home-screen label of the release (build_version.hpp: fix 46's product name, as the TrinityX360
+# fix renames it) and the older names' labels, which a TrinityX360 eboot must not carry: the
+# official app's and PS5X360Reloaded's.
+HOME_LABEL = b'TrinityX360 v'
+OFFICIAL_LABEL_RE = re.compile(rb'PS5X360(?:Reloaded)? v[0-9]')
 BASE_ZIP_SHA256 = build_package.BASE_ZIP_SHA256
 BASE_VERSION = build_package.BASE_VERSION
 UPSTREAM = build_package.UPSTREAM
@@ -89,7 +95,7 @@ VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:\.[1-9][0-9]{0,2})?')  # X.Y.
 # sce_sys/param.json contentVersion, "NN.NNN.NNN". The console and the homebrew catalogs compare it
 # with the installed app's to tell an outdated install, so each release needs a higher one.
 CONTENT_VERSION_RE = re.compile(r'[0-9]{2}\.[0-9]{3}\.[0-9]{3}')
-# contentVersion of every PS5X360Reloaded release already published: v1.0.3 kept the official
+# contentVersion of every release already published (named PS5X360Reloaded then): v1.0.3 kept the official
 # package's value. A new release's contentVersion must be higher than all of them.
 SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000', '1.0.4': '01.004.000', '1.0.4.1': '01.004.001',
                             '1.0.4.2': '01.004.002'}
@@ -123,11 +129,11 @@ LICENCES = [
 # package-art/README.md. The sizes are the official package's.
 ART = [
     ('icon0.png', 'sce_sys/icon0.png', (512, 512),
-     '0ea06e8927b1cf3a284a56e3440fd51017bc3e3efd1fc28b8015c4e6c662d50c'),
+     '4228bd442a3c803668c92fa211bf39ae69f1789d770bd22325ed2a5ef6499e24'),
     ('pic0.png', 'sce_sys/pic0.png', (3840, 2160),
-     '279db3b467fed42d9f5213c725a221e92ac919a8673ead61cb3b8755d7db1054'),
+     'ad4017e8f303ae57f7d34f4fd38076ee6d7584a9d81fc2a0505f8605384ed142'),
     ('pic1.png', 'sce_sys/pic1.png', (1920, 1080),
-     'a44a30407639a3859a6efbffb9ec555a9a220f86c9b886e09e2e48bd8776e377'),
+     '60588bb128b50c9fb9275628f6944c1d1959eba21b1d8a5d07abba1dd5501ec7'),
 ]
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 # The package's files the repository also carries, at its root, in the commit a release tag points
@@ -140,15 +146,15 @@ REPO_SCE_SYS = ('sce_sys/param.json', 'sce_sys/icon0.png')
 
 # The official package's user docs name its folder PPSA50011 (copy the folder there, put DLC and
 # updates in PPSA50011/..., logs in /data/homebrew/PPSA50011/logs); shipped as they are, they
-# would send PS5X360Reloaded's files into the official app's folder. See package-docs/README.md.
-# INSTALLATION.md: PS5X360Reloaded's own (package-docs/INSTALLATION.md, placeholders filled in).
+# would send TrinityX360's files into the official app's folder. See package-docs/README.md.
+# INSTALLATION.md: TrinityX360's own (package-docs/INSTALLATION.md, placeholders filled in).
 # RELEASE_NOTES.md: the release's notes, docs/release-notes/v<version>.md.
 # (path, times the official text names PPSA50011): that text with the folder renamed.
 DOC_RENAMES = [('dlc/README.md', 1), ('updates/README.md', 1)]
 # Left out: the official AutoLog payload's guide (it reads /data/homebrew/PPSA50011/logs only).
 DOCS_LEFT_OUT = ['AUTOLOG.md']
 # The package's files that may name the official title id: the notices of where the package came
-# from, the docs that tell PS5X360Reloaded apart from it, and binaries (eboot.bin reads the
+# from, the docs that tell TrinityX360 apart from it, and binaries (eboot.bin reads the
 # official folder for the first start's import; the official Kinect tracker and its source).
 # Every other text file naming it stops the packaging.
 # (licenses/PS5X360-<version>-NOTICE.txt too.)
@@ -183,7 +189,7 @@ def content_version(version):
 
 def check_content_version(value, base_value):
     """The derived contentVersion must be higher than the base package's and every shipped one
-    (SHIPPED_CONTENT_VERSIONS), or an installed older PS5X360Reloaded would not show as outdated.
+    (SHIPPED_CONTENT_VERSIONS), or an installed older release would not show as outdated.
     The fixed-width form compares as text."""
     others = [('the base package', base_value)]
     others += [(f'v{shipped}', other) for shipped, other in sorted(SHIPPED_CONTENT_VERSIONS.items())]
@@ -201,7 +207,7 @@ def source_names(version):
     and the git archive of this repository at the commit."""
     return {'tarball': f'PS5X360-{version}-source.tar.xz',
             'toolchain': f'PS5X360-{version}-toolchain-source.tar.xz',
-            'scripts': f'PS5X360Reloaded-{version}-scripts.tar.gz'}
+            'scripts': f'TrinityX360-{version}-scripts.tar.gz'}
 
 
 def parse_source_url(url):
@@ -264,8 +270,8 @@ def check_eboot(eboot, version):
         fail(f'eboot.bin carries a candidate label ({eboot[found.start():found.end() + 8]!r})')
     found = OFFICIAL_LABEL_RE.search(eboot)
     if found:
-        fail(f'eboot.bin carries the official app\'s label ({eboot[found.start():found.end() + 8]!r}): '
-             'not built as PS5X360Reloaded')
+        fail(f'eboot.bin carries an older name\'s label ({eboot[found.start():found.end() + 8]!r}): '
+             'not built as TrinityX360')
 
 
 def param_json(base, version):
@@ -471,7 +477,7 @@ def notice(version, date, repo, commit, eboot_sha, sources, toolchain, sources_s
         else:
             pins.append(f'        build host  {pin["runner"]}, {pin["compiler"]}')
     pins = '\n'.join(pins)
-    return f"""PS5X360Reloaded {version} ({TITLE_ID}) - built from source, distributed under the GNU GPL version 3
+    return f"""TrinityX360 {version} ({TITLE_ID}) - built from source, distributed under the GNU GPL version 3
 
 Licence of eboot.bin
     eboot.bin as a whole is distributed under the terms of the GNU General Public License
@@ -542,9 +548,9 @@ Other files
     {TITLE_ID}, content id {CONTENT_ID}, name {TITLE_NAME}, so this
     app installs next to the official PS5X360 instead of replacing it; content version
     {content_version(version)}, so an older install shows as outdated), sce_sys/icon0.png,
-    pic0.png and pic1.png (the official art marked "RELOADED", tools/source-1.0.2/package-art),
+    pic0.png and pic1.png (TrinityX360's own art, tools/source-1.0.2/package-art),
     the user docs that named the official app's folder (tools/source-1.0.2/package-docs:
-    INSTALLATION.md is PS5X360Reloaded's own, RELEASE_NOTES.md is this release's notes,
+    INSTALLATION.md is TrinityX360's own, RELEASE_NOTES.md is this release's notes,
     dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
     assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
     assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml (from the

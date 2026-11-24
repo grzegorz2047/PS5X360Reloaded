@@ -10,7 +10,7 @@
   "conceptId": "83600",
   "contentBadgeType": 1,
   "contentId": "UP9000-PPSA83600_00-PS5X360RELOADED0",
-  "contentVersion": "01.005.000",
+  "contentVersion": "01.006.000",
   "downloadDataSize": 256,
   "gameIntent": {
     "permittedIntents": [
@@ -22,7 +22,7 @@
   "localizedParameters": {
     "defaultLanguage": "en-US",
     "en-US": {
-      "titleName": "PS5X360Reloaded"
+      "titleName": "TrinityX360"
     }
   },
   "masterVersion": "00.01",

@@ -370,8 +370,6 @@ Or\sa\sburned\sdisc\sin\sthe\sUSB\sDVD\sdrive\s(a\sburned\sgame,\sor\sa\sDVD\swi
 Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe\sgame.\sUse\sa\sburned\sdisc. = Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe\sgame.\sUse\sa\sburned\sdisc.
 Original\sdashboard = Original\sdashboard
 Other\scharacters = Other\scharacters
-PS5X360Reloaded\sGuide = PS5X360Reloaded\sGuide
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5.
 Package\scopy\sfailed. = Package\scopy\sfailed.
 Patches = Patches
 Per\sgame = Per\sgame
@@ -547,6 +545,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = Touchpad\sclick,\svibrat
 Touchpad:\semulator\sguide = Touchpad:\semulator\sguide
 Trial = Trial
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel.
+TrinityX360\sGuide = TrinityX360\sGuide
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5.
 Turn\soff = Turn\soff
 Turn\son = Turn\son
 Turn\son\sand\splay = Turn\son\sand\splay

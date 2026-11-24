@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): PS5X360Reloaded's identity
+// Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch) and the rename to TrinityX360
+// (tools/source-1.0.2/fixes/trinityx360-name.patch, 1.0.6): the app's identity
 // (include/xbox360ps5/app_identity.hpp), the version label it gives the home screen
 // (build_version.hpp) and which key its web settings server lets in (web_key.hpp): its own, and
 // the official PS5X360's Kinect tracker key only for the tracker's two requests (GET
@@ -40,20 +41,30 @@ static_assert(std::string_view(id::kOfficialTitleId) == "PPSA50011");
 static_assert(std::string_view(id::kDataRoot) == "/data/homebrew/PPSA83600");
 static_assert(std::string_view(XBOX360PS5_DATA_ROOT "/saves") == "/data/homebrew/PPSA83600/saves");
 static_assert(std::string_view(id::kOfficialDataRoot) == "/data/homebrew/PPSA50011");
-static_assert(std::string_view(id::kProductName) == "PS5X360Reloaded");
 static_assert(std::string_view(id::kOfficialProductName) == "PS5X360");
+// The rename to TrinityX360 changed the name the app shows and nothing that identifies its data:
+// the title ID and the data root above are PS5X360Reloaded's (a new one would be another app, without
+// the installed one's saves), and the folders it made under its old name on each drive keep it.
+static_assert(std::string_view(id::kProductName) == "TrinityX360");
+static_assert(std::string_view(XBOX360PS5_PRODUCT_NAME) == "TrinityX360");
+static_assert(std::string_view(id::kFolderName) == "PS5X360Reloaded");
+static_assert(std::string_view(XBOX360PS5_FOLDER_NAME) == "PS5X360Reloaded");
+static_assert(std::string_view(id::kProductName) != std::string_view(id::kFolderName));
+static_assert(std::string_view(id::kProductName) != std::string_view(id::kOfficialProductName));
 
 void Identity() {
   // The two folders are siblings: neither is inside the other.
   const std::string own = id::kDataRoot, official = id::kOfficialDataRoot;
   assert(own.rfind(official, 0) != 0 && official.rfind(own, 0) != 0);
   assert(fs::path(own).parent_path() == fs::path(official).parent_path());
-  // The home screen's label, as the release checks look for it ("PS5X360Reloaded v<VERSION>").
-  assert(std::string(xbox360ps5::kBuildVersionLabel) == "PS5X360Reloaded v1.0.3_candidate_53");
+  // The home screen's label, as the release checks look for it ("TrinityX360 v<VERSION>"), and
+  // neither older name's.
+  assert(std::string(xbox360ps5::kBuildVersionLabel) == "TrinityX360 v1.0.3_candidate_53");
   assert(std::string(xbox360ps5::kBuildVersionLabel).rfind("PS5X360 v", 0) != 0);
-  std::printf("  identity: %s, %s, %s (official %s, %s, read only); label \"%s\"\n", id::kProductName,
-              id::kTitleId, id::kDataRoot, id::kOfficialTitleId, id::kOfficialDataRoot,
-              xbox360ps5::kBuildVersionLabel);
+  assert(std::string(xbox360ps5::kBuildVersionLabel).find("PS5X360Reloaded") == std::string::npos);
+  std::printf("  identity: %s, %s, %s, folders %s (official %s, %s, read only); label \"%s\"\n",
+              id::kProductName, id::kTitleId, id::kDataRoot, id::kFolderName, id::kOfficialTitleId,
+              id::kOfficialDataRoot, xbox360ps5::kBuildVersionLabel);
 }
 
 void Keys() {

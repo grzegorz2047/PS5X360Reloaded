@@ -1,16 +1,20 @@
-"""Host check of fix 46 (PS5X360Reloaded's own title ID, folder and name) on an assembled tree.
+"""Host check of fix 46 (the app's own title ID, folder and name) and of the rename to TrinityX360
+(fixes/trinityx360-name.patch, 1.0.6) on an assembled tree.
 
     python3 -I tools/check-title-id.py --tree build/src102
 
-PS5X360Reloaded is PPSA83600 and keeps its data in /data/homebrew/PPSA83600; the official PS5X360
-(PPSA50011) stays installed beside it and its folder is never written. Checks, on the title's code
+The app, PS5X360Reloaded until 1.0.5 and TrinityX360 since 1.0.6, is PPSA83600 and keeps its data
+in /data/homebrew/PPSA83600; the official PS5X360 (PPSA50011) stays installed beside it and its
+folder is never written. The rename changed the name only: the title ID, the data root and the
+folders named after the app on each drive (XBOX360PS5_FOLDER_NAME, PS5X360Reloaded) stay, so
+installs and saves carry over. Checks, on the title's code
 (include/, platform/, src/, port/, reconstructed/, canary/) and the core's (.deps/xenia-canary/src,
 when the tree has the core):
   (a) "PPSA50011" appears nowhere but in ALLOWED (one line: the official title ID in
       include/xbox360ps5/app_identity.hpp), and each ALLOWED line is there;
   (b) app_identity.hpp: the title ID is PPSA plus five digits and not the official one, the data
-      root is "/data/homebrew/" + the title ID, the product name is PS5X360Reloaded; each of its
-      macros is defined once in the whole tree;
+      root is "/data/homebrew/" + the title ID (PPSA83600), the product name is TrinityX360, the
+      drives' folder name is PS5X360Reloaded; each of its macros is defined once in the whole tree;
   (c) no string literal names a /data/homebrew folder outside app_identity.hpp (every path goes
       through XBOX360PS5_DATA_ROOT), and the official folder (kOfficialDataRoot) is used only by
       READERS: the first start's import and the official Kinect tracker's key;
@@ -18,9 +22,12 @@ when the tree has the core):
       notifications, web pages, phone camera, version label, User-Agent); the phone camera's
       instructions name the certificate the title makes; KEPT texts are still there (the session
       log's header, which tools/autolog.py reads; fix 50: the drives' save folder named after the
-      product, and its old name, still known so that it is moved);
+      product, and its old name, still known so that it is moved); no string literal names
+      PS5X360Reloaded but as a folder (".../PS5X360Reloaded", "PS5X360Reloaded/saves"), the
+      repository's address, or the old name of a certificate a phone may still have (OLD_NAME_ALLOWED);
   (e) the import runs before the saves are prepared and before the settings are read;
-  (f) english/lang: no "PPSA50011", and no key that fix 46 renames (english/rekey.py RENAMES).
+  (f) english/lang: no "PPSA50011", and no key that fix 46 or the rename to TrinityX360 renames
+      (english/rekey.py RENAMES).
 """
 import argparse
 import re
@@ -51,29 +58,51 @@ READERS = {
      'official_key = web_key::Read(fs::path(app_identity::kOfficialDataRoot) / "web-settings.key");'):
         'the official Kinect tracker\'s key, read (web_key.hpp)',
 }
-MACROS = ('XBOX360PS5_PRODUCT_NAME', 'XBOX360PS5_TITLE_ID', 'XBOX360PS5_DATA_ROOT', 'XBOX360PS5_OFFICIAL_TITLE_ID')
-PRODUCT = 'PS5X360Reloaded'
-# (file, the official text, PS5X360Reloaded's): the first must be gone and the second there.
+MACROS = ('XBOX360PS5_PRODUCT_NAME', 'XBOX360PS5_FOLDER_NAME', 'XBOX360PS5_TITLE_ID', 'XBOX360PS5_DATA_ROOT',
+          'XBOX360PS5_OFFICIAL_TITLE_ID')
+PRODUCT = 'TrinityX360'
+# The name until 1.0.5: the folders on each drive keep it (XBOX360PS5_FOLDER_NAME).
+OLD_NAME = 'PS5X360Reloaded'
+TITLE_ID = 'PPSA83600'
+# Where a string literal may still say PS5X360Reloaded (each match is taken out before looking for
+# the name; app_identity.hpp defines it): a folder of that name, the repository's address (not
+# renamed), the notes in the phone pages' own HTML and JavaScript comments ("PS5X360Reloaded fix 56:
+# ...", history like the C++ comments), and the phone camera's instructions, which also name the
+# certificate a PS5 made before 1.0.6 ("or PS5X360Reloaded").
+OLD_NAME_ALLOWED = [
+    re.compile(r'/PS5X360Reloaded\b'),
+    re.compile(r'\bPS5X360Reloaded/saves\b'),
+    re.compile(r'github\.com/grzegorz2047/PS5X360Reloaded\b'),
+    re.compile(r'\bPS5X360Reloaded fix \d+'),
+    re.compile(r'\((?:or|ou|o|lub) PS5X360Reloaded\)'),
+    re.compile(r'\((?:or|ou|o|lub) ["\u201e]PS5X360Reloaded Kinect camera["\u201d]\)'),
+]
+# (file, the official text, the app's): the first must be gone and the second there.
 RENAMED = [
     ('include/xbox360ps5/build_version.hpp', '"PS5X360 v" XBOX360PS5_VERSION', 'XBOX360PS5_PRODUCT_NAME " v" XBOX360PS5_VERSION'),
     ('include/xbox360ps5/build_version.hpp', '"PS5X360 development build"', 'XBOX360PS5_PRODUCT_NAME " development build"'),
     ('src/canary_game_main.cpp', 'Window(context, "PS5X360"', 'Window(context, XBOX360PS5_PRODUCT_NAME'),
     ('src/canary_game_main.cpp', 'InitializeLogging("PS5X360")', 'InitializeLogging(XBOX360PS5_PRODUCT_NAME)'),
     ('src/canary_game_main.cpp', 'Notify({"PS5X360"', 'Notify({XBOX360PS5_PRODUCT_NAME'),
-    ('src/canary_game_main.cpp', 'Tr("PS5X360 Guide")', 'Tr("PS5X360Reloaded Guide")'),
+    ('src/canary_game_main.cpp', 'Tr("PS5X360 Guide")', 'Tr("TrinityX360 Guide")'),
     ('src/launcher.cpp', 'who = "PS5X360";', 'who = XBOX360PS5_PRODUCT_NAME;'),
     ('src/launcher.cpp', 'c.Text("PS5X360", 96', 'c.Text(XBOX360PS5_PRODUCT_NAME, 96'),
     ('src/launcher.cpp', 'std::string("PS5X360  ', 'std::string(XBOX360PS5_PRODUCT_NAME "  '),
-    ('src/launcher.cpp', 'Tr("PS5X360: experimental', 'Tr("PS5X360Reloaded: experimental'),
-    ('platform/ps5/web_settings.cpp', '<title>PS5X360</title>', '<title>PS5X360Reloaded</title>'),
-    ('platform/ps5/web_settings.cpp', '<h1>PS5X360<small', '<h1>PS5X360Reloaded<small'),
+    ('src/launcher.cpp', 'Tr("PS5X360: experimental', 'Tr("TrinityX360: experimental'),
+    ('platform/ps5/web_settings.cpp', '<title>PS5X360</title>', '<title>TrinityX360</title>'),
+    ('platform/ps5/web_settings.cpp', '<h1>PS5X360<small', '<h1>TrinityX360<small'),
     ('platform/ps5/web_settings.cpp', 'filename=\\"PS5X360-logs-', 'filename=\\"" XBOX360PS5_PRODUCT_NAME "-logs-'),
-    ('platform/ps5/web_settings.cpp', 'filename=\\"ps5x360-camera.crt', 'filename=\\"ps5x360reloaded-camera.crt'),
+    ('platform/ps5/web_settings.cpp', 'filename=\\"ps5x360-camera.crt', 'filename=\\"trinityx360-camera.crt'),
     ('port/game_art.cpp', 'User-Agent: PS5X360\\r', 'User-Agent: " XBOX360PS5_PRODUCT_NAME "\\r'),
-    ('port/phone_camera.hpp', '<title>PS5X360 · Phone camera</title>', '<title>PS5X360Reloaded · Phone camera</title>'),
-    ('port/phone_camera.hpp', "document.title='PS5X360 · '", "document.title='PS5X360Reloaded · '"),
-    ('port/phone_camera_console.hpp', '<h1>PS5X360 Kinect</h1>', '<h1>PS5X360Reloaded Kinect</h1>'),
-    ('port/phone_camera_console.hpp', '<title>PS5X360 Kinect</title>', '<title>PS5X360Reloaded Kinect</title>'),
+    ('port/phone_camera.hpp', '<title>PS5X360 · Phone camera</title>', '<title>TrinityX360 · Phone camera</title>'),
+    ('port/phone_camera.hpp', "document.title='PS5X360 · '", "document.title='TrinityX360 · '"),
+    ('port/phone_camera_console.hpp', '<h1>PS5X360 Kinect</h1>', '<h1>TrinityX360 Kinect</h1>'),
+    ('port/phone_camera_console.hpp', '<title>PS5X360 Kinect</title>', '<title>TrinityX360 Kinect</title>'),
+    # The rename to TrinityX360 (1.0.6): what fix 46 named PS5X360Reloaded.
+    ('port/phone_camera_page.hpp', '<h1>PS5X360Reloaded Kinect</h1>', '<h1>TrinityX360 Kinect</h1>'),
+    ('port/phone_camera_page.hpp', '<title>PS5X360Reloaded Kinect</title>', '<title>TrinityX360 Kinect</title>'),
+    ('src/launcher.cpp', 'Tr("PS5X360Reloaded: experimental', 'Tr("TrinityX360: experimental'),
+    ('src/canary_game_main.cpp', 'Tr("PS5X360Reloaded Guide")', 'Tr("TrinityX360 Guide")'),
     ('port/phone_camera_tls.cpp', '"CN=PS5X360 Kinect camera (this console),O=PS5X360"',
      '"CN=" XBOX360PS5_PRODUCT_NAME " Kinect camera (this console),O=" XBOX360PS5_PRODUCT_NAME'),
     ('port/phone_camera_tls.cpp', '",O=PS5X360"', '",O=" XBOX360PS5_PRODUCT_NAME'),
@@ -85,8 +114,9 @@ KEPT = [
     # Fix 50: the drives' saves folder follows the product's name; the old one is still named, so
     # a tester's <drive>/PS5X360/saves is found and moved (tools/check-save-folder.cpp).
     ('.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h',
-     'inline constexpr const char kSaveFolder[] = XBOX360PS5_PRODUCT_NAME;',
-     'the save folder on a drive (fix 27) is named after the product (fix 50)'),
+     'inline constexpr const char kSaveFolder[] = XBOX360PS5_FOLDER_NAME;',
+     'the save folder on a drive (fix 27) is named after the product (fix 50) and keeps the name '
+     'PS5X360Reloaded since the rename to TrinityX360, so the saves stay found'),
     ('.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h',
      'inline constexpr const char kLegacySaveFolder[] = "PS5X360";',
      "the drives' old save folder is still known, so it is moved, not lost (fix 50)"),
@@ -149,13 +179,19 @@ def check(tree, problems):
     title_id = values.get('XBOX360PS5_TITLE_ID', '').strip('"')
     if not re.fullmatch(r'PPSA\d{5}', title_id) or title_id == OFFICIAL_ID:
         problems.add('b', f'title ID {title_id!r}: want PPSA and five digits, not {OFFICIAL_ID}')
+    if title_id != TITLE_ID:
+        problems.add('b', f'title ID {title_id!r}: the installed app is {TITLE_ID}; another one is a new app '
+                          'without its saves')
+    if values.get('XBOX360PS5_FOLDER_NAME') != f'"{OLD_NAME}"':
+        problems.add('b', f'drives\' folder name {values.get("XBOX360PS5_FOLDER_NAME")!r}: the saves on each drive '
+                          f'are in <drive>/{OLD_NAME}/saves')
     if values.get('XBOX360PS5_DATA_ROOT') != '"/data/homebrew/" XBOX360PS5_TITLE_ID':
         problems.add('b', f'data root {values.get("XBOX360PS5_DATA_ROOT")!r}')
     if values.get('XBOX360PS5_PRODUCT_NAME') != f'"{PRODUCT}"':
         problems.add('b', f'product name {values.get("XBOX360PS5_PRODUCT_NAME")!r}')
     if values.get('XBOX360PS5_OFFICIAL_TITLE_ID') != f'"{OFFICIAL_ID}"':
         problems.add('b', f'official title ID {values.get("XBOX360PS5_OFFICIAL_TITLE_ID")!r}')
-    print(f'(b) identity: {PRODUCT}, {title_id}, data root /data/homebrew/{title_id}; '
+    print(f'(b) identity: {PRODUCT}, {title_id}, data root /data/homebrew/{title_id}, drives\' folders {OLD_NAME}; '
           f'{len(MACROS)} macros defined once each')
     # (c) /data/homebrew literals and the official folder's readers.
     literals = hints = 0
@@ -211,7 +247,23 @@ def check(tree, problems):
         kept += 1
         if text not in files.get(rel, ''):
             problems.add('d', f'{rel}: {text!r} gone ({why})')
-    print(f'(d) name: {len(RENAMED)} texts renamed, the camera instructions name the certificate, {kept} kept')
+    # The old name in a string literal (comments may keep it: fix numbers, history).
+    old_literals = 0
+    for rel, text in files.items():
+        if OLD_NAME not in text or rel == IDENTITY or rel.endswith(('.txt', '.cmake', '.md')):
+            continue
+        for tok in rekey.lex(text, rel):
+            if tok.kind != 'str' or OLD_NAME not in tok.value:
+                continue
+            rest = tok.value
+            for allowed in OLD_NAME_ALLOWED:
+                rest = allowed.sub('', rest)
+            if OLD_NAME in rest:
+                old_literals += 1
+                problems.add('d', f'{rel}:{rekey.line_of(text, tok.start)}: {OLD_NAME} in {tok.value[:120]!r} '
+                                  f'(the name is {PRODUCT}; a folder: XBOX360PS5_FOLDER_NAME)')
+    print(f'(d) name: {len(RENAMED)} texts renamed, the camera instructions name the certificate, {kept} kept; '
+          f'{OLD_NAME} only as a folder, the repository or an old certificate ({old_literals} other)')
     # (e) the import's place in the start.
     main = files.get('src/canary_game_main.cpp', '')
     run = main.find('official_import::Run(')
@@ -247,7 +299,8 @@ def main():
         for line in problems:
             print('  ' + line, file=sys.stderr)
         sys.exit(1)
-    print('PASS: PS5X360Reloaded has its own title ID, folder and name; the official folder is only read (fix 46)')
+    print('PASS: TrinityX360 (PPSA83600, PS5X360Reloaded until 1.0.5) has its own title ID, folder and name; '
+          'the drives\' folders keep PS5X360Reloaded; the official folder is only read (fix 46)')
 
 
 if __name__ == '__main__':

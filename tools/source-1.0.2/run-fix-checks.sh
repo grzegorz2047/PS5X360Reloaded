@@ -14,8 +14,8 @@
 # step), tools/check-source-package.py (package.py), tools/check-release-images.py
 # (make_images.sh's title id and the release workflows' image names), tools/check-release-guard.py
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
-# tools/check-docs-reloaded.py checks the user docs for the PS5X360Reloaded name and title id
-# (PPSA83600, next to the official PPSA50011).
+# tools/check-docs-reloaded.py checks the user docs for the app's name, TrinityX360 since 1.0.6
+# (PS5X360Reloaded before), and its title id (PPSA83600, next to the official PPSA50011).
 # tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
@@ -24,7 +24,10 @@
 # Fix 46 (PS5X360Reloaded's own title ID, folder and name): check-app-identity.cpp (the identity
 # header, the version label, the web settings' keys), check-official-import.cpp (the first start's
 # copy from the official PS5X360 on a temporary folder) and tools/check-title-id.py (no official
-# title ID or /data/homebrew literal left in the title and the core, with python3).
+# title ID or /data/homebrew literal left in the title and the core, with python3). The rename to
+# TrinityX360 (fixes/trinityx360-name.patch, 1.0.6; "trinityx360" when left out) is checked by
+# check-app-identity.cpp, check-save-folder.cpp (the drives' folder keeps its name),
+# check-guide-header.cpp and check-title-id.py.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -187,11 +190,11 @@ declare -A fix_of=(
   [check-media-voice.cpp]=32 [check-switch-title.cpp]=33 [check-pipeline-claim.cpp]=34
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
-  [check-app-identity.cpp]=46 [check-official-import.cpp]=46
+  [check-app-identity.cpp]="46 trinityx360" [check-official-import.cpp]=46
   [check-hang-watch.cpp]=47
   [check-memexport-loss.cpp]=48
   [check-frame-cost.cpp]=49
-  [check-save-folder.cpp]=50
+  [check-save-folder.cpp]="50 trinityx360"
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52
   [check-measure-10s.cpp]=54
@@ -264,7 +267,7 @@ declare -A fix_of=(
   [check-osk-modes.cpp]="114 114b"
   [check-dlc-remove.cpp]=109
   [check-avatar-skeleton.cpp]=113
-  [check-guide-header.cpp]=115b
+  [check-guide-header.cpp]="115b trinityx360"
   [check-guide-tabs.cpp]=115c
   [check-guide-counter.cpp]=115d
   [check-guide-measure.cpp]=115e
@@ -410,8 +413,8 @@ else
   status=1
 fi
 echo "=== check-title-id.py"
-if [[ " $skipped_fixes " == *" 46 "* ]]; then
-  echo "skip check-title-id.py (fix 46 left out of this build)"
+if [[ " $skipped_fixes " == *" 46 "* || " $skipped_fixes " == *" trinityx360 "* ]]; then
+  echo "skip check-title-id.py (fix 46 or the TrinityX360 rename left out of this build)"
 elif "$python" -I "$repo/tools/check-title-id.py" --tree "$tree"; then
   echo "pass check-title-id.py"
 else

@@ -80,7 +80,7 @@ def check_sources():
 def check_sums(root):
     folder = root / 'release'
     folder.mkdir()
-    # The source release's assets: PS5X360Reloaded's PPSA83600 package and images.
+    # The source release's assets: TrinityX360's PPSA83600 package and images.
     files = {'PPSA83600.zip': b'zip', 'PPSA83600.zip.sha256': b'sum', 'PPSA83600.ffpkg': b'image',
              'PPSA83600.ffpfsc': b'pfs', 'PS5X360-1.0.3-source.tar.xz': b'tree',
              'Fable_III.patch.toml': b'toml', 'SOURCES.json': b'{}'}

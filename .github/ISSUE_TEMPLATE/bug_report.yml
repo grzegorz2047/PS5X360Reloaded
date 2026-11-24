@@ -1,12 +1,13 @@
 name: Game compatibility or emulator bug
-description: Report a reproducible crash, black screen, graphics, audio or launcher problem.
+description: Report a reproducible crash, black screen, graphics, audio or launcher problem in TrinityX360 (PPSA83600).
 title: "[Bug] "
 body:
   - type: input
     id: release
     attributes:
       label: Release version
-      placeholder: v0.1.0-preview
+      description: The label on the emulator's home screen, e.g. "TrinityX360 v1.0.6" (PS5X360Reloaded until v1.0.5).
+      placeholder: TrinityX360 v1.0.6
     validations:
       required: true
   - type: input

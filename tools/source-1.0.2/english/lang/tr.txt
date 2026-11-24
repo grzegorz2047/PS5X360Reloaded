@@ -368,8 +368,6 @@ Or\sa\sburned\sdisc\sin\sthe\sUSB\sDVD\sdrive\s(a\sburned\sgame,\sor\sa\sDVD\swi
 Original\sXbox\s360\sdisc\sin\sthe\sdrive:\sa\sregular\sdrive\scannot\sread\sthe\sgame.\sUse\sa\sburned\sdisc. = Sürücüde\sorijinal\sXbox\s360\sdiski:\snormal\sbir\ssürücü\soyunu\sokuyamaz.\sYazılmış\sbir\sdisk\skullan.
 Original\sdashboard = Orijinal\spano
 Other\scharacters = Diğer\skarakterler
-PS5X360Reloaded\sGuide = PS5X360Reloaded\sRehberi
-PS5X360Reloaded:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = PS5X360Reloaded:\sPlayStation\s5\siçin\sdeneysel\sXbox\s360\semülatörü.
 Package\scopy\sfailed. = Paket\skopyalama\sbaşarısız\soldu.
 Patches = Yamalar
 Per\sgame = Oyuna\sgöre
@@ -544,6 +542,8 @@ Touchpad\sclick,\svibration\sand\sstick\sdead\szones. = Dokunmatik\syüzey\stık
 Touchpad:\semulator\sguide = Dokunmatik\syüzey:\semülatör\srehberi
 Trial = Deneme
 Triangle\sadds\sthe\scurrent\sfolder.\sCircle\sgoes\sup\sone\slevel. = Üçgen\sgeçerli\sklasörü\sekler.\sDaire\sbir\süst\sdüzeye\sçıkar.
+TrinityX360\sGuide = TrinityX360\sRehberi
+TrinityX360:\sexperimental\sXbox\s360\semulator\sfor\sPlayStation\s5. = TrinityX360:\sPlayStation\s5\siçin\sdeneysel\sXbox\s360\semülatörü.
 Turn\soff = Kapat
 Turn\son = Aç
 Turn\son\sand\splay = Aç\sve\soyna

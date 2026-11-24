@@ -54,8 +54,16 @@ PACKAGE_ONE_ARG = PACKAGE_TWO_ARGS.replace(
     'def param_json(base):\n    p = json.loads(base); p[\'titleId\'] = TITLE_ID; p[\'contentVersion\'] = \'one-arg\'')
 
 
+# package.py since the rename to TrinityX360 (1.0.6): its own home-screen label, and PS5X360Reloaded's
+# refused like the official one.
+PACKAGE_TRINITY = PACKAGE_TWO_ARGS.replace(
+    "OFFICIAL_LABEL_RE = re.compile(rb'PS5X360 v[0-9]')",
+    "HOME_LABEL = b'TrinityX360 v'\nOFFICIAL_LABEL_RE = re.compile(rb'PS5X360(?:Reloaded)? v[0-9]')")
+assert PACKAGE_TRINITY != PACKAGE_TWO_ARGS
+
+
 def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_mentions=1,
-                      package=PACKAGE_TWO_ARGS):
+                      package=PACKAGE_TWO_ARGS, name='PS5X360Reloaded', extra_elf=b''):
     base = root / 'base/PPSA50011'
     write(base / 'eboot.bin', b'OFFICIAL EBOOT' * 100)
     write(base / 'sce_sys/param.json', json.dumps({'titleId': 'PPSA50011', 'contentVersion': '01.000.000'}))
@@ -64,7 +72,7 @@ def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_
     write(base / 'dlc/README.md', 'Put DLC in PPSA50011 here. ' * dlc_mentions if dlc_mentions else 'no id\n')
     write(base / 'AUTOLOG.md', 'official autolog guide\n')
     art = root / 'art'
-    elf = b'\x7fELF....' + f'PS5X360Reloaded v{label}'.encode() + b'\0'
+    elf = b'\x7fELF....' + f'{name} v{label}'.encode() + b'\0' + extra_elf
     if official_label:
         elf += b'PS5X360 v1.0.2\0'
     write(art / 'src102-out/eboot.elf', elf)
@@ -137,6 +145,26 @@ def stage_checks():
         result, app = run_stage(root, *make_stage_inputs(root, package=PACKAGE_ONE_ARG))
         check(result.returncode == 0 and json.loads((app / 'sce_sys/param.json').read_text())['contentVersion'] == 'one-arg',
               'stage: an older package.py with param_json(base) works')
+
+    # The rename to TrinityX360: the package repo's package.py says which label the ELF must carry.
+    renamed = [
+        (dict(package=PACKAGE_TRINITY, name='TrinityX360'), None,
+         'stage: a TrinityX360 build with a TrinityX360 package.py stages'),
+        (dict(package=PACKAGE_TRINITY), 'does not carry',
+         'stage: a PS5X360Reloaded build with a TrinityX360 package.py is refused'),
+        (dict(name='TrinityX360'), 'does not carry',
+         'stage: a TrinityX360 build with an older package.py is refused'),
+        (dict(package=PACKAGE_TRINITY, name='TrinityX360', extra_elf=b'PS5X360Reloaded v1.0.5\0'), 'older name',
+         'stage: a TrinityX360 build that also carries PS5X360Reloaded\'s label is refused'),
+    ]
+    for kwargs, text, what in renamed:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, app = run_stage(root, *make_stage_inputs(root, **kwargs))
+            if text is None:
+                check(result.returncode == 0 and (app / 'eboot.bin').is_file(), f'{what} ({result.stderr.strip()[:120]})')
+            else:
+                check(result.returncode != 0 and text in result.stderr, f'{what} ({result.stderr.strip()[:120]})')
 
 
 # ---------------------------------------------------------------- upload

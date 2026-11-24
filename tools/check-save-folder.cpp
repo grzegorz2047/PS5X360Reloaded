@@ -151,6 +151,10 @@ struct FakeFs {
 };
 
 void CheckDecisions() {
+  // The rename to TrinityX360 (fixes/trinityx360-name.patch) kept the folder: kSaveFolder is
+  // XBOX360PS5_FOLDER_NAME, the old name, not the product name.
+  Expect(std::string(XBOX360PS5_PRODUCT_NAME) == "TrinityX360" && std::string(XBOX360PS5_FOLDER_NAME) == "PS5X360Reloaded",
+         "the product is TrinityX360, its drives' folders keep PS5X360Reloaded");
   Expect(std::string(storage::kSaveFolder) == "PS5X360Reloaded" && std::string(storage::kLegacySaveFolder) == "PS5X360",
          "the folder is the product's name, the old one fix 27's");
   Expect(storage::SaveRoot("/mnt/usb0") == "/mnt/usb0/PS5X360Reloaded/saves" &&

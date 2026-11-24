@@ -1,0 +1,183 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+index 0b51384..0a96480 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/storage_devices.h
+@@ -106,5 +106,7 @@ inline constexpr const char* kSaveBases[] = {"", "homebrew", "xbox360"};
+ // Fix 50: the drives' saves folder, named after the product so that it follows
+ // the app's name; and fix 27's name, which drives of 1.0.3 testers still have.
+-inline constexpr const char kSaveFolder[] = XBOX360PS5_PRODUCT_NAME;
++// The rename to TrinityX360 (1.0.6) kept the folder's name, PS5X360Reloaded
++// (XBOX360PS5_FOLDER_NAME), so the saves on every drive are found where they are.
++inline constexpr const char kSaveFolder[] = XBOX360PS5_FOLDER_NAME;
+ inline constexpr const char kLegacySaveFolder[] = "PS5X360";
+ 
+@@ -488,5 +490,5 @@ std::vector<Device> Scan(Fs& fs, const std::filesystem::path& internal_root,
+                 {device.mount, device.id, Skipped::Why::kSystemOnly, 0,
+                  "empty but for the PS5's System folder, without a "
+-                 XBOX360PS5_PRODUCT_NAME
++                 XBOX360PS5_FOLDER_NAME
+                  " folder (taken for another partition of a drive, as an "
+                  "installer stick's)"});
+diff --git a/include/xbox360ps5/app_identity.hpp b/include/xbox360ps5/app_identity.hpp
+index cf97080..54842fe 100644
+--- a/include/xbox360ps5/app_identity.hpp
++++ b/include/xbox360ps5/app_identity.hpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ // Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch): who this title is.
+-// PS5X360Reloaded, the fork of BrinooTk's PS5X360 rebuilt from its published sources, has a title
+-// ID of its own, PPSA83600, so it installs beside the official PS5X360 instead of
++// TrinityX360 (named PS5X360Reloaded until 1.0.5; the name changed in 1.0.6 with
++// fixes/trinityx360-name.patch), the fork of BrinooTk's PS5X360 rebuilt from its published
++// sources, has a title ID of its own, PPSA83600, so it installs beside the official PS5X360 instead of
+ // replacing it, and keeps its data in a folder of its own: everything the title and the core
+ // read or write under /data/homebrew goes through XBOX360PS5_DATA_ROOT. The official app's
+@@ -12,5 +13,9 @@
+ #pragma once
+ 
+-#define XBOX360PS5_PRODUCT_NAME "PS5X360Reloaded"
++#define XBOX360PS5_PRODUCT_NAME "TrinityX360"
++// The name of the folders the app made under its name before the rename to TrinityX360 (the saves
++// folder on each drive, <drive>/PS5X360Reloaded/saves, fix 50). They keep it, so saves and caches
++// stay where they are; the title ID, the content ID and the data root did not change either.
++#define XBOX360PS5_FOLDER_NAME "PS5X360Reloaded"
+ #define XBOX360PS5_TITLE_ID "PPSA83600"
+ #define XBOX360PS5_DATA_ROOT "/data/homebrew/" XBOX360PS5_TITLE_ID
+@@ -21,4 +26,6 @@ namespace xbox360ps5::app_identity {
+ // The name the title shows (window, version label, guide, notifications, web pages).
+ inline constexpr char kProductName[] = XBOX360PS5_PRODUCT_NAME;
++// The folders named after the app on each drive: the name until 1.0.5, kept (XBOX360PS5_FOLDER_NAME).
++inline constexpr char kFolderName[] = XBOX360PS5_FOLDER_NAME;
+ inline constexpr char kTitleId[] = XBOX360PS5_TITLE_ID;
+ // The title's own folder on the internal disk: saves, logs, caches, network.conf and the rest.
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+index c595c55..7b2b482 100644
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -43,5 +43,5 @@ unsigned short port = 0;
+ const char kPage[] = R"HTML(<!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>PS5X360Reloaded</title>
++<title>TrinityX360</title>
+ <style>
+ :root{color-scheme:dark}
+@@ -71,5 +71,5 @@ h3{font-size:14px;color:#9aa3b2;margin:16px 0 8px;font-weight:600}
+ #saved.on{opacity:1}
+ </style></head><body>
+-<header><h1>PS5X360Reloaded<small id="version"></small></h1><div id="running"></div></header>
++<header><h1>TrinityX360<small id="version"></small></h1><div id="running"></div></header>
+ <main><div id="gate" hidden><div id="gatetext">Code shown on the TV</div><input id="code" maxlength="6" autocapitalize="off" autocomplete="off"><br><button id="enter">OK</button></div>
+ <div id="app" hidden><select id="scope"></select><nav id="tabs"></nav><div id="list"></div></div></main>
+@@ -327,5 +327,5 @@ void Answer(int client) {
+     if (certificate.empty()) { Send(client, "404 Not Found", "text/plain", "certificate unavailable"); return; }
+     Send(client, "200 OK", "application/x-x509-ca-cert", certificate,
+-         "Content-Disposition: attachment; filename=\"ps5x360reloaded-camera.crt\"\r\nReferrer-Policy: no-referrer\r\n");
++         "Content-Disposition: attachment; filename=\"trinityx360-camera.crt\"\r\nReferrer-Policy: no-referrer\r\n");
+     return;
+   }
+diff --git a/port/phone_camera.hpp b/port/phone_camera.hpp
+index df4ec94..52a12dc 100644
+--- a/port/phone_camera.hpp
++++ b/port/phone_camera.hpp
+@@ -87,5 +87,5 @@ inline std::string ReadPublicCA() {
+ inline constexpr char kLanding[] = R"CAMERA(<!doctype html>
+ <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<meta name="referrer" content="no-referrer"><title>PS5X360Reloaded · Phone camera</title>
++<meta name="referrer" content="no-referrer"><title>TrinityX360 · Phone camera</title>
+ <style>
+ :root{color-scheme:dark}body{margin:0;background:#0a0c11;color:#d5dae2;font:16px/1.5 system-ui,sans-serif}
+@@ -125,5 +125,5 @@ const text=pt?{
+  limitations:'This HTTP settings page does not access the camera. The local HTTPS service is required; camera availability and pairing depend on that service.'
+ };
+-document.documentElement.lang=pt?'pt-BR':'en';document.title='PS5X360Reloaded · '+text.title;
++document.documentElement.lang=pt?'pt-BR':'en';document.title='TrinityX360 · '+text.title;
+ for(const [id,value] of Object.entries(text))document.getElementById(id).textContent=value;
+ document.getElementById('pairing').textContent=boot.key;
+diff --git a/port/phone_camera_console.hpp b/port/phone_camera_console.hpp
+index c19d654..ab24466 100644
+--- a/port/phone_camera_console.hpp
++++ b/port/phone_camera_console.hpp
+@@ -11,10 +11,10 @@ namespace xbox360ps5::phone_camera {
+ inline constexpr char kConsoleLanding[] = R"CAMERA(<!doctype html>
+ <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+-<title>PS5X360Reloaded Kinect</title>
++<title>TrinityX360 Kinect</title>
+ <style>body{background:#0a0c11;color:#eef3f6;font:17px/1.5 system-ui,sans-serif;max-width:640px;margin:0 auto;padding:18px}
+ h1{font-size:24px}h2{color:#35d07f;font-size:17px;margin-top:22px}li{margin:6px 0}small{color:#7f8a96}
+ a.button,button{display:block;width:100%;text-align:center;background:#35d07f;color:#06210f;font:600 17px system-ui,sans-serif;padding:14px;border:0;border-radius:12px;text-decoration:none;margin:14px 0}
+ .secondary{background:#232a35!important;color:#eef3f6!important}#steps{display:none}</style></head>
+-<body><h1>PS5X360Reloaded Kinect</h1><p id="status"></p>
++<body><h1>TrinityX360 Kinect</h1><p id="status"></p>
+ <div id="steps"><p data-t="why"></p>
+ <a class="button" href="/phone-camera-ca.crt" data-t="download"></a>
+@@ -27,17 +27,17 @@ const boot=__CAMERA_BOOT__;
+ const W={en:{checking:'Opening the camera...',why:'First time on this phone: install the PS5 camera certificate once. Phone browsers only open the camera on a secure page; this certificate was made by your PS5 for its own address and cannot sign anything else.',
+ download:'1. Download the certificate',a1:'Tap Download. If Android says it cannot install it from here, that is normal.',a2:'Open Settings > Security (or Security and privacy) > More security settings > Encryption and credentials > Install a certificate > CA certificate.',a3:'Confirm, choose the downloaded file and enter the phone PIN.',
+-i1:'Tap Download, then Allow.',i2:'Settings > General > VPN and Device Management > the PS5X360Reloaded profile > Install.',i3:'Settings > General > About > Certificate Trust Settings > turn on "PS5X360Reloaded Kinect camera".',
++i1:'Tap Download, then Allow.',i2:'Settings > General > VPN and Device Management > the TrinityX360 (or PS5X360Reloaded) profile > Install.',i3:'Settings > General > About > Certificate Trust Settings > turn on "TrinityX360 Kinect camera" (or "PS5X360Reloaded Kinect camera").',
+ again:'2. Installed: open the camera',anyway:'Open without installing',anyway_note:'The browser will warn that the connection is not private; choosing to continue also works, but the warning returns.'},
+ pt:{checking:'Abrindo a câmera...',why:'Primeira vez neste celular: instale uma vez o certificado da câmera do PS5. Os navegadores do celular só abrem a câmera numa página segura; este certificado foi feito pelo seu PS5 para o endereço dele e não consegue assinar mais nada.',
+ download:'1. Baixar o certificado',a1:'Toque em Baixar. Se o Android disser que não pode instalar por aqui, é normal.',a2:'Abra Configurações > Segurança (ou Segurança e privacidade) > Mais configurações de segurança > Criptografia e credenciais > Instalar um certificado > Certificado de CA.',a3:'Confirme, escolha o arquivo baixado e digite o PIN do celular.',
+-i1:'Toque em Baixar e depois em Permitir.',i2:'Ajustes > Geral > VPN e Gerenciamento de Dispositivos > perfil PS5X360Reloaded > Instalar.',i3:'Ajustes > Geral > Sobre > Ajustes de Confiança de Certificados > ligue "PS5X360Reloaded Kinect camera".',
++i1:'Toque em Baixar e depois em Permitir.',i2:'Ajustes > Geral > VPN e Gerenciamento de Dispositivos > perfil TrinityX360 (ou PS5X360Reloaded) > Instalar.',i3:'Ajustes > Geral > Sobre > Ajustes de Confiança de Certificados > ligue "TrinityX360 Kinect camera" (ou "PS5X360Reloaded Kinect camera").',
+ again:'2. Já instalei: abrir a câmera',anyway:'Abrir sem instalar',anyway_note:'O navegador vai avisar que a conexão não é particular; escolher continuar também funciona, mas o aviso volta.'},
+ es:{checking:'Abriendo la cámara...',why:'Primera vez en este móvil: instala una vez el certificado de la cámara de la PS5. Los navegadores del móvil solo abren la cámara en una página segura; este certificado lo creó tu PS5 para su propia dirección y no puede firmar nada más.',
+ download:'1. Descargar el certificado',a1:'Toca Descargar. Si Android dice que no puede instalarlo desde aquí, es normal.',a2:'Abre Ajustes > Seguridad (o Seguridad y privacidad) > Más ajustes de seguridad > Cifrado y credenciales > Instalar un certificado > Certificado de CA.',a3:'Confirma, elige el archivo descargado e introduce el PIN del móvil.',
+-i1:'Toca Descargar y después Permitir.',i2:'Ajustes > General > VPN y gestión de dispositivos > perfil PS5X360Reloaded > Instalar.',i3:'Ajustes > General > Información > Ajustes de confianza de certificados > activa "PS5X360Reloaded Kinect camera".',
++i1:'Toca Descargar y después Permitir.',i2:'Ajustes > General > VPN y gestión de dispositivos > perfil TrinityX360 (o PS5X360Reloaded) > Instalar.',i3:'Ajustes > General > Información > Ajustes de confianza de certificados > activa "TrinityX360 Kinect camera" (o "PS5X360Reloaded Kinect camera").',
+ again:'2. Ya lo instalé: abrir la cámara',anyway:'Abrir sin instalar',anyway_note:'El navegador avisará de que la conexión no es privada; continuar también funciona, pero el aviso vuelve.'},
+ pl:{checking:'Otwieranie kamery...',why:'Pierwszy raz na tym telefonie: zainstaluj jednorazowo certyfikat kamery PS5. Przeglądarki w telefonie otwierają kamerę tylko na bezpiecznej stronie; ten certyfikat Twoje PS5 utworzyło dla własnego adresu i nie może podpisać niczego innego.',
+ download:'1. Pobierz certyfikat',a1:'Dotknij Pobierz. Jeśli Android powie, że nie może go stąd zainstalować, to normalne.',a2:'Otwórz Ustawienia > Zabezpieczenia (lub Zabezpieczenia i prywatność) > Więcej ustawień zabezpieczeń > Szyfrowanie i dane logowania > Zainstaluj certyfikat > Certyfikat CA.',a3:'Potwierdź, wybierz pobrany plik i wpisz PIN telefonu.',
+-i1:'Dotknij Pobierz, a potem Zezwól.',i2:'Ustawienia > Ogólne > VPN i zarządzanie urządzeniem > profil PS5X360Reloaded > Zainstaluj.',i3:'Ustawienia > Ogólne > To urządzenie > Ustawienia zaufania certyfikatów > włącz „PS5X360Reloaded Kinect camera”.',
++i1:'Dotknij Pobierz, a potem Zezwól.',i2:'Ustawienia > Ogólne > VPN i zarządzanie urządzeniem > profil TrinityX360 (lub PS5X360Reloaded) > Zainstaluj.',i3:'Ustawienia > Ogólne > To urządzenie > Ustawienia zaufania certyfikatów > włącz „TrinityX360 Kinect camera” (lub „PS5X360Reloaded Kinect camera”).',
+ again:'2. Zainstalowane: otwórz kamerę',anyway:'Otwórz bez instalowania',anyway_note:'Przeglądarka ostrzeże, że połączenie nie jest prywatne; kontynuowanie też działa, ale ostrzeżenie wraca.'}};
+ const w=W[(navigator.language||'en').slice(0,2).toLowerCase()]||W.en;
+diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
+index a8a31b7..36697d7 100644
+--- a/port/phone_camera_page.hpp
++++ b/port/phone_camera_page.hpp
+@@ -22,5 +22,5 @@ inline constexpr char kCameraPage[] = R"KINECTPAGE(<!doctype html>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+ <meta name="ps5x360-host" content="relay">
+-<title>PS5X360Reloaded Kinect</title>
++<title>TrinityX360 Kinect</title>
+ <!-- PS5X360Reloaded fix 56: one banner with the current step, buttons that follow it, a layout for
+      phones (portrait and landscape), Polish. Based on PS5X360 1.0.2's page (MIT). -->
+@@ -62,5 +62,5 @@ body.focus canvas{width:100vw;height:100vh;height:100dvh;max-height:none;object-
+ body.focus #exit-focus{display:block}
+ </style>
+-<h1>PS5X360Reloaded Kinect</h1>
++<h1>TrinityX360 Kinect</h1>
+ <div id="banner" role="status" aria-live="polite"><span id="step"></span><span id="detail"></span></div>
+ <section id="controls">
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 88d812f..a695f63 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -985,5 +985,5 @@ class Guide final : public xe::ui::ImGuiDialog {
+     const float left = 412, right = 1508, top = 304, bottom = 778;
+     // Header: the guide's name, who is signed in, what is running.
+-    list->AddText(large, 36 * scale, at(left + 136, 238), fade(245, 247, 250), Tr("PS5X360Reloaded Guide"));
++    list->AddText(large, 36 * scale, at(left + 136, 238), fade(245, 247, 250), Tr("TrinityX360 Guide"));
+     char speed[32];
+     std::snprintf(speed, sizeof(speed), "%.0f FPS", fps_);
+@@ -996,5 +996,5 @@ class Guide final : public xe::ui::ImGuiDialog {
+     if (!game_.empty()) {
+       const float title_end =
+-          (left + 136) * scale + large->CalcTextSizeA(36 * scale, 4096.0f, 0.0f, Tr("PS5X360Reloaded Guide")).x;
++          (left + 136) * scale + large->CalcTextSizeA(36 * scale, 4096.0f, 0.0f, Tr("TrinityX360 Guide")).x;
+       const float game_x = title_end + 32 * scale;
+       const std::string running = xbox360ps5::guide_quick::FitText(
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 14db0a9..2107066 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -4629,6 +4629,6 @@ void Launcher::DrawSettingsSheet(Canvas& c) {
+   } else {
+     c.Text(Tr("About"), x + 56, 820, 28, kText);
+-    c.Wrapped(std::string(Tr("PS5X360Reloaded: experimental Xbox 360 emulator for PlayStation 5.")) +
+-              " Xenia. " + Tr("RADV graphics (PS5_Vulkan), XMA audio (FFmpeg) and Xenia Canary patches. No games, BIOS or keys are included."),
++    c.Wrapped(std::string(Tr("TrinityX360: experimental Xbox 360 emulator for PlayStation 5.")) +
++              " PS5X360 (BrinooTk) \xC2\xB7 Xenia Canary. " + Tr("RADV graphics (PS5_Vulkan), XMA audio (FFmpeg) and Xenia Canary patches. No games, BIOS or keys are included."),
+               x + 56, 860, 20, kMuted, 750);
+   }

@@ -3,10 +3,11 @@ release workflows that call it.
 
     python3 -I tools/check-release-images.py [--bash <bash>]
 
-PS5X360Reloaded's source releases are title id PPSA83600 (tools/source-1.0.2/package.py), next to
+TrinityX360's source releases (PS5X360Reloaded's until 1.0.5) are title id PPSA83600 (tools/source-1.0.2/package.py), next to
 the official PS5X360's PPSA50011, which the old binary releases (release-binary.yml) keep. Checks:
   * release-source.yml makes the images from stage/PPSA83600 with the id PPSA83600, attaches
-    PPSA83600.zip, .zip.sha256, .ffpkg and .ffpfsc, names its draft "PS5X360Reloaded v<version>",
+    PPSA83600.zip, .zip.sha256, .ffpkg and .ffpfsc, names its draft "TrinityX360 v<version>",
+    attaches the scripts archive under package.py's name (TrinityX360-<version>-scripts.tar.gz),
     and still downloads the official v1.0.2 PPSA50011.zip with the pinned SHA-256 (package.py's);
     PPSA50011 appears nowhere else in it;
   * release-binary.yml still makes PPSA50011.ffpkg/.ffpfsc from stage/PPSA50011 (the default id);
@@ -50,14 +51,17 @@ def check_workflows():
             f'name: Package {ID} and the sources',
             'python3 -I tools/source-1.0.2/package.py',
             '--out-dir dist/source-release\n',
-            'title="PS5X360Reloaded v$VERSION"',
+            'title="TrinityX360 v$VERSION"',
+            # The scripts archive the NOTICE and RELEASE.json name (package.source_names).
+            f'-o "$rel/{package.source_names("$VERSION")["scripts"]}" "$GITHUB_SHA"',
+            '--prefix="TrinityX360-$VERSION/"',
             # The official base, unchanged: its name, URL and pinned hash.
             f'curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \\\n'
             f'            {OFFICIAL_URL}\n',
             f'echo "{package.BASE_ZIP_SHA256}  $RUNNER_TEMP/PPSA50011-v1.0.2.zip" | sha256sum --check --strict',
             '--base-zip "$RUNNER_TEMP/PPSA50011-v1.0.2.zip"'):
         assert needle in text, needle
-    assert 'title="PS5X360 v' not in text
+    assert 'title="PS5X360 v' not in text and 'title="PS5X360Reloaded' not in text and 'PS5X360Reloaded-' not in text
     # PPSA50011 only for the official base (its download, its file and the comments saying so).
     for number, line in enumerate(text.splitlines(), 1):
         if OFFICIAL not in line:
