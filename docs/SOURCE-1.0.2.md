@@ -325,6 +325,7 @@ also listed here.
 | 149b (`149b-settings-tree`) | the launcher's settings and a game's settings were long flat pages: a multi-level settings menu (categories, then groups, then options) with a help card beside the focused option saying what it changes |
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
 | 149d (`149d-help-card-sides`) | review of candidate 3: the guide's help card no longer covers the motion panel or the Harmonix keys panel (it moves to the free side, or hides), and "Emulated console resolution"'s help says 540p tells the game 720p and the mode applies when the game starts |
+| 150 (`150-vfs-background-delete`) | a 1.0.6 stutter fix: Grand Theft Auto IV paused for a fraction of a second when it deleted one of its files on a slow drive; the file is now deleted in the background (`vfs-delete.txt` `inline` restores the old way), and slow file operations and long pauses between the game's frames are logged | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.6-work-fix150` |
 
 ## Comparison with the official executable
 
