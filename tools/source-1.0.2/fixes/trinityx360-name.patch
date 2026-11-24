@@ -133,7 +133,7 @@ index c19d654..ab24466 100644
  again:'2. Zainstalowane: otwórz kamerę',anyway:'Otwórz bez instalowania',anyway_note:'Przeglądarka ostrzeże, że połączenie nie jest prywatne; kontynuowanie też działa, ale ostrzeżenie wraca.'}};
  const w=W[(navigator.language||'en').slice(0,2).toLowerCase()]||W.en;
 diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
-index a8a31b7..36697d7 100644
+index a8a31b7..5c8162c 100644
 --- a/port/phone_camera_page.hpp
 +++ b/port/phone_camera_page.hpp
 @@ -22,5 +22,5 @@ inline constexpr char kCameraPage[] = R"KINECTPAGE(<!doctype html>
@@ -150,6 +150,12 @@ index a8a31b7..36697d7 100644
 +<h1>TrinityX360 Kinect</h1>
  <div id="banner" role="status" aria-live="polite"><span id="step"></span><span id="detail"></span></div>
  <section id="controls">
+@@ -1014,4 +1014,4 @@ export function summaryValues(report) {
+ }
+ )LATENCYJS";
+-inline constexpr char kPageVersion[] = "a51b77192b989ffb";
++inline constexpr char kPageVersion[] = "c1c248e8c78793a0";
+ }  // namespace xbox360ps5::phone_camera
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 index 88d812f..a695f63 100644
 --- a/src/canary_game_main.cpp
