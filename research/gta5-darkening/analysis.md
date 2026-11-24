@@ -213,6 +213,56 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
   clock, then show which step made the brightness values jump, even where a flash is hard to see.
   The swap rate per step is in the 30 s lines.
 
+## The fix 158 drive (memory_boost On, readback Off) and the conclusion
+
+- **Run:** `research/fix158/gta.log`, `1.0.6-work-fix158`, hdr-trace on. The player saw no flashes in
+  any of the three steps:
+  - **A**, 16 KiB window: up to line 4698, 29.2-30 swaps/s.
+  - **B**, "Okno aktualizacji pamięci" = 256 KiB: lines 4709-5912, 30.0 swaps/s.
+  - **C**, "Optymalizuj bufory dynamiczne" = Off: lines 8344-9475, 28.8-29.8 swaps/s.
+- **Both steps took effect:**
+  - B: the upload lines read `invalidation window 0 bytes`, the whole 256 KiB block (35 lines inside
+    B, against 16384 elsewhere). C0 protections went from 265-344/s (14-18 ms/s) in A to 516-741/s
+    (26-36 ms/s) (`gta.log:5015, 5251, 5512`).
+  - C: C0 went to 2258-2480 protections/s (100-111 ms/s). `dynamic_buffers` sets
+    `gpu_diag::unwatched_pages` (`src/launcher.cpp:419`), and fix 125's content checks need it
+    (`shared_memory.cc:279-281`), so step C also turned the content checks off.
+- **None reached the Off path's load.** memory_boost Off had 5326-7918 C0 protections/s
+  (200-296 ms/s) (`research/gta5-perf/runs/noboost.log`). B and C were not combined. Three parts stay
+  on whenever memory_boost is on:
+  - the request cache (`shared_memory.cc:1100`);
+  - pinning (`PinWatched`);
+  - protection bridging (`memory.cc:2289`).
+- **What the trace shows:**
+  - GTA V's 80x48 bloom/luminance keys 061AE000/061BA000 are resolved **from a 7e3 render target**
+    (`gta.log:967, 970`). The rest of the chain is 16_16_16_16_FLOAT and 32_FLOAT targets
+    (`gta.log:926-1017`).
+  - **The jump lines do not mark the flashes.** 707 jumps with no flash seen (A 230, B 196, C 181,
+    the rest 100). The 1x1 keys 061D2000/061D3000 swing from about 0.02 to a median of 7-11 every
+    30 s, in every step. Their maxima of 16 and 240 recur in every window, which looks like the
+    same address holding more than one value per frame. Means are polluted by tile padding: negative
+    values and 1e9 in keys whose 7e3 source cannot produce them.
+  - So per-frame value jumps in these keys are normal for the game and cannot tell a flash from
+    normal behaviour. The trace cannot confirm or rule out hypothesis 2 on its own.
+  - NaN in 061D2000/061D3000 appeared only in the first minute (`gta.log:1234-1235, 1477-1478`), not
+    while driving.
+- **Separate finding, not the cause (strict mode still flashed):** in GTA V the fast occlusion-query
+  mode guesses "visible" for queries that turn out hidden about 80% of the time (about 10,000 of
+  12,600 a 30 s window), and almost every report causes a rebase (`gta.log:1721` and every summary
+  after it). Fast mode never replays a cached zero (`command_processor.cc:1170-1178`). "Szybkie,
+  alternatywne" (fast-alt) would; it may matter for GTA V's sun glare and lens flares.
+- **Conclusion:**
+  - The flashes come from the memory_boost Off path, or from the lower frame rate it causes.
+  - With memory_boost On, neither the 256 KiB window nor the dynamic-buffer watching (with fix 125)
+    brings them back at about 30 swaps/s.
+  - The GTA V preset (`memory_boost=1`, `readback=0`) fixes it for players.
+  - memory_boost is on by default (`include/xbox360ps5/launcher.hpp:62`), so the Off path is only a
+    fallback. A fix 158b (a switch for each remaining part, plus re-upload lines) is not worth it now.
+  - Fix 158 is parked on `fix/gta5-darkening`, not merged.
+  - If a game is later found that needs memory_boost Off and shows the same darkening, one cheap
+    A/B comes first: memory_boost On with both B and C together (256 KiB, dynamic buffers Off).
+    After that, 158b.
+
 ## Upstream
 
 - No public report of brief global darkening in GTA V was found:
