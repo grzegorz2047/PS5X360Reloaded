@@ -1,0 +1,84 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1092,8 +1092,12 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+                          std::min(wait_ms, kSkeletonLongestWaitMs));
+   std::unique_lock<std::mutex> lock(source.mutex);
+   uint32_t period = period_now();
+-  // A second request within one period waits for the next frame.
+-  while (period == source.delivered_period) {
++  // A second request within one period waits for the next frame. Fix 156k: so does one before
++  // the camera delivered its first depth frame, as on the console (a skeleton is tracked from
++  // a depth frame): fix 156i numbers skeleton frames as their depth frame, and a frame handed
++  // out earlier on the skeleton's own clock (Season Two: 684, then 3, 5, 6) ran the numbers
++  // backwards.
++  while (period == source.delivered_period || !g_depth_frame_number.load()) {
+     if (!xbox360ps5::motion::enabled.load()) return kSkeletonNotConnected;
+     if (clock::now() >= deadline) {
+       return kSkeletonNoFrameYet;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -542,6 +542,11 @@ inline void KinectDiagCall(const char* name, PPCContext* context) {
+     const int n = kd::BackChain(uint32_t(context->lr), uint32_t(context->r[1]), KinectDiagRead, callers,
+                                 kd::kFrames);
+     XELOGW("Kinect diag: thread {} calls {} from {} (fix 108)", context->thread_id, name, kd::Chain(callers, n));
++    // Fix 156k: each function's r31 (and its first word) along the same chain.
++    kd::SavedR31 frames[kd::kFrames];
++    const int m = kd::BackChainR31(uint32_t(context->r[1]), KinectDiagRead, frames, kd::kFrames);
++    XELOGW("Kinect diag: thread {} r31 by frame {} (fix 156k)", context->thread_id,
++           kd::ChainR31(frames, m));
+   }
+ }
+ #endif
+diff --git a/include/xbox360ps5/kinect_diag.hpp b/include/xbox360ps5/kinect_diag.hpp
+--- a/include/xbox360ps5/kinect_diag.hpp
++++ b/include/xbox360ps5/kinect_diag.hpp
+@@ -85,6 +85,47 @@ inline int BackChain(uint32_t lr, uint32_t sp, Read read, uint32_t* out, int cou
+   return n;
+ }
+ 
++// Fix 156k (Kinect Sports Season Two, #63): what each function along the chain is working on.
++// A callee saves the r31 of its caller 0x10 bytes below the caller's stack pointer (the game's
++// `std r31,-0x10(r1)` before its `stwu`, and the __savegprlr helpers): for each saved LR the
++// walk finds (a return address into function F), the word at back - 0x10 is F's r31, and,
++// when that is a readable guest address, its first word (an object's vtable). Season Two's
++// darts load waits in a loop that keeps its load operation in r31 (82620560: `while
++// (!op->vt[0x14]()) pump();`); this names the operation. Same walk and stops as BackChain.
++struct SavedR31 {
++  uint32_t ret = 0, r31 = 0, first_word = 0;
++  bool readable = false;
++};
++template <typename Read>
++inline int BackChainR31(uint32_t sp, Read read, SavedR31* out, int count) {
++  int n = 0;
++  while (n < count && sp) {
++    uint32_t back = 0, saved = 0;
++    if (!read(sp, &back) || back <= sp || back - sp > 0x100000) break;
++    if (!read(back - 8, &saved)) break;
++    SavedR31 item;
++    item.ret = saved;
++    if (read(back - 0x10, &item.r31)) item.readable = read(item.r31, &item.first_word);
++    out[n++] = item;
++    sp = back;
++  }
++  return n;
++}
++inline std::string ChainR31(const SavedR31* items, int n) {
++  std::string out;
++  char text[48];
++  for (int i = 0; i < n; ++i) {
++    if (items[i].readable)
++      std::snprintf(text, sizeof(text), "%s%08X r31 %08X [%08X]", i ? " < " : "", items[i].ret,
++                    items[i].r31, items[i].first_word);
++    else
++      std::snprintf(text, sizeof(text), "%s%08X r31 %08X", i ? " < " : "", items[i].ret,
++                    items[i].r31);
++    out += text;
++  }
++  return out;
++}
++
+ inline std::string Chain(const uint32_t* callers, int n) {
+   std::string out;
+   char item[16];
