@@ -36,10 +36,12 @@ and caches stay. The saves folder on each external drive keeps its name,
 working.
 
 The PS5 keeps the old icon and name (PS5X360Reloaded) after such an update. To see TrinityX360's,
-start the PS5 in **Safe Mode** and choose **Rebuild Database** (it keeps your games, apps and saved
-data), or remove the `PPSA83600` app (**Options** > **Delete** on its tile) and install it again;
-before removing it, copy `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP
-(while the app is open), since its settings in `/download0` can go with the app.
+start the PS5 in **Safe Mode** and choose **Rebuild Database**: it keeps your games, apps and saved
+data. Deleting the app from the home screen and installing it again also works, but it erases the
+app's download data, `/download0`: the saves kept in **Internal storage** (a choice of the
+**Save drive** setting) and the settings kept there. Before that, copy
+`/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP while TrinityX360 is
+open, and copy it back afterwards. Saves on an M.2 or USB drive and `/data/homebrew/PPSA83600` stay.
 
 ## Games
 

@@ -56,10 +56,11 @@ so the fork, PS5X360Reloaded until v1.0.5, needed a name of its own. What change
   rename it.
 - The PS5 keeps the old icon and name (PS5X360Reloaded) after an update: it stores them when the
   app is first installed. To see TrinityX360's, start the PS5 in **Safe Mode** and choose
-  **Rebuild Database** (it keeps games, apps and saved data), or remove the `PPSA83600` app
-  (**Options** > **Delete** on its tile) and install it again, after copying
-  `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP (its settings in
-  `/download0` can go with the app).
+  **Rebuild Database** (it keeps games, apps and saved data). Deleting the app (**Options** >
+  **Delete** on its tile) and installing it again also works, but it erases the app's `/download0`:
+  the saves kept in **Internal storage** (a choice of the **Save drive** setting) and the settings
+  there. Copy `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP first
+  (while TrinityX360 is open) and copy it back afterwards; saves on an M.2 or USB drive stay.
 - Forwarder tiles that start `PPSA83600` keep working.
 - The repository is now `github.com/grzegorz2047/TrinityX360`; the old address,
   `github.com/grzegorz2047/PS5X360Reloaded`, redirects there.
