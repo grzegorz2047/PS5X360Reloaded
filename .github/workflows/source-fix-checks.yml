@@ -180,6 +180,7 @@ on:
       - 'tools/check-install-notice.cpp'
       - 'tools/check-write-bench.cpp'
       - 'tools/check-help-card.cpp'
+      - 'tools/check-ui-loop-io.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
