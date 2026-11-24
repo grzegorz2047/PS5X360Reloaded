@@ -190,6 +190,7 @@ on:
       - 'tools/check-mic-array.cpp'
       - 'tools/check-request-pages.cpp'
       - 'tools/check-page-watch.cpp'
+      - 'tools/check-skeleton-frame-number.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
