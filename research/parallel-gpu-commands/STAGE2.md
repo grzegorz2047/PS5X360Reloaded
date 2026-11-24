@@ -838,3 +838,29 @@ The bound is about 0.25 us a draw, about 70 ms/s in MW2. The write path's cost c
 The viewport (97% repeats) and the samplers (88%) read only registers and a few scalars. The system
 constants (40% repeats, about 9 ms/s at best) also depend on the texture cache's per-texture state
 and are not worth it.
+
+**Per-memo A/B** (same build, spot and protocol; one memo at 2, the others at 0, against all at 0,
+two rounds):
+
+| Mode | fps | Against all off |
+|---|---|---|
+| System at 2 | 25.2, 27.2 (26.2) | -22% |
+| Samplers at 2 | 32.2, 32.3 (32.3) | -4% |
+| Viewport at 2 | 32.6, 32.7 (32.7) | -3% |
+| All off | 32.7-33.9 (33.7) | — |
+
+0 mismatches throughout.
+
+**Reading:**
+- **Samplers and viewport.** Their losses match their keys' cost, about 0.1 us a draw each. The
+  host measurement puts all three keys at 0.29 us at -O3.
+- **System constants.** Its loss, about 0.77 us a draw (frame time 29.7 to 38.2 ms over about 11k
+  draws a frame), is about five times what its key can cost: about 0.1-0.15 us, the largest of the
+  three but still under half of them. So the key is not the explanation. Nothing else changes
+  either:
+  - the skipped function writes nothing besides the system constants and
+    `zpd_counter_index_force_update_`, which a repeat never has set;
+  - verify found every predicted repeat unchanged.
+- **The open question.** Whether the game itself does more per frame in that mode: more draws a
+  frame, or other query results. The summary's 30 s blocks straddled the 35 s switches, so they
+  cannot tell. A system-only run with 90 s windows (two whole blocks each) would.
