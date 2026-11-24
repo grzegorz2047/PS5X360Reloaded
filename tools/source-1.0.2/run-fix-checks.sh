@@ -173,6 +173,7 @@ checks=(
   check-help-card.cpp              # fix 149d
   check-ui-loop-io.cpp             # fix 152
   check-hang-watch-sync.cpp        # fix 153
+  check-utility-cache-drive.cpp    # fix 150c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -332,6 +333,7 @@ declare -A fix_of=(
   [check-help-card.cpp]=149d
   [check-ui-loop-io.cpp]=152
   [check-hang-watch-sync.cpp]=153
+  [check-utility-cache-drive.cpp]=150c
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

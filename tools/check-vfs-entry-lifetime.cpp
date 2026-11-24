@@ -16,6 +16,10 @@
 //      replay files, holds of up to 949 ms), and an open of the same name goes on at once with a
 //      new entry (create, open-if) or finds no file (open), never the entry being deleted; the
 //      file renamed for the delete is gone afterwards.
+//  (f) fix 150b (the game's re-create of a cache file waiting 0.72-0.95 s for the unlink of the old
+//      one): ShrinkThenRemove's steps (sizes, the remove after them, a failed step leaving the
+//      rest to the remove, nothing for a small file); a 10 MiB file deleted through the VFS is
+//      shrunk in steps (2 at 4 MiB) and gone, a file made again under its name meanwhile kept.
 //  (e) fix 150 (Grand Theft Auto IV's pauses at its 350-950 ms deletes): the renamed file deleted
 //      in the background by default, the delete returning at once, a file made again under the
 //      name meanwhile kept; inline, the delete takes the slow part as before.
@@ -29,11 +33,15 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "xenia/vfs/devices/host_path_device.h"
 #include "xenia/vfs/devices/host_path_entry.h"
 #include "xenia/vfs/entry.h"
 #include "xenia/vfs/entry_io.h"
+#if __has_include("xenia/vfs/devices/host_delete_steps.h")
+#include "xenia/vfs/devices/host_delete_steps.h"  // fix 150b
+#endif
 #include "xenia/vfs/virtual_file_system.h"
 
 using namespace xe;  // X_STATUS
@@ -177,6 +185,11 @@ void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition dispo
   if (!made) return;
   vfs::Entry* dying = made->entry();
   if (!by_close) made->Destroy();
+#ifdef XE_VFS_BACKGROUND_DELETE
+  // Earlier deletes still queued (fix 150) would run the slow hook and set in_delete before
+  // this delete starts, and the open below would race it (C0000035 in CI run 45273903022).
+  vfs::Entry::FlushBackgroundDeletes();
+#endif
   in_delete = false;
   vfs::entry_io::test_hook = SlowDelete;
   std::thread deleter([&] {
@@ -230,6 +243,51 @@ void OpenDuringSlowDelete(vfs::VirtualFileSystem& fs, vfs::FileDisposition dispo
 // slow (300 ms), a delete returns after the rename, at once; a file made again under the name
 // meanwhile is another file, still there once the background delete is done; the renamed file
 // gone then. Inline (vfs-delete.txt "inline"), the delete takes the 300 ms in the caller.
+#ifdef XENIA_VFS_DEVICES_HOST_DELETE_STEPS_H_
+// (f) Fix 150b.
+void ShrinkSteps(vfs::VirtualFileSystem& fs) {
+  namespace ds = vfs::delete_steps;
+  std::vector<uint64_t> sizes;
+  int pauses = 0;
+  bool removed = false;
+  Expect(ds::ShrinkThenRemove(10, 4, [&](uint64_t n) { sizes.push_back(n); return true; },
+                              [&] { removed = true; return true; }, [&] { ++pauses; }) &&
+             sizes == std::vector<uint64_t>{6, 2} && pauses == 2 && removed && ds::last_steps == 2,
+         "fix 150b: 10 bytes in steps of 4: 6, 2, then the remove");
+  sizes.clear();
+  Expect(ds::ShrinkThenRemove(10, 4, [&](uint64_t n) { sizes.push_back(n); return false; }, [] { return true; },
+                              [] {}) &&
+             sizes.size() == 1 && ds::last_steps == 0,
+         "fix 150b: a failed step leaves the rest to the remove");
+  sizes.clear();
+  Expect(ds::ShrinkThenRemove(3, 4, [&](uint64_t n) { sizes.push_back(n); return true; }, [] { return false; },
+                              [] {}) == false &&
+             sizes.empty(),
+         "fix 150b: a file of one step or less: only the remove, its result returned");
+  // Through the VFS: 10 MiB, deleted in the background, made again meanwhile.
+  const std::string name = "bars_1.img";
+  vfs::File* made = Open(fs, name, vfs::FileDisposition::kOverwriteIf);
+  Expect(made != nullptr, name + ": created");
+  if (!made) return;
+  made->Destroy();
+  std::error_code error;
+  std::filesystem::resize_file(host / name, uint64_t(10) << 20, error);
+  Expect(!error, name + ": 10 MiB on the host");
+  vfs::Entry::OverrideDeleteMode(1);
+  Expect(fs.DeletePath(kMount + "\\" + name), name + ": deleted");
+  vfs::File* again = Open(fs, name, vfs::FileDisposition::kCreate);
+  Expect(again && Write(again, 9), name + ": made again at once");
+  if (again) again->Destroy();
+  vfs::Entry::FlushBackgroundDeletes();
+  vfs::Entry::OverrideDeleteMode(-1);
+  Expect(ds::last_steps == 2 && !AnyRenamedLeft(),
+         name + ": the old one shrunk in " + std::to_string(ds::last_steps.load()) + " steps and gone");
+  Expect(std::filesystem::file_size(host / name, error) == 4 && !error, name + ": the new one kept, 4 bytes");
+  Expect(fs.DeletePath(kMount + "\\" + name), name + ": the new one deleted");
+  vfs::Entry::FlushBackgroundDeletes();
+}
+#endif
+
 void BackgroundDelete(vfs::VirtualFileSystem& fs, bool background) {
   const std::string name = std::string("streaming_") + (background ? "bg" : "inline") + ".dat";
   vfs::Entry::OverrideDeleteMode(background ? 1 : 0);
@@ -237,6 +295,7 @@ void BackgroundDelete(vfs::VirtualFileSystem& fs, bool background) {
   Expect(made && Write(made, 7), name + ": created");
   if (!made) return;
   made->Destroy();
+  vfs::Entry::FlushBackgroundDeletes();  // nothing earlier runs the slow hook below
   in_delete = false;
   vfs::entry_io::test_hook = SlowDelete;
   auto start = std::chrono::steady_clock::now();
@@ -293,6 +352,9 @@ int main() {
 #ifdef XE_VFS_BACKGROUND_DELETE
     BackgroundDelete(fs, true);
     BackgroundDelete(fs, false);
+#ifdef XENIA_VFS_DEVICES_HOST_DELETE_STEPS_H_
+    ShrinkSteps(fs);
+#endif
 #endif
 #endif
   }
