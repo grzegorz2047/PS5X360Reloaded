@@ -182,6 +182,7 @@ checks=(
   check-request-pages.cpp          # fix 156g
   check-page-watch.cpp             # fix 156h
   check-skeleton-frame-number.cpp  # fix 156i
+  check-xex-dll-heap.cpp           # fix 156j
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -350,6 +351,7 @@ declare -A fix_of=(
   [check-request-pages.cpp]=156g
   [check-page-watch.cpp]=156h
   [check-skeleton-frame-number.cpp]=156i
+  [check-xex-dll-heap.cpp]=156j
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
