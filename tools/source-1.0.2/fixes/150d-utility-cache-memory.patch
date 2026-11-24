@@ -563,7 +563,7 @@ diff --git a/include/xbox360ps5/package_io.hpp b/include/xbox360ps5/package_io.h
 diff --git a/include/xbox360ps5/utility_cache.hpp b/include/xbox360ps5/utility_cache.hpp
 --- a/include/xbox360ps5/utility_cache.hpp
 +++ b/include/xbox360ps5/utility_cache.hpp
-@@ -3,26 +3,37 @@
+@@ -3,26 +3,56 @@
  #include <filesystem>
  #include "xenia/base/logging.h"
  #include "xenia/vfs/devices/host_path_device.h"
@@ -604,6 +604,25 @@ diff --git a/include/xbox360ps5/utility_cache.hpp b/include/xbox360ps5/utility_c
      }
 -    XELOGI("Utility cache {}: -> {}", name, root.string());
 +    XELOGI("Utility cache {}: -> {}", name, memory ? std::string("memory (fix 150d)") : root.string());
++  }
++  return true;
++}
++
++// Fix 150d3: a game chosen in the launcher is known only after the caches were mounted (at the
++// start, without a title; GTA IV restarts into its own start options, Kinect Sports does not):
++// cache1: and cache: are mounted in memory again before the game runs. Their links (cache1: ->
++// \CACHE1) stay; both devices are taken out first and put back in the order CACHE1, CACHE, as
++// the prefix match needs. Nothing may have a file of them open (no game has run yet).
++inline bool MoveUtilityCacheToMemory(xe::vfs::VirtualFileSystem& fs,
++                                     xe::vfs::memory_cache::Pool& pool = xe::vfs::memory_cache::pool()) {
++  for (const char* mount : {"\\CACHE1", "\\CACHE"}) fs.UnregisterDevice(mount);
++  for (const char* mount : {"\\CACHE1", "\\CACHE"}) {
++    auto device = std::make_unique<xe::vfs::MemoryDevice>(mount, pool);
++    if (!device->Initialize() || !fs.RegisterDevice(std::move(device))) {
++      XELOGE("Utility cache {} in memory: registration failed", mount);
++      return false;
++    }
++    XELOGI("Utility cache {}: -> memory (fix 150d3, the game chosen in the launcher)", mount);
    }
    return true;
  }
@@ -645,7 +664,7 @@ diff --git a/include/xbox360ps5/utility_cache_drive.hpp b/include/xbox360ps5/uti
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -3115,11 +3115,26 @@ int main(int argc, char** argv) {
+@@ -3115,11 +3115,28 @@ int main(int argc, char** argv) {
               xbox360ps5::utility_cache_drive::ProbeMs(cache_drive.base / "utility-cache"),
               cache_drive.base == bulk ? -1.0
                                        : xbox360ps5::utility_cache_drive::ProbeMs(bulk / "utility-cache"));
@@ -653,6 +672,8 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +      // Fix 150d: Grand Theft Auto IV's cache: and cache1: in memory (memory_device.h).
 +      const bool cache_in_memory =
 +          xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch);
++      // Fix 150d3: decided again when the launcher's game is known (see below).
++      bool cache_in_memory_now = cache_in_memory;
 +      const std::initializer_list<const char*> memory_caches = {"cache1", "cache"};
 +      const std::initializer_list<const char*> no_memory_caches = {};
 +      if (cache_in_memory) {
@@ -674,3 +695,23 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
        }
        if (!cache_mounted) {
          XELOGE("Required utility cache is unavailable; launch cancelled");
+@@ -3639,6 +3656,19 @@ int main(int argc, char** argv) {
+         if (log_id.empty()) log_id = GameTitleId(game);
+         // This game's own options over the general ones.
+         settings_title = log_id;
++        // Fix 150d3: a game chosen in the launcher (Kinect Sports) is known only now; the caches
++        // were mounted at the start without a title, so its cache: and cache1: go into memory
++        // here, before it runs (GTA IV restarts into its start options and was known already).
++        if (!cache_in_memory_now &&
++            xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch)) {
++          cache_in_memory_now = xbox360ps5::MoveUtilityCacheToMemory(*emulator.file_system());
++          XELOGW("Utility cache (fix 150d): cache: and cache1: in memory ({}, chosen in the launcher){}, at "
++                 "most {} MiB, direct memory kept above {} MiB; direct free {} MiB",
++                 settings_title, cache_in_memory_now ? "" : " failed; on the drive",
++                 xe::vfs::memory_cache::pool().cap.load() >> 20,
++                 xe::vfs::memory_cache::pool().reserve.load() >> 20,
++                 xbox360ps5::resolution_scale::DirectFreeFresh() >> 20);
++        }
+         // Candidate 21: the probes' lines for Battlefield 3 only (the JIT inserts them only into
+         // its code anyway; counts are kept either way).
+         // Fix 30: only with detailed logs (they log about 2,500 lines in a level's first seconds).

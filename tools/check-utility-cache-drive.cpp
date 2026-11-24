@@ -272,6 +272,26 @@ void InMemory() {
   Expect(main.find(Squeezed("memory_caches = {\"cache0\"")) == std::string::npos &&
              main.find(Squeezed("\"cache0\", \"cache1\", \"cache\"}; // memory")) == std::string::npos,
          "fix 150d: cache0: (other games' data) stays on the drive");
+
+  // Fix 150d3: a second title chosen in the launcher. The start mounts the caches without a title
+  // (Kinect Sports did not restart into its own start options as GTA IV does, so 150d2 left its
+  // cache on the drive); the launch decides again once the chosen game's title ID is known.
+  Expect(!CacheInMemory("", "") && CacheInMemory("4D5308C9", ""),
+         "fix 150d3: the launcher's start (no title): on the drive; Kinect Sports chosen: in memory");
+  const size_t known = has("settings_title = log_id;");
+  const size_t again = has("if (!cache_in_memory_now && xbox360ps5::utility_cache_drive::CacheInMemory(settings_title, "
+                           "cache_drive_switch)) { cache_in_memory_now = xbox360ps5::MoveUtilityCacheToMemory(*emulator.file_system());");
+  const size_t now = has("bool cache_in_memory_now = cache_in_memory;");
+  Expect(known != std::string::npos && again != std::string::npos && now != std::string::npos && decide < now &&
+             now < mount && mount < known && known < again,
+         "fix 150d3: the launch decides again after the chosen game's title ID is known, and moves cache1: and cache: "
+         "into memory once");
+  Expect(has("in memory ({}, chosen in the launcher)") > known,
+         "fix 150d3: the launch logs it with the cap, the reserve and direct free memory");
+  Expect(mount_code.find(Squeezed("for (const char* mount : {\"\\\\CACHE1\", \"\\\\CACHE\"}) fs.UnregisterDevice(mount);")) !=
+                 std::string::npos &&
+             mount_code.find(Squeezed("std::make_unique<xe::vfs::MemoryDevice>(mount, pool)")) != std::string::npos,
+         "fix 150d3: utility_cache.hpp takes CACHE1 and CACHE out first and mounts them in memory in that order");
 }
 }  // namespace
 
