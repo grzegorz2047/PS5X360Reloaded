@@ -21,6 +21,10 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
   `for pipelines 0 ms/s` (`gta2.log:909` and following). Draws are not being dropped or drawn with a
   placeholder shader while pipelines compile.
 - **Present stalls: none.**
+- **Occlusion-query guesses: ruled out.** Strict mode still flashes (hypothesis 1 below).
+- **Async submit ordering (fix 134): ruled out.** It is off for GTA V (hypothesis 5 below).
+- **No older baseline.** 1.0.5 (`1.0.5_candidate_91`) stops while loading GTA V
+  (`research/gta5-105/gta.log`), so the darkening cannot be dated against the release code.
 
 ## What the game does (from the readback-key lines)
 
@@ -48,7 +52,15 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
 
 ## Ranked hypotheses
 
-### 1. The fast occlusion-query mode's guesses (most likely, and cheapest to test)
+### 1. The fast occlusion-query mode's guesses (ruled out by the console test)
+
+- **Console result:** with "Zapytania o widoczność" = "Ścisłe (wolniejsze)", the dark flashes stayed.
+  - `research/gta5-occlusion-strict/gta.log:12` shows GTA V's own `occlusion=3` (strict) and
+    readback Fast.
+  - The swap rate was 13.5-15 swaps/s, with 105-203 ZPASS_DONE a second.
+- Strict waits for every real result, so the guesses below cannot cause the darkening. The fix 158
+  query lines are left in as a cross-check.
+- What was suspected:
 
 - `occlusion_query` defaults to `"fast"` (`command_processor.cc:59-72`). The launcher's "Zapytania o
   widoczność" / Visibility queries option sets it (`src/launcher.cpp:210, 408-409`), and GTA V has no
@@ -71,7 +83,7 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
 - **Fix 158 shows it:** a line every second while guesses said "visible" for hidden queries (or the
   reverse), plus 30 s counts and rebases.
 
-### 2. A transient spike or NaN in the luminance chain from render-target emulation
+### 2. A transient spike or NaN in the luminance chain from render-target emulation (now the most likely)
 
 - On the default host render-target path (FBO; FSI is off unless chosen,
   `vulkan_render_target_cache.cc:223-227`, `src/launcher.cpp:150-160`), a 7e3 (k_2_10_10_10_FLOAT)
@@ -121,7 +133,9 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
   - In fast mode, it is the previous resolve's data.
   - With Full, it is the same frame's data, and the flashes persist with Full. So a stale copy
     reaching the GPU through guest memory is not the cause.
-- Async submit (fix 134) is mode 0 (off) for GTA V (`gta2.log:399`).
+- Async submit (fix 134) is mode 0 (off) for GTA V (`gta2.log:399`; strict run `gta.log:398`), so there
+  is no ordering change between a resolve and its use from fix 134. Readback batching (fix 133) only
+  changes when readback copies are waited for, and Full waits for all of them.
 
 ## Upstream
 
@@ -166,4 +180,14 @@ copy whose GPU files match candidate 5, because no fix after 154 touches them. T
       jumped too, and at NaN/negative, for hypothesis 2.
     - None, while the picture still darkens: the exposure comes from elsewhere (the CPU or the
       queries). Look at the query lines.
-  - Query lines with "guessed visible but hidden" at the flash times point to hypothesis 1.
+  - Query lines with "guessed visible but hidden" at the flash times would point back to hypothesis
+    1, but strict mode already rules it out.
+
+## Next console tests
+
+1. **No build:** "FSI (dla gry)" = "Włączone" for GTA V, everything else as usual, the same route.
+   - If the flashes are gone, hypothesis 2 (the FBO path's fp16 7e3 target) is confirmed.
+   - FSI is slower, so also note the swaps/s.
+2. **Build `1.0.6-work-fix158`:** `hdr-trace.txt` = `on`, default settings ("Zapytania o widoczność"
+   back to "Szybkie" or the game's choice, readback Fast), the same route with a video. Note the
+   video times of the flashes.
