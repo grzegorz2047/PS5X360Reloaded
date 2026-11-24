@@ -23,8 +23,8 @@ when the tree has the core):
       instructions name the certificate the title makes; KEPT texts are still there (the session
       log's header, which tools/autolog.py reads; fix 50: the drives' save folder named after the
       product, and its old name, still known so that it is moved); no string literal names
-      PS5X360Reloaded but as a folder (".../PS5X360Reloaded", "PS5X360Reloaded/saves"), the
-      repository's address, or the old name of a certificate a phone may still have (OLD_NAME_ALLOWED);
+      PS5X360Reloaded but as a folder (".../PS5X360Reloaded", "PS5X360Reloaded/saves"), a fix
+      note in the phone pages' comments, or the old name of a certificate a phone may still have (OLD_NAME_ALLOWED);
   (e) the import runs before the saves are prepared and before the settings are read;
   (f) english/lang: no "PPSA50011", and no key that fix 46 or the rename to TrinityX360 renames
       (english/rekey.py RENAMES).
@@ -65,14 +65,12 @@ PRODUCT = 'TrinityX360'
 OLD_NAME = 'PS5X360Reloaded'
 TITLE_ID = 'PPSA83600'
 # Where a string literal may still say PS5X360Reloaded (each match is taken out before looking for
-# the name; app_identity.hpp defines it): a folder of that name, the repository's address (not
-# renamed), the notes in the phone pages' own HTML and JavaScript comments ("PS5X360Reloaded fix 56:
+# the name; app_identity.hpp defines it): a folder of that name, the notes in the phone pages' own HTML and JavaScript comments ("PS5X360Reloaded fix 56:
 # ...", history like the C++ comments), and the phone camera's instructions, which also name the
 # certificate a PS5 made before 1.0.6 ("or PS5X360Reloaded").
 OLD_NAME_ALLOWED = [
     re.compile(r'/PS5X360Reloaded\b'),
     re.compile(r'\bPS5X360Reloaded/saves\b'),
-    re.compile(r'github\.com/grzegorz2047/PS5X360Reloaded\b'),
     re.compile(r'\bPS5X360Reloaded fix \d+'),
     re.compile(r'\((?:or|ou|o|lub) PS5X360Reloaded\)'),
     re.compile(r'\((?:or|ou|o|lub) ["\u201e]PS5X360Reloaded Kinect camera["\u201d]\)'),
@@ -103,6 +101,9 @@ RENAMED = [
     ('port/phone_camera_page.hpp', '<title>PS5X360Reloaded Kinect</title>', '<title>TrinityX360 Kinect</title>'),
     ('src/launcher.cpp', 'Tr("PS5X360Reloaded: experimental', 'Tr("TrinityX360: experimental'),
     ('src/canary_game_main.cpp', 'Tr("PS5X360Reloaded Guide")', 'Tr("TrinityX360 Guide")'),
+    # The repository was renamed too (grzegorz2047/TrinityX360); the old address only redirects.
+    ('include/xbox360ps5/bug_report.hpp', '"github.com/grzegorz2047/PS5X360Reloaded/issues"',
+     '"github.com/grzegorz2047/TrinityX360/issues"'),
     ('port/phone_camera_tls.cpp', '"CN=PS5X360 Kinect camera (this console),O=PS5X360"',
      '"CN=" XBOX360PS5_PRODUCT_NAME " Kinect camera (this console),O=" XBOX360PS5_PRODUCT_NAME'),
     ('port/phone_camera_tls.cpp', '",O=PS5X360"', '",O=" XBOX360PS5_PRODUCT_NAME'),
@@ -263,7 +264,7 @@ def check(tree, problems):
                 problems.add('d', f'{rel}:{rekey.line_of(text, tok.start)}: {OLD_NAME} in {tok.value[:120]!r} '
                                   f'(the name is {PRODUCT}; a folder: XBOX360PS5_FOLDER_NAME)')
     print(f'(d) name: {len(RENAMED)} texts renamed, the camera instructions name the certificate, {kept} kept; '
-          f'{OLD_NAME} only as a folder, the repository or an old certificate ({old_literals} other)')
+          f'{OLD_NAME} only as a folder, a fix note or an old certificate ({old_literals} other)')
     # (e) the import's place in the start.
     main = files.get('src/canary_game_main.cpp', '')
     run = main.find('official_import::Run(')

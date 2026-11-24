@@ -23,7 +23,7 @@ source (see [Releases](#releases)). The released app is **TrinityX360** (named P
 
 ## Result
 
-**It builds.** [Run 44497867041](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44497867041)
+**It builds.** [Run 44497867041](https://github.com/grzegorz2047/TrinityX360/actions/runs/44497867041)
 assembled the tree, compiled every core and title object and linked a signed `eboot.bin`
 (37,551,301 bytes, SHA-256 `65e6e9c0…`; `eboot.elf` `9ef24b10…`). It is a Vulkan-only
 reconstruction of 1.0.2, about 22 MiB smaller than the official executable, almost all of it
@@ -34,8 +34,8 @@ On the console (user's test of that build): the launcher, Modern Warfare 2, Blac
 Age II run like the official build; the visible difference was the missing dark home theme,
 reconstructed since.
 
-Build with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44502949131))
-and the dark theme, before the release fixes: [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
+Build with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/TrinityX360/actions/runs/44502949131))
+and the dark theme, before the release fixes: [run 44507850129](https://github.com/grzegorz2047/TrinityX360/actions/runs/44507850129),
 `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
 Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
 That build was not run on a console by itself; the later test builds that contain it, labelled
@@ -49,10 +49,10 @@ offers the button because `main` carries a copy of the workflow file) for a test
 reusable workflow (`workflow_call`) from the source release (see [Releases](#releases)).
 
 Earlier runs, each fixing what the previous one found:
-[44482112072](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44482112072) (stale core
+[44482112072](https://github.com/grzegorz2047/TrinityX360/actions/runs/44482112072) (stale core
 headers, missing 1.0.x language code),
-[44486101760](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44486101760) (5 files),
-[44491870772](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44491870772) (compiled; 4
+[44486101760](https://github.com/grzegorz2047/TrinityX360/actions/runs/44486101760) (5 files),
+[44491870772](https://github.com/grzegorz2047/TrinityX360/actions/runs/44491870772) (compiled; 4
 undefined symbols at the link).
 
 ## Short answer
@@ -159,10 +159,10 @@ branch `fix/mmio-gpr-and-ci` after it and never released in binary form). Each g
 source as one patch in [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md),
 which `assemble.py` applies last. The intent is ported, not the machine code: where the binary
 patch had to borrow room (repurposed strings, an unused settings field, a diagnostic counter),
-the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507690116)
+the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/TrinityX360/actions/runs/44507690116)
 applied all 14 patches and built `eboot.bin` (37,570,981 bytes, SHA-256 `ff26258c…`; `eboot.elf`
 `5bd5b0e8…`). With the dark theme merged in,
-[run 44511435853](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44511435853) applied them
+[run 44511435853](https://github.com/grzegorz2047/TrinityX360/actions/runs/44511435853) applied them
 after its edits: `eboot.bin` 37,577,765 bytes, SHA-256 `e15468f2…` (`eboot.elf` `e22e1cfb…`).
 The groups were not tested one by one on the console. They are in the `1.0.3_candidate_N`
 test builds run there since (candidates 19 and 30 were built without `01`, on purpose), next to

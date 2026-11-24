@@ -33,6 +33,8 @@ REQUIRED = {
         'Until v1.0.5 this app was called **PS5X360Reloaded**.',
         '## New name: TrinityX360',
         'The title id is still **`PPSA83600`**',
+        'The repository is now `github.com/grzegorz2047/TrinityX360`',
+        '[this repository](https://github.com/grzegorz2047/TrinityX360/issues)',
         '`<drive>/PS5X360Reloaded/saves`',
         '**TrinityX360 v1.0.6**',
         '**TrinityX360 vX.Y.Z_candidate_N**',
@@ -132,18 +134,21 @@ FORBIDDEN = {
                   '# PS5X360Reloaded\n', 'open **PS5X360Reloaded**', '## What PS5X360Reloaded includes',
                   '**PS5X360Reloaded v1.0.3_candidate_N**', '`<drive>/PS5X360/saves` (the folder name did not',
                   # The drives' saves folder kept its name.
-                  '<drive>/TrinityX360/saves'],
+                  '<drive>/TrinityX360/saves',
+                  # The repository's new address (the old one only redirects).
+                  'https://github.com/grzegorz2047/PS5X360Reloaded'],
     'docs/release-notes/v1.0.3.md': ['PPSA50011.zip', '/data/homebrew/PPSA50011/eboot.bin',
                                      'PPSA50011/assets/lang', 'PS5X360 v1.0.3',
                                      '/data/homebrew/PPSA50011/cache` (previously'],
     'docs/release-notes/v1.0.6.md': ['PS5X360Reloaded v1.0.6', 'PPSA50011.zip', 'PS5X360Reloaded-1.0.6',
+                                     'github.com/grzegorz2047/PS5X360Reloaded',
                                      '<drive>/TrinityX360/saves'],
     'docs/FORWARDER.md': ['PS5X360 installed as `PPSA50011`', 'sceSystemServiceLaunchApp("PPSA50011", args)',
                           '**Target app**: `PS5X360` (`PPSA50011`).', 'starts PS5X360Reloaded (`PPSA83600`)',
                           'Close PS5X360Reloaded before'],
     'docs/SOURCE-1.0.2.md': ['`PS5X360 vX.Y.Z`', 'then `PPSA50011.ffpkg`',
                              'the whole `PPSA50011` folder has to be installed', '(`PS5X360Reloaded vX.Y.Z`',
-                             '`PS5X360Reloaded-X.Y.Z-scripts.tar.gz`'],
+                             '`PS5X360Reloaded-X.Y.Z-scripts.tar.gz`', 'github.com/grzegorz2047/PS5X360Reloaded'],
 }
 
 IMAGES = {'docs/images/banner.png': (2172, 724), 'docs/images/installation.png': (1942, 809)}

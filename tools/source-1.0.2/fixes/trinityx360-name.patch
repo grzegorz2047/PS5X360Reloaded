@@ -50,6 +50,17 @@ index cf97080..54842fe 100644
 +inline constexpr char kFolderName[] = XBOX360PS5_FOLDER_NAME;
  inline constexpr char kTitleId[] = XBOX360PS5_TITLE_ID;
  // The title's own folder on the internal disk: saves, logs, caches, network.conf and the rest.
+diff --git a/include/xbox360ps5/bug_report.hpp b/include/xbox360ps5/bug_report.hpp
+index 4f445a1..461f0d4 100644
+--- a/include/xbox360ps5/bug_report.hpp
++++ b/include/xbox360ps5/bug_report.hpp
+@@ -36,5 +36,5 @@ namespace xbox360ps5::bug_report {
+ namespace fs = std::filesystem;
+ // Where players report problems (shown on the screen, without the scheme).
+-inline constexpr const char* kIssues = "github.com/grzegorz2047/PS5X360Reloaded/issues";
++inline constexpr const char* kIssues = "github.com/grzegorz2047/TrinityX360/issues";
+ // The archives kept in the logs folder; older ones are removed when a new one is made.
+ inline constexpr size_t kArchivesKept = 5;
 diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
 index c595c55..7b2b482 100644
 --- a/platform/ps5/web_settings.cpp

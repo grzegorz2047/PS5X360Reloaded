@@ -336,7 +336,8 @@ void CheckLinks() {
   Expect(br::ZipLink("").empty() && br::ZipLink("http://192.168.1.170:8360/").empty(), "(e) ZipLink without the page");
   Expect(br::SizeText(10) == "1 KB" && br::SizeText(2048) == "2 KB" && br::SizeText(3u << 20) == "3.0 MB",
          "(e) SizeText");
-  Expect(std::string(br::kIssues) == "github.com/grzegorz2047/PS5X360Reloaded/issues", "(e) the issues address");
+  // The repository is grzegorz2047/TrinityX360 since the rename (fixes/trinityx360-name.patch).
+  Expect(std::string(br::kIssues) == "github.com/grzegorz2047/TrinityX360/issues", "(e) the issues address");
 }
 
 void CheckTree() {

@@ -3,11 +3,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/grzegorz2047/PS5X360Reloaded/releases"><strong>Download</strong></a> ·
+  <a href="https://github.com/grzegorz2047/TrinityX360/releases"><strong>Download</strong></a> ·
   <a href="docs/release-notes/v1.0.6.md">Release notes</a> ·
   <a href="docs/INSTALLATION.md">Installation guide</a> ·
   <a href="docs/GAME-CONTENT.md">DLC, updates and discs</a> ·
-  <a href="https://github.com/grzegorz2047/PS5X360Reloaded/issues">Report an issue</a>
+  <a href="https://github.com/grzegorz2047/TrinityX360/issues">Report an issue</a>
 </p>
 
 # TrinityX360
@@ -54,7 +54,8 @@ so the fork, PS5X360Reloaded until v1.0.5, needed a name of its own. What change
 - The saves folder on each external drive keeps its name, `<drive>/PS5X360Reloaded/saves`. Do not
   rename it.
 - Forwarder tiles that start `PPSA83600` keep working.
-- The repository keeps its address, `github.com/grzegorz2047/PS5X360Reloaded`, for now.
+- The repository is now `github.com/grzegorz2047/TrinityX360`; the old address,
+  `github.com/grzegorz2047/PS5X360Reloaded`, redirects there.
 
 ## v1.0.3
 
@@ -82,7 +83,7 @@ console and what only by host tests, are in [docs/release-notes/v1.0.3.md](docs/
 
 <img src="docs/images/installation.png" alt="Download the ZIP, copy PPSA83600 via FTP, add one folder per game, and launch TrinityX360" width="100%">
 
-The [v1.0.3 release](https://github.com/grzegorz2047/PS5X360Reloaded/releases) has:
+The [v1.0.3 release](https://github.com/grzegorz2047/TrinityX360/releases) has:
 - `PPSA83600.ffpkg`: a UFS2 image, mounted by etaHEN / ShadowMountPlus.
 - `PPSA83600.ffpfsc`: a compressed PFS image, mounted by ShadowMountPlus.
 - `PPSA83600.zip`: the `PPSA83600` folder to copy over FTP (checksum in `PPSA83600.zip.sha256`).
@@ -209,31 +210,31 @@ emulator's own logs.
 | Minecraft: Xbox 360 Edition (`584111F7`) | 59–60 FPS in the world in **Online** or **Offline** mode | Fix 31 (`candidate_33`; 1.3 FPS without it). In **System Link** mode the game can crash while loading or leaving a world; fix 45 shows the crash and the guide returns to the library. |
 | Handball 16 (`573607E4`) | starts, gets past START, about 50–57 FPS | Fix 26 (`candidate_26`, with extra diagnostics). |
 | Naruto: The Broken Bond (`55530825`) | starts, reaches the save-location prompt | Fix 28 (`candidate_23`, before some later fixes; not retested with the full build). |
-| Call of Duty: Black Ops | runs; 18.6–18.8 FPS (*binary build*) | Switches from its menu to the campaign (fix 33). Character hair is drawn in wrong colours in every build, including r2 ([#10](https://github.com/grzegorz2047/PS5X360Reloaded/issues/10)). |
+| Call of Duty: Black Ops | runs; 18.6–18.8 FPS (*binary build*) | Switches from its menu to the campaign (fix 33). Character hair is drawn in wrong colours in every build, including r2 ([#10](https://github.com/grzegorz2047/TrinityX360/issues/10)). |
 | Call of Duty: Modern Warfare 2 | runs; about 20 FPS (*binary build*) | No regressions in the source candidates. |
 | Army of Two | works | Regression run of `candidate_47`; started from a forwarder tile in `candidate_34`. |
 | Battlefield: Bad Company (`454107F9`) | 60 FPS after the first shader compile (*binary build*) | With the game's 60 FPS patch, the preset (FSI off, `readback=0`, `pipeline_threads=3`) and the VSync cap (fix 10). |
 | Fable II (`4D5307F1`) | 30 FPS, the game's own cap, with tuned settings (*binary build*) | Measured with `memory_boost` and `fast_dot` on and `fast_locks`, `readback` and `clear_pages` off in the game's settings (26.4 FPS before). v1.0.3 uses the official preset again (`clear_pages=1`, `readback=1`); `fast_locks` on makes the game ignore the controller. |
 | Fable III (`4D5308D6`) | about 22–24 FPS (*binary build*) | r2 preset, config and optional patches, unchanged in v1.0.3. |
-| Ninja Gaiden II (`544307D5`) | closes about 30 s after the intro videos | [#11](https://github.com/grzegorz2047/PS5X360Reloaded/issues/11) |
+| Ninja Gaiden II (`544307D5`) | closes about 30 s after the intro videos | [#11](https://github.com/grzegorz2047/TrinityX360/issues/11) |
 | Dragon Ball Z for Kinect (`4E4D084E`) | the only game offered the emulated Kinect camera, as in the official 1.0.2 | Steady 30 FPS with a test relay (`candidate_49`). Other Kinect games (e.g. Kinect Sports) keep asking for the camera and stay on a white screen. |
 
 ## Known limitations
 
-- **No OpenGL renderer** ([#6](https://github.com/grzegorz2047/PS5X360Reloaded/issues/6)): its
+- **No OpenGL renderer** ([#6](https://github.com/grzegorz2047/TrinityX360/issues/6)): its
   sources were never published. Choosing OpenGL in a game's settings falls back to Vulkan.
-- **No games from the PS5 disc drive** ([#7](https://github.com/grzegorz2047/PS5X360Reloaded/issues/7)):
+- **No games from the PS5 disc drive** ([#7](https://github.com/grzegorz2047/TrinityX360/issues/7)):
   a disc in the drive is not listed, and the `disc-helper.elf` relay does not work.
-- **Physical USB Kinect** ([#8](https://github.com/grzegorz2047/PS5X360Reloaded/issues/8)): the
+- **Physical USB Kinect** ([#8](https://github.com/grzegorz2047/TrinityX360/issues/8)): the
   USB camera and relay client are back (fix 44) and the relay client works on the console with a
   test relay, but nobody has tried it with a real Kinect for Xbox 360 (model 1414/1473) yet.
-- **Smaller gaps to the official 1.0.2** ([#9](https://github.com/grzegorz2047/PS5X360Reloaded/issues/9)):
+- **Smaller gaps to the official 1.0.2** ([#9](https://github.com/grzegorz2047/TrinityX360/issues/9)):
   fixes 40–43 in v1.0.3 close most of them. Still different: a private Fable II input diagnostic
   is left out on purpose, the dark theme is reconstructed, and the debug-output wrapper belongs to
   the missing OpenGL renderer (#6).
-- **Compiler flags** ([#2](https://github.com/grzegorz2047/PS5X360Reloaded/issues/2)): the title
+- **Compiler flags** ([#2](https://github.com/grzegorz2047/TrinityX360/issues/2)): the title
   stays at `-O2`; `-O3` titles and ThinLTO gave no measurable gain.
-- **Newer upstream JIT work** ([#5](https://github.com/grzegorz2047/PS5X360Reloaded/issues/5)):
+- **Newer upstream JIT work** ([#5](https://github.com/grzegorz2047/TrinityX360/issues/5)):
   the changes that apply to this core are in (fixes 01 and 38); later upstream series and newer
   PS5_Vulkan / PS5_Mesa are not.
 - Not byte-identical to the official 1.0.2: the `eboot.bin` is a reconstruction, about 22 MiB
@@ -324,16 +325,16 @@ fails; a short video or screenshot if you can; and the matching game-session log
 written. The included log downloader can create a ZIP to share.
 
 - **TrinityX360 (`PPSA83600`; PS5X360Reloaded from v1.0.3 to v1.0.5) and its test builds:** report on
-  [this repository](https://github.com/grzegorz2047/PS5X360Reloaded/issues).
+  [this repository](https://github.com/grzegorz2047/TrinityX360/issues).
 - **The official PS5X360 (`PPSA50011`):** report on [BrinooTk/PS5X360](https://github.com/BrinooTk/PS5X360/issues).
 
 ## Branches
 
 | Branch | Contents |
 | --- | --- |
-| [`source-1.0.2-patches`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/source-1.0.2-patches) | Development: the assembly and build scripts of the source rebuild, the reconstructed files and every fix (`tools/source-1.0.2/fixes`). Fixes are made on `fix/*` branches and merged here. |
-| [`release/source-1.0.3`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/release/source-1.0.3) | The v1.0.3 release commit. A push builds the draft release (`release-source.yml`). |
-| [`main`](https://github.com/grzegorz2047/PS5X360Reloaded/tree/main) | The default branch: its landing page, the repository's older C++ (v0.5.7-fix.1, not used by the releases) and a copy of `build-source-1.0.2.yml` for the *Run workflow* button. The tools of the superseded binary releases (`tools/binary-release`) are on the source branches above. |
+| [`source-1.0.2-patches`](https://github.com/grzegorz2047/TrinityX360/tree/source-1.0.2-patches) | Development: the assembly and build scripts of the source rebuild, the reconstructed files and every fix (`tools/source-1.0.2/fixes`). Fixes are made on `fix/*` branches and merged here. |
+| [`release/source-1.0.3`](https://github.com/grzegorz2047/TrinityX360/tree/release/source-1.0.3) | The v1.0.3 release commit. A push builds the draft release (`release-source.yml`). |
+| [`main`](https://github.com/grzegorz2047/TrinityX360/tree/main) | The default branch: its landing page, the repository's older C++ (v0.5.7-fix.1, not used by the releases) and a copy of `build-source-1.0.2.yml` for the *Run workflow* button. The tools of the superseded binary releases (`tools/binary-release`) are on the source branches above. |
 
 ## Building from source
 
@@ -365,7 +366,7 @@ bash tools/source-1.0.2/build.sh build/src102 build/src102-out   # -> build/src1
 - `source-fix-checks.yml` runs the host checks on pushes to `source-1.0.2-patches` and the
   `fix/*` branches that change the fixes or their checks.
 - `build-source-1.0.2.yml` (by hand: `gh workflow run build-source-1.0.2.yml --repo
-  grzegorz2047/PS5X360Reloaded --ref source-1.0.2-patches`) runs the host checks, then builds a
+  grzegorz2047/TrinityX360 --ref source-1.0.2-patches`) runs the host checks, then builds a
   test `eboot.bin`. Its artifact `eboot-1.0.2-from-source-NOT-FOR-RELEASE` is for console tests
   only; test builds are labelled **TrinityX360 vX.Y.Z_candidate_N** on the home screen
   (`tools/source-1.0.2/BUILD_VERSION`).
