@@ -794,3 +794,47 @@ With the detail switch on in a separate pass, the 142f-diag lines show:
 - the samplers sub-part, and the viewport;
 - the draw detail's system constants;
 - fix 142d's `system constants`.
+
+### Fix 142g on the console, and why its skip mode is slower
+
+MW2 (41560817), `gpu-diag-detail.txt` 0.
+
+**Verify (`draw-memo.txt` 1), about 3 minutes including a menu, a load and the mission:**
+- 0 mismatches for all three memos over 5 full windows;
+- repeats: system 35-46%, samplers 85-88%, viewport 96-98%;
+- what it costs: draw own time 2.7 us against 1.5 us on candidate 3, and 27-29 fps against 38-40.
+
+**Same-spot A/B, 2 against 0 every 35 s, 8 windows:**
+- mode 2 averages 26.0 fps and mode 0 averages 34.7 fps: skip is about 25% slower, in all 4 pairs;
+- the skips do happen: system 104k of 230k/s, samplers 307k of 349k/s, viewport 226k of 230k/s;
+- 0 mismatches, nothing wrong on screen.
+
+**The cause: building and comparing the keys costs more than the work they replace.** The three
+keys append about 200 words a draw, one word at a time, into vectors, then compare and swap them.
+
+| | Per draw |
+|---|---|
+| The work the memos replace, if all of it were skipped (fix 142f-diag's MW2 figures at about 300k draws/s: samplers 45.9, viewport 25.9, system 22.5 ms/s) | 0.15 + 0.09 + 0.08 = 0.31 us |
+| What they saved at the measured repeat rates | About 0.25 us |
+| The three keys alone, measured on the host (`draw_memo.h`'s own Key and Slot, a 2.1 GHz Xeon) | 0.29 us at -O3, 0.93 us at -O2 |
+| Net cost in mode 2 on the console (frame time 28.8 to 38.5 ms over about 11.7k draws a frame) | +0.83 us; gross, about 1.1 us |
+| Verify's extra cost (the keys plus the comparison) | About 1.2 us |
+
+The two console figures agree once the savings are added back. Nothing points to a lost fast path
+or a descriptor or dirty-state side effect: the skips counted are real, there are 0 mismatches, and
+the size of the slowdown matches the keys' cost.
+
+**Decision.** Key-based memos do not pay for computations of 0.1-0.15 us. The memos stay at 0.
+
+A memo would pay only with a check of a few nanoseconds: a dirty flag set where the inputs are
+written. That means:
+- a per-register flag table on the register write path, in `WriteRegister` and `register_run.h`;
+- `TextureFetchConstantsWritten` for the fetch constants;
+- the few other inputs compared as scalars (the shader, the submission, the binding epoch).
+
+The bound is about 0.25 us a draw, about 70 ms/s in MW2. The write path's cost comes off it: about
+1.4 million register writes a second at 1-2 ns each.
+
+The viewport (97% repeats) and the samplers (88%) read only registers and a few scalars. The system
+constants (40% repeats, about 9 ms/s at best) also depend on the texture cache's per-texture state
+and are not worth it.
