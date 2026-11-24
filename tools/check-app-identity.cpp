@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Fix 46 (tools/source-1.0.2/fixes/46-ps5x360reloaded-identity.patch) and the rename to TrinityX360
-// (tools/source-1.0.2/fixes/trinityx360-name.patch, 1.0.6): the app's identity
+// (tools/source-1.0.2/fixes/199-trinityx360-name.patch, 1.0.6): the app's identity
 // (include/xbox360ps5/app_identity.hpp), the version label it gives the home screen
 // (build_version.hpp) and which key its web settings server lets in (web_key.hpp): its own, and
 // the official PS5X360's Kinect tracker key only for the tracker's two requests (GET

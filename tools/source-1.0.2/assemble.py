@@ -3,7 +3,7 @@
     python3 -I tools/source-1.0.2/assemble.py --out build/src102 [--cache .deps/src102-cache]
         [--version X.Y.Z] [--release]
 
-The version shown on the home screen ("TrinityX360 v<version>", fix 46 and fixes/trinityx360-name.patch) is --version, else
+The version shown on the home screen ("TrinityX360 v<version>", fix 46 and fixes/199-trinityx360-name.patch) is --version, else
 PS5X360_BUILD_VERSION, else tools/source-1.0.2/BUILD_VERSION (the test builds' candidate label),
 else 1.0.2. --release (or PS5X360_RELEASE=1) is a release build: its version must be given by
 --version or PS5X360_BUILD_VERSION and be plain X.Y.Z, no fix may be left out, and SOURCES.json

@@ -28,7 +28,7 @@ index cf97080..54842fe 100644
 -// PS5X360Reloaded, the fork of BrinooTk's PS5X360 rebuilt from its published sources, has a title
 -// ID of its own, PPSA83600, so it installs beside the official PS5X360 instead of
 +// TrinityX360 (named PS5X360Reloaded until 1.0.5; the name changed in 1.0.6 with
-+// fixes/trinityx360-name.patch), the fork of BrinooTk's PS5X360 rebuilt from its published
++// fixes/199-trinityx360-name.patch), the fork of BrinooTk's PS5X360 rebuilt from its published
 +// sources, has a title ID of its own, PPSA83600, so it installs beside the official PS5X360 instead of
  // replacing it, and keeps its data in a folder of its own: everything the title and the core
  // read or write under /data/homebrew goes through XBOX360PS5_DATA_ROOT. The official app's

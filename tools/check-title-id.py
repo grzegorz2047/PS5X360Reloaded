@@ -1,5 +1,5 @@
 """Host check of fix 46 (the app's own title ID, folder and name) and of the rename to TrinityX360
-(fixes/trinityx360-name.patch, 1.0.6) on an assembled tree.
+(fixes/199-trinityx360-name.patch, 1.0.6) on an assembled tree.
 
     python3 -I tools/check-title-id.py --tree build/src102
 

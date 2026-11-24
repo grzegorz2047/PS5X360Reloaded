@@ -43,7 +43,7 @@ python -I tools/source-1.0.2/assemble.py --out "$TREE" --skip-fix 59 --skip-fix 
 ```
 
 `$TREE/SOURCES.json` records every drop, fix and edit (and `fixes_skipped`). `$TREE/VERSION` is
-what `BUILD_VERSION` said: the label the home screen shows as `TrinityX360 v<label>` (`PS5X360Reloaded v<label>` on builds without `fixes/trinityx360-name.patch`).
+what `BUILD_VERSION` said: the label the home screen shows as `TrinityX360 v<label>` (`PS5X360Reloaded v<label>` on builds without `fixes/199-trinityx360-name.patch`).
 
 ## Make or change a patch
 
