@@ -326,6 +326,7 @@ also listed here.
 | 149c (`149c-readability`) | a light readability pass for a TV at 2-3 m: larger launcher fonts, 22 px hints, and text and focus colours with WCAG AA contrast |
 | 149d (`149d-help-card-sides`) | review of candidate 3: the guide's help card no longer covers the motion panel or the Harmonix keys panel (it moves to the free side, or hides), and "Emulated console resolution"'s help says 540p tells the game 720p and the mode applies when the game starts |
 | 150 (`150-vfs-background-delete`) | a 1.0.6 stutter fix: Grand Theft Auto IV paused for a fraction of a second when it deleted one of its files on a slow drive; the file is now deleted in the background (`vfs-delete.txt` `inline` restores the old way), and slow file operations and long pauses between the game's frames are logged | host-checked (`tools/check-vfs-entry-lifetime.sh`); console: `1.0.6-work-fix150` |
+| 151 (`151-suspend-credit-underflow`) | Virtua Tennis 3 froze during a replay (issue #61): a job thread slept with a suspend count of 175 after fix 71's credit and a second resume both ended the same suspension and the one-byte count wrapped from 0 to 255. The count now stops at 0 and 255, the credit lowers it only while it still holds the suspension, and a resume that ends a thread's own suspension drops an older credit. Check: `check-pending-resume.cpp` |
 
 ## Comparison with the official executable
 
