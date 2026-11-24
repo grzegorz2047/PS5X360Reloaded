@@ -741,6 +741,11 @@ Build `1.0.6-work-fix142f-diag`, fixed spots, the switch flipped between 0 and 1
 - **Base:** `1.0.6_candidate_3` with 142d, 142e, 138 and 142f-diag.
 - **Patch:** `142g-draw-memo.patch`.
 - **Label:** `1.0.6-work-fix142g`.
+- **Build run:** 45289009881, green, at `5549609` (artifact
+  `eboot-1.0.2-from-source-NOT-FOR-RELEASE`). Host checks: run 45285846713, green.
+- **The first build:** run 45282574470, at `5c1e7a1`, stopped in its host check step.
+  `check-submit-parts` read only the first 14,000 characters of `EndSubmission`; it now reads the
+  whole function.
 
 **The diagnostic fixes:**
 - The switch's line now says `on for X% of this block (now on|off; ...)`.
