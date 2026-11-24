@@ -1,0 +1,347 @@
+diff --git a/include/xbox360ps5/write_bench.hpp b/include/xbox360ps5/write_bench.hpp
+--- a/include/xbox360ps5/write_bench.hpp
++++ b/include/xbox360ps5/write_bench.hpp
+@@ -8,22 +8,34 @@
+ // same ~0.92 s. This writes a test file of its own with each way of writing and logs what each gets:
+ //  * switch: <data>/write-bench.txt; the library starts it once in a thread of its own (no game
+ //    needed). Optional lines: mib=N (at most 2048, the default), seconds=N (at most 120, the
+-//    default), variants=1m,8m,32m,sync32,direct,dontneed (the default: all, in that order),
+-//    dir=/data/... or dir=/mnt/... (one per line, at most 8; the default: <data> and each drive's
+-//    PS5X360Reloaded folder that has a saves folder, where installs go);
++//    default), variants=... (names of kVariants, run in the order given; the default: all, in the
++//    table's order), dir=/data/... or dir=/mnt/... (one per line, at most 8; the default: <data> and
++//    each drive's PS5X360Reloaded folder that has a saves folder, where installs go), pause=N
++//    (fix 148j: seconds of idle time before each variant but the first, at most 600; default 0);
+ //  * it writes only <folder>/write-bench.tmp, removes it after each variant, and every start of the
+ //    library removes one left behind (a crash, a game started meanwhile);
+ //  * <data>/write-bench.ran keeps which switch file ran (its size and time) and whether it finished:
+ //    one that finished, or was tried twice, does not run again until the switch file changes;
+-//  * each variant's line (log and <data>/write-bench-result.txt): MiB written, seconds, MiB/s, the
+-//    writes, how many took over 100 ms, the longest, the syncs and their times, close and remove.
++//  * each variant's line (log and <data>/write-bench-result.txt): when it started, MiB written,
++//    seconds, MiB/s, the writes, how many took over 100 ms, the longest, the syncs and reopens and
++//    their times, close and remove.
++//
++// Fix 148j: 1.0.6-work-fix148i's run showed a budget on the process's writes, not the page cache:
++// 1536 MiB at 67.7 MiB/s, then every variant on /data and ext1 alike, 8 and 32 MiB writes, fsync
++// every 32 MiB and O_DIRECT, at ~1.96 MiB/s, about 2 MiB a second (half of the 1 MiB writes waiting
++// ~1 s), and no refill after GTA V's 3.5 h in rest mode. Ways of writing that might not be charged
++// to it: a probe of 256 MiB first (is the burst there?), mmap (MAP_SHARED, memcpy, msync every
++// 32 MiB), writev, aio_write (each waited for), and pwrites with the file opened anew every 64 MiB.
+ #pragma once
+ #include <fcntl.h>
++#include <sys/mman.h>
+ #include <sys/stat.h>
++#include <sys/uio.h>
+ #include <unistd.h>
+ 
+ #include <cerrno>
+ #include <chrono>
++#include <csignal>
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstdlib>
+@@ -32,6 +44,7 @@
+ #include <functional>
+ #include <sstream>
+ #include <string>
++#include <thread>
+ #include <vector>
+ 
+ // The PS5's libc has no posix_fadvise (1.0.6-work-fix148i's first build: undefined symbol), and a
+@@ -42,30 +55,51 @@
+ #else
+ #define XBOX360PS5_WRITE_BENCH_FADVISE 0
+ #endif
++// Fix 148j: aio_write where the headers have it; SIGSYS is ignored while it runs, so a kernel
++// without the call answers ENOSYS instead of ending the process.
++#if defined(__has_include)
++#if __has_include(<aio.h>)
++#include <aio.h>
++#define XBOX360PS5_WRITE_BENCH_AIO 1
++#endif
++#endif
++#ifndef XBOX360PS5_WRITE_BENCH_AIO
++#define XBOX360PS5_WRITE_BENCH_AIO 0
++#endif
+ 
+ namespace xbox360ps5::write_bench {
+ 
+ constexpr uint64_t kMiB = uint64_t(1) << 20;
+ constexpr uint64_t kMaxMiB = 2048;
+ constexpr int kMaxSeconds = 120;
++constexpr int kMaxPause = 600;
+ constexpr double kStallMs = 100.0;
+ constexpr size_t kMaxDirs = 8;
+ 
++enum class Method { kPwrite, kWritev, kAio, kMmap };
+ struct Variant {
+   const char* name;
+-  uint64_t write_mib;       // the size of each pwrite
+-  uint64_t sync_every_mib;  // fsync after this many MiB (0: never)
++  uint64_t write_mib;       // the size of each write
++  uint64_t sync_every_mib;  // fsync (msync for mmap) after this many MiB (0: never)
+   bool direct;              // opened with O_DIRECT
+   bool dontneed;            // posix_fadvise(DONTNEED) on each 32 MiB written
+   const char* what;
++  Method method = Method::kPwrite;
++  uint64_t reopen_every_mib = 0;  // fix 148j: close and open the file again after this many MiB
++  uint64_t cap_mib = 0;           // fix 148j: at most this many MiB whatever mib= says (0: no cap)
+ };
+ inline constexpr Variant kVariants[] = {
++    {"probe", 1, 0, false, false, "1 MiB pwrites, 256 MiB at most: is the burst there", Method::kPwrite, 0, 256},
+     {"1m", 1, 0, false, false, "1 MiB pwrites"},
+     {"8m", 8, 0, false, false, "8 MiB pwrites"},
+     {"32m", 32, 0, false, false, "32 MiB pwrites"},
+     {"sync32", 1, 32, false, false, "1 MiB pwrites, fsync every 32 MiB"},
+     {"direct", 1, 0, true, false, "1 MiB pwrites, O_DIRECT"},
+     {"dontneed", 1, 0, false, true, "1 MiB pwrites, fadvise DONTNEED every 32 MiB"},
++    {"mmap", 1, 32, false, false, "1 MiB memcpy into a MAP_SHARED mapping, msync every 32 MiB", Method::kMmap},
++    {"writev", 1, 0, false, false, "1 MiB writev of 4 x 256 KiB", Method::kWritev},
++    {"aio", 1, 0, false, false, "1 MiB aio_write, each waited for", Method::kAio},
++    {"reopen64", 1, 0, false, false, "1 MiB pwrites, the file opened anew every 64 MiB", Method::kPwrite, 64},
+ };
+ inline const Variant* FindVariant(const std::string& name) {
+   for (const Variant& v : kVariants)
+@@ -97,6 +131,7 @@
+ struct Config {
+   uint64_t mib = kMaxMiB;
+   int seconds = kMaxSeconds;
++  int pause = 0;                         // fix 148j: idle seconds before each variant but the first
+   std::vector<const Variant*> variants;  // empty: all
+   std::vector<std::string> dirs;         // empty: DefaultDirs
+ };
+@@ -117,6 +152,9 @@
+     } else if (key == "seconds") {
+       const long long n = std::atoll(value.c_str());
+       c.seconds = n < 1 ? 1 : n > kMaxSeconds ? kMaxSeconds : int(n);
++    } else if (key == "pause") {
++      const long long n = std::atoll(value.c_str());
++      c.pause = n < 0 ? 0 : n > kMaxPause ? kMaxPause : int(n);
+     } else if (key == "variants") {
+       c.variants.clear();
+       std::istringstream names(value);
+@@ -183,8 +221,11 @@
+ }
+ 
+ struct Stats {
+-  uint64_t bytes = 0, writes = 0, stalls = 0, syncs = 0;
+-  double seconds = 0, longest_write_ms = 0, longest_sync_ms = 0, sync_ms = 0, close_ms = 0, remove_ms = 0;
++  uint64_t bytes = 0, writes = 0, stalls = 0, syncs = 0, reopens = 0;
++  double started = 0;  // fix 148j: seconds since the benchmark started
++  double seconds = 0, longest_write_ms = 0, longest_sync_ms = 0, sync_ms = 0, reopen_ms = 0, close_ms = 0,
++         remove_ms = 0;
++  const char* sync_name = "fsyncs";
+   std::string stopped;  // "size", "time", or what failed / why skipped
+   std::string note;     // e.g. a failed fadvise
+ };
+@@ -194,16 +235,19 @@
+ }
+ 
+ inline std::string Describe(const std::string& dir, const Variant& v, const Stats& s) {
+-  char line[640];
++  char line[768];
+   const double mib = double(s.bytes) / double(kMiB);
+   int n = std::snprintf(line, sizeof(line),
+-                        "Write bench (fix 148i): %s %s (%s): %.0f MiB in %.1f s, %.2f MiB/s, %llu writes, %llu over "
+-                        "100 ms, longest %.1f ms",
+-                        dir.c_str(), v.name, v.what, mib, s.seconds, s.seconds > 0 ? mib / s.seconds : 0.0,
++                        "Write bench (fix 148i): %s %s (%s) at +%.0f s: %.0f MiB in %.1f s, %.2f MiB/s, %llu writes, "
++                        "%llu over 100 ms, longest %.1f ms",
++                        dir.c_str(), v.name, v.what, s.started, mib, s.seconds, s.seconds > 0 ? mib / s.seconds : 0.0,
+                         (unsigned long long)s.writes, (unsigned long long)s.stalls, s.longest_write_ms);
+   if (s.syncs && n > 0 && size_t(n) < sizeof(line))
+-    n += std::snprintf(line + n, sizeof(line) - size_t(n), "; %llu fsyncs, %.1f ms each, longest %.1f ms",
+-                       (unsigned long long)s.syncs, s.sync_ms / double(s.syncs), s.longest_sync_ms);
++    n += std::snprintf(line + n, sizeof(line) - size_t(n), "; %llu %s, %.1f ms each, longest %.1f ms",
++                       (unsigned long long)s.syncs, s.sync_name, s.sync_ms / double(s.syncs), s.longest_sync_ms);
++  if (s.reopens && n > 0 && size_t(n) < sizeof(line))
++    n += std::snprintf(line + n, sizeof(line) - size_t(n), "; %llu reopens, %.1f ms each",
++                       (unsigned long long)s.reopens, s.reopen_ms / double(s.reopens));
+   if (n > 0 && size_t(n) < sizeof(line))
+     std::snprintf(line + n, sizeof(line) - size_t(n), "; close %.1f ms, remove %.1f ms; stopped by %s%s%s",
+                   s.close_ms, s.remove_ms, s.stopped.c_str(), s.note.empty() ? "" : "; ", s.note.c_str());
+@@ -213,6 +257,35 @@
+ using Clock = std::chrono::steady_clock;
+ inline double MsSince(Clock::time_point t) {
+   return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
++}
++
++// Fix 148j: one write of `length` bytes at `offset` by the variant's method; the bytes written, or
++// -1 with errno.
++inline ssize_t WriteOnce(const Variant& v, int fd, const unsigned char* buffer, size_t length, uint64_t offset) {
++  if (v.method == Method::kWritev) {
++    iovec parts[4];
++    const size_t quarter = length / 4;
++    for (int i = 0; i < 4; ++i) {
++      parts[i].iov_base = const_cast<unsigned char*>(buffer) + quarter * size_t(i);
++      parts[i].iov_len = i < 3 ? quarter : length - quarter * 3;
++    }
++    return ::writev(fd, parts, 4);
++  }
++#if XBOX360PS5_WRITE_BENCH_AIO
++  if (v.method == Method::kAio) {
++    aiocb request;
++    std::memset(&request, 0, sizeof(request));
++    request.aio_fildes = fd;
++    request.aio_buf = const_cast<unsigned char*>(buffer);
++    request.aio_nbytes = length;
++    request.aio_offset = off_t(offset);
++    if (::aio_write(&request) != 0) return -1;
++    const aiocb* list[1] = {&request};
++    while (::aio_error(&request) == EINPROGRESS) ::aio_suspend(list, 1, nullptr);
++    return ::aio_return(&request);
++  }
++#endif
++  return ::pwrite(fd, buffer, length, off_t(offset));
+ }
+ 
+ // One variant in `dir`: write `mib` MiB (stopping after `seconds`), then close and remove the file.
+@@ -233,17 +306,45 @@
+     s.stopped = "skipped: no posix_fadvise in this libc";
+     return s;
+   }
++  if (v.method == Method::kAio && !XBOX360PS5_WRITE_BENCH_AIO) {
++    s.stopped = "skipped: no aio_write in these headers";
++    return s;
++  }
++  if (v.method == Method::kMmap) flags = O_RDWR | O_CREAT | O_TRUNC, s.sync_name = "msyncs";
++  if (v.cap_mib && mib > v.cap_mib) mib = v.cap_mib;
+   const uint64_t chunk = v.write_mib * kMiB;
+   std::vector<unsigned char> storage(size_t(chunk) + 4096);
+   unsigned char* buffer = storage.data() + (4096 - reinterpret_cast<uintptr_t>(storage.data()) % 4096) % 4096;
+   for (uint64_t i = 0; i < chunk; ++i) buffer[i] = static_cast<unsigned char>(i * 131 + 7 + (i >> 12));
+-  const int fd = ::open(file.c_str(), flags, 0644);
++  int fd = ::open(file.c_str(), flags, 0644);
+   if (fd < 0) {
+     s.stopped = ErrorText("open", errno);
+     return s;
+   }
+   const uint64_t total = mib * kMiB;
+-  uint64_t since_sync = 0, since_hint = 0;
++  unsigned char* map = nullptr;
++  if (v.method == Method::kMmap) {
++    const Clock::time_point t = Clock::now();
++    if (::ftruncate(fd, off_t(total)) != 0) {
++      s.stopped = ErrorText("ftruncate", errno);
++    } else {
++      void* mapped = ::mmap(nullptr, size_t(total), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++      if (mapped == MAP_FAILED) s.stopped = ErrorText("mmap", errno);
++      else map = static_cast<unsigned char*>(mapped);
++    }
++    char setup[64];
++    std::snprintf(setup, sizeof(setup), "ftruncate and mmap %.1f ms", MsSince(t));
++    s.note = setup;
++    if (!map) {
++      ::close(fd);
++      ::unlink(file.c_str());
++      return s;
++    }
++  }
++#ifdef SIGSYS
++  void (*previous_sigsys)(int) = v.method == Method::kAio ? std::signal(SIGSYS, SIG_IGN) : SIG_DFL;
++#endif
++  uint64_t since_sync = 0, since_hint = 0, since_open = 0;
+   const Clock::time_point start = Clock::now();
+   s.stopped = "size";
+   while (s.bytes < total) {
+@@ -253,15 +354,22 @@
+     }
+     const size_t length = size_t(total - s.bytes < chunk ? total - s.bytes : chunk);
+     const Clock::time_point t = Clock::now();
+-    const ssize_t wrote = ::pwrite(fd, buffer, length, off_t(s.bytes));
++    ssize_t wrote = 0;
++    if (map) {
++      std::memcpy(map + s.bytes, buffer, length);
++      wrote = ssize_t(length);
++    } else {
++      wrote = WriteOnce(v, fd, buffer, length, s.bytes);
++    }
+     const double ms = MsSince(t);
+     if (wrote < 0) {
+       if (errno == EINTR) continue;
+-      s.stopped = ErrorText("pwrite", errno);
++      s.stopped = ErrorText(v.method == Method::kWritev ? "writev" : v.method == Method::kAio ? "aio_write" : "pwrite",
++                            errno);
+       break;
+     }
+     if (wrote == 0) {
+-      s.stopped = "pwrite wrote nothing";
++      s.stopped = "the write wrote nothing";
+       break;
+     }
+     ++s.writes;
+@@ -270,16 +378,17 @@
+     s.bytes += uint64_t(wrote);
+     since_sync += uint64_t(wrote);
+     since_hint += uint64_t(wrote);
++    since_open += uint64_t(wrote);
+     if (v.sync_every_mib && since_sync >= v.sync_every_mib * kMiB) {
+       const Clock::time_point f = Clock::now();
+-      const int synced = ::fsync(fd);
++      const int synced = map ? ::msync(map + (s.bytes - since_sync), size_t(since_sync), MS_SYNC) : ::fsync(fd);
+       const double sync_ms = MsSince(f);
+       ++s.syncs;
+       s.sync_ms += sync_ms;
+       if (sync_ms > s.longest_sync_ms) s.longest_sync_ms = sync_ms;
+       since_sync = 0;
+       if (synced != 0) {
+-        s.stopped = ErrorText("fsync", errno);
++        s.stopped = ErrorText(map ? "msync" : "fsync", errno);
+         break;
+       }
+     }
+@@ -290,10 +399,26 @@
+ #endif
+       since_hint = 0;
+     }
++    if (v.reopen_every_mib && since_open >= v.reopen_every_mib * kMiB && s.bytes < total) {
++      const Clock::time_point o = Clock::now();
++      ::close(fd);
++      fd = ::open(file.c_str(), flags & ~(O_CREAT | O_TRUNC));
++      s.reopen_ms += MsSince(o);
++      ++s.reopens;
++      since_open = 0;
++      if (fd < 0) {
++        s.stopped = ErrorText("open again", errno);
++        break;
++      }
++    }
+   }
++#ifdef SIGSYS
++  if (v.method == Method::kAio) std::signal(SIGSYS, previous_sigsys);
++#endif
+   s.seconds = MsSince(start) / 1000.0;
+   const Clock::time_point c = Clock::now();
+-  ::close(fd);
++  if (map) ::munmap(map, size_t(total));
++  if (fd >= 0) ::close(fd);
+   s.close_ms = MsSince(c);
+   const Clock::time_point r = Clock::now();
+   if (::unlink(file.c_str()) != 0 && s.note.empty()) s.note = ErrorText("unlink", errno);
+@@ -362,13 +487,23 @@
+   };
+   say("Write bench (fix 148i): start (attempt " + std::to_string(ran.attempts) + "), " +
+       std::to_string(dirs.size()) + " folder(s), variants " + names + ", at most " + std::to_string(config.mib) +
+-      " MiB and " + std::to_string(config.seconds) + " s each");
++      " MiB and " + std::to_string(config.seconds) + " s each, pause " + std::to_string(config.pause) +
++      " s between");
++  const Clock::time_point began = Clock::now();
++  bool first = true;
+   for (const std::string& dir : dirs) {
+     if (!IsDir(dir)) {
+       say("Write bench (fix 148i): " + dir + " is not a folder, skipped");
+       continue;
+     }
+-    for (const Variant* v : config.variants) say(Describe(dir, *v, Run(dir, *v, config.mib, config.seconds)));
++    for (const Variant* v : config.variants) {
++      if (!first && config.pause > 0) std::this_thread::sleep_for(std::chrono::seconds(config.pause));
++      first = false;
++      const double started = MsSince(began) / 1000.0;
++      Stats s = Run(dir, *v, config.mib, config.seconds);
++      s.started = started;
++      say(Describe(dir, *v, s));
++    }
+   }
+   ran.done = true;
+   WriteText(RanFile(data_root), SerializeRan(ran));

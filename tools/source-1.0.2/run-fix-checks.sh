@@ -162,7 +162,7 @@ checks=(
   check-dlc-incomplete.cpp         # fix 148f
   check-write-trace.cpp            # fix 148g
   check-install-notice.cpp         # fix 148h
-  check-write-bench.cpp            # fix 148i
+  check-write-bench.cpp            # fixes 148i, 148j
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -307,7 +307,7 @@ declare -A fix_of=(
   [check-dlc-incomplete.cpp]=148f
   [check-write-trace.cpp]=148g
   [check-install-notice.cpp]=148h
-  [check-write-bench.cpp]=148i
+  [check-write-bench.cpp]="148i 148j"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
