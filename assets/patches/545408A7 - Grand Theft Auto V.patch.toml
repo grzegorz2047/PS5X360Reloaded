@@ -1,0 +1,14 @@
+title_name = "Grand Theft Auto V"
+title_id = "545408A7" # TT-2055
+hash = "C290B43AEEFA5166" # default.xex (Disc 1 and Disc 2 boot the same executable)
+
+[[patch]]
+    name = "XMA stream availability from the game's own copy (audio freeze fix, experiment)"
+    desc = "The audio mixer counts a stream's decoded bytes from the XMA hardware context when its stream set is not locked, but takes them from its own copy, which only a lock refreshes. The emulator writes decoder progress to the context at once, so the two disagree and the audio thread spins forever (frames stop ~100 s into the prologue). The count now always uses the game's copy."
+    author = "PS5X360"
+    is_enabled = true
+
+    # 836A96D8 (Available): bne cr6 -> b; reads entry (the game's copy) instead of [entry+0x40] (the hardware context).
+    [[patch.be32]]
+        address = 0x836a96fc
+        value = 0x48000008

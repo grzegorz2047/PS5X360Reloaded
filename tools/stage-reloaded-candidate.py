@@ -85,6 +85,13 @@ def main():
     shutil.copy2(out_dir / 'eboot.bin', app / 'eboot.bin')
     for f in langs:
         shutil.copy2(f, app / 'assets/lang' / f.name)
+    # Fix 155c: this repository's own game patches (assets/patches, e.g. GTA V's audio fix) as the
+    # release packages ship them (package-release.py); the base's community patches stay.
+    own_patches = sorted((Path(__file__).resolve().parents[1] / 'assets/patches').glob('*.patch.toml'))
+    (app / 'assets/patches').mkdir(parents=True, exist_ok=True)
+    for f in own_patches:
+        shutil.copy2(f, app / 'assets/patches' / f.name)
+    print(f'{len(own_patches)} game patch file(s) from the repository copied into assets/patches')
     param = app / 'sce_sys/param.json'
     if len(inspect.signature(package.param_json).parameters) >= 2:
         # Release-branch package.py: contentVersion from a release version X.Y.Z[.W].
