@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = 렌더러\s및\s정확도
 Rendering = 렌더링
 Resolution\sscale\s(test) = 렌더링\s배율\s(테스트)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = 렌더링\s배율\s(테스트)\s2x:\s이\s게임에는\s남은\s메모리보다\s더\s많은\s메모리가\s필요합니다.\s화면이\s깨질\s수\s있으니\s이\s게임의\s설정에서\s1x로\s바꾸세요.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = 렌더링\s배율\s(테스트):\s이\s게임은\s항상\s1x로\s실행됩니다.\s2x에서는\sKinect\s카메라\s영상을\s그릴\s수\s없고\s비디오\s메모리가\s부족해집니다.
 Restart\semulator = 에뮬레이터\s다시\s시작
 Restart\sgame = 게임\s다시\s시작
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 버그\s신고용\s로그와\s함께\s이\s게임\s다시\s시작

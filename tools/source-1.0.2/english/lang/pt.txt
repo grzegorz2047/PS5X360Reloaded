@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Renderizador\se\sprecisão
 Rendering = Renderização
 Resolution\sscale\s(test) = Escala\sde\srenderização\s(teste)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Escala\sde\srenderização\s(teste)\s2x:\seste\sjogo\sprecisa\sde\smais\smemória\sdo\sque\sa\sque\sresta.\sA\simagem\spode\sfalhar;\sdefina\s1x\snas\sdefinições\sdeste\sjogo.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Escala\sde\srenderização\s(teste):\seste\sjogo\scorre\ssempre\sem\s1x.\sEm\s2x,\sas\simagens\sda\scâmara\sdo\sKinect\snão\spodem\sser\sdesenhadas\se\sa\smemória\sde\svídeo\sesgota-se.
 Restart\semulator = Reiniciar\so\semulador
 Restart\sgame = Reiniciar\sjogo
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Reiniciar\seste\sjogo\scom\sregistos\spara\srelatório\sde\serro

@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Görüntü\sişleyici\sve\sdoğruluk
 Rendering = Görüntü\sişleme
 Resolution\sscale\s(test) = Görüntü\sişleme\sölçeği\s(test)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Görüntü\sişleme\sölçeği\s(test)\s2x:\sbu\soyun\skalandan\sdaha\sfazla\sbellek\sgerektiriyor.\sGörüntü\sbozulabilir;\sbu\soyunun\sayarlarında\s1x\sseçin.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Görüntü\sişleme\sölçeği\s(test):\sbu\soyun\sher\szaman\s1x'te\sçalışır.\s2x'te\sKinect\skamerasının\sgörüntüleri\sçizilemez\sve\svideo\sbelleği\stükenir.
 Restart\semulator = Emülatörü\syeniden\sbaşlat
 Restart\sgame = Oyunu\syeniden\sbaşlat
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Bu\soyunu\shata\sbildirimi\sgünlükleriyle\syeniden\sbaşlat

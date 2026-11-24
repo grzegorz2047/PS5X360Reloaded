@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Renderer\si\sdokładność
 Rendering = Renderowanie
 Resolution\sscale\s(test) = Skala\srenderowania\s(test)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Skala\srenderowania\s(test)\s2x:\sta\sgra\spotrzebuje\swięcej\spamięci,\sniż\szostało.\sObraz\smoże\ssię\spsuć;\sustaw\s1x\sw\sustawieniach\stej\sgry.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Skala\srenderowania\s(test):\sta\sgra\szawsze\sdziała\sw\s1x.\sW\s2x\sobrazów\sz\skamery\sKinect\snie\sda\ssię\snarysować,\sa\spamięci\swideo\szaczyna\sbrakować.
 Restart\semulator = Uruchom\semulator\sponownie
 Restart\sgame = Uruchom\sgrę\sponownie
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Uruchom\stę\sgrę\sponownie\sz\sdziennikami\sdo\szgłoszenia\sbłędu

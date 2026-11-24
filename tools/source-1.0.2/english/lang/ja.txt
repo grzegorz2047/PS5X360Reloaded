@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = レンダラーと正確さ
 Rendering = 描画
 Resolution\sscale\s(test) = 描画解像度の倍率（テスト）
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = 描画解像度の倍率（テスト）2x：このゲームには残りより多くのメモリが必要です。画面が崩れることがあります。このゲームの設定で1xにしてください。
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = 描画解像度の倍率（テスト）：このゲームは常に1xで動作します。2xではKinectカメラの映像を描画できず、ビデオメモリが不足します。
 Restart\semulator = エミュレーターを再起動
 Restart\sgame = ゲームを再起動
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 不具合報告用のログを取ってこのゲームを再起動

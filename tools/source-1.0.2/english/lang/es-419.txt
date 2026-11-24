@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = Renderizador\sy\sprecisión
 Rendering = Renderizado
 Resolution\sscale\s(test) = Escala\sde\srenderizado\s(prueba)
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = Escala\sde\srenderizado\s(prueba)\s2x:\seste\sjuego\snecesita\smás\smemoria\sde\sla\sque\squeda.\sLa\simagen\spuede\sfallar;\selige\s1x\sen\sla\sconfiguración\sde\seste\sjuego.
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = Escala\sde\srenderizado\s(prueba):\seste\sjuego\ssiempre\sfunciona\sa\s1x.\sA\s2x\sno\sse\spueden\sdibujar\slas\simágenes\sde\sla\scámara\sKinect\sy\sse\sagota\sla\smemoria\sde\svideo.
 Restart\semulator = Reiniciar\sel\semulador
 Restart\sgame = Reiniciar\sjuego
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = Reiniciar\seste\sjuego\scon\sregistros\spara\sun\sinforme\sde\serror

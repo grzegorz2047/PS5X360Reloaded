@@ -478,6 +478,7 @@ Renderer\sand\saccuracy = 渲染器与准确度
 Rendering = 渲染
 Resolution\sscale\s(test) = 渲染分辨率倍数（测试）
 Resolution\sscale\s(test)\s2x:\sthis\sgame\sneeds\smore\smemory\sthan\sis\sleft.\sThe\spicture\smay\sbreak;\sset\sit\sto\s1x\sin\sthis\sgame's\ssettings. = 渲染分辨率倍数（测试）2x：此游戏需要的内存超过剩余内存。画面可能出错；请在此游戏的设置中改为\s1x。
+Resolution\sscale\s(test):\sthis\sgame\salways\sruns\sat\s1x.\sAt\s2x\sits\sKinect\scamera\spictures\scannot\sbe\sdrawn\sand\sits\svideo\smemory\sruns\sout. = 渲染分辨率倍数（测试）：此游戏始终以\s1x\s运行。在\s2x\s下无法绘制\sKinect\s摄像头的画面，并且显存会不足。
 Restart\semulator = 重启模拟器
 Restart\sgame = 重新启动游戏
 Restart\sthis\sgame\swith\slogs\sfor\sa\sbug\sreport = 带错误报告日志重新启动此游戏

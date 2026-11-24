@@ -422,6 +422,7 @@ incomplete: %s of %s = incompleto: %s de %s
 Install data incomplete = Dados de instalação incompletos
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: os dados de instalação estão incompletos (%s: %s de %s). Na biblioteca, pressione X no jogo, abra a aba "%s", selecione cada pacote de instalação e pressione Triângulo "%s". Depois inicie o jogo para instalar de novo.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = O modo de vídeo que o Xbox 360 emulado informa ao jogo; não é a resolução da sua TV. Vale a partir do início do jogo. Em 1080p ou 900p alguns jogos desenham mais pixels (mais nítido, mais pesado); em 480p alguns desenham menos e ficam mais leves. 540p não é um modo de um console de verdade: o jogo recebe 720p. Muitos jogos ignoram isso e ficam em 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Escala de renderização (teste): este jogo sempre roda em 1x. Em 2x, as imagens da câmera do Kinect não podem ser desenhadas e a memória de vídeo acaba.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -656,6 +657,7 @@ incomplete: %s of %s = incompleto: %s de %s
 Install data incomplete = Dados de instalação incompletos
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: os dados de instalação estão incompletos (%s: %s de %s). Na biblioteca, prima Cruz no jogo, abra o separador "%s", selecione cada pacote de instalação e prima Triângulo "%s". Depois inicie o jogo para voltar a instalar.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = O modo de vídeo que o Xbox 360 emulado indica ao jogo; não é a resolução do televisor. Aplica-se quando o jogo arranca. A 1080p ou 900p alguns jogos desenham mais píxeis (mais nítido, mais pesado); a 480p alguns desenham menos e ficam mais leves. 540p não é um modo de uma consola real: o jogo recebe 720p. Muitos jogos ignoram-no e ficam a 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Escala de renderização (teste): este jogo corre sempre em 1x. Em 2x, as imagens da câmara do Kinect não podem ser desenhadas e a memória de vídeo esgota-se.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -890,6 +892,7 @@ incomplete: %s of %s = incompleto: %s de %s
 Install data incomplete = Datos de instalación incompletos
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: los datos de instalación están incompletos (%s: %s de %s). En la biblioteca, pulsa Cruz sobre el juego, abre la pestaña "%s", selecciona cada paquete de instalación y pulsa Triángulo "%s". Después inicia el juego para volver a instalarlo.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = El modo de vídeo que la Xbox 360 emulada indica al juego; no es la resolución de tu televisor. Se aplica al iniciar el juego. A 1080p o 900p algunos juegos dibujan más píxeles (más nítido, más pesado); a 480p algunos dibujan menos y van más ligeros. 540p no es un modo de una consola real: el juego recibe 720p. Muchos juegos lo ignoran y se quedan en 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Escala de renderizado (prueba): este juego siempre funciona a 1x. A 2x no se pueden dibujar las imágenes de la cámara Kinect y se agota la memoria de vídeo.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -1124,6 +1127,7 @@ incomplete: %s of %s = incompleto: %s de %s
 Install data incomplete = Datos de instalación incompletos
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: los datos de instalación están incompletos (%s: %s de %s). En la biblioteca, presiona Cruz sobre el juego, abre la pestaña "%s", selecciona cada paquete de instalación y presiona Triángulo "%s". Después inicia el juego para volver a instalarlo.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = El modo de video que la Xbox 360 emulada le informa al juego; no es la resolución de tu TV. Se aplica al iniciar el juego. A 1080p o 900p algunos juegos dibujan más píxeles (más nítido, más pesado); a 480p algunos dibujan menos y funcionan más livianos. 540p no es un modo de una consola real: el juego recibe 720p. Muchos juegos lo ignoran y se quedan en 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Escala de renderizado (prueba): este juego siempre funciona a 1x. A 2x no se pueden dibujar las imágenes de la cámara Kinect y se agota la memoria de video.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1358,6 +1362,7 @@ incomplete: %s of %s = unvollständig: %s von %s
 Install data incomplete = Installationsdaten unvollständig
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: Die Installationsdaten sind unvollständig (%s: %s von %s). Drücke in der Bibliothek Kreuz auf dem Spiel, öffne den Tab "%s", wähle jedes Installationspaket aus und drücke Dreieck "%s". Starte danach das Spiel, um es neu zu installieren.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = Der Videomodus, den die emulierte Xbox 360 dem Spiel meldet; das ist nicht die Auflösung des Fernsehers. Er gilt ab dem Spielstart. Bei 1080p oder 900p zeichnen manche Spiele mehr Pixel (schärfer, schwerer); bei 480p zeichnen manche weniger und laufen leichter. 540p ist kein Modus einer echten Konsole: Das Spiel bekommt 720p. Viele Spiele ignorieren ihn und bleiben bei 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Renderskalierung (Test): Dieses Spiel läuft immer mit 1x. Bei 2x können die Bilder der Kinect-Kamera nicht gezeichnet werden und der Grafikspeicher reicht nicht aus.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1592,6 +1597,7 @@ incomplete: %s of %s = incomplet : %s sur %s
 Install data incomplete = Données d'installation incomplètes
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s : les données d'installation sont incomplètes (%s : %s sur %s). Dans la bibliothèque, appuyez sur Croix sur le jeu, ouvrez l'onglet « %s », sélectionnez chacun de ses paquets d'installation et appuyez sur Triangle « %s ». Lancez ensuite le jeu pour le réinstaller.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = Le mode vidéo que la Xbox 360 émulée indique au jeu ; ce n'est pas la résolution de votre téléviseur. Il s'applique au lancement du jeu. En 1080p ou 900p, certains jeux dessinent plus de pixels (plus net, plus lourd) ; en 480p, certains en dessinent moins et sont plus légers. 540p n'est pas un mode d'une vraie console : le jeu reçoit 720p. Beaucoup de jeux l'ignorent et restent en 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Échelle de rendu (test) : ce jeu tourne toujours en 1x. En 2x, les images de la caméra Kinect ne peuvent pas être dessinées et la mémoire vidéo s'épuise.
 
 [added it]
 Console storage = Memoria della console
@@ -1826,6 +1832,7 @@ incomplete: %s of %s = incompleto: %s di %s
 Install data incomplete = Dati di installazione incompleti
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: i dati di installazione sono incompleti (%s: %s di %s). Nella libreria premi Croce sul gioco, apri la scheda "%s", seleziona ciascun pacchetto di installazione e premi Triangolo "%s". Poi avvia il gioco per installarlo di nuovo.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = La modalità video che la Xbox 360 emulata comunica al gioco; non è la risoluzione della tua TV. Vale dall'avvio del gioco. A 1080p o 900p alcuni giochi disegnano più pixel (più nitido, più pesante); a 480p alcuni ne disegnano meno e sono più leggeri. 540p non è una modalità di una console vera: il gioco riceve 720p. Molti giochi la ignorano e restano a 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Scala di rendering (test): questo gioco funziona sempre a 1x. A 2x le immagini della videocamera Kinect non possono essere disegnate e la memoria video si esaurisce.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -2060,6 +2067,7 @@ incomplete: %s of %s = 不完全：%s / %s
 Install data incomplete = インストールデータが不完全です
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：インストールデータが不完全です（%s：%s / %s）。ライブラリでゲームを×で開き、「%s」タブで各インストールパッケージを選んで△「%s」を押してください。その後ゲームを起動すると再インストールされます。
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = エミュレートされたXbox 360がゲームに伝える映像モードで、テレビの解像度ではありません。ゲームの起動時に適用されます。1080pや900pでは多く描画する（より鮮明、より重い）ゲームがあり、480pでは描画が減って軽くなるゲームがあります。540pは実機のモードではないため、ゲームには720pと伝えられます。多くのゲームはこれを無視して720pのままです。
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = 描画解像度の倍率（テスト）：このゲームは常に1xで動作します。2xではKinectカメラの映像を描画できず、ビデオメモリが不足します。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -2294,6 +2302,7 @@ incomplete: %s of %s = 불완전: %s / %s
 Install data incomplete = 설치 데이터가 불완전합니다
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: 설치 데이터가 불완전합니다(%s: %s / %s). 라이브러리에서 게임을 X로 열고 "%s" 탭에서 각 설치 패키지를 선택한 뒤 △ "%s"를 누르세요. 그런 다음 게임을 시작하면 다시 설치합니다.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = 에뮬레이트된 Xbox 360이 게임에 알리는 비디오 모드이며, TV의 해상도가 아닙니다. 게임을 시작할 때 적용됩니다. 1080p나 900p에서는 일부 게임이 더 많이 그립니다(더 선명하고 더 무거움). 480p에서는 일부 게임이 적게 그려 가벼워집니다. 540p는 실제 콘솔의 모드가 아니므로 게임에는 720p로 알려집니다. 많은 게임은 이를 무시하고 720p로 유지됩니다.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = 렌더링 배율 (테스트): 이 게임은 항상 1x로 실행됩니다. 2x에서는 Kinect 카메라 영상을 그릴 수 없고 비디오 메모리가 부족해집니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -2528,6 +2537,7 @@ incomplete: %s of %s = onvolledig: %s van %s
 Install data incomplete = Installatiegegevens onvolledig
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: de installatiegegevens zijn onvolledig (%s: %s van %s). Druk in de bibliotheek op Kruisje bij de game, open het tabblad "%s", selecteer elk installatiepakket en druk op Driehoek "%s". Start daarna de game om opnieuw te installeren.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = De videomodus die de geëmuleerde Xbox 360 aan de game doorgeeft; het is niet de resolutie van de tv. Hij geldt vanaf de start van de game. Bij 1080p of 900p tekenen sommige games meer pixels (scherper, zwaarder); bij 480p tekenen sommige minder en lopen ze lichter. 540p is geen modus van een echte console: de game krijgt 720p. Veel games negeren het en blijven op 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Renderschaal (test): dit spel draait altijd op 1x. Op 2x kunnen de beelden van de Kinect-camera niet worden getekend en raakt het videogeheugen op.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -2762,6 +2772,7 @@ incomplete: %s of %s = niepełna: %s z %s
 Install data incomplete = Niepełne dane instalacji
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: dane instalacji są niepełne (%s: %s z %s). W bibliotece naciśnij Krzyżyk na grze, otwórz zakładkę „%s”, zaznacz kolejno jej pakiety instalacyjne i naciśnij Trójkąt „%s”. Potem uruchom grę, aby zainstalować ją ponownie.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = Tryb obrazu, który emulowany Xbox 360 zgłasza grze; to nie jest rozdzielczość telewizora. Działa od uruchomienia gry. Przy 1080p lub 900p niektóre gry rysują więcej pikseli (ostrzej, ciężej); przy 480p niektóre rysują mniej i działają lżej. 540p to nie jest tryb prawdziwej konsoli: gra dostaje 720p. Wiele gier to ignoruje i zostaje przy 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Skala renderowania (test): ta gra zawsze działa w 1x. W 2x obrazów z kamery Kinect nie da się narysować, a pamięci wideo zaczyna brakować.
 
 [added ru]
 Console storage = Память консоли
@@ -2996,6 +3007,7 @@ incomplete: %s of %s = неполный: %s из %s
 Install data incomplete = Неполные данные установки
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: данные установки неполные (%s: %s из %s). В библиотеке нажмите «Крест» на игре, откройте вкладку «%s», выберите каждый установочный пакет и нажмите «Треугольник» «%s». Затем запустите игру, чтобы установить её заново.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = Видеорежим, который эмулируемая Xbox 360 сообщает игре; это не разрешение телевизора. Применяется при запуске игры. При 1080p или 900p некоторые игры рисуют больше пикселей (чётче, тяжелее); при 480p некоторые рисуют меньше и работают легче. 540p — не режим настоящей консоли: игра получает 720p. Многие игры его игнорируют и остаются в 720p.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Масштаб рендеринга (тест): эта игра всегда работает в 1x. В 2x изображения с камеры Kinect не могут быть отрисованы, а видеопамяти не хватает.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -3230,6 +3242,7 @@ incomplete: %s of %s = eksik: %s / %s
 Install data incomplete = Kurulum verileri eksik
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s: kurulum verileri eksik (%s: %s / %s). Kütüphanede oyunun üzerinde Çarpı'ya basın, "%s" sekmesini açın, her kurulum paketini seçip Üçgen "%s" tuşuna basın. Ardından yeniden kurmak için oyunu başlatın.
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = Emüle edilen Xbox 360'ın oyuna bildirdiği video modu; TV'nin çözünürlüğü değildir. Oyun başladığında uygulanır. 1080p veya 900p'de bazı oyunlar daha fazla piksel çizer (daha keskin, daha ağır); 480p'de bazıları daha az çizer ve daha hafif çalışır. 540p gerçek bir konsolun modu değildir: oyuna 720p bildirilir. Birçok oyun bunu yok sayar ve 720p'de kalır.
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = Görüntü işleme ölçeği (test): bu oyun her zaman 1x'te çalışır. 2x'te Kinect kamerasının görüntüleri çizilemez ve video belleği tükenir.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -3464,6 +3477,7 @@ incomplete: %s of %s = 不完整：%s / %s
 Install data incomplete = 安装数据不完整
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：安装数据不完整（%s：%s / %s）。在游戏库中对该游戏按叉键，打开“%s”标签，选择每个安装包并按三角键“%s”。然后启动游戏以重新安装。
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = 模拟的 Xbox 360 告诉游戏的视频模式；不是电视的分辨率。在游戏启动时生效。在 1080p 或 900p 下，一些游戏绘制更多像素（更清晰，更吃性能）；在 480p 下，一些游戏绘制更少，运行更轻松。540p 不是真实主机的模式：游戏得到的是 720p。许多游戏会忽略它，保持在 720p。
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = 渲染分辨率倍数（测试）：此游戏始终以 1x 运行。在 2x 下无法绘制 Kinect 摄像头的画面，并且显存会不足。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -3698,3 +3712,4 @@ incomplete: %s of %s = 不完整：%s / %s
 Install data incomplete = 安裝資料不完整
 %s: its install data is incomplete (%s: %s of %s). In the library press Cross on the game, open the %s tab, select each of its install packages and press Triangle (%s). Then start the game to install it again. = %s：安裝資料不完整（%s：%s / %s）。在遊戲庫中對該遊戲按叉鍵，開啟「%s」分頁，選擇每個安裝套件並按三角鍵「%s」。然後啟動遊戲以重新安裝。
 The video mode the emulated Xbox 360 reports to the game; it is not your TV's resolution. It applies when the game starts. At 1080p or 900p some games draw more pixels (sharper, heavier); at 480p some draw fewer and run lighter. 540p is not a mode a real console reports: the game is told 720p. Many games ignore it and stay at 720p. = 模擬的 Xbox 360 告訴遊戲的視訊模式；不是電視的解析度。在遊戲啟動時生效。在 1080p 或 900p 下，一些遊戲繪製更多像素（更清晰、更吃效能）；在 480p 下，一些遊戲繪製較少，執行更輕鬆。540p 不是真實主機的模式：遊戲得到的是 720p。許多遊戲會忽略它，維持在 720p。
+Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out. = 渲染解析度倍數（測試）：此遊戲一律以 1x 執行。在 2x 下無法繪製 Kinect 攝影機的畫面，且顯示記憶體會不足。
