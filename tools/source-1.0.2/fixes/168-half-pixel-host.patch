@@ -1,0 +1,114 @@
+diff --git a/include/xbox360ps5/half_pixel.hpp b/include/xbox360ps5/half_pixel.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/half_pixel.hpp
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: MIT
++// Fix 168: the D3D9 half-pixel offset at resolution scale, in host pixels (a switch, off by default).
++// For PA_SU_VTX_CNTL pix_center = D3D zero the core adds half a GUEST pixel to the viewport offset
++// and then scales it, so at 2x every primitive moves by a whole HOST pixel. A primitive whose edge
++// the game put on a whole guest coordinate (no half-pixel compensation, as HUD boxes and some
++// screen-space passes in strips are) then misses the left/top host pixel of its first guest column
++// or row, and what was drawn there earlier shows as a 1-host-pixel line (GTA IV at 2x on
++// 1.0.7-work-integration1: the minimap frame's L at guest x 61, y 536 and a column at x 40; every
++// resolve traced by fix 167 started at 0,0 with the fill on, so the resolves were not it). At 1x the
++// top-left rule covers that pixel. GPU.resolution_scale_half_pixel_host applies the offset as half a
++// HOST pixel instead (0.25 guest at 2x): such an edge covers both host pixels of its guest column.
++// Geometry the game did compensate (edges at .5) then moves by half a host pixel: an exact 2D quad
++// gains a host pixel on the left/top and loses one on the right/bottom. With the switch on, the
++// core's resolve fill (the left/top gap of resolve areas) is off, since the gap is gone.
++#pragma once
++#include <cmath>
++#include <cstdint>
++
++namespace xbox360ps5::half_pixel {
++
++// What the core subtracts, in guest pixels, from the 0.5 it adds (after its sample position
++// compensation, which keeps working on the guest offset): with the switch, at a scale above 1,
++// half a host pixel is left (0.5 / scale guest pixels).
++inline float GuestOffsetReduction(bool host_mode, uint32_t scale) {
++  return host_mode && scale > 1 ? 0.5f - 0.5f / float(scale) : 0.0f;
++}
++inline float GuestOffset(bool host_mode, uint32_t scale) { return 0.5f - GuestOffsetReduction(host_mode, scale); }
++
++// The host pixels [first, end) a primitive from guest coordinate `begin` to `end` covers on an axis
++// at `scale` with `offset` (guest pixels) added: a pixel whose centre lies on the left/top edge is
++// in, one on the right/bottom edge is out (the top-left rule).
++struct Span {
++  int64_t first = 0, end = 0;
++};
++inline Span Covered(double begin, double end, double offset, uint32_t scale) {
++  const double b = (begin + offset) * double(scale), e = (end + offset) * double(scale);
++  return {int64_t(std::ceil(b - 0.5)), int64_t(std::ceil(e - 0.5))};
++}
++
++// The core's resolve fill (draw_util.cc GetResolveInfo): at a scale above 1, with the half-pixel
++// offset and its fill on, for D3D-zero centres, and not with the switch.
++inline bool ResolveFill(bool scaled, bool fill_option, bool half_pixel_option, bool d3d_zero, bool host_mode) {
++  return scaled && fill_option && half_pixel_option && d3d_zero && !host_mode;
++}
++
++}  // namespace xbox360ps5::half_pixel
+diff --git a/.deps/xenia-canary/src/xenia/gpu/draw_util.cc b/.deps/xenia-canary/src/xenia/gpu/draw_util.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/draw_util.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/draw_util.cc
+@@ -18,10 +18,22 @@
+ #include "xenia/base/memory.h"
+ #include "xenia/gpu/gpu_flags.h"
+ #include "xenia/gpu/registers.h"
++#include "xbox360ps5/half_pixel.hpp"  // fix 168
+ #include "xenia/gpu/texture_address.h"
+ #include "xenia/gpu/texture_cache.h"
+ #include "xenia/ui/graphics_util.h"
+ 
++// Xbox360PS5 (fix 168): GTA IV's thin seams at 2x (half_pixel.hpp); off by
++// default, a game's own config (<data>/game-configs, fix 166) may switch it on.
++DEFINE_bool(
++    resolution_scale_half_pixel_host, false,
++    "With resolution scaling, apply the D3D9 half-pixel offset (PIX_CENTER "
++    "D3D zero) as half a host pixel instead of half a guest pixel, so a "
++    "primitive edge on a whole guest coordinate leaves no one-host-pixel gap; "
++    "the resolve fill of that gap is then off. Geometry the game compensated "
++    "moves by half a host pixel.",
++    "GPU");
++
+ // Very prominent in 545407F2.
+ DEFINE_bool(
+     resolve_resolution_scale_fill_half_pixel_offset, true,
+@@ -504,6 +516,16 @@ void GetHostViewportInfo(GetViewportInfoArgs* XE_RESTRICT args,
+       }
+     }
+   }
++  // Xbox360PS5 (fix 168): with the switch, the half-pixel offset is half a host
++  // pixel at a resolution scale above 1 (after the sample position compensation
++  // above, which works on the guest offset).
++  if (cvars::half_pixel_offset &&
++      pa_su_vtx_cntl.pix_center == xenos::PixelCenter::kD3DZero) {
++    offset_add_xy[0] -= xbox360ps5::half_pixel::GuestOffsetReduction(
++        cvars::resolution_scale_half_pixel_host, args->draw_resolution_scale_x);
++    offset_add_xy[1] -= xbox360ps5::half_pixel::GuestOffsetReduction(
++        cvars::resolution_scale_half_pixel_host, args->draw_resolution_scale_y);
++  }
+ 
+   // The maximum value is at least the maximum host render target size anyway -
+   // and a guest pixel is always treated as a whole with resolution scaling.
+@@ -1664,12 +1686,14 @@ bool GetResolveInfo(const RegisterFile& regs, const Memory& memory,
+       base_offset_y_tiles * surface_pitch_tiles + base_offset_x_tiles;
+ 
+   // Write the color/depth EDRAM info.
+-  bool fill_half_pixel_offset =
+-      (draw_resolution_scale_x > 1 || draw_resolution_scale_y > 1) &&
+-      cvars::resolve_resolution_scale_fill_half_pixel_offset &&
+-      cvars::half_pixel_offset &&
++  // Xbox360PS5 (fix 168): not with resolution_scale_half_pixel_host (no gap).
++  bool fill_half_pixel_offset = xbox360ps5::half_pixel::ResolveFill(
++      draw_resolution_scale_x > 1 || draw_resolution_scale_y > 1,
++      cvars::resolve_resolution_scale_fill_half_pixel_offset,
++      cvars::half_pixel_offset,
+       regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
+-          xenos::PixelCenter::kD3DZero;
++          xenos::PixelCenter::kD3DZero,
++      cvars::resolution_scale_half_pixel_host);
+   int32_t exp_bias = is_depth ? 0 : rb_copy_dest_info.copy_dest_exp_bias;
+   ResolveEdramInfo depth_edram_info;
+   depth_edram_info.packed = 0;
