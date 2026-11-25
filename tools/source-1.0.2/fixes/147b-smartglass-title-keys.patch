@@ -1,0 +1,235 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/app_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/app_manager.cc
+index 1843ac8..92af92a 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/app_manager.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/app_manager.cc
+@@ -22,6 +22,9 @@
+ #include "xenia/kernel/xam/apps/xgi_app.h"
+ #include "xenia/kernel/xam/apps/xlivebase_app.h"
+ #include "xenia/kernel/xam/apps/xmp_app.h"
++#include "xbox360ps5/smartglass_app.hpp"  // fix 147b
++#include <mutex>  // fix 147b
++#include <set>  // fix 147b
+ 
+ namespace xe {
+ namespace kernel {
+@@ -52,12 +55,49 @@ App::App(KernelState* kernel_state, uint32_t app_id)
+       memory_(kernel_state->memory()),
+       app_id_(app_id) {}
+ 
++
++// Xbox360PS5 fix 147b: XAM app 0xF1, the SmartGlass service (Xbox LIVE Remote
++// Control). Dance Central 3 sends it 0x00800002 about once a frame; without the
++// app every request failed at once as "app undefined" (a log line each). It
++// answers as a console with no SmartGlass device connected would: no companion
++// device, through the overlapped as any XMsg request; each message ID is logged
++// once.
++class SmartGlassApp : public App {
++ public:
++  explicit SmartGlassApp(KernelState* kernel_state)
++      : App(kernel_state, xbox360ps5::smartglass::kAppId) {}
++
++  X_HRESULT ExecuteDispatchMessage(uint32_t message, uint32_t buffer_ptr,
++                                   uint32_t buffer_length,
++                                   uint32_t* extended_error) override {
++    const uint32_t answer = xbox360ps5::smartglass::Answer(message);
++    {
++      std::lock_guard<std::mutex> lock(mutex_);
++      if (logged_.size() < 32 && logged_.insert(message).second) {
++        XELOGW(
++            "SmartGlass (fix 147b): message {:08X} ({} bytes at {:08X}) "
++            "answered {:08X}: no companion device (said once per message)",
++            message, buffer_length, buffer_ptr, answer);
++      }
++    }
++    if (extended_error) {
++      *extended_error = X_HRESULT_FROM_WIN32(answer);
++    }
++    return answer;
++  }
++
++ private:
++  std::mutex mutex_;
++  std::set<uint32_t> logged_;
++};
++
+ void AppManager::RegisterApps(KernelState* kernel_state, AppManager* manager) {
+   manager->RegisterApp(std::make_unique<apps::MessengerApp>(kernel_state));
+   manager->RegisterApp(std::make_unique<apps::XmpApp>(kernel_state));
+   manager->RegisterApp(std::make_unique<apps::XgiApp>(kernel_state));
+   manager->RegisterApp(std::make_unique<apps::XLiveBaseApp>(kernel_state));
+   manager->RegisterApp(std::make_unique<apps::XamApp>(kernel_state));
++  manager->RegisterApp(std::make_unique<SmartGlassApp>(kernel_state));  // fix 147b
+ }
+ 
+ void AppManager::RegisterApp(std::unique_ptr<App> app) {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
+index de57775..b92489e 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
+@@ -28,6 +28,8 @@ extern "C" {
+ #include "third_party/FFmpeg/libavutil/md5.h"
+ #include "third_party/FFmpeg/libavutil/sha512.h"
+ #include "third_party/aes_128/aes.h"
++#include <atomic>  // fix 147b
++#include "xbox360ps5/title_keys.hpp"  // fix 147b
+ }
+ 
+ namespace xe {
+@@ -1088,6 +1090,56 @@ dword_result_t XeKeysAesCbcUsingKey_entry(lpvoid_t obscured_key,
+ }
+ DECLARE_XBOXKRNL_EXPORT1(XeKeysAesCbcUsingKey, kNone, kImplemented);
+ 
++// Xbox360PS5 fix 147b: the title key slots (0xE0..0xE7). Dance Central 3 puts a
++// key of its own into slot 0xE0 with XeKeysSetKey and decrypts one block with
++// XeKeysAesCbc on that slot (its song audio's key step); neither export
++// existed, so the game's output buffer was never written and it stayed on its
++// "Loading" screen. The key is the title's own; AES-CBC runs with it, a missing
++// feed is a zero IV. Each export logs its first call.
++namespace {
++xbox360ps5::title_keys::Store title_key_slots;
++std::atomic<bool> title_key_set_logged{false};
++std::atomic<bool> title_key_cbc_logged{false};
++}  // namespace
++
++dword_result_t XeKeysSetKey_entry(dword_t key_number, lpvoid_t key_ptr,
++                                  dword_t key_size) {
++  const bool stored = title_key_slots.Set(
++      key_number, key_ptr ? key_ptr.as<const uint8_t*>() : nullptr, key_size);
++  if (!title_key_set_logged.exchange(true)) {
++    XELOGW("Title keys (fix 147b): XeKeysSetKey({:02X}, {} bytes) {}",
++           uint32_t(key_number), uint32_t(key_size),
++           stored ? "stored" : "refused (not a title slot or not 16 bytes)");
++  }
++  return stored ? X_STATUS_SUCCESS : X_STATUS_ACCESS_DENIED;
++}
++DECLARE_XBOXKRNL_EXPORT1(XeKeysSetKey, kNone, kImplemented);
++
++dword_result_t XeKeysAesCbc_entry(dword_t key_number, lpvoid_t inp_ptr,
++                                  dword_t inp_size, lpvoid_t out_ptr,
++                                  lpvoid_t feed_ptr, dword_t encrypt) {
++  uint8_t key[xbox360ps5::title_keys::kKeyBytes];
++  const bool known = title_key_slots.Get(key_number, key);
++  const bool sized = xbox360ps5::title_keys::CbcSize(inp_size);
++  if (!title_key_cbc_logged.exchange(true)) {
++    XELOGW(
++        "Title keys (fix 147b): XeKeysAesCbc({:02X}, {} bytes, {}, feed {}) {}",
++        uint32_t(key_number), uint32_t(inp_size),
++        encrypt ? "encrypt" : "decrypt", feed_ptr ? "given" : "zero",
++        known && sized && inp_ptr && out_ptr ? "done" : "refused");
++  }
++  if (!known || !sized || !inp_ptr || !out_ptr) {
++    return X_STATUS_INVALID_PARAMETER;
++  }
++  XECRYPT_AES_STATE aes;
++  XeCryptAesKey_entry(&aes, key);
++  uint8_t zero_feed[16] = {};
++  XeCryptAesCbc_entry(&aes, inp_ptr, inp_size, out_ptr,
++                      feed_ptr ? feed_ptr : lpvoid_t(zero_feed), encrypt);
++  return X_STATUS_SUCCESS;
++}
++DECLARE_XBOXKRNL_EXPORT1(XeKeysAesCbc, kNone, kImplemented);
++
+ dword_result_t XeKeysObscureKey_entry(lpvoid_t input, lpvoid_t output) {
+   // Based on HvxKeysObscureKey
+   // Seems to encrypt input with per-console KEY_OBFUSCATION_KEY (key 0x18)
+diff --git a/include/xbox360ps5/smartglass_app.hpp b/include/xbox360ps5/smartglass_app.hpp
+new file mode 100644
+index 0000000..3109e22
+--- /dev/null
++++ b/include/xbox360ps5/smartglass_app.hpp
+@@ -0,0 +1,27 @@
++// SPDX-License-Identifier: MIT
++// Fix 147b: the console's SmartGlass service (Xbox LIVE Remote Control, "LRC"), XAM app 0xF1.
++//
++// Dance Central 3 (373307D9) talks to it through its XDK interface (XamLrcSetTitlePort and app-F1
++// messages 0x00800002..0x00800005, 12-byte buffers): about once a frame it sends 0x00800002 with an
++// overlapped. No app 0xF1 existed, so XMsgStartIORequestEx answered "app undefined" at once
++// (X_E_INVALIDARG, 15,389 log lines in four minutes) and the game sent it again on the next frame.
++//
++// Here the app exists and says what a console with no SmartGlass device connected would say: no
++// companion device (ERROR_DEVICE_NOT_CONNECTED) for every request, through the overlapped as any
++// XMsg request, and logs each message ID once.
++#pragma once
++#include <cstdint>
++
++namespace xbox360ps5::smartglass {
++
++constexpr uint32_t kAppId = 0xF1;
++// Win32 ERROR_DEVICE_NOT_CONNECTED: no SmartGlass (companion) device is connected.
++constexpr uint32_t kNoCompanionDevice = 0x0000048F;
++
++// The answer to one message: messages of the LRC class (0x0080xxxx) get "no companion device";
++// anything else gets ERROR_INVALID_FUNCTION (1), which no title is known to send.
++inline uint32_t Answer(uint32_t message) {
++  return (message & 0xFFFF0000u) == 0x00800000u ? kNoCompanionDevice : 0x00000001u;
++}
++
++}  // namespace xbox360ps5::smartglass
+diff --git a/include/xbox360ps5/title_keys.hpp b/include/xbox360ps5/title_keys.hpp
+new file mode 100644
+index 0000000..3bb92be
+--- /dev/null
++++ b/include/xbox360ps5/title_keys.hpp
+@@ -0,0 +1,62 @@
++// SPDX-License-Identifier: MIT
++// Fix 147b: the title key slots of XeKeysSetKey / XeKeysAesCbc.
++//
++// Dance Central 3 stayed on its "Loading" screen: through the XDK it puts a 16-byte key of its own
++// (a table in the executable, 82D13000) into key slot 0xE0 + n with XeKeysSetKey, then decrypts one
++// 16-byte block with XeKeysAesCbc on that slot (no feed, decrypt) -- the key step of Harmonix's
++// encrypted song audio. Neither export existed ("undefined extern call to XeKeysSetKey /
++// XeKeysAesCbc"): the calls returned without writing the output, so the game worked with whatever
++// was in its buffer.
++//
++// The slots a title may set are 0xE0..0xE7 (the XDK refuses an index of 8 or more before the call).
++// The key is the one the title gave; AES-CBC runs with it as the console does for these slots (the
++// key is the game's own, the same on every console). A missing feed is a zero IV.
++#pragma once
++#include <array>
++#include <cstddef>
++#include <cstdint>
++#include <cstring>
++#include <mutex>
++
++namespace xbox360ps5::title_keys {
++
++constexpr uint32_t kFirstSlot = 0xE0;
++constexpr uint32_t kSlots = 8;
++constexpr uint32_t kKeyBytes = 16;
++
++// The slot index of a key number a title may set, or -1.
++inline int Slot(uint32_t key_number) {
++  return key_number >= kFirstSlot && key_number < kFirstSlot + kSlots ? int(key_number - kFirstSlot)
++                                                                      : -1;
++}
++
++// AES-CBC input: whole 16-byte blocks, at least one.
++inline bool CbcSize(uint32_t bytes) { return bytes && bytes % kKeyBytes == 0; }
++
++class Store {
++ public:
++  // A 16-byte key for a title slot; anything else is refused.
++  bool Set(uint32_t key_number, const uint8_t* key, uint32_t bytes) {
++    const int slot = Slot(key_number);
++    if (slot < 0 || !key || bytes != kKeyBytes) return false;
++    std::lock_guard<std::mutex> lock(mutex_);
++    std::memcpy(keys_[size_t(slot)].data(), key, kKeyBytes);
++    set_[size_t(slot)] = true;
++    return true;
++  }
++  bool Get(uint32_t key_number, uint8_t* key) const {
++    const int slot = Slot(key_number);
++    if (slot < 0) return false;
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (!set_[size_t(slot)]) return false;
++    std::memcpy(key, keys_[size_t(slot)].data(), kKeyBytes);
++    return true;
++  }
++
++ private:
++  mutable std::mutex mutex_;
++  std::array<std::array<uint8_t, kKeyBytes>, kSlots> keys_{};
++  std::array<bool, kSlots> set_{};
++};
++
++}  // namespace xbox360ps5::title_keys

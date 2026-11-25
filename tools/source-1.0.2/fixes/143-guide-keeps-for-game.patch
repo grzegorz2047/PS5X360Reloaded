@@ -1,0 +1,73 @@
+diff --git a/include/xbox360ps5/guide_quick.hpp b/include/xbox360ps5/guide_quick.hpp
+index 6ca8d09..15b4c89 100644
+--- a/include/xbox360ps5/guide_quick.hpp
++++ b/include/xbox360ps5/guide_quick.hpp
+@@ -6,7 +6,7 @@
+ //    restart sets (none for the plain one).
+ //  - "Game volume" changed in the guide is kept for this game (its own options), always: until
+ //    now it was kept for every game unless the game already had a value of its own or a preset.
+-//    Every other option keeps that rule.
++//    Fix 143: every option a game may have its own value of is kept so (WhereToKeep).
+ //  - "Mute game sound" on the guide's first page: the Sound option ("mute"), switched at once.
+ #ifndef XBOX360PS5_GUIDE_QUICK_HPP_
+ #define XBOX360PS5_GUIDE_QUICK_HPP_
+@@ -19,15 +19,19 @@ namespace xbox360ps5::guide_quick {
+ // Where a value the guide changes is kept.
+ enum class Keep { game, general };
+ 
+-// The options the guide keeps for the running game even when it has no value of its own yet.
+-inline bool KeptForGame(std::string_view key) { return key == "volume"; }
+-
+-// own: the game already has its own value of this option; preset: its preset sets it;
++// Fix 143: a value changed in the guide is the running game's own, as the guide is opened over
++// that game; the launcher stays the place to change an option for every game. Before, the guide
++// kept a value for every game unless the game already had one of its own or a preset (fix 115
++// made Game volume the one exception), so a first change there (the video rate's 120 Hz test,
++// anisotropic filtering in Dragon Age II) silently changed every game.
++// per_game: the option's flag in the launcher's table (a game may have its own value). The
++// options without it are the console's own, the same in every game: the interface sounds and
++// their volume, the Sound switch (the guide's "Mute game sound"), the touchpad click, Show FPS,
++// achievement notifications, Smooth gradients; a game's file cannot hold them (LoadGameOverrides
++// drops them), so they stay general.
+ // title_known: the running game has a title ID (its own options can be saved).
+-inline Keep WhereToKeep(std::string_view key, bool own, bool preset, bool title_known) {
+-  if (own || preset) return Keep::game;  // the rule from before (where the value came from)
+-  if (title_known && KeptForGame(key)) return Keep::game;
+-  return Keep::general;
++inline Keep WhereToKeep(bool per_game, bool title_known) {
++  return per_game && title_known ? Keep::game : Keep::general;
+ }
+ 
+ // What a restart from the guide writes before it restarts: the bug_report value of this game
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index 88d812f..86e6440 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3841,11 +3841,12 @@ int main(int argc, char** argv) {
+                   const int count = int(option.choices.size());
+                   int& value = settings.*option.field;
+                   value = (value + step + count) % count;
+-                  // Kept where the value came from: this game's own options, or the general ones.
+-                  // Fix 115 (#34): Game volume is always this game's (guide_quick.hpp).
+-                  if (xbox360ps5::guide_quick::WhereToKeep(option.key, overrides.count(option.key) != 0,
+-                                                           xbox360ps5::GamePreset(settings_title).count(option.key) != 0,
+-                                                           !settings_title.empty()) == xbox360ps5::guide_quick::Keep::game) {
++                  // Fix 143: kept for this game (its own options) whenever a game may have its own
++                  // value; only the console's own options (interface sounds, Sound, touchpad
++                  // click...) and a game without a title ID go to the general ones (guide_quick.hpp).
++                  const bool for_game = xbox360ps5::guide_quick::WhereToKeep(option.per_game, !settings_title.empty()) ==
++                                        xbox360ps5::guide_quick::Keep::game;
++                  if (for_game) {
+                     overrides[option.key] = value;
+                     xbox360ps5::SaveGameOverrides(settings_title, overrides);
+                   } else {
+@@ -3853,7 +3854,8 @@ int main(int argc, char** argv) {
+                     global.Save();
+                   }
+                   if (option.field == &xbox360ps5::Settings::touchpad_menu) trigger_was = true;
+-                  XELOGW("Guide: {} set to {} at {:.1f} FPS", option.key, option.choices[size_t(value)], fps);
++                  XELOGW("Guide: {} set to {} at {:.1f} FPS, kept for {}", option.key, option.choices[size_t(value)], fps,
++                         for_game ? settings_title : std::string("every game"));
+                   break;
+                 }
+                 case GuideAction::capture:

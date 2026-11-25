@@ -1,0 +1,282 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_container_file.cc b/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_container_file.cc
+index 1434a1d..5c65e21 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_container_file.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_container_file.cc
+@@ -10,6 +10,12 @@
+ #include "xenia/vfs/devices/xcontent_container_file.h"
+ #include "xenia/vfs/devices/xcontent_container_entry.h"
+ 
++#include <chrono>  // fix 148c
++#include <vector>  // fix 148c
++
++#include "xenia/base/logging.h"  // fix 148c
++#include "xbox360ps5/package_io.hpp"  // fix 148c
++
+ namespace xe {
+ namespace vfs {
+ 
+@@ -54,7 +60,16 @@ X_STATUS XContentContainerFile::ReadSync(std::span<uint8_t> buffer,
+   const size_t first_block = logical_block_size_
+                                  ? byte_offset / logical_block_size_ : 0;
+   src_offset = logical_block_size_ ? first_block * logical_block_size_ : 0;
+-  for (size_t i = first_block; i < entry_->block_list().size(); i++) {
++  // Xbox360PS5 fix 148c: the records the read covers, in order, merged into
++  // runs where one continues the last in the same backing file (an STFS
++  // package's blocks between two hash blocks), so a 1 MiB read is a few host
++  // reads instead of one per 4 KiB block.
++  namespace pio = xbox360ps5::package_io;
++  const auto started = std::chrono::steady_clock::now();
++  std::vector<pio::Piece> runs;
++  size_t planned = 0;
++  for (size_t i = first_block;
++       i < entry_->block_list().size() && planned < remaining_length; i++) {
+     auto& record = entry_->block_list()[i];
+     if (src_offset + record.length <= byte_offset) {
+       // Doesn't begin in this region. Skip it.
+@@ -65,23 +80,47 @@ X_STATUS XContentContainerFile::ReadSync(std::span<uint8_t> buffer,
+     size_t read_offset =
+         (byte_offset > src_offset) ? byte_offset - src_offset : 0;
+     size_t read_length =
+-        std::min(record.length - read_offset, remaining_length);
+-
+-    auto num_read = Read(std::span<uint8_t>(p, read_length),
+-                         record.offset + read_offset, record.file);
++        std::min(record.length - read_offset, remaining_length - planned);
++    pio::AddPiece(runs, {record.file, record.offset + read_offset, read_length});
++    planned += read_length;
++    src_offset += record.length;
++  }
+ 
++  X_STATUS status = X_STATUS_SUCCESS;
++  for (const auto& run : runs) {
++    auto num_read = Read(std::span<uint8_t>(p, run.length), run.offset, run.file);
+     *out_bytes_read += num_read;
+     // Do not hand guest code an incomplete payload with a success status.
+-    if (num_read != read_length) return X_STATUS_UNSUCCESSFUL;
+-    p += num_read;
+-    src_offset += record.length;
+-    remaining_length -= read_length;
+-    if (remaining_length == 0) {
++    if (num_read != run.length) {
++      status = X_STATUS_UNSUCCESSFUL;
+       break;
+     }
++    p += num_read;
++    remaining_length -= run.length;
++  }
++  if (status == X_STATUS_SUCCESS && remaining_length) {
++    status = X_STATUS_UNSUCCESSFUL;
+   }
+ 
+-  return remaining_length ? X_STATUS_UNSUCCESSFUL : X_STATUS_SUCCESS;
++  const uint64_t now_ns = uint64_t(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now().time_since_epoch())
++          .count());
++  auto& counters = pio::counters;
++  counters.guest_reads.fetch_add(1);
++  counters.read_bytes.fetch_add(*out_bytes_read);
++  counters.host_reads.fetch_add(runs.size());
++  counters.read_ns.fetch_add(uint64_t(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now() - started)
++          .count()));
++  pio::last_package_read_ns = now_ns;
++  const uint64_t previous = counters.last_report_ns.load();
++  if (pio::Due(counters, now_ns)) {
++    XELOGW("{}", pio::Describe(pio::Take(counters),
++                               previous ? double(now_ns - previous) / 1e9 : 30.0));
++  }
++  return status;
+ }
+ 
+ }  // namespace vfs
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
+index fceb266..9034f43 100644
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
+@@ -11,6 +11,9 @@
+ 
+ #include "xenia/vfs/devices/host_path_entry.h"
+ 
++#include <chrono>  // fix 148c
++#include "xbox360ps5/package_io.hpp"  // fix 148c
++
+ namespace xe {
+ namespace vfs {
+ 
+@@ -59,12 +62,18 @@ X_STATUS HostPathFile::WriteSync(std::span<const uint8_t> buffer,
+     return X_STATUS_ACCESS_DENIED;
+   }
+ 
+-  if (file_handle_->Write(byte_offset, buffer.data(), buffer.size(),
+-                          out_bytes_written)) {
+-    return X_STATUS_SUCCESS;
+-  } else {
+-    return X_STATUS_END_OF_FILE;
+-  }
++  // Xbox360PS5 fix 148c: host writes counted for the package I/O line.
++  const auto started = std::chrono::steady_clock::now();
++  const bool written = file_handle_->Write(byte_offset, buffer.data(),
++                                           buffer.size(), out_bytes_written);
++  auto& counters = xbox360ps5::package_io::counters;
++  counters.writes.fetch_add(1);
++  counters.write_bytes.fetch_add(written ? *out_bytes_written : 0);
++  counters.write_ns.fetch_add(uint64_t(
++      std::chrono::duration_cast<std::chrono::nanoseconds>(
++          std::chrono::steady_clock::now() - started)
++          .count()));
++  return written ? X_STATUS_SUCCESS : X_STATUS_END_OF_FILE;
+ }
+ 
+ X_STATUS HostPathFile::SetLength(size_t length) {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+index 358755c..95997f5 100644
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+@@ -15,6 +15,7 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/base/clock.h"
+ #include "xenia/base/platform.h"
++#include "xbox360ps5/package_io.hpp"  // fix 148c
+ #include "xenia/cpu/processor.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+@@ -515,6 +516,19 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
+                                             const ppc_context_t& context) {
+   // TODO(Ecredes): Verify whether a null interval should be treated as zero.
+   uint64_t interval = interval_ptr ? static_cast<uint64_t>(*interval_ptr) : 0u;
++  // Xbox360PS5 fix 148c: the delays of a thread that reads a package file
++  // (an install's pace), relative intervals only.
++  {
++    namespace pio = xbox360ps5::package_io;
++    const uint64_t now_ns = uint64_t(
++        std::chrono::duration_cast<std::chrono::nanoseconds>(
++            std::chrono::steady_clock::now().time_since_epoch())
++            .count());
++    if (pio::ReaderThread(now_ns) && int64_t(interval) < 0) {
++      pio::counters.delays.fetch_add(1);
++      pio::counters.delay_100ns.fetch_add(uint64_t(-int64_t(interval)));
++    }
++  }
+   return KeDelayExecutionThread(processor_mode, alertable, &interval, context);
+ }
+ DECLARE_XBOXKRNL_EXPORT3(KeDelayExecutionThread, kThreading, kImplemented,
+diff --git a/include/xbox360ps5/package_io.hpp b/include/xbox360ps5/package_io.hpp
+new file mode 100644
+index 0000000..10b5296
+--- /dev/null
++++ b/include/xbox360ps5/package_io.hpp
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: MIT
++// Fix 148c: reads of files inside a content package (STFS/SVOD), and what an install costs.
++//
++// Grand Theft Auto V's install (fix 148: four PIRS packages read from the disc image) copied
++// about 2 MB/s on the console's M.2 drive. A file inside a package was read one 4 KiB package
++// block at a time: XContentContainerFile::ReadSync called the device's Read once per block record,
++// and each went down to a pread of the disc image (no cache), so a 1 MiB guest read took 256
++// host reads. Records that follow each other in the same backing file are now read as one run:
++// an STFS package keeps its data blocks contiguous between its hash blocks (170 blocks, 680 KiB),
++// so a 1 MiB read takes two or three host reads.
++//
++// The 30 s line measures an install: guest package reads (calls, bytes), the host reads they took
++// and their time; host file writes (calls, bytes, time); and the KeDelayExecutionThread calls of
++// threads that read a package in the last second (calls, the intervals asked for). It is written
++// only for a period with package reads, so games that read no package never show it.
++#pragma once
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::package_io {
++
++struct Piece {
++  size_t file = 0;
++  size_t offset = 0;
++  size_t length = 0;
++};
++
++// Adds the next piece of a read, merged into the last run when it continues it in the same file.
++inline void AddPiece(std::vector<Piece>& runs, const Piece& piece) {
++  if (!piece.length) return;
++  if (!runs.empty()) {
++    Piece& last = runs.back();
++    if (last.file == piece.file && last.offset + last.length == piece.offset) {
++      last.length += piece.length;
++      return;
++    }
++  }
++  runs.push_back(piece);
++}
++
++struct Counters {
++  std::atomic<uint64_t> guest_reads{0}, read_bytes{0}, host_reads{0}, read_ns{0};
++  std::atomic<uint64_t> writes{0}, write_bytes{0}, write_ns{0};
++  std::atomic<uint64_t> delays{0}, delay_100ns{0};
++  std::atomic<uint64_t> last_report_ns{0};
++};
++inline Counters counters;
++
++// One period's numbers, taken (and reset) together.
++struct Period {
++  uint64_t guest_reads = 0, read_bytes = 0, host_reads = 0, read_ns = 0;
++  uint64_t writes = 0, write_bytes = 0, write_ns = 0;
++  uint64_t delays = 0, delay_100ns = 0;
++};
++
++inline Period Take(Counters& c) {
++  Period p;
++  p.guest_reads = c.guest_reads.exchange(0);
++  p.read_bytes = c.read_bytes.exchange(0);
++  p.host_reads = c.host_reads.exchange(0);
++  p.read_ns = c.read_ns.exchange(0);
++  p.writes = c.writes.exchange(0);
++  p.write_bytes = c.write_bytes.exchange(0);
++  p.write_ns = c.write_ns.exchange(0);
++  p.delays = c.delays.exchange(0);
++  p.delay_100ns = c.delay_100ns.exchange(0);
++  return p;
++}
++
++// Whether a report is due at now_ns (30 s after the last one; the first period starts at the first
++// read). Only one caller wins a period.
++inline bool Due(Counters& c, uint64_t now_ns, uint64_t period_ns = 30000000000ull) {
++  uint64_t last = c.last_report_ns.load();
++  if (!last) {
++    c.last_report_ns.compare_exchange_strong(last, now_ns);
++    return false;
++  }
++  if (now_ns - last < period_ns) return false;
++  return c.last_report_ns.compare_exchange_strong(last, now_ns);
++}
++
++inline std::string Describe(const Period& p, double seconds) {
++  const auto per = [](uint64_t total, uint64_t count) { return count ? double(total) / double(count) : 0.0; };
++  char text[640];
++  std::snprintf(
++      text, sizeof(text),
++      "Package I/O (fix 148c), last %.0f s: guest reads of package files %llu (%.1f MiB, %.0f KiB "
++      "each, %.2f MiB/s), host reads %llu (%.0f KiB each), read time %.0f ms (%.0f us per guest "
++      "read); host file writes %llu (%.1f MiB, %.0f KiB each), write time %.0f ms (%.0f us each); "
++      "KeDelayExecutionThread of the reading threads %llu (%.1f ms asked each, %.0f ms in all)",
++      seconds, (unsigned long long)p.guest_reads, double(p.read_bytes) / 1048576.0,
++      per(p.read_bytes, p.guest_reads) / 1024.0,
++      seconds > 0 ? double(p.read_bytes) / 1048576.0 / seconds : 0.0,
++      (unsigned long long)p.host_reads, per(p.read_bytes, p.host_reads) / 1024.0,
++      double(p.read_ns) / 1e6, per(p.read_ns, p.guest_reads) / 1e3,
++      (unsigned long long)p.writes, double(p.write_bytes) / 1048576.0,
++      per(p.write_bytes, p.writes) / 1024.0, double(p.write_ns) / 1e6, per(p.write_ns, p.writes) / 1e3,
++      (unsigned long long)p.delays, per(p.delay_100ns, p.delays) / 1e4, double(p.delay_100ns) / 1e4);
++  return text;
++}
++
++// A thread that read a package file within the last second counts its delays.
++inline thread_local uint64_t last_package_read_ns = 0;
++inline bool ReaderThread(uint64_t now_ns) {
++  return last_package_read_ns && now_ns - last_package_read_ns < 1000000000ull;
++}
++
++}  // namespace xbox360ps5::package_io

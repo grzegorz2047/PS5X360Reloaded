@@ -1,0 +1,151 @@
+diff --git a/include/xbox360ps5/kinect_diag.hpp b/include/xbox360ps5/kinect_diag.hpp
+--- a/include/xbox360ps5/kinect_diag.hpp
++++ b/include/xbox360ps5/kinect_diag.hpp
+@@ -13,6 +13,7 @@
+ //  - an empty file name (xboxkrnl_io.cc's failed-path report) also gives 8 callers and the bytes
+ //    around the name's buffer, which say what the game built the name from.
+ #pragma once
++#include <algorithm>
+ #include <atomic>
+ #include <chrono>
+ #include <cstdint>
+@@ -21,6 +22,7 @@
+ #include <mutex>
+ #include <string>
+ #include <unordered_set>
++#include <vector>
+ 
+ namespace xbox360ps5::kinect_diag {
+ 
+@@ -156,4 +158,81 @@ inline std::string Hex(const uint8_t* bytes, size_t size) {
+   return out;
+ }
+ 
++// Fix 156o (Kinect Sports Season Two, #63): the objects a stuck thread waits on. 156m named
++// the darts load's wait (82620594: r31 = 40E90010, vtable 82026DA0, an avatar loader whose
++// IsDone needs its resource at +0x1E8 in state 2, flags at +0x214/+0x21C and every part of
++// its model done); which one never finishes is in their memory. When a thread's 10 s snapshot
++// has the same back chain (4 frames or more) as its previous one, once per chain: each distinct
++// readable r31 along it, then the heap objects those point to (one level), kDumpWords words
++// each, at most kDumpObjects objects.
++constexpr uint32_t kDumpWords = 0x120;  // 0x480 bytes
++constexpr size_t kDumpObjects = 40;
++inline bool HeapPointer(uint32_t v) { return v >= 0x40000000 && v < 0x70000000 && !(v & 3); }
++struct ObjectDump {
++  uint32_t address = 0, parent = 0, ret = 0;  // parent: the object that points to it (0: r31)
++  std::vector<uint32_t> words;
++};
++template <typename Read>
++inline std::vector<ObjectDump> DumpObjects(const SavedR31* frames, int n, Read read) {
++  std::vector<ObjectDump> out;
++  std::unordered_set<uint32_t> seen;
++  auto dump = [&](uint32_t address, uint32_t parent, uint32_t ret) {
++    if (out.size() >= kDumpObjects || !seen.insert(address).second) return false;
++    ObjectDump d;
++    d.address = address;
++    d.parent = parent;
++    d.ret = ret;
++    uint32_t w = 0;
++    while (d.words.size() < kDumpWords && read(address + 4 * uint32_t(d.words.size()), &w))
++      d.words.push_back(w);
++    if (d.words.empty()) return false;
++    out.push_back(std::move(d));
++    return true;
++  };
++  for (int i = 0; i < n; ++i)
++    if (frames[i].readable && HeapPointer(frames[i].r31)) dump(frames[i].r31, 0, frames[i].ret);
++  const size_t roots = out.size();
++  for (size_t r = 0; r < roots; ++r) {
++    const std::vector<uint32_t> words = out[r].words;
++    for (uint32_t v : words) {
++      uint32_t first = 0;
++      if (HeapPointer(v) && read(v, &first)) dump(v, out[r].address, out[r].ret);
++      if (out.size() >= kDumpObjects) return out;
++    }
++  }
++  return out;
++}
++// One line per 8 words: "+XXX: w w w w w w w w".
++inline std::vector<std::string> DumpLines(const ObjectDump& d) {
++  std::vector<std::string> lines;
++  char text[16];
++  for (size_t i = 0; i < d.words.size(); i += 8) {
++    std::snprintf(text, sizeof(text), "+%03X:", unsigned(i * 4));
++    std::string line = text;
++    for (size_t j = i; j < i + 8 && j < d.words.size(); ++j) {
++      std::snprintf(text, sizeof(text), " %08X", d.words[j]);
++      line += text;
++    }
++    lines.push_back(line);
++  }
++  return lines;
++}
++// The same chain as the previous snapshot, and not dumped for it yet.
++struct StuckChain {
++  uint32_t previous[kFrames] = {};
++  int previous_n = 0;
++  uint32_t dumped[kFrames] = {};
++  int dumped_n = -1;
++  bool Note(const uint32_t* callers, int n) {
++    const bool same = n == previous_n && std::equal(callers, callers + n, previous);
++    std::copy(callers, callers + n, previous);
++    previous_n = n;
++    if (!same || n < 4) return false;
++    if (n == dumped_n && std::equal(callers, callers + n, dumped)) return false;
++    std::copy(callers, callers + n, dumped);
++    dumped_n = n;
++    return true;
++  }
++};
++
+ }  // namespace xbox360ps5::kinect_diag
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -547,6 +547,17 @@ inline void KinectDiagCall(const char* name, PPCContext* context) {
+     const int m = kd::BackChainR31(uint32_t(context->r[1]), KinectDiagRead, frames, kd::kFrames);
+     XELOGW("Kinect diag: thread {} r31 by frame {} (fix 156k)", context->thread_id,
+            kd::ChainR31(frames, m));
++    // Fix 156o: a thread at the same place as 10 s ago: the objects it is working on.
++    thread_local kd::StuckChain stuck;
++    if (stuck.Note(callers, n)) {
++      const auto objects = kd::DumpObjects(frames, m, KinectDiagRead);
++      XELOGW("Kinect diag: thread {} is where it was 10 s ago; {} object(s) follow (fix 156o)",
++             context->thread_id, objects.size());
++      for (const auto& object : objects)
++        for (const auto& line : kd::DumpLines(object))
++          XELOGW("Kinect diag: thread {} object {:08X} (from {:08X}, frame {:08X}) {} (fix 156o)",
++                 context->thread_id, object.address, object.parent, object.ret, line);
++    }
+   }
+ }
+ #endif
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1295,6 +1295,25 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+       XELOGW("Virtual Kinect: skeleton frame {} (depth frame {}, skeleton period {}) "
+              "(fix 156i)", frame_number, g_depth_frame_number.load(), period);
+   }
++  // Fix 156o (Zumba Fitness, #63): where the skeleton's hands are against its shoulders, in
++  // sensor metres (forward: towards the sensor). Zumba's hand cursor (a hand pointer library
++  // fed with these skeletons) never appears; an arm stretched towards the camera should read
++  // forward 0.3 m or more. Every 15th frame with a body, 60 lines.
++  {
++    static std::atomic<uint32_t> bodies{0}, shown{0};
++    if (pose.tracked && bodies.fetch_add(1) % 15 == 0 && shown.load() < 60) {
++      ++shown;
++      float sx, sy, sz, hx, hy, hz, tx, ty, tz, gx, gy, gz;
++      xbox360ps5::motion::SkeletonSpace(pose.joints[4], sx, sy, sz);
++      xbox360ps5::motion::SkeletonSpace(pose.joints[7], hx, hy, hz);
++      xbox360ps5::motion::SkeletonSpace(pose.joints[8], tx, ty, tz);
++      xbox360ps5::motion::SkeletonSpace(pose.joints[11], gx, gy, gz);
++      XELOGW("Virtual Kinect: hands against shoulders: left forward {:.2f} up {:.2f} (conf {:.1f}), "
++             "right forward {:.2f} up {:.2f} (conf {:.1f}) m (fix 156o)",
++             sz - hz, hy - sy, pose.joints[7].confidence, tz - gz, gy - ty,
++             pose.joints[11].confidence);
++    }
++  }
+   xbox360ps5::motion::WriteSkeletonFrame(
+       memory->TranslateVirtual(frame_ptr), pose, frame_number,
+       uint64_t(frame_number) * kSkeletonPeriodMs,

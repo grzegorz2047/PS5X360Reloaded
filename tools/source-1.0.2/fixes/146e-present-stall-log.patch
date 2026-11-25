@@ -1,0 +1,302 @@
+diff --git a/.deps/xenia-canary/src/xenia/ui/presenter.cc b/.deps/xenia-canary/src/xenia/ui/presenter.cc
+--- a/.deps/xenia-canary/src/xenia/ui/presenter.cc
++++ b/.deps/xenia-canary/src/xenia/ui/presenter.cc
+@@ -14,6 +14,10 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include "xenia/ui/window.h"
++#if __has_include("xbox360ps5/present_stall.hpp")
++#include "xbox360ps5/present_stall.hpp"  // fix 146e
++#define XBOX360PS5_PRESENT_STALL 1
++#endif
+ #if __has_include("xbox360ps5/present_limit.hpp")
+ #include "xbox360ps5/present_limit.hpp"  // fix 146
+ #define XBOX360PS5_PRESENT_LIMIT 1
+@@ -618,6 +622,10 @@ std::unique_lock<std::mutex> Presenter::ConsumeGuestOutput(
+   // exclusively by the calling thread for the time while this mutex is still
+   // locked (it needs to be held by the consumer while working with anything
+   // that depends on the image now being acquired or its index in the mailbox).
++#if XBOX360PS5_PRESENT_STALL
++  // Fix 146e: the consumer lock and the frame rate limit, for a present-stall line.
++  xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kGuestOutput);
++#endif
+   std::unique_lock<std::mutex> consumer_lock(
+       guest_output_mailbox_consumer_mutex_);
+   // Acquire the up-to-date ready guest image (may be new, in this case the last
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+@@ -20,6 +20,10 @@
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47
+ #endif
+ #include "xenia/ui/vulkan/vulkan_util.h"
++#if __has_include("xbox360ps5/present_stall.hpp")
++#include "xbox360ps5/present_stall.hpp"  // fix 146e
++#define XBOX360PS5_PRESENT_STALL 1
++#endif
+ #if __has_include("xbox360ps5/present_limit.hpp")
+ #include "xbox360ps5/present_limit.hpp"  // fix 146
+ #define XBOX360PS5_PRESENT_LIMIT 1
+@@ -1476,6 +1480,18 @@ bool VulkanPresenter::GuestOutputImage::Initialize() {
+ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+     bool execute_ui_drawers) {
+   // The normal paint mutex serializes this method; no frozen class fields added.
++#if XBOX360PS5_PRESENT_STALL
++  // Fix 146e: time the paint's parts; a paint or a gap before it of 100 ms or more is logged
++  // with where the time went (xbox360ps5/present_stall.hpp), at any return.
++  struct StallPaint {
++    StallPaint() { xbox360ps5::present_stall::ThisThread().Begin(xbox360ps5::present_stall::NowNs()); }
++    ~StallPaint() {
++      std::string line;
++      if (xbox360ps5::present_stall::ThisThread().End(xbox360ps5::present_stall::NowNs(), line))
++        XELOGW("{}", line);
++    }
++  } stall_paint;
++#endif
+   ps5x360::output_metrics::enabled.store(bool(cvars::ps5_frame_interpolation), std::memory_order_relaxed);
+ #if XBOX360PS5_PRESENT_LIMIT
+   {
+@@ -1654,8 +1670,13 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+   const uint64_t current_paint_submission_index =
+       paint_context_.completion_timeline.GetUpcomingSubmission();
+   uint64_t paint_submission_count = uint64_t(paint_context_.submissions.size());
+-  paint_context_.completion_timeline
+-      .AwaitMaxSubmissionsPendingAndUpdateCompleted(paint_submission_count);
++  {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kPending);  // fix 146e
++#endif
++    paint_context_.completion_timeline
++        .AwaitMaxSubmissionsPendingAndUpdateCompleted(paint_submission_count);
++  }
+   const PaintContext::Submission& paint_submission =
+       *paint_context_.submissions[current_paint_submission_index %
+                                   paint_submission_count];
+@@ -1709,6 +1730,9 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+ #if XE_PLATFORM_PS5
+     // Fix 47: an acquire that never returns (no image comes back from a stuck queue).
+     xbox360ps5::hang_watch::InCall in_call("acquire");
++#endif
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kAcquire);  // fix 146e
+ #endif
+     acquire_result = dfn.vkAcquireNextImageKHR(
+         device, paint_context_.swapchain, UINT64_MAX, acquire_semaphore,
+@@ -1889,11 +1913,16 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+           }
+           // Await the completion of the usage of the old guest output image and
+           // its descriptors.
++          {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kImageWaits);  // fix 146e
++#endif
+           paint_context_.completion_timeline.AwaitSubmissionAndUpdateCompleted(
+               paint_context_
+                   .guest_output_image_paint_refs
+                       [guest_output_image_paint_ref_new_index]
+                   .first);
++          }
+         }
+         guest_output_image_paint_ref_index =
+             guest_output_image_paint_ref_new_index;
+@@ -1951,6 +1980,9 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+             // Need to replace immediately as a new image with the requested
+             // size is needed.
+             if (intermediate_image_ptr_ref) {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kImageWaits);  // fix 146e
++#endif
+               paint_context_.completion_timeline
+                   .AwaitSubmissionAndUpdateCompleted(
+                       paint_context_
+@@ -2066,6 +2098,9 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+         if (swapchain_effect_pipeline.swapchain_pipeline != VK_NULL_HANDLE &&
+             swapchain_effect_pipeline.swapchain_format !=
+                 paint_context_.swapchain_render_pass_format) {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kImageWaits);  // fix 146e
++#endif
+           paint_context_.completion_timeline.AwaitSubmissionAndUpdateCompleted(
+               paint_context_.guest_output_image_paint_last_submission);
+           util::DestroyAndNullHandle(
+@@ -2341,7 +2376,12 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+         ui_completion_timeline_.UpdateAndGetCompletedSubmission(),
+         paint_context_.swapchain_render_pass,
+         paint_context_.swapchain_render_pass_format);
++    {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kDrawers);  // fix 146e
++#endif
+     ExecuteUIDrawersFromUIThread(ui_draw_context);
++    }
+   }
+ 
+   dfn.vkCmdEndRenderPass(draw_command_buffer);
+@@ -2382,9 +2422,14 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+   submit_info.pCommandBuffers = command_buffers;
+   submit_info.signalSemaphoreCount = 1;
+   submit_info.pSignalSemaphores = &present_semaphore;
+-  const VkResult submit_result =
+-      paint_context_.completion_timeline.AcquireFenceAndSubmit(
+-          vulkan_device_->queue_family_graphics_compute(), 0, 1, &submit_info);
++  VkResult submit_result;
++  {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kSubmit);  // fix 146e
++#endif
++    submit_result = paint_context_.completion_timeline.AcquireFenceAndSubmit(
++        vulkan_device_->queue_family_graphics_compute(), 0, 1, &submit_info);
++  }
+   if (submit_result != VK_SUCCESS) {
+     XELOGE(
+         "VulkanPresenter: Failed to submit the presentation command buffer: {}",
+@@ -2425,6 +2470,9 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+   present_info.pResults = nullptr;
+   VkResult present_result;
+   {
++#if XBOX360PS5_PRESENT_STALL
++    xbox360ps5::present_stall::Span stall_span(xbox360ps5::present_stall::kPresent);  // fix 146e
++#endif
+     const VulkanDevice::Queue::Acquisition queue_acquisition =
+         vulkan_device_->AcquireQueue(paint_context_.present_queue_family, 0);
+     present_result =
+diff --git a/include/xbox360ps5/present_stall.hpp b/include/xbox360ps5/present_stall.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/present_stall.hpp
+@@ -0,0 +1,135 @@
++// SPDX-License-Identifier: MIT
++// Fix 146e: where a stopped present went (a diagnostic).
++//
++// On the console (1.0.6-work-fix146d, GTA IV on the 120 Hz output) the presents stopped for 0.14 to
++// 0.85 s about once in 30 s, with the frame rate limit on and, later in the session, with it off;
++// every picture that stayed that long was such a stop. The stage timers of the Vulkan calls
++// (submit, present) never passed 4 ms, and the hang watch (a beat every 250 ms, a report after 1 s)
++// is too coarse. So each paint of the Vulkan presenter (VulkanPresenter::PaintAndPresentImpl on the
++// UI thread) now times its parts, and a paint that took 100 ms or more, or came 100 ms or more
++// after the previous one ended, writes one line: the time outside the presenter (the UI loop
++// between two paints) and, inside the paint, the waits for earlier paints on the GPU, the swapchain
++// acquire, the guest output (the mailbox's consumer lock and the frame rate limit), the waits for
++// images in use, the UI drawers (the guide, the FPS overlay), the submit (with the queue's lock)
++// and the present (with the queue's lock); what is left is "other". At most 10 lines a minute; the
++// next line says how many were not written.
++#pragma once
++
++#include <array>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xbox360ps5 {
++namespace present_stall {
++
++enum Stage : int {
++  kPending = 0,  // AwaitMaxSubmissionsPending: earlier paints still on the GPU
++  kAcquire,      // vkAcquireNextImageKHR
++  kGuestOutput,  // Presenter::ConsumeGuestOutput (consumer lock, frame rate limit)
++  kImageWaits,   // AwaitSubmission for an image or pipeline still in use
++  kDrawers,      // ExecuteUIDrawersFromUIThread (guide, FPS overlay)
++  kSubmit,       // the paint's queue submit, with the queue's lock
++  kPresent,      // vkQueuePresentKHR, with the queue's lock
++  kStages
++};
++
++inline const char* StageName(int stage) {
++  static const char* const kNames[kStages] = {
++      "waiting for earlier paints", "acquire", "guest output", "image waits", "drawers",
++      "submit", "present"};
++  return stage >= 0 && stage < kStages ? kNames[stage] : "?";
++}
++
++inline int64_t NowNs() {
++  return std::chrono::duration_cast<std::chrono::nanoseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++class Timer {
++ public:
++  static constexpr int64_t kStallNs = 100000000;   // 100 ms
++  static constexpr int64_t kWindowNs = 60000000000;  // lines are limited per minute
++  static constexpr unsigned kLinesPerWindow = 10;
++
++  // At the start of a paint.
++  void Begin(int64_t now) {
++    outside_ = last_end_ ? now - last_end_ : 0;
++    begin_ = now;
++    stages_.fill(0);
++  }
++  void Add(int stage, int64_t ns) {
++    if (begin_ && stage >= 0 && stage < kStages && ns > 0) stages_[size_t(stage)] += ns;
++  }
++  // At the end of a paint (any return): true and `line` when this paint or the time before it
++  // was a stall worth a line.
++  bool End(int64_t now, std::string& line) {
++    if (!begin_) return false;
++    const int64_t inside = now - begin_;
++    const int64_t outside = outside_;
++    begin_ = 0;
++    last_end_ = now;
++    if (inside < kStallNs && outside < kStallNs) return false;
++    ++stalls_;
++    if (!window_start_ || now - window_start_ >= kWindowNs) {
++      window_start_ = now;
++      written_in_window_ = 0;
++    }
++    if (written_in_window_ >= kLinesPerWindow) {
++      ++not_written_;
++      return false;
++    }
++    ++written_in_window_;
++    int64_t known = 0;
++    for (int64_t ns : stages_) known += ns;
++    char text[640];
++    int n = std::snprintf(text, sizeof(text),
++                          "Present stall (fix 146e): %.1f ms from the end of the previous paint "
++                          "to the end of this one: %.1f ms outside the presenter (the UI loop), "
++                          "%.1f ms in the paint:",
++                          double(outside + inside) / 1e6, double(outside) / 1e6, double(inside) / 1e6);
++    for (int s = 0; s < kStages && n > 0 && size_t(n) < sizeof(text); ++s)
++      n += std::snprintf(text + n, sizeof(text) - size_t(n), "%s %s %.1f", s ? "," : "",
++                         StageName(s), double(stages_[size_t(s)]) / 1e6);
++    if (n > 0 && size_t(n) < sizeof(text))
++      n += std::snprintf(text + n, sizeof(text) - size_t(n), ", other %.1f ms",
++                         double(inside > known ? inside - known : 0) / 1e6);
++    if (not_written_ && n > 0 && size_t(n) < sizeof(text))
++      std::snprintf(text + n, sizeof(text) - size_t(n), " (%u earlier not written)", not_written_);
++    not_written_ = 0;
++    line = text;
++    return true;
++  }
++  uint64_t stalls() const { return stalls_; }
++
++ private:
++  int64_t begin_ = 0, last_end_ = 0, outside_ = 0, window_start_ = 0;
++  std::array<int64_t, kStages> stages_{};
++  unsigned written_in_window_ = 0, not_written_ = 0;
++  uint64_t stalls_ = 0;
++};
++
++// One per thread: the UI thread's paints are what is timed; a capture on another thread adds to
++// its own, unused timer.
++inline Timer& ThisThread() {
++  static thread_local Timer timer;
++  return timer;
++}
++
++// Times a part of the paint into the thread's timer.
++class Span {
++ public:
++  explicit Span(int stage) : stage_(stage), start_(NowNs()) {}
++  ~Span() { ThisThread().Add(stage_, NowNs() - start_); }
++  Span(const Span&) = delete;
++  Span& operator=(const Span&) = delete;
++
++ private:
++  int stage_;
++  int64_t start_;
++};
++
++}  // namespace present_stall
++}  // namespace xbox360ps5

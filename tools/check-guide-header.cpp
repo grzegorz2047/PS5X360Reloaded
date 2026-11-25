@@ -89,7 +89,7 @@ void CheckGuide() {
   std::string header = Between(main, "fade(210, 216, 224), who.c_str());", "// The page that is not open");
   if (header.empty()) header = Between(main, "fade(210, 216, 224), who.c_str());", "// Fix 115c: the pages are tabs");  // fix 115c
   Expect(Has(header, "if (!game_.empty()) {") &&
-             Has(header, "large->CalcTextSizeA(36 * scale, 4096.0f, 0.0f, Tr(\"PS5X360Reloaded Guide\")).x") &&
+             Has(header, "large->CalcTextSizeA(36 * scale, 4096.0f, 0.0f, Tr(\"TrinityX360 Guide\")).x") &&
              Has(header, "xbox360ps5::guide_quick::FitText(") && Has(header, "Tr(\"Playing: \") + game_") &&
              Has(header, "right * scale - who_size.x - 32 * scale - game_x") &&
              Has(header, "list->AddText(medium, 28 * scale, ImVec2(game_x, 246 * scale), fade(210, 216, 224), running.c_str());"),

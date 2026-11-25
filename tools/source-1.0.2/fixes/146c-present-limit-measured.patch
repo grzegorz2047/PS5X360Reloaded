@@ -1,0 +1,260 @@
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+@@ -626,6 +626,8 @@ VulkanPresenter::ConnectOrReconnectPaintingToSurfaceFromUIThread(
+         // Fix 146: the frame rate limit holds pictures whole refreshes of this mode.
+         xbox360ps5::present_limit::Instance().SetOutputHz(double(selected_refresh) / 1000.0);
+ #endif
++        // Fix 146c: what the driver offers (did it list a 120 Hz mode at all?).
++        XELOGW("PS5 KHR_display modes (fix 146c): {}", xbox360ps5::DisplayModeList());
+         if (cvars::ps5_frame_interpolation) {
+           paint_context_.completion_timeline.AwaitAllSubmissions();
+           auto& sidecar = GetFramegenSidecar(this);
+diff --git a/include/xbox360ps5/present_limit.hpp b/include/xbox360ps5/present_limit.hpp
+--- a/include/xbox360ps5/present_limit.hpp
++++ b/include/xbox360ps5/present_limit.hpp
+@@ -29,6 +29,14 @@
+ // shown as before (at most one refresh later, never dropped by the limit). The summary line also
+ // says which drops were the limit's, the game's own times between pictures, the present times
+ // and the longest time a picture stayed, for the next console test.
++//
++// Fix 146c: the refresh the limit counts in is measured. On the console with the title's 120 Hz
++// metadata (param.json attribute3 0x80040) the KHR_display mode said 59.94 Hz while the FIFO
++// presents came every 8.34 ms (119.9 a second): the screen refreshed at 119.88 Hz. 146b then
++// held a picture "2 refreshes" = 2 presents = 16.7 ms, a 60 cap for 30. Now the median of the
++// last 64 present intervals, when it is the mode's refresh, twice it or half of it (within 6%)
++// for 120 paints in a row, is the refresh the plan uses (40 is then applied at 119.88 Hz too);
++// presents that follow no refresh make the limit timed, as without FIFO.
+ #pragma once
+ 
+ #include <algorithm>
+@@ -63,9 +71,12 @@ inline int64_t NowNs() {
+ 
+ // The output as the presenter knows it.
+ struct Output {
+-  double hz = 0;          // the display mode's refresh (VK_KHR_display): 59.94 or 119.88
++  double hz = 0;          // the refresh the plan counts in (fix 146c: measured when it can be)
+   bool fifo = false;      // the swapchain shows each present for at least a whole refresh
+   bool framegen = false;  // frame generation is on
++  double mode_hz = 0;     // the display mode's refresh (VK_KHR_display): 59.94 or 119.88
++  bool measured = false;  // fix 146c: `hz` is the presents' own rate
++  bool irregular = false; // fix 146c: FIFO presents that follow no refresh: timed instead
+ };
+ 
+ // What a choice does on an output.
+@@ -108,8 +119,9 @@ inline Plan MakePlan(int choice, const Output& out) {
+   plan.period_ns = int64_t(whole * refresh_ns + 0.5);
+   plan.slack_ns = int64_t(refresh_ns * 0.5);
+   plan.fifo = out.fifo;
+-  plan.reason = out.fifo ? "each new picture shown for whole refreshes"
+-                         : "timed only: the swapchain is not FIFO";
++  plan.reason = out.irregular ? "timed only: the presents follow no refresh"
++               : out.fifo        ? "each new picture shown for whole refreshes"
++                                 : "timed only: the swapchain is not FIFO";
+   return plan;
+ }
+ 
+@@ -222,13 +234,30 @@ class Gate {
+   int NotePaint(int64_t now, bool fifo, bool framegen, uint64_t vblanks, std::string lines[2]) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     int count = 0;
+-    if (last_paint_ && now > last_paint_) present_intervals_.Add(now - last_paint_);
++    const double mode_hz = output_hz_.load(std::memory_order_relaxed);
++    if (mode_hz != measured_mode_hz_) {
++      // A new display mode: measure again.
++      measured_mode_hz_ = mode_hz;
++      recent_count_ = 0;
++      measured_hz_ = 0;
++      measured_irregular_ = false;
++      candidate_hz_ = -1;
++      candidate_paints_ = 0;
++    }
++    if (last_paint_ && now > last_paint_) {
++      present_intervals_.Add(now - last_paint_);
++      recent_[recent_count_++ % kRecent] = now - last_paint_;
++      Measure(mode_hz);
++    }
+     last_paint_ = now;
+     ++paints_;
+     const int choice = choice_.load(std::memory_order_relaxed);
+     Output out;
+-    out.hz = output_hz_.load(std::memory_order_relaxed);
+-    out.fifo = fifo;
++    out.mode_hz = mode_hz;
++    out.hz = measured_hz_ ? measured_hz_ : mode_hz;
++    out.measured = measured_hz_ != 0;
++    out.fifo = fifo && !measured_irregular_;
++    out.irregular = fifo && measured_irregular_;
+     out.framegen = framegen;
+     const Plan plan = MakePlan(choice, out);
+     // (30 FPS is 4 refreshes at 119.88 Hz and 2 at 59.94 Hz: the same period, a new output.)
+@@ -258,12 +287,38 @@ class Gate {
+   uint64_t taken() const { return taken_; }
+   uint64_t held() const { return held_; }
+   uint64_t limit_dropped() const { return limit_dropped_.load(std::memory_order_relaxed); }
++  double measured_hz() const { return measured_hz_; }
+ 
+  private:
++  static constexpr size_t kRecent = 64;          // present intervals in the median
++  static constexpr uint32_t kSteadyPaints = 120; // a new measurement holds this long first
++  // The refresh the presents follow: the median of the last kRecent intervals, snapped to the
++  // mode's rate, twice it or half of it; 0 (and irregular) when it is none of them. A change is
++  // taken only after kSteadyPaints paints in a row agree.
++  void Measure(double mode_hz) {
++    if (recent_count_ < kRecent || !(mode_hz > 0)) return;
++    std::array<int64_t, kRecent> sorted = recent_;
++    std::nth_element(sorted.begin(), sorted.begin() + kRecent / 2, sorted.end());
++    median_present_ns_ = sorted[kRecent / 2];
++    const double hz = 1e9 / double(median_present_ns_);
++    double snapped = 0;  // 0: none
++    for (double candidate : {mode_hz, mode_hz * 2, mode_hz / 2})
++      if (std::fabs(hz - candidate) <= 0.06 * candidate) snapped = candidate;
++    if (snapped != candidate_hz_) {
++      candidate_hz_ = snapped;
++      candidate_paints_ = 0;
++    }
++    if (++candidate_paints_ < kSteadyPaints) return;
++    measured_irregular_ = snapped == 0;
++    measured_hz_ = snapped;
++  }
+   // Whether the picture on screen has had its refreshes (the limit applied and a picture shown).
+   bool Allowed(int64_t now) const {
+     const int64_t elapsed = now - last_taken_;
+-    if (!plan_.fifo) return elapsed >= plan_.period_ns - plan_.slack_ns;
++    // Timed (no FIFO, or presents that follow no refresh): the period less a quarter of the
++    // presents' own interval (fix 146c; 146b allowed half a refresh, up to 40 a second for 30).
++    if (!plan_.fifo)
++      return elapsed >= plan_.period_ns - (median_present_ns_ ? median_present_ns_ / 4 : plan_.slack_ns);
+     // NotePaint counted this paint already: the picture taken at paint P has been presented
+     // `paints_ - paints_at_take_` times when paint P + n consumes.
+     // A refresh without a present (a slow paint) still counts when the time says so: one
+@@ -299,13 +354,25 @@ class Gate {
+     if (plan_.applied)
+       std::snprintf(text, sizeof(text),
+                     "Presentation limit (fix 146): %s chosen; applied: each new picture shown "
+-                    "for %u refreshes of %.2f Hz%s (the game runs as before)",
+-                    ChoiceText(choice), plan_.refreshes, out.hz, out.fifo ? " (FIFO)" : " (not FIFO)");
++                    "for %u refreshes of %.2f Hz%s%s (the game runs as before)",
++                    ChoiceText(choice), plan_.refreshes, out.hz,
++                    out.irregular ? " (timed: the presents follow no refresh)"
++                    : out.fifo    ? " (FIFO)"
++                                  : " (not FIFO)",
++                    MeasuredText(out).c_str());
+     else
+       std::snprintf(text, sizeof(text), "Presentation limit (fix 146): %s chosen; not applied: %s",
+                     ChoiceText(choice), plan_.reason);
+     return text;
+   }
++  // Fix 146c: where the refresh came from, when it is not the mode's own.
++  static std::string MeasuredText(const Output& out) {
++    if (!out.measured || out.hz == out.mode_hz) return "";
++    char text[96];
++    std::snprintf(text, sizeof(text), "; measured from the presents, the display mode says %.2f Hz",
++                  out.mode_hz);
++    return text;
++  }
+   std::string ReportLine(int64_t now, const Output& out, uint64_t vblanks) const {
+     const double seconds = double(now - report_at_) / 1e9;
+     const uint64_t paints = paints_ - window_.paints, taken = taken_ - window_.taken;
+@@ -314,8 +381,9 @@ class Gate {
+     const double waited_ms = double(waited_ns_ - window_.waited_ns) / 1e6;
+     char target[96];
+     if (plan_.applied)
+-      std::snprintf(target, sizeof(target), "target %d FPS (%u refreshes of %.2f Hz)", plan_.fps,
+-                    plan_.refreshes, out.hz);
++      std::snprintf(target, sizeof(target), "target %d FPS (%u refreshes of %.2f Hz%s)", plan_.fps,
++                    plan_.refreshes, out.hz,
++                    out.measured && out.hz != out.mode_hz ? ", measured" : "");
+     else
+       std::snprintf(target, sizeof(target), "%s, not applied", ChoiceText(plan_choice_));
+     const uint64_t by_limit =
+@@ -351,6 +419,13 @@ class Gate {
+   int plan_choice_ = kAutomatic;
+   bool planned_ = false;
+   int64_t last_taken_ = 0, report_at_ = 0, last_paint_ = 0, longest_gap_ = 0;
++  // Fix 146c: the measured refresh.
++  std::array<int64_t, kRecent> recent_{};
++  size_t recent_count_ = 0;
++  double measured_mode_hz_ = -1, measured_hz_ = 0, candidate_hz_ = -1;
++  bool measured_irregular_ = false;
++  uint32_t candidate_paints_ = 0;
++  int64_t median_present_ns_ = 0;
+   bool restarted_ = false;  // a picture was taken under the current plan
+   uint64_t paints_ = 0, paints_at_take_ = 0, taken_ = 0, held_ = 0, waited_ns_ = 0;
+   std::atomic<bool> holding_{false};
+diff --git a/include/xbox360ps5/vulkan_platform.hpp b/include/xbox360ps5/vulkan_platform.hpp
+--- a/include/xbox360ps5/vulkan_platform.hpp
++++ b/include/xbox360ps5/vulkan_platform.hpp
+@@ -13,6 +13,9 @@ bool CreateDisplaySurface(PFN_vkGetInstanceProcAddr driver, VkInstance instance,
+                           VkPhysicalDevice physical, uint32_t width, uint32_t height,
+                           uint32_t refresh, VkSurfaceKHR& surface, VkExtent2D& extent,
+                           uint32_t& selected_refresh, std::string& error);
++// Fix 146c: the display modes the driver listed at the last CreateDisplaySurface, as
++// "WxH@Hz" for each display, then the chosen one (for the log).
++const std::string& DisplayModeList();
+ // A linked RADV ICD and a host Vulkan loader expose the same GIPA contract.
+ // The driver must outlive this object. No desktop window system is required.
+ class VulkanPlatform {
+diff --git a/platform/ps5/vulkan_platform.cpp b/platform/ps5/vulkan_platform.cpp
+--- a/platform/ps5/vulkan_platform.cpp
++++ b/platform/ps5/vulkan_platform.cpp
+@@ -10,6 +10,10 @@
+ 
+ namespace xbox360ps5 {
+ namespace {
++std::string& ModeListText() {  // fix 146c
++  static std::string text;
++  return text;
++}
+ // Enumeration may grow between calls. Bound both allocation and retries.
+ template <typename T, typename F>
+ bool Enumerate(std::vector<T> &values, F function) {
+@@ -87,6 +91,7 @@ bool CreateDisplaySurface(PFN_vkGetInstanceProcAddr driver, VkInstance instance_
+                           uint32_t refresh, VkSurfaceKHR& surface_, VkExtent2D& extent_,
+                           uint32_t& refresh_, std::string& error_) {
+   surface_ = VK_NULL_HANDLE; extent_ = {}; refresh_ = 0; error_.clear();
++  ModeListText().clear();
+   if (!driver || !instance_ || !physical) { error_ = "invalid display surface owner"; return false; }
+ #define LOAD(name) auto name = reinterpret_cast<PFN_##name>(driver(instance_, #name))
+   LOAD(vkGetPhysicalDeviceDisplayPropertiesKHR);
+@@ -120,6 +125,8 @@ bool CreateDisplaySurface(PFN_vkGetInstanceProcAddr driver, VkInstance instance_
+   uint64_t best = std::numeric_limits<uint64_t>::max();
+   VkDisplaySurfaceCreateInfoKHR chosen{};
+   uint32_t chosen_refresh = 0;
++  // Fix 146c: every mode the driver lists, for the log ("display 0: 1920x1080@59.94 ...").
++  std::string listed;
+   for (const auto &display : displays) {
+     if (!(display.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR))
+       continue;
+@@ -128,6 +135,15 @@ bool CreateDisplaySurface(PFN_vkGetInstanceProcAddr driver, VkInstance instance_
+           return vkGetDisplayModePropertiesKHR(physical, display.display, n, p);
+         }))
+       continue;
++    listed += (listed.empty() ? "display " : "; display ") + std::to_string(&display - displays.data()) + ":";
++    for (const auto &mode : modes) {
++      const auto refresh_mhz = mode.parameters.refreshRate;
++      listed += " " + std::to_string(mode.parameters.visibleRegion.width) + "x" +
++                std::to_string(mode.parameters.visibleRegion.height) + "@" +
++                std::to_string(refresh_mhz / 1000) + "." +
++                std::to_string(refresh_mhz % 1000 / 100) + std::to_string(refresh_mhz % 100 / 10);
++    }
++    if (modes.empty()) listed += " none";
+     for (uint32_t plane = 0; plane < planes.size(); ++plane) {
+       // Never take a plane currently assigned to another display.
+       if (planes[plane].currentDisplay &&
+@@ -196,9 +212,15 @@ bool CreateDisplaySurface(PFN_vkGetInstanceProcAddr driver, VkInstance instance_
+   surface_ = created_surface;
+   extent_ = chosen.imageExtent;
+   refresh_ = chosen_refresh;
++  ModeListText() = listed + "; chosen " + std::to_string(extent_.width) + "x" +
++                   std::to_string(extent_.height) + "@" + std::to_string(chosen_refresh / 1000) +
++                   "." + std::to_string(chosen_refresh % 1000 / 100) +
++                   std::to_string(chosen_refresh % 100 / 10);
+   return true;
+ }
+ 
++const std::string& DisplayModeList() { return ModeListText(); }
++
+ bool VulkanPlatform::Initialize(bool display, uint32_t width, uint32_t height,
+                                 uint32_t refresh) {
+   Reset();

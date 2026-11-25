@@ -1,0 +1,177 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 9e2ad2a..27bd232 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1290,6 +1290,9 @@ void Launcher::Scan() {
+   recents_.clear();
+   std::ifstream input(kStorage / "recent.txt");
+   for (std::string line; std::getline(input, line);) if (!line.empty()) recents_.push_back(line);
++  // Fix 159: what each disc's header said when fix 89 read it (by path), for the log of discs of one
++  // game that fix 89 left as entries of their own.
++  std::map<std::string, std::string> disc_headers;
+   // Fix 89: the discs of one game become one entry. Its disc is the one last started from the
+   // library (recent.txt), else the first; the game's sheet chooses another (Play: up / down).
+   {
+@@ -1308,6 +1311,15 @@ void Launcher::Scan() {
+       const auto header = ReadGameXexHeader(games_[n].path);
+       const auto parsed = ps5x360_disc::ParseXexExecutionInfo(header.data(), header.size());
+       if (parsed.info) infos[n] = *parsed.info;
++      std::string& seen = disc_headers[games_[n].path.string()];  // fix 159
++      if (parsed.info) {
++        char text[64];
++        std::snprintf(text, sizeof(text), "title %08X, disc %u of %u", unsigned(parsed.info->title_id),
++                      unsigned(parsed.info->disc_number), unsigned(parsed.info->disc_count));
++        seen = text;
++      } else {
++        seen = "header unread: " + (parsed.error.empty() ? std::string("no header") : parsed.error);
++      }
+       return parsed.info;
+     });
+     std::vector<bool> member(games_.size(), false);
+@@ -1399,7 +1411,39 @@ void Launcher::Scan() {
+     std::vector<std::string> ids(games_.size());
+     for (size_t n = 0; n < games_.size(); ++n)
+       if (!games_[n].title_id.empty() && games_[n].title_id != "00000000") ids[n] = games_[n].title_id;
+-    g_groups = library_groups::Build(folders, ids);
++    // Fix 159: the discs of one game in one folder are one game too, by their names without the
++    // disc tags (an image's name or an extracted disc's folder; for a bare "Disc 2" or "Disc 2.iso",
++    // the folder that holds it), so a folder holding one game of several discs is never a group.
++    std::vector<std::string> set_names(games_.size());
++    for (size_t n = 0; n < games_.size(); ++n) {
++      const GameEntry& first = games_[n].discs.empty() ? games_[n] : games_[n].discs.front();
++      if (first.kind != "ISO" && first.kind != "XEX") continue;
++      const fs::path image = first.kind == "XEX" ? first.path.parent_path() : first.path;
++      if (!multidisc::DiscOfImage(image)) continue;
++      const std::string file = image.filename().string();
++      const std::string bare = multidisc::NameWithoutDisc(file);
++      set_names[n] = bare != file ? bare : image.parent_path().filename().string();
++    }
++    g_groups = library_groups::Build(folders, library_groups::GameKeys(folders, ids, set_names));
++    // Fix 159: discs of one game in one folder that fix 89 left as entries of their own (a tile each,
++    // not one tile with its discs), in the log with what their headers said, so the reason is seen.
++    {
++      std::map<std::string, std::vector<size_t>> apart;
++      for (size_t n = 0; n < games_.size(); ++n)
++        if (const std::string key = library_groups::SetKey(folders[n], set_names[n]); !key.empty()) apart[key].push_back(n);
++      for (const auto& [key, members] : apart) {
++        if (members.size() < 2) continue;
++        XELOGW("LAUNCHER disc set not made: {} ({} entries in one folder, one game, a tile each)",
++               set_names[members.front()], members.size());
++        for (const size_t n : members) {
++          const auto header = disc_headers.find(games_[n].path.string());
++          XELOGW("LAUNCHER disc set not made:   {} (title {}, disc {} by its name, {} disc(s) as an entry): {}",
++                 games_[n].path.string(), games_[n].title_id.empty() ? "?" : games_[n].title_id, games_[n].disc,
++                 games_[n].discs.empty() ? size_t(1) : games_[n].discs.size(),
++                 header == disc_headers.end() ? std::string("header not read") : header->second);
++        }
++      }
++    }
+     // Fix 112d: where each entry is placed, in the log (a group's games are listed with it).
+     for (size_t n = 0; n < games_.size(); ++n) {
+       if (!g_groups.shown_in[n].empty()) continue;
+diff --git a/port/library_groups.hpp b/port/library_groups.hpp
+index b4a1ba6..b57ef74 100644
+--- a/port/library_groups.hpp
++++ b/port/library_groups.hpp
+@@ -16,6 +16,8 @@
+ // the top of the library ("xbox360/games/<every game>"). Groups nest as deep as the folders do:
+ // a group's own groups are shown inside it. Folders of the same name in two game folders are one
+ // group (compared without case), named as found first. Empty folders hold nothing and never show.
++// Fix 159: a folder's entries are counted as games (GameKeys): a folder of one game's discs is no
++// group, also when the discs stayed entries of their own.
+ #pragma once
+ #include <algorithm>
+ #include <cstddef>
+@@ -201,6 +203,92 @@ inline Layout Build(const std::vector<std::vector<std::string>>& folders, const
+   return layout;
+ }
+ 
++// Fix 159: the key of the folder that holds an entry, as Build makes it: its folders below the game
++// folder, lower case, without a package's title ID and content type folders ("" at the top).
++inline std::string HolderKey(const std::vector<std::string>& folders) {
++  std::string key;
++  for (const auto& folder : folders) {
++    if (folder.empty() || PackageFolder(folder)) continue;
++    key += (key.empty() ? "" : "/") + LowerAscii(folder);
++  }
++  return key;
++}
++
++// Fix 159: the key of an entry's disc set for GameKeys: the folder that holds it (HolderKey) and its
++// name without the disc tags (`set_name`, see GameKeys), lower case; "" for an entry with no set name.
++// Entries with one key are discs of one game in one folder; two or more of them are discs fix 89 left
++// as entries of their own (its set is one entry), which the launcher logs.
++inline std::string SetKey(const std::vector<std::string>& folders, const std::string& set_name) {
++  std::string name = LowerAscii(set_name);
++  while (!name.empty() && (name.back() == ' ' || name.back() == '\t')) name.pop_back();
++  return name.empty() ? name : HolderKey(folders) + "\n" + name;
++}
++
++// Fix 159: which game each entry is, for Build's `games`. A player's folder of one game of several
++// discs ("Battlefield 3 (USA, Europe) (En,Fr,De)/... (Disc 1).iso" and "(Disc 2).iso", Final Fantasy
++// XIII's three discs, Grand Theft Auto V's "(Disc 1) (Install)" and "(Disc 2) (Play)") is that game,
++// never a group. Fix 89 makes such discs one entry, so their folder holds one entry; when it could
++// not (a header unread, a title ID of its own on each disc, two regions' discs claiming one number),
++// the discs stay entries of their own, and they were counted as different games when their title
++// IDs differed or were unknown. Two entries are one game when they have one title ID (fix 112d:
++// copies of a game, wherever they are; compared without case, 00000000 is none), or when one folder
++// holds both and their names without the disc tags are one (`set_names`: for an entry whose image or
++// extracted disc folder has a disc number in its name, multidisc::NameWithoutDisc of that name; ""
++// for any other entry; compared without case), the rules of fix 89's sets. The result names each
++// entry's game ("" for an entry that is a game of its own, as Build takes it): a title ID of the
++// game when one of its entries has one, else its folder and name.
++inline std::vector<std::string> GameKeys(const std::vector<std::vector<std::string>>& folders,
++                                         const std::vector<std::string>& titles,
++                                         const std::vector<std::string>& set_names) {
++  const size_t count = folders.size();
++  std::vector<size_t> parent(count);
++  for (size_t n = 0; n < count; ++n) parent[n] = n;
++  const auto find = [&parent](size_t n) {
++    while (parent[n] != n) n = parent[n] = parent[parent[n]];
++    return n;
++  };
++  const auto join = [&](size_t a, size_t b) {
++    a = find(a);
++    b = find(b);
++    if (a != b) parent[std::max(a, b)] = std::min(a, b);
++  };
++  const auto title_of = [&titles](size_t n) {
++    const std::string id = n < titles.size() ? LowerAscii(titles[n]) : std::string();
++    return id == "00000000" ? std::string() : id;
++  };
++  const auto set_of = [&](size_t n) {
++    return n < set_names.size() ? SetKey(folders[n], set_names[n]) : std::string();
++  };
++  std::map<std::string, size_t> by_title, by_set;
++  for (size_t n = 0; n < count; ++n) {
++    if (const std::string id = title_of(n); !id.empty()) {
++      const auto [at, made] = by_title.try_emplace(id, n);
++      if (!made) join(n, at->second);
++    }
++    if (const std::string set = set_of(n); !set.empty()) {
++      const auto [at, made] = by_set.try_emplace(set, n);
++      if (!made) join(n, at->second);
++    }
++  }
++  // Each game's name: its smallest title ID, else the folder and name of its first entry's set.
++  std::map<size_t, std::string> title, set;
++  std::map<size_t, size_t> size;
++  for (size_t n = 0; n < count; ++n) {
++    const size_t root = find(n);
++    ++size[root];
++    const std::string id = title_of(n);
++    if (!id.empty() && (title[root].empty() || id < title[root])) title[root] = id;
++    if (set[root].empty()) set[root] = set_of(n);
++  }
++  std::vector<std::string> keys(count);
++  for (size_t n = 0; n < count; ++n) {
++    const size_t root = find(n);
++    if (!title[root].empty()) keys[n] = "title:" + title[root];
++    else if (size[root] > 1) keys[n] = "set:" + set[root];
++  }
++  return keys;
++}
++
+ // Fix 112b: the key of a group's "N games", with the number's form: "%d game" for one, "%d games||few"
+ // for 2-4, 22-24, ... (not 12-14: Polish "3 gry", Russian "3 игры"), "%d games||one" for 21, 31, ...
+ // (not 11: Russian "21 игра", Polish "21 gier"), "%d games" for the rest. Each language translates

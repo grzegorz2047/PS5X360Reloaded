@@ -1,0 +1,103 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -80,6 +80,7 @@
+ #include <mutex>
+ #include <string>
+ #include <array>
++#include <set>
+ #include <unordered_map>
+ #include <vector>
+ 
+@@ -326,6 +327,40 @@ inline bool AutomaticStartsAtOneX(const std::string& title_id) {
+   }
+   return false;
+ }
++// Fix 162f: a Kinect title (its executable says it requires Kinect: XEX system flag 32, skeletal
++// tracking required, covers.hpp GameRequiresKinect, as fix 57's virtual player uses). Kinect Sports,
++// Season Two and Zumba Fitness Core (two developers) failed at 2x the same way, through the passes of
++// the Kinect library every Kinect title links: its camera pictures copied with copy command 2 from
++// 80, 160 and 320 pixel 1xMSAA targets (skipped scaled: black or green pictures) and 2.4 to 2.7 GiB of
++// scaled render targets (stutter, 1 frame a second). The launch notes the flag (a set of title IDs,
++// read when the game is chosen or started); Automatic starts such a title at 1x, and at 2x it keeps
++// those three classes at 1x unless it has a list of its own.
++#define XBOX360PS5_KINECT_TITLE_RULE 1  // fix 162f (auto_scale.hpp and the host checks look for it)
++inline std::mutex kinect_titles_mutex;
++inline std::set<std::string> kinect_titles;
++inline std::string UpperTitle(const std::string& title_id) {
++  std::string id;
++  for (char ch : title_id) id += char(std::toupper(static_cast<unsigned char>(ch)));
++  return id;
++}
++inline void NoteKinectTitle(const std::string& title_id, bool requires_kinect) {
++  if (title_id.empty()) return;
++  std::lock_guard<std::mutex> lock(kinect_titles_mutex);
++  if (requires_kinect) kinect_titles.insert(UpperTitle(title_id));
++  else kinect_titles.erase(UpperTitle(title_id));
++}
++inline bool KinectTitle(const std::string& title_id) {
++  std::lock_guard<std::mutex> lock(kinect_titles_mutex);
++  return kinect_titles.count(UpperTitle(title_id)) != 0;
++}
++// Why Automatic starts a game at 1x: the Kinect rule before the compiled-in list; null: 2x.
++inline const char* AutomaticOneXReason(const std::string& title_id) {
++  if (KinectTitle(title_id)) return "Kinect title";
++  if (AutomaticStartsAtOneX(title_id)) return "compiled-in list";
++  return nullptr;
++}
++// The camera classes of the Kinect library's passes (fix 162a's, from fix 161's owners).
++inline constexpr const char* kKinectCameraClasses = "80x1 160x1 320x1";
+ // The draw_scale choice a game runs with: 2x (1) becomes 1x (0) for those games.
+ inline int ChoiceFor(int choice, const std::string& title_id) {
+   return choice == 1 && TwoXUnfit(title_id) ? 0 : choice;
+@@ -423,6 +458,8 @@ inline std::vector<NativeClass> CompiledNativeClasses(const std::string& title_i
+   // 1.0.6-work-fix156q2 and the same render targets, down to the small passes at EDRAM bases 2 to 16
+   // and 360 to 408, so they come from the Kinect library every Kinect title links, not one engine.
+   if (id == "4D4A07F0") return ParseNativeClasses("80x1 160x1 320x1");
++  // Fix 162f: any other Kinect title gets the Kinect library's camera classes.
++  if (KinectTitle(id)) return ParseNativeClasses(kKinectCameraClasses);
+   return {};
+ }
+ // Set as a game starts (before it draws), read while it draws.
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -17,6 +17,7 @@
+ #include "xbox360ps5/official_import.hpp"  // fix 46: the first start's copy from PS5X360
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/title_switch.hpp"  // fix 51: XamSwapDisc looks beside the launched image
++#include "xbox360ps5/covers.hpp"  // fix 162f: GameRequiresKinect
+ namespace xbox360ps5 {
+ void SelectOpenGLDriver(bool opengl);  // radv_dispatch.cpp
+ }
+@@ -2727,6 +2728,13 @@ int main(int argc, char** argv) {
+     Stage(("BOOT title switch to " + switch_pending.host_path + " (" +
+            (settings_title.empty() ? std::string("title id unknown") : settings_title) + ")").c_str());
+   }
++  // Fix 162f: a start straight into a game knows whether it requires Kinect (Automatic, the 117k classes).
++  {
++    const std::filesystem::path start_game =
++        !once_game.empty() ? once_game : std::filesystem::path(switch_pending.host_path);
++    if (!settings_title.empty() && !start_game.empty())
++      xbox360ps5::resolution_scale::NoteKinectTitle(settings_title, xbox360ps5::GameRequiresKinect(start_game));
++  }
+   xbox360ps5::GameOverrides overrides = xbox360ps5::LoadGameOverrides(settings_title);
+   // The options in force: the general ones with the running game's own over them.
+   xbox360ps5::Settings settings = xbox360ps5::ForGame(global, settings_title, overrides);
+@@ -3664,6 +3672,16 @@ int main(int argc, char** argv) {
+         if (log_id.empty()) log_id = GameTitleId(game);
+         // This game's own options over the general ones.
+         settings_title = log_id;
++        // Fix 162f: whether the chosen game requires Kinect, before its options are worked out.
++        if (!settings_title.empty()) {
++          const bool requires_kinect = xbox360ps5::GameRequiresKinect(game);
++          xbox360ps5::resolution_scale::NoteKinectTitle(settings_title, requires_kinect);
++          if (requires_kinect) {
++            XELOGW("Resolution scale (fix 162f): {} requires Kinect: Automatic starts it at 1x; at 2x the Kinect "
++                   "library's camera classes ({}) stay at 1x unless it has a list of its own",
++                   settings_title, xbox360ps5::resolution_scale::kKinectCameraClasses);
++          }
++        }
+         // Candidate 21: the probes' lines for Battlefield 3 only (the JIT inserts them only into
+         // its code anyway; counts are kept either way).
+         // Fix 30: only with detailed logs (they log about 2,500 lines in a level's first seconds).

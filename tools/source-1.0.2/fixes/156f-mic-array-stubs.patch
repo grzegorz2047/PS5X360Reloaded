@@ -1,0 +1,53 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc
+@@ -7,6 +7,9 @@
+  ******************************************************************************
+  */
+ 
++#include <atomic>  // fix 156f
++
++#include "xenia/base/logging.h"  // fix 156f
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xam/xam_private.h"
+ #include "xenia/xbox.h"
+@@ -49,6 +52,39 @@ dword_result_t XamVoiceGetMicArrayStatus_entry() {
+ }
+ DECLARE_XAM_EXPORT1(XamVoiceGetMicArrayStatus, kNone, kStub);
+ 
++// Xbox360PS5 fix 156f (Kinect titles, #63/#66): the Kinect microphone array, not emulated,
++// answered instead of an undefined extern. An undefined extern returns without setting r3, so
++// the caller took its own first argument (a pointer, a positive value) for success: Kinect
++// Sports Season Two's speech capture (831FF140, 831FF184) then went on as if the microphone
++// delivered audio. Now the audio request fails as "device not connected" (0x8007048F, the
++// value the titles' own NUI code uses), and the capture takes its error path (831FF14C).
++// XamVoiceSetMicArrayIdleUsers (ordinal 0x48C, looked up with XexGetProcedureAddress by
++// Fighters Uncaged and Season Two) had no function to give; it accepts and does nothing.
++// The first 16 calls are logged.
++namespace {
++void MicArrayLog(const char* call, uint32_t a, uint32_t b, uint32_t result) {
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 16)
++    XELOGW("Kinect microphone: {}({:08X}, {:08X}) -> {:08X}, no microphone array "
++           "(fix 156f)", call, a, b, result);
++}
++}  // namespace
++constexpr uint32_t kMicArrayNotConnected = 0x8007048F;
++
++dword_result_t XamVoiceGetMicArrayAudioEx_entry(dword_t a1, dword_t a2, dword_t a3,
++                                                dword_t a4) {
++  MicArrayLog("XamVoiceGetMicArrayAudioEx", uint32_t(a1), uint32_t(a2),
++              kMicArrayNotConnected);
++  return kMicArrayNotConnected;
++}
++DECLARE_XAM_EXPORT1(XamVoiceGetMicArrayAudioEx, kNone, kStub);
++
++dword_result_t XamVoiceSetMicArrayIdleUsers_entry(dword_t a1, dword_t a2) {
++  MicArrayLog("XamVoiceSetMicArrayIdleUsers", uint32_t(a1), uint32_t(a2), 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamVoiceSetMicArrayIdleUsers, kNone, kStub);
++
+ }  // namespace xam
+ }  // namespace kernel
+ }  // namespace xe

@@ -1,0 +1,32 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -311,8 +311,12 @@ inline bool TwoXUnfit(const std::string& title_id) {
+ // texture cache evicted 1222 textures under memory pressure (stutter from then on), fix 117b kept two
+ // classes at 1x mid-match and its replay showed artifacts; Automatic's verdict came only after that.
+ #define XBOX360PS5_AUTO_SCALE_ONE_X_LIST 1  // fix 162c (auto_scale.hpp and the host checks look for it)
++// Fix 162d: Kinect Sports: Season Two (4D5309D6) and Zumba Fitness Core (4D4A07F0) too: on
++// 1.0.6-work-fix156q2 at 2x they made 50 (2430 MiB) and 56 (2682 MiB) scaled render targets within
++// minutes, as Kinect Sports did; Zumba then fell to 1 frame a second.
++#define XBOX360PS5_KINECT_SPORTS_2 1  // fix 162d (the host checks look for it)
+ inline bool AutomaticStartsAtOneX(const std::string& title_id) {
+-  static constexpr const char* kTitles[] = {"4D5308C9"};
++  static constexpr const char* kTitles[] = {"4D5308C9", "4D5309D6", "4D4A07F0"};
+   for (const char* id : kTitles) {
+     if (title_id.size() != 8) continue;
+     bool same = true;
+@@ -411,6 +415,14 @@ inline std::vector<NativeClass> CompiledNativeClasses(const std::string& title_i
+   // was k_8_8_8_8 1xMSAA at EDRAM base 0, pitch 80, 160 or 320 (a chain 320x120 down to 8x8).
+   // These classes held 32 of its 64 scaled targets, about 1 GiB at 2x.
+   if (id == "4D5308C9") return ParseNativeClasses("80x1 160x1 320x1");
++  // Fix 162d: Kinect Sports: Season Two, the same engine: on 1.0.6-work-fix156q2 at 2x its darts drew
++  // a black 3D scene with 20103 copy command 2 lines (skipped), and its render targets had Kinect
++  // Sports' layout: k_8_8_8_8 1xMSAA at EDRAM base 0 with pitch 80, 160 and 320 (and 640, 1280).
++  if (id == "4D5309D6") return ParseNativeClasses("80x1 160x1 320x1");
++  // Zumba Fitness Core (another developer) has the same: 22785 copy command 2 lines at 2x on
++  // 1.0.6-work-fix156q2 and the same render targets, down to the small passes at EDRAM bases 2 to 16
++  // and 360 to 408, so they come from the Kinect library every Kinect title links, not one engine.
++  if (id == "4D4A07F0") return ParseNativeClasses("80x1 160x1 320x1");
+   return {};
+ }
+ // Set as a game starts (before it draws), read while it draws.

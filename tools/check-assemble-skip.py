@@ -37,6 +37,12 @@ def main():
     assert [p.name for p in order] == ['08-c.patch', '08b-b.patch', '11-a.patch', '99-d.patch', '100-z.patch'], order
     names = [p.name for p in patches]
     assert '01-jit-reserved-barriers.patch' in names, names
+    # Fix 148k: every fix is named <number><letters>-... (148j2-... sorted after 155c); a name
+    # fix_order cannot read stops the assembly.
+    assert assemble.unordered_fixes(patches) == [], assemble.unordered_fixes(patches)
+    assert assemble.unordered_fixes([Path('148j2-x.patch'), Path('notes.patch'), Path('148k-y.patch')]) == ['148j2-x.patch', 'notes.patch']
+    assert [p.name for p in sorted((Path('155c-a.patch'), Path('148k-b.patch'), Path('148j-c.patch')),
+                                   key=assemble.fix_order)] == ['148j-c.patch', '148k-b.patch', '155c-a.patch']
 
     # Fix 01 by number, stem and file name: only it is left out.
     for skip in (['01'], ['01-jit-reserved-barriers'], ['01-jit-reserved-barriers.patch']):

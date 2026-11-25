@@ -98,7 +98,9 @@ void CheckTree() {
          "a suspension by another thread noted");
   const size_t self = code.find("uint32_t XThread::SelfSuspend() {");
   const size_t mark = code.find("entering_self_suspend_.store(true, std::memory_order_relaxed);", self);
-  const size_t add = code.find("const uint32_t previous = suspend_count.fetch_add(1);", self);
+  size_t add = code.find("const uint32_t previous = suspend_count.fetch_add(1);", self);
+  if (add == std::string::npos)  // fix 151: raised through Raise, which stops at 255
+    add = code.find("const uint32_t previous = xbox360ps5::suspend_count::Raise(suspend_count);", self);
   const size_t unmark = code.find("entering_self_suspend_.store(false, std::memory_order_relaxed);", add);
   const size_t noted = code.find("suspend_trace_.Note(xbox360ps5::suspend_trace::kSuspendedItself,", add);
   const size_t wait = code.find("suspend_cv_.wait(lock,", self);

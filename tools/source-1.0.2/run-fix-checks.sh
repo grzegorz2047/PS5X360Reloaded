@@ -6,7 +6,7 @@
 # tree's include/ and reconstructed/ and the core's include roots), then run with its arguments.
 # check-wait-wakeups.cpp (fix 31) is built four ways (see below).
 # Then tools/check-assemble-skip.py (the switch that leaves fixes out) and tools/check-english-source.py
-# (fix 25, English keys) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
+# (fix 25, English keys), tools/check-game-patch-files.py (the shipped assets/patches files) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
 # host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
 # The source release's checks run with python3 too: tools/check-release-version.py (the version
@@ -24,7 +24,10 @@
 # Fix 46 (PS5X360Reloaded's own title ID, folder and name): check-app-identity.cpp (the identity
 # header, the version label, the web settings' keys), check-official-import.cpp (the first start's
 # copy from the official PS5X360 on a temporary folder) and tools/check-title-id.py (no official
-# title ID or /data/homebrew literal left in the title and the core, with python3).
+# title ID or /data/homebrew literal left in the title and the core, with python3). The rename to
+# TrinityX360 (fixes/199-trinityx360-name.patch, 1.0.6; "199" when left out) is checked by
+# check-app-identity.cpp, check-save-folder.cpp (the drives' folder keeps its name),
+# check-guide-header.cpp and check-title-id.py.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
@@ -154,9 +157,67 @@ checks=(
   check-async-submit.cpp           # fix 134
   check-resolution-scale.cpp       # fixes 117 to 117k
   check-library-groups.cpp         # fixes 112 to 112f
+  check-guide-per-game.cpp         # fix 143
+  check-vulkan-fxaa.cpp            # fixes 137 and 137b
+  check-swap-effects.cpp           # fixes 141 and 141b
+  check-swap-smaa.cpp              # fix 145
+  check-low-half-size.cpp          # fix 144
+  check-video-mode.cpp             # fixes 140 to 140c
+  check-present-limit.cpp          # fixes 146 to 146e
+  check-exception-loop-entry.cpp   # fix 147
+  check-disc-content.cpp           # fix 148
+  check-smartglass-app.cpp         # fix 147b
+  check-title-keys.cpp             # fix 147b
+  check-disc-name-tags.cpp         # fix 148b
+  check-package-io.cpp             # fix 148c
+  check-file-io.cpp                # fix 148d
+  check-harmonix-keys.cpp          # fix 147c
+  check-option-groups.cpp          # fix 149
+  check-settings-tree.cpp          # fix 149b
+  check-readability.cpp            # fix 149c
+  check-stfs-cut-short.cpp         # fix 148e
+  check-dlc-incomplete.cpp         # fix 148f
+  check-write-trace.cpp            # fix 148g
+  check-install-notice.cpp         # fix 148h
+  check-help-card.cpp              # fix 149d
+  check-ui-loop-io.cpp             # fix 152
+  check-hang-watch-sync.cpp        # fix 153
+  check-log-ring.cpp               # fix 154
+  check-utility-cache-drive.cpp    # fixes 150c, 150d and 150f
+  check-two-x-unfit.cpp            # fix 150g
+  check-kinect-camera-classes.cpp  # fix 162a
+  check-scale-pressure.cpp         # fixes 162c, 162h and 163
+  check-kinect-title-rule.cpp      # fixes 162f and 163
+  check-auto-scale.cpp             # fix 163
+  check-write-bench.cpp            # fixes 148i, 148j, 148k
+  check-xma-trace.cpp              # fixes 155, 155b
+  check-xma-progress.cpp           # fix 155b
+  check-gta5-audio-patch.cpp       # fix 155c
+  check-single-game-folder.cpp     # fix 159
+  check-nui-device-status.cpp      # fix 156
+  check-kernel-timer.cpp           # fix 156b
+  check-nui-elevation.cpp          # fix 156c
+  check-pscam-state.cpp            # fix 156d
+  check-camera-worker.cpp          # fix 156e
+  check-mic-array.cpp              # fix 156f
+  check-request-pages.cpp          # fix 156g
+  check-page-watch.cpp             # fix 156h
+  check-skeleton-frame-number.cpp  # fix 156i
+  check-xex-dll-heap.cpp           # fix 156j
+  check-diag-r31.cpp               # fixes 156k and 156m
+  check-nui-identity.cpp           # fixes 156l, 156n, 156q and 156u
+  check-diag-stuck-dump.cpp        # fixes 156o and 156r
+  check-avatar-assets-success.cpp  # fix 156p
+  check-user-storage.cpp           # fix 165
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-harmonix-keys.cpp]="$repo"
+  [check-gta5-audio-patch.cpp]="$repo"
+  [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-two-x-unfit.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-auto-scale.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -176,6 +237,10 @@ declare -A arguments=(
   [check-leaving-steps.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-guide-quick.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-guide-measure.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-option-groups.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-settings-tree.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-readability.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-help-card.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-osk-keyboard.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-dlc-remove.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-kinect-camera-picture.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -187,11 +252,11 @@ declare -A fix_of=(
   [check-media-voice.cpp]=32 [check-switch-title.cpp]=33 [check-pipeline-claim.cpp]=34
   [check-readback-slots.cpp]=35 [check-unwatched-policy.cpp]=36 [check-exact-unwatch.cpp]=37
   [check-jit-backports.cpp]=38 [check-net-log-drain.cpp]=39 [check-review-fix30.cpp]="35 36 37"
-  [check-app-identity.cpp]=46 [check-official-import.cpp]=46
+  [check-app-identity.cpp]="46 199" [check-official-import.cpp]=46
   [check-hang-watch.cpp]=47
   [check-memexport-loss.cpp]=48
   [check-frame-cost.cpp]=49
-  [check-save-folder.cpp]=50
+  [check-save-folder.cpp]="50 199"
   [check-multidisc-source.cpp]=51
   [check-library-disc.cpp]=52
   [check-measure-10s.cpp]=54
@@ -210,7 +275,7 @@ declare -A fix_of=(
   [check-phone-latency.cpp]=66
   [check-xma-unwatch.cpp]=67
   [check-suspend-trace.cpp]=69
-  [check-pending-resume.cpp]=71
+  [check-pending-resume.cpp]="71 151"
   [check-page-version.cpp]=72
   [check-draw-cost.cpp]=73
   [check-watch-arming.cpp]=74
@@ -232,7 +297,7 @@ declare -A fix_of=(
   [check-xctd-query.cpp]="90 90b"
   [check-readback-repeat.cpp]=91
   [check-readback-keys.cpp]=91
-  [check-bug-report.cpp]=93
+  [check-bug-report.cpp]="93 199"
   [check-leaving-notice.cpp]=93b
   [check-boot-notice.cpp]=93c
   [check-bug-report-entries.cpp]=93d
@@ -258,13 +323,13 @@ declare -A fix_of=(
   [check-extent-count.cpp]=110
   [check-unwatched-lock-free.cpp]=111
   [check-osk-keyboard.cpp]=114
-  [check-guide-quick.cpp]=115
+  [check-guide-quick.cpp]="115 143"
   [check-swap-pacing.cpp]=116
   [check-nui-hud-check.cpp]=118
   [check-osk-modes.cpp]="114 114b"
   [check-dlc-remove.cpp]=109
   [check-avatar-skeleton.cpp]=113
-  [check-guide-header.cpp]=115b
+  [check-guide-header.cpp]="115b 199"
   [check-guide-tabs.cpp]=115c
   [check-guide-counter.cpp]=115d
   [check-guide-measure.cpp]=115e
@@ -279,7 +344,59 @@ declare -A fix_of=(
   [check-readback-batching.cpp]=133
   [check-resolution-scale.cpp]="117 117b 117c 117d 117e 117f 117g 117h 117i 117j 117k"
   [check-library-groups.cpp]="112 112b 112c 112d 112e 112f"
-  [check-async-submit.cpp]="134 134b 134c"
+  [check-async-submit.cpp]="134 134b 134c 134e"
+  [check-guide-per-game.cpp]=143
+  [check-vulkan-fxaa.cpp]="137 137b"
+  [check-swap-effects.cpp]="141 141b"
+  [check-swap-smaa.cpp]=145
+  [check-low-half-size.cpp]=144
+  [check-video-mode.cpp]="140 140b 140c"
+  [check-present-limit.cpp]="146 146b 146c 146d 146e"
+  [check-exception-loop-entry.cpp]=147
+  [check-disc-content.cpp]=148
+  [check-smartglass-app.cpp]=147b
+  [check-title-keys.cpp]=147b
+  [check-disc-name-tags.cpp]=148b
+  [check-package-io.cpp]=148c
+  [check-file-io.cpp]=148d
+  [check-harmonix-keys.cpp]=147c
+  [check-option-groups.cpp]=149
+  [check-settings-tree.cpp]=149b
+  [check-readability.cpp]=149c
+  [check-stfs-cut-short.cpp]=148e
+  [check-dlc-incomplete.cpp]=148f
+  [check-write-trace.cpp]=148g
+  [check-install-notice.cpp]=148h
+  [check-write-bench.cpp]="148i 148j 148k"
+  [check-help-card.cpp]=149d
+  [check-ui-loop-io.cpp]=152
+  [check-hang-watch-sync.cpp]=153
+  [check-log-ring.cpp]=154
+  [check-utility-cache-drive.cpp]="150c 150d"
+  [check-two-x-unfit.cpp]=150g
+  [check-kinect-camera-classes.cpp]=162a
+  [check-scale-pressure.cpp]="162c 163"
+  [check-kinect-title-rule.cpp]="162f 163"
+  [check-auto-scale.cpp]=163
+  [check-xma-trace.cpp]="155 155b"
+  [check-xma-progress.cpp]=155b
+  [check-gta5-audio-patch.cpp]=155c
+  [check-single-game-folder.cpp]=159
+  [check-nui-device-status.cpp]=156
+  [check-kernel-timer.cpp]=156b
+  [check-nui-elevation.cpp]=156c
+  [check-pscam-state.cpp]=156d
+  [check-camera-worker.cpp]=156e
+  [check-mic-array.cpp]=156f
+  [check-request-pages.cpp]=156g
+  [check-page-watch.cpp]=156h
+  [check-skeleton-frame-number.cpp]=156i
+  [check-xex-dll-heap.cpp]=156j
+  [check-diag-r31.cpp]="156k 156m"
+  [check-nui-identity.cpp]="156l 156n 156q 156u"
+  [check-diag-stuck-dump.cpp]="156o 156r"
+  [check-avatar-assets-success.cpp]=156p
+  [check-user-storage.cpp]=165
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -310,11 +427,74 @@ for name in "${checks[@]}"; do
     status=1
   fi
 done
+# Fix 137: the FXAA pixel shaders through the core's own SPIR-V step (tools/build/compile_shader_spirv.py,
+# as XeniaHelpers.cmake runs it at the compile), where glslangValidator, spirv-opt and spirv-dis are on
+# the PATH (the source build installs the Vulkan SDK's before these checks); a shader error then shows
+# here instead of in the compile.
+echo "=== fix 137, 141 and 145 shaders (glslangValidator)"
+if [[ " $skipped_fixes " == *" 137 "* ]]; then
+  echo "skip fix 137 shaders (fix 137 left out of this build)"
+elif ! command -v glslangValidator > /dev/null || ! command -v spirv-opt > /dev/null || ! command -v spirv-dis > /dev/null; then
+  echo "skip fix 137 shaders (no glslangValidator, spirv-opt and spirv-dis on the PATH)"
+else
+  shader_status=0
+  mkdir -p "$tree/build/fix-checks/spirv"
+  shader_list="fxaa.ps.glsl fxaa_extreme.ps.glsl"
+  # Fix 141: the effect path's pass without AA (and its colour preset in swap_post.glsli).
+  if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/swap_post.ps.glsl" ]]; then
+    shader_list+=" swap_post.ps.glsl"
+  fi
+  # Fix 145: SMAA 1x's three passes (with the pinned third_party/smaa/SMAA.hlsl).
+  if [[ -f "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/smaa_edge.ps.glsl" ]]; then
+    shader_list+=" smaa_edge.ps.glsl smaa_weight.ps.glsl smaa_blend.ps.glsl"
+  fi
+  for shader in $shader_list; do
+    # fxaa.ps.glsl -> fxaa_ps.h, as XeniaHelpers.cmake names it.
+    header="$tree/build/fix-checks/spirv/$(echo "${shader%.glsl}" | tr . _).h"
+    if "$python" -I "$tree/.deps/xenia-canary/tools/build/compile_shader_spirv.py" \
+          "$tree/.deps/xenia-canary/src/xenia/gpu/shaders/$shader" "$header" &&
+       grep -q 'OpEntryPoint Fragment' "$header"; then
+      echo "compiled $shader"
+    else
+      echo "FAIL: $shader"
+      shader_status=1
+    fi
+  done
+  if [[ $shader_status == 0 ]]; then
+    echo "pass fix 137 shaders"
+  else
+    echo "FAIL fix 137 shaders"
+    status=1
+  fi
+fi
 echo "=== check-patch-syntax.py"
 if "$python" -I "$repo/tools/check-patch-syntax.py"; then
   echo "pass check-patch-syntax.py"
 else
   echo "FAIL check-patch-syntax.py"
+  status=1
+fi
+echo "=== check-gta5-preset.py"
+if "$python" -I "$repo/tools/check-gta5-preset.py"; then
+  echo "pass check-gta5-preset.py"
+else
+  echo "FAIL check-gta5-preset.py"
+  status=1
+fi
+# The shipped game patch files (assets/patches): TOML, the title's reader, GTA IV's draw distance.
+echo "=== check-game-patch-files.py"
+if "$python" -I "$repo/tools/check-game-patch-files.py"; then
+  echo "pass check-game-patch-files.py"
+else
+  echo "FAIL check-game-patch-files.py"
+  status=1
+fi
+# Fix 164: the home screen's icons (assets/skin, assets/skin-dark) and their SVG sources.
+echo "=== check-skin-icons.py"
+if "$python" -I "$repo/tools/check-skin-icons.py"; then
+  echo "pass check-skin-icons.py"
+else
+  echo "FAIL check-skin-icons.py"
   status=1
 fi
 echo "=== check-bf3-preset.py"
@@ -403,8 +583,8 @@ else
   status=1
 fi
 echo "=== check-title-id.py"
-if [[ " $skipped_fixes " == *" 46 "* ]]; then
-  echo "skip check-title-id.py (fix 46 left out of this build)"
+if [[ " $skipped_fixes " == *" 46 "* || " $skipped_fixes " == *" 199 "* ]]; then
+  echo "skip check-title-id.py (fix 46 or the TrinityX360 rename left out of this build)"
 elif "$python" -I "$repo/tools/check-title-id.py" --tree "$tree"; then
   echo "pass check-title-id.py"
 else

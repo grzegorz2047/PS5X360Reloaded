@@ -1,0 +1,64 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -279,6 +279,28 @@ inline std::string TrimLine(uint64_t destroyed, uint64_t kept, uint64_t driver_b
+   return line;
+ }
+ 
++// Fix 150g: games that run at 1x even when 2x is chosen (their own setting or the general one).
++// Kinect Sports (4D5308C9) at 2x on 1.0.6-work-fix150f: its Kinect camera pictures are copied with
++// copy command 2 (kConvertTo1111), which the core cannot do scaled (fix 154: skipped, 32769 times in
++// a session), so the stadium's big screen showed green blocks and the replay panel stayed black;
++// and its render targets (up to 3680x2880 at 2x) reached 4252 MiB with the utility cache on the
++// drive, so fix 117b put several of them at 1x within minutes. At 1x both are fine (150d3).
++inline bool TwoXUnfit(const std::string& title_id) {
++  static constexpr const char* kTitles[] = {"4D5308C9"};
++  for (const char* id : kTitles) {
++    if (title_id.size() != 8) continue;
++    bool same = true;
++    for (size_t i = 0; i < 8; ++i)
++      same = same && std::toupper(static_cast<unsigned char>(title_id[i])) == id[i];
++    if (same) return true;
++  }
++  return false;
++}
++// The draw_scale choice a game runs with: 2x (1) becomes 1x (0) for those games.
++inline int ChoiceFor(int choice, const std::string& title_id) {
++  return choice == 1 && TwoXUnfit(title_id) ? 0 : choice;
++}
++
+ // Fix 117f: thresholds compiled in, for games whose package may lack the presets.txt row.
+ inline int CompiledThreshold(const std::string& title_id) {
+   static const struct {
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -712,6 +712,9 @@ GameOverrides GamePreset(const std::string& title_id) {
+ }
+ Settings ForGame(const Settings& general, const std::string& title_id, const GameOverrides& own) {
+   auto effective = WithOverrides(WithOverrides(general, GamePreset(title_id)), own);
++  // Fix 150g: Kinect Sports runs at 1x even when 2x is chosen (resolution_scale.hpp, TwoXUnfit).
++  // A start option: chosen in the launcher at 2x, the game starts again at 1x.
++  effective.draw_scale = xbox360ps5::resolution_scale::ChoiceFor(effective.draw_scale, title_id);
+   // Unsupported presenter effects must not turn a valid GL frame black.
+   // Keep stored Vulkan preferences and game overrides intact.
+   if (effective.renderer == int(Renderer::kOpenGL)) {
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3835,6 +3835,15 @@ int main(int argc, char** argv) {
+         XELOGW("Graphics: emulated VSync {}", xbox360ps5::EffectiveVsync(settings.vsync) ? "on" : "off");
+         XELOGW("Settings: {} of this game's own ({}); not at the recommended value: {}", overrides.size(),
+                settings_title.empty() ? "title not identified yet" : settings_title, ChangedOptions(settings));
++        // Fix 150g: 2x chosen (the game's own or the general setting), 1x for this game.
++        if (const auto own_scale = overrides.find("draw_scale");
++            !status && xbox360ps5::resolution_scale::TwoXUnfit(settings_title) &&
++            (own_scale != overrides.end() ? own_scale->second : global.draw_scale) == 1) {
++          XELOGW("Resolution scale (fix 150g): {} runs at 1x although 2x is chosen ({}): at 2x its Kinect "
++                 "camera pictures (copy command 2) cannot be drawn and its render targets do not fit in memory",
++                 settings_title, own_scale != overrides.end() ? "its own setting" : "the general setting");
++          xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out."), "", false});
++        }
+         {
+           const auto core_config = std::filesystem::path("/app0/assets/config") / fmt::format("{:08X}.config.toml", emulator.title_id());
+           std::error_code exists_error;

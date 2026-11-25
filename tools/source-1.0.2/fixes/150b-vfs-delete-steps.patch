@@ -1,0 +1,91 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_delete_steps.h b/.deps/xenia-canary/src/xenia/vfs/devices/host_delete_steps.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_delete_steps.h
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 150b: a file renamed for its delete (fix 139b) is shrunk to nothing in steps
++// before its unlink. Grand Theft Auto IV deletes one of its cache files (CACHE1\bars_1.img and
++// others, hundreds of MB) and makes it again at once; on 1.0.6-work-fix146f-150-152-153 each
++// such create on the game thread took 723-948 ms and ended 5-21 ms after the background unlink of
++// the old file (fix 150) did: freeing all of a big file's blocks at once held the console's file
++// system for about 0.95 s. Shrunk 4 MiB at a time with a short pause between, each hold is short,
++// and the game's create or rename waits for one step at most.
++#ifndef XENIA_VFS_DEVICES_HOST_DELETE_STEPS_H_
++#define XENIA_VFS_DEVICES_HOST_DELETE_STEPS_H_
++
++#include <atomic>
++#include <cstdint>
++
++namespace xe {
++namespace vfs {
++namespace delete_steps {
++
++inline constexpr uint64_t kStepBytes = uint64_t(4) << 20;
++inline constexpr int kPauseMs = 2;
++// The steps the last shrink took (tests and the slow-operation line).
++inline std::atomic<uint32_t> last_steps{0};
++
++// From `size` bytes down to `step` or less, `step` bytes at a time (`resize(new_size)`, false
++// stops), with `pause()` after each; then `remove()`, whose result it returns.
++template <class Resize, class Remove, class Pause>
++bool ShrinkThenRemove(uint64_t size, uint64_t step, Resize&& resize, Remove&& remove,
++                      Pause&& pause) {
++  uint32_t steps = 0;
++  while (step && size > step) {
++    size -= step;
++    if (!resize(size)) {
++      break;
++    }
++    ++steps;
++    pause();
++  }
++  last_steps.store(steps, std::memory_order_relaxed);
++  return remove();
++}
++
++}  // namespace delete_steps
++}  // namespace vfs
++}  // namespace xe
++
++#endif  // XENIA_VFS_DEVICES_HOST_DELETE_STEPS_H_
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
+@@ -29,6 +29,9 @@
+ #include "xenia/vfs/devices/host_path_file.h"
+ 
+ #include "readonly_file_pool.hpp"
++#include "xenia/vfs/devices/host_delete_steps.h"  // fix 150b
++#include <chrono>
++#include <thread>
+ 
+ namespace xe {
+ namespace vfs {
+@@ -208,8 +211,24 @@ std::function<bool()> HostPathEntry::DetachEntryInternal(Entry* entry) {
+       const auto count = std::filesystem::remove_all(renamed, error);
+       removed = !error && count != static_cast<std::uintmax_t>(-1);
+     } else {
+-      std::filesystem::remove(renamed, error);
+-      removed = !error;
++      // Fix 150b: shrunk in steps first (host_delete_steps.h), so no single step holds the file
++      // system for long; a step that fails leaves the rest to the unlink, as before.
++      const auto size = std::filesystem::file_size(renamed, error);
++      removed = delete_steps::ShrinkThenRemove(
++          error ? 0 : uint64_t(size), delete_steps::kStepBytes,
++          [&](uint64_t new_size) {
++            std::error_code resize_error;
++            std::filesystem::resize_file(renamed, new_size, resize_error);
++            return !resize_error;
++          },
++          [&] {
++            error.clear();
++            std::filesystem::remove(renamed, error);
++            return !error;
++          },
++          [] {
++            std::this_thread::sleep_for(std::chrono::milliseconds(delete_steps::kPauseMs));
++          });
+     }
+     if (!removed) {
+       XELOGE("HostPathEntry: cannot delete {}: {}", xe::path_to_utf8(renamed),

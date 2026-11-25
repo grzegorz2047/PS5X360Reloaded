@@ -1,0 +1,176 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_video.cc
+@@ -30,6 +30,11 @@
+ #endif
+ 
+ DECLARE_bool(vsync);
++#if XE_PLATFORM_PS5
++#include "xbox360ps5/video_mode.hpp"  // fix 140
++DECLARE_uint32(custom_internal_display_resolution_x);
++DECLARE_uint32(custom_internal_display_resolution_y);
++#endif
+ 
+ DEFINE_bool(interlaced, false, "Toggles interlaced mode.", "Video");
+ // BT.709 on modern monitors and TVs looks the closest to the Xbox 360 connected
+@@ -235,9 +240,21 @@ void VdQueryVideoMode(X_VIDEO_MODE* video_mode,
+   // Later calculate if resolution is widescreen or not and apply flag
+   // accordingly. Technically possible resolutions should depend on av_pack, but
+   // we can ignore it.
+-  const auto resolution =
++  auto resolution =
+       Resolution(kernel_state()->xconfig()->ReadSetting<uint32_t>(
+           XCONFIG_USER_CATEGORY, XCONFIG_USER_AV_COMPOSITE_SCREENSZ));
++#if XE_PLATFORM_PS5
++  // Fix 140: the "Emulated console resolution" option is what the game is
++  // told (it set only GetResolution's size before); the default sets none.
++  const bool custom_mode = xbox360ps5::video_mode::IsCustom(
++      cvars::custom_internal_display_resolution_x,
++      cvars::custom_internal_display_resolution_y);
++  if (custom_mode) {
++    resolution =
++        Resolution(uint16_t(cvars::custom_internal_display_resolution_x),
++                   uint16_t(cvars::custom_internal_display_resolution_y));
++  }
++#endif
+ 
+   const auto is_widescreen = IsWidescreen(kernel_state(), resolution);
+ 
+@@ -251,6 +268,16 @@ void VdQueryVideoMode(X_VIDEO_MODE* video_mode,
+       static_cast<uint32_t>(GetVideoStandard(kernel_state()));
+   video_mode->pixel_rate = 0x8A;
+   video_mode->widescreen_flag = is_widescreen ? 0x01 : 0x03;
++#if XE_PLATFORM_PS5
++  // Fix 140: the first answer is logged, so a console check is unambiguous.
++  static std::atomic<bool> video_mode_logged{false};
++  if (!video_mode_logged.exchange(true, std::memory_order_relaxed)) {
++    XELOGW("{}", xbox360ps5::video_mode::Line(
++                     {uint32_t(video_mode->display_width),
++                      uint32_t(video_mode->display_height)},
++                     bool(video_mode->is_hi_def), is_widescreen, custom_mode));
++  }
++#endif
+ }
+ 
+ void VdQueryRealVideoMode_entry(pointer_t<X_VIDEO_MODE> video_mode) {
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -71,7 +71,7 @@ struct Settings {
+   int sharpness = 1;            // Of CAS and FSR: 0 soft, 1 as designed, 2 strong.
+   int dither = 0;
+   int anisotropic = 0;          // 0 the game's own, then 2x, 4x, 8x, 16x.
+-  int internal_resolution = 0;  // The emulated console's display mode: 0 720p, 1 1080p, 2 848x480, 3 960x540.
++  int internal_resolution = 0;  // The emulated console's display mode: 0 720p, 1 1080p, 2 848x480, 3 960x540, 4 1600x900 (fix 140).
+   int stretch = 0;              // The picture fills the screen instead of keeping its proportions.
+   int video_clock = 0;          // The emulated console's refresh: 0 60 Hz, 1 120 Hz.
+   int gamma = 0;                // What the console says its display is: 0 HDTV, 1 sRGB, 2 linear.
+diff --git a/include/xbox360ps5/video_mode.hpp b/include/xbox360ps5/video_mode.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/video_mode.hpp
+@@ -0,0 +1,57 @@
++// SPDX-License-Identifier: MIT
++// Fix 140 (tools/source-1.0.2/fixes/140-video-mode-900p.patch): the "Emulated console resolution" option is what the
++// game is told. Until now the option set the core's custom_internal_display_resolution_x/y, which only
++// GraphicsSystem::GetResolution read (the vertical counter's step per vblank); VdQueryVideoMode (and XGetVideoMode and
++// VdGetCurrentDisplayInformation through it) read the console's own screen size, 1280x720, so every game saw 720p
++// whatever the choice. Now VdQueryVideoMode reports the custom size when one is set (hi-def from 1280 pixels wide,
++// widescreen unless 4:3, as for the console's own size), and a 1600x900 choice is added as value 4. The default
++// (720p, value 0) sets no custom size, so the game is told exactly what it was told before. Saved values keep their
++// meaning; a saved value out of range is the default.
++#pragma once
++
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xbox360ps5 {
++namespace video_mode {
++
++struct Size {
++  uint32_t width = 0;
++  uint32_t height = 0;
++};
++
++// The option's choices: 0 the console's own (720p), 1 1920x1080, 2 848x480, 3 960x540, 4 1600x900.
++inline constexpr int kChoices = 5;
++inline Size ForChoice(int choice) {
++  static constexpr Size kSizes[kChoices] = {{0, 0}, {1920, 1080}, {848, 480}, {960, 540}, {1600, 900}};
++  return choice >= 0 && choice < kChoices ? kSizes[choice] : kSizes[0];
++}
++// A value read from settings.txt: out of range is the default.
++inline int LoadedChoice(int saved) { return saved >= 0 && saved < kChoices ? saved : 0; }
++
++// The size the game is told: the custom one when both sides are set (and fit the guest's 16 bits), else the console's.
++inline Size Reported(uint32_t custom_width, uint32_t custom_height, Size console) {
++  if (custom_width && custom_height && custom_width <= 0xFFFF && custom_height <= 0xFFFF)
++    return {custom_width, custom_height};
++  return console;
++}
++inline bool IsCustom(uint32_t custom_width, uint32_t custom_height) {
++  return custom_width && custom_height && custom_width <= 0xFFFF && custom_height <= 0xFFFF;
++}
++// As VdQueryVideoMode decides them: hi-def from 1280 pixels wide, widescreen unless exactly 4:3.
++inline bool HiDef(Size s) { return s.width >= 0x500; }
++inline bool AspectWide(Size s) { return uint64_t(s.width) * 3 != uint64_t(s.height) * 4; }
++
++// Logged once, the first time a game asks.
++inline std::string Line(Size s, bool hi_def, bool widescreen, bool custom) {
++  char line[200];
++  std::snprintf(line, sizeof(line), "Video mode (fix 140): %ux%u reported to the game (%s, %s), %s", s.width, s.height,
++                hi_def ? "hi-def" : "standard definition", widescreen ? "widescreen" : "4:3",
++                custom ? "from the Emulated console resolution setting" : "the console's own (Emulated console "
++                                                                          "resolution: 720p)");
++  return line;
++}
++
++}  // namespace video_mode
++}  // namespace xbox360ps5
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -24,6 +24,7 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/bug_report.hpp"  // fix 93
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/video_mode.hpp"  // fix 140
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
+ #include <algorithm>
+@@ -444,8 +445,9 @@ const std::vector<Option>& Options() {
+        "Keeps textures sharp on floors and walls seen at an angle. Game's own: what the game asks for. Higher values cost little, but a few games show defects.",
+        {"Game's own", "2x", "4x", "8x", "16x"}},
+       {"internal_resolution", &S::internal_resolution, 0, W::launch, 0, true, "Emulated console resolution",
+-       "The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 1080p some draw more (heavier). Many games ignore it and stay at 720p.",
+-       {"720p", "1080p", "480p (848x480)", "540p (960x540)"}},
++       "The resolution the emulated Xbox 360 reports to the game. At 480p or 540p some games draw fewer pixels and run lighter; at 900p or 1080p some draw more (sharper, heavier). Many games ignore it and stay at 720p.",
++       // Fix 140: 900p is value 4; the earlier values keep their meaning.
++       {"720p", "1080p", "480p (848x480)", "540p (960x540)", "900p (1600x900)"}},
+       // Fix 117: the core reads the scale as it starts (VulkanCommandProcessor::SetupContext), so
+       // a game with its own value restarts the emulator into it. 3x is not offered: its scaled
+       // resolve memory needs four 2 GiB sparse buffers, more than the PS5 driver's 4 GiB window.
+@@ -719,6 +721,8 @@ void Settings::Load() {
+     if (key == "language") language = value;
+     else if (key == "interface_language") interface_language = value;
+     else if (key == "logging_policy") logging_policy = value;
++    // Fix 140: a value out of range is the default (720p), not the last choice.
++    else if (key == "internal_resolution") internal_resolution = xbox360ps5::video_mode::LoadedChoice(value);
+     // resolution_scale: not read. Scaled rendering takes the PS5's memory away
+     // from the game's threads (every game crashed at its first frame). Fix 117's
+     // test is the draw_scale option, with its own key: this one is 1 in every file.
+@@ -781,9 +785,11 @@ void Settings::Apply() const {
+   // Read when a game starts.
+   cvars::delay_via_maybeyield = guest_yield != 0;
+   cvars::license_mask = arcade_full ? 1 : 0;
+-  static constexpr uint32_t kResolutions[][2] = {{0, 0}, {1920, 1080}, {848, 480}, {960, 540}};
+-  cvars::custom_internal_display_resolution_x = kResolutions[internal_resolution & 3][0];
+-  cvars::custom_internal_display_resolution_y = kResolutions[internal_resolution & 3][1];
++  // Fix 140: both sides always set (0x0 for the default, the console's own size); "& 3" would have
++  // turned 900p (4) into the default.
++  const xbox360ps5::video_mode::Size video_mode = xbox360ps5::video_mode::ForChoice(internal_resolution);
++  cvars::custom_internal_display_resolution_x = video_mode.width;
++  cvars::custom_internal_display_resolution_y = video_mode.height;
+   static constexpr uint32_t kGamma[] = {2, 1, 0};
+   cvars::kernel_display_gamma_type = kGamma[gamma % 3];
+   cvars::depth_bias_shader_offset = decal_bias != 0;

@@ -1,0 +1,86 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_devices/stfs_container_device.cc b/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_devices/stfs_container_device.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_devices/stfs_container_device.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/xcontent_devices/stfs_container_device.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/vfs/devices/xcontent_devices/stfs_container_device.h"
++#include "xbox360ps5/stfs_size.hpp"  // fix 148e
+ #include "xenia/base/logging.h"
+ #include "xenia/kernel/xam/content_manager.h"
+ #include "xenia/vfs/devices/xcontent_devices/stfs_container_entry.h"
+@@ -42,6 +43,24 @@
+ }
+ 
+ StfsContainerDevice::Result StfsContainerDevice::Read() {
++  // Xbox360PS5 fix 148e: a package whose file is shorter than its header says
++  // (an install that stopped half-way) is not mounted: its reads past the cut
++  // came back empty and the game read them again without end. Opening it now
++  // fails as for a package that is not there (stfs_size.hpp).
++  {
++    const uint32_t total = descriptor_->total_block_count;
++    if (xbox360ps5::stfs_size::CutShort(data_->size(), total,
++                                        blocks_per_hash_table_)) {
++      XELOGW(
++          "Package (fix 148e): {} is cut short: its header counts {} blocks, "
++          "which need {} bytes of data; the file has {}. Not mounted (an "
++          "install that stopped before its end?)",
++          mount_path(), total,
++          xbox360ps5::stfs_size::DataNeeded(total, blocks_per_hash_table_),
++          data_->size());
++      return Result::kReadError;
++    }
++  }
+   auto root_entry = new StfsContainerEntry(this, nullptr, "", data_.get());
+   root_entry->attributes_ = kFileAttributeDirectory;
+   root_entry_ = std::unique_ptr<Entry>(root_entry);
+diff --git a/include/xbox360ps5/stfs_size.hpp b/include/xbox360ps5/stfs_size.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/stfs_size.hpp
+@@ -0,0 +1,45 @@
++// SPDX-License-Identifier: MIT
++// Fix 148e: an STFS package whose file is shorter than its own header says is not mounted.
++//
++// Grand Theft Auto V's install was stopped half-way: 545408A700000001 on the drive held 1.44 of its
++// 2.15 GB. Starting the game again mounted it anyway: the STFS device logged "STFS file part1.rpf only
++// found 1433726976 bytes for file, expected 2134566912" and went on, so the game's reads past the
++// cut came back empty and failed (C0000001) about 200,000 times a second, with no frame drawn. A
++// console checks a package's blocks against their hashes and would not hand out such a file.
++//
++// The rule: the header's volume descriptor counts the package's blocks (total_block_count); the data
++// must reach the end of the last of them, hash blocks included (the device's BlockToOffset). Every
++// package read while checking (Grand Theft Auto V's four install packages and nxeart, Dance Central
++// 3's PIRS files, the package Battlefield 3 makes itself) ends exactly there. A shorter file is cut
++// short: it is not mounted, so opening it fails as for a package that is not there, and the game can
++// install it again.
++#pragma once
++#include <cstdint>
++
++namespace xbox360ps5::stfs_size {
++
++constexpr uint64_t kBlockSize = 0x1000;
++constexpr uint64_t kBlocksPerHashLevel[3] = {170, 28900, 4913000};
++
++// The data offset of a data block: the device's BlockToOffset (a hash table before every 170
++// blocks, every 170 tables, ...; one or two blocks per table, by the read-only flag).
++inline uint64_t BlockToOffset(uint64_t block_index, uint64_t blocks_per_hash_table) {
++  uint64_t block = block_index;
++  for (uint64_t base : kBlocksPerHashLevel) {
++    block += ((block_index + base) / base) * blocks_per_hash_table;
++    if (block_index < base) break;
++  }
++  return block << 12;
++}
++
++// The data a package of total_block_count blocks needs; 0 for none.
++inline uint64_t DataNeeded(uint32_t total_block_count, uint64_t blocks_per_hash_table) {
++  return total_block_count ? BlockToOffset(total_block_count - 1, blocks_per_hash_table) + kBlockSize : 0;
++}
++
++// Whether data of `size` bytes is cut short.
++inline bool CutShort(uint64_t size, uint32_t total_block_count, uint64_t blocks_per_hash_table) {
++  return size < DataNeeded(total_block_count, blocks_per_hash_table);
++}
++
++}  // namespace xbox360ps5::stfs_size

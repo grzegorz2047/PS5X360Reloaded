@@ -1,0 +1,458 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_crypt.cc
+@@ -23,6 +23,9 @@
+ #include "third_party/crypto/sha256.cpp"
+ #include "third_party/crypto/sha256.h"
+ #include "xenia/kernel/xboxkrnl/xecrypt_rsa.h"
++// Fix 147c: C++ headers, outside the extern "C" block below.
++#include "xbox360ps5/app_identity.hpp"  // fix 147c
++#include "xbox360ps5/harmonix_keys.hpp"  // fix 147c
+ 
+ extern "C" {
+ #include "third_party/FFmpeg/libavutil/md5.h"
+@@ -1104,12 +1107,36 @@
+ 
+ dword_result_t XeKeysSetKey_entry(dword_t key_number, lpvoid_t key_ptr,
+                                   dword_t key_size) {
++  const uint8_t* given = key_ptr ? key_ptr.as<const uint8_t*>() : nullptr;
++  // Fix 147c: a Harmonix title key (known by its SHA-256 fingerprint) is
++  // replaced by the uploaded key of the same index (harmonix_keys.hpp), the
++  // key the console's hypervisor holds for it; without one the overlay asks
++  // for the keys and the title's key is kept (its music will not decrypt).
++  namespace hk = xbox360ps5::harmonix_keys;
++  const int harmonix = key_size == 16 ? hk::TitleKeyIndex(given) : -1;
++  std::optional<hk::Key> uploaded;
++  if (harmonix >= 0) {
++    uploaded = hk::Load(hk::KeyFile(XBOX360PS5_DATA_ROOT))[size_t(harmonix)];
++    hk::needed.store(!uploaded.has_value());
++  }
+   const bool stored = title_key_slots.Set(
+-      key_number, key_ptr ? key_ptr.as<const uint8_t*>() : nullptr, key_size);
+-  if (!title_key_set_logged.exchange(true)) {
+-    XELOGW("Title keys (fix 147b): XeKeysSetKey({:02X}, {} bytes) {}",
++      key_number, uploaded ? uploaded->data() : given, key_size);
++  static std::atomic<uint32_t> harmonix_logged{0};
++  const bool first = !title_key_set_logged.exchange(true);
++  const bool first_harmonix =
++      harmonix >= 0 &&
++      !(harmonix_logged.fetch_or(1u << harmonix) & (1u << harmonix));
++  if (first || first_harmonix) {
++    XELOGW("Title keys (fix 147b, 147c): XeKeysSetKey({:02X}, {} bytes) {}{}",
+            uint32_t(key_number), uint32_t(key_size),
+-           stored ? "stored" : "refused (not a title slot or not 16 bytes)");
++           stored ? "stored" : "refused (not a title slot or not 16 bytes)",
++           harmonix < 0 ? std::string()
++           : uploaded
++               ? fmt::format(", Harmonix key {}: the uploaded key is used",
++                             harmonix)
++               : fmt::format(", Harmonix key {}: no uploaded key in {}; the "
++                             "music keys are asked for on screen",
++                             harmonix, hk::KeyFile(XBOX360PS5_DATA_ROOT)));
+   }
+   return stored ? X_STATUS_SUCCESS : X_STATUS_ACCESS_DENIED;
+ }
+diff --git a/platform/ps5/web_settings.cpp b/platform/ps5/web_settings.cpp
+--- a/platform/ps5/web_settings.cpp
++++ b/platform/ps5/web_settings.cpp
+@@ -8,6 +8,8 @@
+ #include "phone_camera_console.hpp"
+ #include "phone_camera_tls.hpp"
+ #include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/harmonix_keys.hpp"  // fix 147c
++#include "xbox360ps5/i18n.hpp"  // fix 147c: the page's texts
+ #include <algorithm>
+ #include <arpa/inet.h>
+ #include <atomic>
+@@ -294,6 +296,33 @@
+   const std::string disposition = "Content-Disposition: attachment; filename=\"" + report.filename().string() + "\"\r\n";
+   Send(client, "200 OK", "application/zip", data, disposition.c_str());
+ }
++// Fix 147c: the page that takes the Harmonix music keys (harmonix_keys.hpp). Only keys whose
++// SHA-256 matches a built-in fingerprint are kept; the texts come translated in __KEYS_BOOT__.
++const char kKeysPage[] = R"HTML(<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
++<title>TrinityX360</title><style>
++body{font-family:system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:16px;max-width:720px}
++h1{font-size:20px}p{color:#bbb;line-height:1.4}textarea{width:100%;height:180px;background:#222;color:#eee;border:1px solid #444;border-radius:6px;font-family:monospace;font-size:12px;box-sizing:border-box}
++button{margin-top:10px;padding:10px 18px;font-size:16px;border:0;border-radius:6px;background:#2a7;color:#fff}code{color:#8ce;word-break:break-all}#out{margin-top:12px;font-weight:600}
++</style></head><body><h1 id="title"></h1><p id="about"></p><p><span id="where"></span><br><code id="path"></code></p>
++<p id="state"></p><textarea id="keys" spellcheck="false"></textarea><br><button id="save"></button><p id="out"></p>
++<script>
++const boot=__KEYS_BOOT__,t=boot.text,$=id=>document.getElementById(id);
++$('title').textContent=t.title;$('about').textContent=t.about;$('where').textContent=t.where;$('path').textContent=boot.path;
++$('save').textContent=t.save;
++const fmt=(s,a,b)=>s.replace('%u',a).replace('%u',b);
++$('state').textContent=fmt(t.saved,boot.saved,boot.total);
++$('save').onclick=async()=>{
++  let text=$('keys').value;const at=text.indexOf('HvKeys');
++  if(at>=0){const end=text.indexOf('}',at);text=text.substring(at,end<0?text.length:end+1);}
++  text=text.substring(0,3800);
++  const r=await fetch('/api/keys',{method:'POST',headers:{'X-Key':boot.key,'Content-Type':'application/x-www-form-urlencoded'},body:'keys='+encodeURIComponent(text)});
++  const j=await r.json();
++  $('out').textContent=fmt(t.saved,j.saved,j.total)+(j.refused?' · '+fmt(t.refused,j.refused,0):'');
++  $('state').textContent='';
++};
++</script></body></html>
++)HTML";
++
+ void Answer(int client) {
+   timeval limit{5, 0};
+   setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof(limit));
+@@ -363,6 +392,42 @@
+                                 : "{\"key\":" + JsonText(key) + ",\"https\":" + JsonText(secure) + "}");
+     Send(client, "200 OK", "text/html; charset=utf-8", page,
+          "Referrer-Policy: no-referrer\r\nPermissions-Policy: camera=(), microphone=()\r\n");
++  } else if (target == "/keys" && method == "GET") {
++    // Fix 147c: the Harmonix music keys page (harmonix_keys.hpp).
++    namespace hk = harmonix_keys;
++    const auto set = hk::Load(hk::KeyFile(XBOX360PS5_DATA_ROOT));
++    const std::string boot =
++        "{\"key\":" + JsonText(key) + ",\"saved\":" + std::to_string(hk::Count(set)) +
++        ",\"total\":" + std::to_string(hk::kKeys) + ",\"path\":" + JsonText(hk::kWhere) +
++        ",\"text\":{\"title\":" + JsonText(Tr("Harmonix music keys")) +
++        ",\"about\":" + JsonText(Tr("This game's music is encrypted with Harmonix keys, which are not included. Paste the HvKeys array from keys.h (or one key per line) and save.")) +
++        ",\"where\":" + JsonText(Tr("Where to get them:")) + ",\"save\":" + JsonText(Tr("Save")) +
++        ",\"saved\":" + JsonText(Tr("Keys saved: %u of %u. Restart the game to use them.")) +
++        ",\"refused\":" + JsonText(Tr("Keys refused (no fingerprint matches): %u")) + "}}";
++    std::string page = kKeysPage;
++    const auto marker = page.find("__KEYS_BOOT__");
++    page.replace(marker, sizeof("__KEYS_BOOT__") - 1, boot);
++    Send(client, "200 OK", "text/html; charset=utf-8", page, "Referrer-Policy: no-referrer\r\n");
++  } else if (target == "/api/keys" && method == "POST") {
++    // Fix 147c: keys checked against the fingerprints; those that match are kept.
++    namespace hk = harmonix_keys;
++    const std::string file = hk::KeyFile(XBOX360PS5_DATA_ROOT);
++    auto set = hk::Load(file);
++    size_t refused = 0;
++    const size_t accepted = hk::Accept(set, hk::ParseKeys(Unescaped(Parameter(body, "keys"))), &refused);
++    bool written = true;
++    if (accepted) {
++      std::error_code error;
++      fs::create_directories(fs::path(file).parent_path(), error);
++      std::ofstream out(file, std::ios::binary | std::ios::trunc);
++      out << hk::Serialize(set);
++      written = bool(out);
++    }
++    std::fprintf(stderr, "[X360] Harmonix keys (fix 147c): %zu accepted, %zu refused, %zu of %zu saved%s\n",
++                 accepted, refused, hk::Count(set), hk::kKeys, written ? "" : " (the file could not be written)");
++    Send(client, written ? "200 OK" : "500 Internal Server Error", "application/json",
++         "{\"accepted\":" + std::to_string(accepted) + ",\"refused\":" + std::to_string(refused) +
++             ",\"saved\":" + std::to_string(hk::Count(set)) + ",\"total\":" + std::to_string(hk::kKeys) + "}");
+   } else if (target == "/api/state" && method == "GET") {
+     std::string copy;
+     { std::lock_guard<std::mutex> lock(mutex); copy = state; }
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -162,6 +162,7 @@
+ #include "xbox360ps5/web_settings.hpp"
+ #include "xbox360ps5/qr_code.hpp"         // fix 63: the camera QR code in the motion panel
+ #include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
++#include "xbox360ps5/harmonix_keys.hpp"  // fix 147c
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107
+ #include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
+ #include "xbox360ps5/body_scale.hpp"  // fix 57: the body the games get
+@@ -417,6 +418,23 @@
+         motion_panel_(motion_panel) {}
+  protected:
+   void OnDraw(ImGuiIO& io) override {
++    // Fix 147c: the Harmonix music keys panel while a game asks for them (harmonix_keys.hpp), on
++    // the side the motion panel does not use; the address is looked up every 2 s.
++    if (xbox360ps5::harmonix_keys::needed.load()) {
++      const auto now = std::chrono::steady_clock::now();
++      if (keys_checked_ == std::chrono::steady_clock::time_point{} || now - keys_checked_ >= std::chrono::seconds(2)) {
++        keys_checked_ = now;
++        keys_key_ = xbox360ps5::WebSettingsKey();
++        const std::string url = xbox360ps5::harmonix_keys::PageUrl(xbox360ps5::WebSettingsPlainAddress(), keys_key_);
++        if (url != keys_url_) {
++          keys_url_ = url;
++          keys_qr_ = url.empty() ? xbox360ps5::QrCode() : xbox360ps5::MakeQrCode(url);
++        }
++      }
++      if (keys_qr_.size)
++        DrawKeysPanel(ImGui::GetForegroundDrawList(), io.DisplaySize.y / 1080.0f,
++                      motion_panel_ == 1 ? 0.0f : xbox360ps5::motion::kQrPanelLeftShift);
++    }
+     // Sample on every overlay draw, including when its FPS setting is hidden.
+     // The presenter owns these counters; this overlay only loads them.
+     output_rates_.Update(std::chrono::steady_clock::now(),
+@@ -658,7 +676,44 @@
+                             IM_COL32(120, 180, 255, 255));
+     }
+   }
++  // Fix 147c: a game needs the Harmonix music keys (harmonix_keys.hpp): the /keys page's QR code,
++  // the pairing code, what to do and where the keys are public, in a panel of the motion panel's
++  // size on the other side of the screen.
++  void DrawKeysPanel(ImDrawList* draw, float scale, float shift) {
++    const auto& at = xbox360ps5::motion::kQrPanel;
++    ImFont* font = ImGui::GetFont();
++    draw->AddRectFilled(ImVec2((at.left + shift) * scale, at.top * scale), ImVec2((at.right + shift) * scale, (at.bottom + 120) * scale),
++                        IM_COL32(0, 0, 0, 170), 8 * scale);
++    draw->AddText(font, at.title_size * scale, ImVec2((at.text_x + shift) * scale, at.title_y * scale),
++                  IM_COL32(245, 204, 137, 255), Tr("Music keys needed"));
++    const float module = xbox360ps5::motion::QrModulePixels(keys_qr_.size, at.card, scale);
++    if (module > 0) {
++      const float card = at.card * scale, qx = (at.card_x + shift) * scale, qy = at.card_y * scale;
++      const float inset = std::floor((card - module * float(keys_qr_.size)) / 2);
++      draw->AddRectFilled(ImVec2(qx, qy), ImVec2(qx + card, qy + card), IM_COL32(255, 255, 255, 255), 6 * scale);
++      for (int my = 0; my < keys_qr_.size; ++my) {
++        for (int mx = 0; mx < keys_qr_.size;) {
++          if (!keys_qr_.At(mx, my)) { ++mx; continue; }
++          int run = 1;
++          while (mx + run < keys_qr_.size && keys_qr_.At(mx + run, my)) ++run;
++          const ImVec2 from(qx + inset + float(mx) * module, qy + inset + float(my) * module);
++          draw->AddRectFilled(from, ImVec2(from.x + float(run) * module, from.y + module), IM_COL32(0, 0, 0, 255));
++          mx += run;
++        }
++      }
++    }
++    const std::string code = std::string(Tr("Code: ")) + keys_key_;
++    draw->AddText(font, at.code_size * scale, ImVec2((at.text_x + shift) * scale, at.code_y * scale),
++                  IM_COL32(130, 240, 170, 255), code.c_str());
++    const std::string how = std::string(Tr("Scan to add the Harmonix music keys (HvKeys). Restart the game after.")) + "\n" +
++                            Tr("Where to get them:") + "\n" + xbox360ps5::harmonix_keys::kWhere;
++    draw->AddText(font, at.text_size * scale, ImVec2((at.text_x + shift) * scale, at.text_y * scale),
++                  IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
++  }
+   static constexpr float kPanelPixelsPerMetre = 130;
++  std::chrono::steady_clock::time_point keys_checked_{};  // fix 147c
++  std::string keys_url_, keys_key_;                       // fix 147c
++  xbox360ps5::QrCode keys_qr_;                            // fix 147c
+   float shift_ = 0;  // the panel's place: 0 at the top right, kQrPanelLeftShift at the top left
+   std::chrono::steady_clock::time_point phone_checked_{};
+   std::string phone_url_, phone_key_;
+diff --git a/include/xbox360ps5/harmonix_keys.hpp b/include/xbox360ps5/harmonix_keys.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/harmonix_keys.hpp
+@@ -0,0 +1,230 @@
++// SPDX-License-Identifier: MIT
++// Fix 147c: the Harmonix music keys, uploaded by the player.
++//
++// Dance Central 3 kept its "Loading" screen with 147b. Its loading music is an encrypted mogg: the
++// game sets one of four title keys (its table at 82D13000, one per mogg version: 12-13, 14, 15, 16)
++// with XeKeysSetKey and decrypts the header's key field with XeKeysAesCbc. The console does not use
++// the title key as given: its hypervisor holds another key for it (the "HvKeys" of the open-source
++// mogg tools, which decrypt the same field with them), so 147b's result was wrong and the music
++// never became ready.
++//
++// No key is part of PS5X360Reloaded. Built in are only SHA-256 fingerprints: of each title key the
++// game sets, and of the hypervisor key that belongs to it. The player puts the keys on the console
++// through the settings server's /keys page (an overlay shows its QR code while a game needs them);
++// the page checks each against the fingerprints and keeps those that match in
++// <data>/keys/harmonix-mogg.txt ("hv<n>=<32 hex digits>" lines). When a game sets a title key whose
++// fingerprint is known, XeKeysSetKey uses the uploaded key of the same index instead.
++#pragma once
++#include <array>
++#include <atomic>
++#include <cctype>
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <fstream>
++#include <optional>
++#include <sstream>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5::harmonix_keys {
++
++using Key = std::array<uint8_t, 16>;
++using Digest = std::array<uint8_t, 32>;
++
++// SHA-256 (FIPS 180-4).
++inline Digest Sha256(const uint8_t* data, size_t size) {
++  static constexpr uint32_t k[64] = {
++      0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
++      0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
++      0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
++      0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
++      0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
++      0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
++      0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
++      0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
++  uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
++                   0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
++  std::vector<uint8_t> m(data, data + size);
++  m.push_back(0x80);
++  while (m.size() % 64 != 56) m.push_back(0);
++  const uint64_t bits = uint64_t(size) * 8;
++  for (int i = 7; i >= 0; --i) m.push_back(uint8_t(bits >> (i * 8)));
++  const auto rotr = [](uint32_t x, int n) { return (x >> n) | (x << (32 - n)); };
++  for (size_t block = 0; block < m.size(); block += 64) {
++    uint32_t w[64];
++    for (int i = 0; i < 16; ++i)
++      w[i] = uint32_t(m[block + i * 4]) << 24 | uint32_t(m[block + i * 4 + 1]) << 16 |
++             uint32_t(m[block + i * 4 + 2]) << 8 | m[block + i * 4 + 3];
++    for (int i = 16; i < 64; ++i) {
++      const uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
++      const uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
++      w[i] = w[i - 16] + s0 + w[i - 7] + s1;
++    }
++    uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
++    for (int i = 0; i < 64; ++i) {
++      const uint32_t t1 = hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + k[i] + w[i];
++      const uint32_t t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
++      hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
++    }
++    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
++  }
++  Digest out{};
++  for (int i = 0; i < 8; ++i)
++    for (int j = 0; j < 4; ++j) out[size_t(i * 4 + j)] = uint8_t(h[i] >> (24 - j * 8));
++  return out;
++}
++
++inline std::string Hex(const uint8_t* data, size_t size) {
++  static const char digits[] = "0123456789abcdef";
++  std::string text;
++  for (size_t i = 0; i < size; ++i) {
++    text += digits[data[i] >> 4];
++    text += digits[data[i] & 15];
++  }
++  return text;
++}
++
++// Fingerprints, in mogg-version order (12-13, 14, 15, 16): of the title key the game sets, and of
++// the hypervisor key that belongs to it.
++struct Fingerprint {
++  const char* title_sha256;
++  const char* key_sha256;
++};
++inline constexpr Fingerprint kFingerprints[] = {
++    {"f01fb0b0d7a9c47b0d2d5e121ad214675c381c9133dd3ee672248fb5ecc61ad5",
++     "844bafe33509c8af642b6dafa82aa85011d375783b17d2d9a9290418b5f4661b"},
++    {"ce99ceeafd02e6352f07ef6a9168e9645419ede5e4376365bca6f845bc8b657a",
++     "60d66b53445d6c7b3be30944fccf16f19ba66ce1498c59c86e006c029c0d1fae"},
++    {"af397fefcf1486e32f90e0caca343dba4858f2ba4229a061caf635f85496b558",
++     "57362aee3db9519689a7cd092ac3e39ca9ac3b5eae0ca69e466921d9db527401"},
++    {"c967a13c7c87ab798b6f9781ddd74262e334bb66def8b39fafd9e21cf1f3254c",
++     "7fdc3e9bda7d48002d7a24daadd2a9230787125dd9ba4bf4dc82e90c0e5e3471"},
++};
++constexpr size_t kKeys = sizeof(kFingerprints) / sizeof(kFingerprints[0]);
++
++// The index of a title key the game sets, or -1.
++inline int TitleKeyIndex(const uint8_t* key) {
++  if (!key) return -1;
++  const Digest d = Sha256(key, 16);
++  const std::string hex = Hex(d.data(), d.size());
++  for (size_t n = 0; n < kKeys; ++n)
++    if (hex == kFingerprints[n].title_sha256) return int(n);
++  return -1;
++}
++// The index a hypervisor key belongs to, or -1 (a key no fingerprint knows).
++inline int HvKeyIndex(const Key& key) {
++  const Digest d = Sha256(key.data(), key.size());
++  const std::string hex = Hex(d.data(), d.size());
++  for (size_t n = 0; n < kKeys; ++n)
++    if (hex == kFingerprints[n].key_sha256) return int(n);
++  return -1;
++}
++
++inline int Nibble(char c) {
++  if (c >= '0' && c <= '9') return c - '0';
++  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
++  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
++  return -1;
++}
++
++// The 16-byte keys in pasted text: the "HvKeys" array of keys.h (its 0x.. bytes in groups of 16),
++// when the text has one; else every run of exactly 32 hexadecimal digits (one key per line, or
++// "name=hex").
++inline std::vector<Key> ParseKeys(const std::string& text) {
++  std::vector<Key> keys;
++  const size_t array = text.find("HvKeys");
++  if (array != std::string::npos) {
++    const size_t open = text.find('{', array), close = open == std::string::npos ? open : text.find('}', open);
++    if (open != std::string::npos && close != std::string::npos) {
++      std::vector<uint8_t> bytes;
++      for (size_t i = open; i + 3 < close; ++i) {
++        if (text[i] == '0' && (text[i + 1] == 'x' || text[i + 1] == 'X')) {
++          const int hi = Nibble(text[i + 2]), lo = Nibble(text[i + 3]);
++          if (hi >= 0 && lo >= 0) bytes.push_back(uint8_t(hi << 4 | lo));
++        }
++      }
++      for (size_t n = 0; n + 16 <= bytes.size(); n += 16) {
++        Key key{};
++        std::memcpy(key.data(), &bytes[n], 16);
++        keys.push_back(key);
++      }
++      return keys;
++    }
++  }
++  for (size_t i = 0; i < text.size();) {
++    size_t run = 0;
++    while (i + run < text.size() && Nibble(text[i + run]) >= 0) ++run;
++    const bool word = i == 0 || !std::isalnum(static_cast<unsigned char>(text[i - 1]));
++    if (run == 32 && word) {
++      Key key{};
++      for (size_t b = 0; b < 16; ++b) key[b] = uint8_t(Nibble(text[i + b * 2]) << 4 | Nibble(text[i + b * 2 + 1]));
++      keys.push_back(key);
++    }
++    i += run ? run : 1;
++  }
++  return keys;
++}
++
++// The keys by index; empty where none was given.
++using Set = std::array<std::optional<Key>, kKeys>;
++
++// Merges keys into a set: each key goes to the index its fingerprint names; a key no fingerprint
++// knows is refused. Returns how many were accepted.
++inline size_t Accept(Set& set, const std::vector<Key>& keys, size_t* refused = nullptr) {
++  size_t accepted = 0, bad = 0;
++  for (const Key& key : keys) {
++    const int index = HvKeyIndex(key);
++    if (index < 0) {
++      ++bad;
++      continue;
++    }
++    set[size_t(index)] = key;
++    ++accepted;
++  }
++  if (refused) *refused = bad;
++  return accepted;
++}
++inline size_t Count(const Set& set) {
++  size_t n = 0;
++  for (const auto& key : set) n += key.has_value();
++  return n;
++}
++
++// The key file: "hv<n>=<hex>" lines; a line whose key does not match its fingerprint is skipped.
++inline std::string Serialize(const Set& set) {
++  std::string text = "# Harmonix music keys (fix 147c): hv<n>=<key>, checked against built-in SHA-256 fingerprints\n";
++  for (size_t n = 0; n < kKeys; ++n)
++    if (set[n]) text += "hv" + std::to_string(n) + "=" + Hex(set[n]->data(), 16) + "\n";
++  return text;
++}
++inline Set ParseFile(const std::string& text) {
++  Set set{};
++  std::vector<Key> keys = ParseKeys(text);
++  Accept(set, keys);
++  return set;
++}
++inline Set Load(const std::string& path) {
++  std::ifstream file(path, std::ios::binary);
++  if (!file) return {};
++  std::stringstream text;
++  text << file.rdbuf();
++  return ParseFile(text.str());
++}
++
++// Where the keys are kept, under the data folder (app_identity.hpp's XBOX360PS5_DATA_ROOT).
++inline std::string KeyFile(const std::string& data_root) { return data_root + "/keys/harmonix-mogg.txt"; }
++
++// Where the keys are public (shown on the overlay and the page, never fetched).
++constexpr const char* kWhere = "github.com/mtolly/onyx: haskell/packages/onyx-moggcrypt/cbits/keys.h (HvKeys)";
++
++// The overlay's state: a game set a known title key and the console had no key for it.
++inline std::atomic<bool> needed{false};
++
++// The /keys page's link: <plain address>keys?k=<key>.
++inline std::string PageUrl(const std::string& plain, const std::string& key) {
++  return plain.empty() || key.empty() ? std::string() : plain + "keys?k=" + key;
++}
++
++}  // namespace xbox360ps5::harmonix_keys

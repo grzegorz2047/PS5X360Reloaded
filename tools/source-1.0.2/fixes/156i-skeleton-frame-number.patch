@@ -1,0 +1,71 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -57,6 +57,9 @@ namespace kernel {
+ namespace xboxkrnl {
+ 
+ namespace {
++// Fix 156i: the number of the last depth frame the camera delivered to the title (the
++// counter it writes into the read request); skeleton frames carry it.
++std::atomic<uint32_t> g_depth_frame_number{0};
+ 
+ enum class CameraRequestCode : uint32_t {
+   kGetState = 0,
+@@ -723,6 +726,7 @@ class CameraDevice {
+           !line.empty())
+         XELOGW("{}", line);
+     }
++    if (depth) g_depth_frame_number = sequence;  // fix 156i
+     const uint32_t counter_ptr = request->frame_counter_ptr;
+     if (counter_ptr && IsGuestRange(counter_ptr,4)) {
+       *Guest<xe::be<uint32_t>>(counter_ptr) = sequence;
+@@ -1185,9 +1189,18 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+   }
+   const auto binding = xbox360ps5::motion::PublishNuiFrame(
+       pose, tracking_id, signed_in_mask);
++  // Fix 156i: numbered (and timed) as the depth frame it stands for (pscam_state.hpp).
++  const uint32_t frame_number = xbox360ps5::pscam_state::SkeletonFrameNumber(
++      g_depth_frame_number.load(), period);
++  {
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1) < 4)
++      XELOGW("Virtual Kinect: skeleton frame {} (depth frame {}, skeleton period {}) "
++             "(fix 156i)", frame_number, g_depth_frame_number.load(), period);
++  }
+   xbox360ps5::motion::WriteSkeletonFrame(
+-      memory->TranslateVirtual(frame_ptr), pose, period,
+-      uint64_t(period) * kSkeletonPeriodMs,
++      memory->TranslateVirtual(frame_ptr), pose, frame_number,
++      uint64_t(frame_number) * kSkeletonPeriodMs,
+       tracking_id, binding.enrollment, binding.user_index);
+   ++xbox360ps5::motion::guest_skeleton_frames;
+   if (pose.tracked) {
+@@ -1433,6 +1446,7 @@ void ShutdownCameraDevice() {
+     std::lock_guard<std::mutex> lock(g_skeleton_source.mutex);
+     g_skeleton_source.start = std::chrono::steady_clock::now();
+     g_skeleton_source.delivered_period = 0;
++    g_depth_frame_number = 0;  // fix 156i
+     g_skeleton_source.identity = {};
+     g_skeleton_source.notified_callback = 0;
+     g_skeleton_source.notified_tracking_id = 0;
+diff --git a/include/xbox360ps5/pscam_state.hpp b/include/xbox360ps5/pscam_state.hpp
+--- a/include/xbox360ps5/pscam_state.hpp
++++ b/include/xbox360ps5/pscam_state.hpp
+@@ -46,4 +46,17 @@ inline uint32_t DepthReadBytes(uint32_t buffer_size) {
+   return 0;
+ }
+ 
++// Fix 156i (Fighters Uncaged 5553084E #67, Zumba Fitness Core #63): a skeleton frame carries
++// the number of the depth frame it was tracked from, as the console's NUI does. Fighters
++// Uncaged's per-frame fetch (821A1148) keeps the largest frame number of its skeleton, depth
++// and color frames and takes a new one from a source only when that source's number differs;
++// the virtual skeleton was numbered on its own clock (33 ms periods since the skeleton source
++// started), the depth frames on the camera's (since the camera opened), so the numbers never
++// met and the title saw no body ("No body detected"), except while the Guide paused its image
++// streams. The number of the last depth frame the camera delivered; before the first one, the
++// skeleton's own period.
++inline uint32_t SkeletonFrameNumber(uint32_t last_depth_frame, uint32_t period) {
++  return last_depth_frame ? last_depth_frame : period;
++}
++
+ }  // namespace xbox360ps5::pscam_state

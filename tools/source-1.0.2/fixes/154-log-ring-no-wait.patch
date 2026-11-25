@@ -1,0 +1,274 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/logging.cc b/.deps/xenia-canary/src/xenia/base/logging.cc
+--- a/.deps/xenia-canary/src/xenia/base/logging.cc
++++ b/.deps/xenia-canary/src/xenia/base/logging.cc
+@@ -38,6 +38,7 @@
+ #include "xenia/base/threading.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47: the log's progress
++#include "xbox360ps5/log_ring.hpp"    // fix 154: a full ring drops lines
+ #endif
+ 
+ // TODO(benvanik): generic API? logging_win.cc?
+@@ -282,6 +283,18 @@ class Logger {
+ 
+   std::unique_ptr<xe::threading::Thread> write_thread_;
+ 
++#if XE_PLATFORM_PS5
++  // Xbox360PS5 (fix 154): blocks claimed and not yet given back by the writer.
++  // A line goes into the ring only when its blocks are free, so claim() never
++  // waits for the writer; a line that does not fit is dropped and counted
++  // (hang_watch::log_dropped). In 1.0.5 a flood of one warning (Kinect titles
++  // at resolution scale 2x) filled the ring and the GPU and UI threads spun in
++  // claim() until the game ran at 0-2 frames a second.
++  xbox360ps5::log_ring::Budget budget_{kBlockCount};
++  // The most blocks the writer takes in one pass (one flush of the sinks).
++  static constexpr size_t kBatchBlocks = kBlockCount / 4;
++#endif
++
+   void Write(const char* buf, size_t size) {
+     for (const auto& sink : sinks_) {
+       sink->Write(buf, size);
+@@ -297,12 +310,27 @@ class Logger {
+     dp::sequence_t last_sequence = -1;
+ 
+     size_t desired_count = 1;
++#if XE_PLATFORM_PS5
++    xbox360ps5::log_ring::DropNote drop_note;
++#endif
+     while (true) {
+       // We want one block to find out how many blocks we need or we know how
+       // many blocks needed for at least one log line.
+       auto next_range = dp::sequence_range(next_sequence, desired_count);
+ 
++#if XE_PLATFORM_PS5
++      // Xbox360PS5 (fix 154): every line published so far in one pass, and one
++      // flush for them all; 1.0.2 took one line a pass and flushed after each.
++      const dp::sequence_t published =
++          claim_strategy_.wait_until_published(next_range.last(), last_sequence);
++      next_range = dp::sequence_range(
++          next_sequence,
++          std::max(desired_count,
++                   std::min(size_t(dp::difference(published, next_sequence)) + 1,
++                            kBatchBlocks)));
++#else
+       claim_strategy_.wait_until_published(next_range.last(), last_sequence);
++#endif
+ 
+       size_t read_count = 0;
+       auto available_range = next_range;
+@@ -397,6 +425,22 @@ class Logger {
+         next_sequence = read_range.end();
+         last_sequence = read_range.last();
+         consumed_.publish(last_sequence);
++#if XE_PLATFORM_PS5
++        // Fix 154: only now may AppendLine claim these blocks again.
++        budget_.Release(read_count);
++        const uint64_t dropped =
++            xbox360ps5::hang_watch::log_dropped.load(std::memory_order_relaxed);
++        if (drop_note.Due(dropped,
++                          uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                                       std::chrono::steady_clock::now().time_since_epoch())
++                                       .count()))) {
++          const std::string note = fmt::format(
++              "w> {:08X} Log: {} lines dropped so far, the log's writer was behind "
++              "(fix 154)\n",
++              xe::threading::current_thread_id(), dropped);
++          Write(note.data(), note.size());
++        }
++#endif
+ 
+         desired_count = 1;
+ 
+@@ -426,6 +470,21 @@ class Logger {
+     xe::threading::SuspensionDeferral deferral;
+     size_t count = BlockCount(sizeof(LogLine) + buffer_length);
+ 
++#if XE_PLATFORM_PS5
++    // Xbox360PS5 (fix 154): no thread waits for the writer; a line the ring
++    // has no room for is dropped and counted. Only the terminator (the
++    // logger's end) waits: the writer stops on it.
++    if (!budget_.TryReserve(count)) {
++      if (!terminate) {
++        xbox360ps5::hang_watch::log_dropped.fetch_add(1,
++                                                      std::memory_order_relaxed);
++        return;
++      }
++      while (!budget_.TryReserve(count)) {
++        xe::threading::Sleep(std::chrono::milliseconds(1));
++      }
++    }
++#endif
+     auto range = claim_strategy_.claim(count);
+     assert_true(range.size() == count);
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/d3d12/d3d12_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/d3d12/d3d12_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/d3d12/d3d12_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/d3d12/d3d12_render_target_cache.cc
+@@ -9,6 +9,7 @@
+ 
+ #include "xenia/gpu/d3d12/d3d12_render_target_cache.h"
+ 
++#include <atomic>
+ #include <cstdint>
+ #include <cstring>
+ 
+@@ -1403,7 +1404,17 @@ bool D3D12RenderTargetCache::Resolve(const Memory& memory,
+       !copy_native &&
+       resolve_info.rb_copy_control.copy_command ==
+           xenos::CopyCommand::kConvertTo1111) {
+-    XELOGW("Resolve copy command 2 is not supported with resolution scaling");
++    // Xbox360PS5 (fix 154): Kinect titles' body tracking makes these copies
++    // (160x120) many times a second; at resolution scale 2x the line, once per
++    // copy, filled the log. The first 4, then every 4096th, with a count.
++    static std::atomic<uint32_t> skipped{0};
++    const uint32_t count = skipped.fetch_add(1, std::memory_order_relaxed);
++    if (count < 4 || !(count & 0xFFF)) {
++      XELOGW(
++          "Resolve copy command 2 is not supported with resolution scaling ({} "
++          "so far)",
++          count + 1);
++    }
+     // Skip the copy, but still perform the clears.
+     resolve_info.copy_dest_extent_length = 0;
+   }
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/gpu/vulkan/vulkan_render_target_cache.h"
+ 
+ #include <cstddef>
++#include <atomic>
+ #include <cstdint>
+ #include <cstring>
+ 
+@@ -1237,7 +1238,17 @@ bool VulkanRenderTargetCache::Resolve(
+       !copy_native &&
+       resolve_info.rb_copy_control.copy_command ==
+           xenos::CopyCommand::kConvertTo1111) {
+-    XELOGW("Resolve copy command 2 is not supported with resolution scaling");
++    // Xbox360PS5 (fix 154): Kinect titles' body tracking makes these copies
++    // (160x120) many times a second; at resolution scale 2x the line, once per
++    // copy, filled the log. The first 4, then every 4096th, with a count.
++    static std::atomic<uint32_t> skipped{0};
++    const uint32_t count = skipped.fetch_add(1, std::memory_order_relaxed);
++    if (count < 4 || !(count & 0xFFF)) {
++      XELOGW(
++          "Resolve copy command 2 is not supported with resolution scaling ({} "
++          "so far)",
++          count + 1);
++    }
+     // Skip the copy, but still perform the clears.
+     resolve_info.copy_dest_extent_length = 0;
+   }
+diff --git a/include/xbox360ps5/hang_watch.hpp b/include/xbox360ps5/hang_watch.hpp
+--- a/include/xbox360ps5/hang_watch.hpp
++++ b/include/xbox360ps5/hang_watch.hpp
+@@ -199,6 +199,8 @@ inline std::string FsyncGaugeLine(double seconds, double fsync_ms, int policy) {
+ // The emulator's log (xenia/base/logging.cc): lines handed to its writer thread and lines it
+ // wrote to its sinks (the game log file and the TCP stream).
+ inline std::atomic<uint64_t> log_appended{0}, log_written{0};
++// Fix 154: lines the log's ring had no room for (dropped instead of waiting).
++inline std::atomic<uint64_t> log_dropped{0};
+ 
+ // The guest's kernel calls (xenia/kernel/util/shim_utils.h, every export's trampoline): how many,
+ // and the last kGuestCalls names. 1.0.4_candidate_20: Ninja Gaiden II's process was gone 9.9 s
+@@ -545,7 +547,7 @@ inline std::string HeartbeatLine(const BeatInput& in) {
+   const uint64_t submitted_ms = queue.submitted_ms.load(std::memory_order_relaxed);
+   return Format(
+       "HANG beat +%.2f s: ui %llu (%s) gpu %llu (%s) frames %llu swaps %llu ring %X/%X sub %llu (%llu ms ago) "
+-      "log %llu/%llu calls:%s",
++      "log %llu/%llu dropped %llu calls:%s",
+       double(in.now_ms - in.start_ms) / 1000.0, (unsigned long long)ui_loop.count.load(std::memory_order_relaxed),
+       UiPhaseName(ui_loop.phase.load(std::memory_order_relaxed)),
+       (unsigned long long)gpu_thread.count.load(std::memory_order_relaxed),
+@@ -554,7 +556,8 @@ inline std::string HeartbeatLine(const BeatInput& in) {
+       (unsigned long long)queue.submitted.load(std::memory_order_relaxed),
+       (unsigned long long)(submitted_ms && in.now_ms >= submitted_ms ? in.now_ms - submitted_ms : 0),
+       (unsigned long long)log_appended.load(std::memory_order_relaxed),
+-      (unsigned long long)log_written.load(std::memory_order_relaxed), calls.empty() ? " none" : calls.c_str()) +
++      (unsigned long long)log_written.load(std::memory_order_relaxed),
++      (unsigned long long)log_dropped.load(std::memory_order_relaxed), calls.empty() ? " none" : calls.c_str()) +
+          MemoryPart(in);
+ }
+ 
+diff --git a/include/xbox360ps5/log_ring.hpp b/include/xbox360ps5/log_ring.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/log_ring.hpp
+@@ -0,0 +1,75 @@
++// SPDX-License-Identifier: MIT
++// Fix 154: the core logger's ring never makes a thread that logs wait (header-only, no Xenia headers).
++//
++// The core logger (xenia/base/logging.cc) hands each line to its writer thread through an 8 MiB
++// ring of 32768 blocks of 256 bytes. When the writer falls behind and the ring is full, the
++// disruptor's claim() spins until the writer frees blocks, on whatever thread logs: the GPU
++// command thread, the UI loop, guest threads. In 1.0.5 at "Resolution scale (test)" 2x, Kinect
++// titles logged "Resolve copy command 2 is not supported with resolution scaling" for every
++// body-tracking copy (7542 of 9470 lines in Kinect Sports, issue #65; 40806 of 43143 in Puss in
++// Boots, #64), the writer drained about 20 lines a second, the ring filled after 170-330 s and
++// the game fell to 0-2 frames a second with its GPU and UI threads in claim().
++//
++// Budget counts the blocks claimed and not yet given back by the writer. A line goes into the
++// ring only when its blocks fit (TryReserve); then claim() finds them free and returns at once.
++// A line that does not fit is dropped and counted (hang_watch::log_dropped, shown in the hang
++// watch's beat; the writer notes the count in the log). Why claim() cannot wait after a
++// reservation: every claimed and unconsumed block belongs to a reserved line, so a range claimed
++// after a reservation ends at most `capacity` blocks after the writer's last consumed one, which
++// is all claim() waits for. The writer gives blocks back (Release) only after publishing them as
++// consumed.
++#pragma once
++
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++
++namespace xbox360ps5::log_ring {
++
++class Budget {
++ public:
++  explicit Budget(size_t capacity) : capacity_(capacity) {}
++  Budget(const Budget&) = delete;
++  Budget& operator=(const Budget&) = delete;
++
++  // Reserves `count` blocks if they are free; never waits. False: the line is to be dropped.
++  bool TryReserve(size_t count) {
++    size_t used = used_.load(std::memory_order_acquire);
++    do {
++      if (count > capacity_ || used > capacity_ - count) return false;
++    } while (!used_.compare_exchange_weak(used, used + count, std::memory_order_acq_rel,
++                                          std::memory_order_acquire));
++    return true;
++  }
++  // The writer, after it has published the blocks of the lines it wrote as consumed.
++  void Release(size_t count) { used_.fetch_sub(count, std::memory_order_acq_rel); }
++
++  size_t used() const { return used_.load(std::memory_order_relaxed); }
++  size_t capacity() const { return capacity_; }
++
++ private:
++  const size_t capacity_;
++  std::atomic<size_t> used_{0};
++};
++
++// A warning repeated many times a second is logged the first 4 times, then every 4096th, with
++// its count (as draw_util.cc's refused resolves). `count` is the number logged before this one.
++inline bool LogThisRepeat(uint32_t count) { return count < 4 || !(count & 0xFFF); }
++
++// The writer's note about dropped lines, at most once in `interval_ms`, when the total grew.
++// Returns true and advances `noted` when a note is due.
++struct DropNote {
++  uint64_t noted = 0;
++  uint64_t noted_ms = 0;
++  bool started = false;
++  bool Due(uint64_t dropped_total, uint64_t now_ms, uint64_t interval_ms = 1000) {
++    if (dropped_total <= noted) return false;
++    if (started && now_ms - noted_ms < interval_ms) return false;
++    started = true;
++    noted_ms = now_ms;
++    noted = dropped_total;
++    return true;
++  }
++};
++
++}  // namespace xbox360ps5::log_ring

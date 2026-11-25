@@ -1,0 +1,815 @@
+diff --git a/include/xbox360ps5/user_storage.hpp b/include/xbox360ps5/user_storage.hpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..390978baceeba208620938e263087f3b493d00c5
+--- /dev/null
++++ b/include/xbox360ps5/user_storage.hpp
+@@ -0,0 +1,339 @@
++// SPDX-License-Identifier: MIT
++// Fix 165 (tools/source-1.0.2/fixes/165-user-data-folder.patch): where the user's own files live.
++//
++// Until 1.0.6 the options, each game's options, the profile, the recent list, the game folders,
++// the patch choices, the game configs, the covers, the avatars' shapes and the render target and
++// frame generation choices were kept in the app's internal storage, /download0/xbox360ps5 (the
++// download0.dat image of the installation). Installing the app again (ShadowMount) makes that
++// image anew, so all of it was lost, and it cannot be reached over FTP. They are now kept in the
++// app's data folder, XBOX360PS5_DATA_ROOT (/data/homebrew/PPSA83600), beside the logs, the cache,
++// saves/ and network.conf, which survive a reinstall and are reachable over FTP.
++//
++//   * Root() is the folder of the user's files: every one of them is Root() / name, so a later
++//     move is one line (kMoved). Use() sets it once in main, before anything reads it; until then
++//     it is the data folder.
++//   * Choose() picks it at start: the data folder when it can be made and a file written in it
++//     (a probe file, removed again); otherwise the internal storage, as before, with the reason
++//     for the log.
++//   * Then, once, each kMoved item still in the internal storage and missing in the data folder is
++//     copied there (a folder file by file: a file the data folder has is never replaced), and one
++//     line per item copied goes to the log. The old copies are left where they are. A marker in
++//     the data folder (kMarker, with those lines) records that it was done, so a file the user
++//     deletes later in the data folder does not come back from the internal storage. A start that
++//     could not copy everything writes no marker and the next start copies what is still missing.
++//     framegen.conf is the one exception to "never replaced": the internal storage's copy was the
++//     one in use (presenter_sidecar.hpp read it first), so it replaces the data folder's (an older
++//     one fix 46 imported from the official PS5X360, or put there by FTP), which is kept beside it
++//     as framegen.conf.before-move.
++//   * Each file is copied to a hidden temporary name (.<name>.moving) and renamed into place, so a
++//     start that stops while copying leaves no half file under the real name; the next start
++//     writes the temporary again.
++//
++// What stays in the internal storage (safe to lose, or only kept across one restart): the library
++// cache (library/), the disc drive's folder (disc/), the Kinect dashboard skin cache (dash-skin),
++// the saves on "Internal storage" (content/, the console's choice; a move of the saves is a later
++// fix), boot.log (the crash report when /app0/logs cannot be written), engine.log and LOGS/ (the
++// logs' last fallback), and the files that only carry something across a restart: launch-once.txt,
++// next-title.txt, switch-restart.txt, leaving-notice.txt, bug-report.txt, start-check.txt,
++// opengl-check.txt, notice.txt, game.txt, fsi.1, autotest-state.txt and the core's
++// launch_data.bin (the working folder).
++//
++// Only what the title already does on the console is used here: stat (fs::exists, fs::status,
++// is_directory, is_regular_file), directory listings, create_directories, ofstream/ifstream,
++// rename and remove; never lstat or realpath (official_import.hpp says why).
++// Header only and free of the rest of the title, so tools/check-user-storage.cpp drives the same
++// code on temporary folders.
++#pragma once
++#include <cerrno>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <iterator>
++#include <string>
++#include <system_error>
++#include <vector>
++
++#include "xbox360ps5/app_identity.hpp"
++
++namespace xbox360ps5::user_storage {
++namespace fs = std::filesystem;
++
++// The app's internal storage (download0.dat): made anew when the app is installed again.
++inline constexpr char kInternalRoot[] = "/download0/xbox360ps5";
++// The app's data folder: survives a reinstall, reachable over FTP.
++inline constexpr char kDataRoot[] = XBOX360PS5_DATA_ROOT;
++// Written in the data folder once the move was done.
++inline constexpr char kMarker[] = ".moved-from-internal-storage";
++// Written and removed again to see that the data folder takes files.
++inline constexpr char kProbe[] = ".write-probe";
++// At most this many folder levels are copied (the moved folders are flat).
++inline constexpr int kMaxDepth = 8;
++
++// One moved item: its name in the internal storage, its name in the data folder.
++struct Item {
++  const char* from;
++  const char* to;
++  bool folder;
++  bool replace;  // the internal storage's copy wins over one the data folder has (framegen.conf)
++};
++inline constexpr Item kMoved[] = {
++    {"settings.txt", "settings.txt", false, false},        // the general options
++    {"game-settings", "game-settings", true, false},       // <TITLE ID>.txt: each game's options
++    {"profile.txt", "profile.txt", false, false},          // the profile chosen in the launcher
++    {"recent.txt", "recent.txt", false, false},            // the recently played games
++    {"game_paths.txt", "game_paths.txt", false, false},    // the game folders
++    {"game_paths.fix60", "game_paths.fix60", false, false},  // fix 60: the title's roms added once
++    {"resolution-scale", "resolution-scale", true, false},  // fix 117k: <TITLE ID>.txt classes
++    {"fsi.c", "fsi.c", false, false},                       // accurate render targets (FSI)
++    {"framegen.conf", "framegen.conf", false, true},        // frame generation
++    // The patch choices (<TITLE ID>.txt): a name of their own beside assets/patches (the user's
++    // patch files, fix 155c), so the two are not taken for one another.
++    {"patches", "patch-choices", true, false},
++    {"game-configs", "game-configs", true, false},  // <TITLE ID>.config.toml
++    {"avatars", "avatars", true, false},            // fix 113: <XUID>.txt, the avatar's shape
++    {"covers", "covers", true, false},              // <TITLE ID>.jpg, downloaded covers
++};
++
++inline fs::path& RootSlot() {
++  static fs::path root = kDataRoot;
++  return root;
++}
++// The folder of the user's files (the data folder, or the internal storage when it cannot be used).
++inline const fs::path& Root() { return RootSlot(); }
++// Set once in main, before anything reads Root().
++inline void Use(const fs::path& root) { RootSlot() = root; }
++
++// Writes `bytes` to `path` (replacing it). A test hook: the check makes it fail.
++using Writer = bool (*)(const fs::path& path, const std::string& bytes, std::string& why);
++inline bool WriteFile(const fs::path& path, const std::string& bytes, std::string& why) {
++  std::ofstream out(path, std::ios::binary | std::ios::trunc);
++  if (!out) {
++    why = "could not open " + path.string() + " for writing: " + std::strerror(errno);
++    return false;
++  }
++  out.write(bytes.data(), std::streamsize(bytes.size()));
++  out.close();
++  if (!out) {
++    why = "could not write " + path.string() + ": " + std::strerror(errno);
++    return false;
++  }
++  return true;
++}
++inline bool ReadFile(const fs::path& path, std::string& bytes, std::string& why) {
++  std::ifstream in(path, std::ios::binary);
++  if (!in) {
++    why = "could not open " + path.string() + ": " + std::strerror(errno);
++    return false;
++  }
++  bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
++  if (in.bad()) {
++    why = "could not read " + path.string();
++    return false;
++  }
++  return true;
++}
++
++// Whether `path` is there (stat). An error other than "not found" is an error.
++enum class Presence { kAbsent, kFile, kFolder, kOther, kError };
++inline Presence Look(const fs::path& path, std::string& why) {
++  std::error_code error;
++  const fs::file_status status = fs::status(path, error);
++  if (status.type() == fs::file_type::not_found) return Presence::kAbsent;
++  if (error) {
++    why = "could not look at " + path.string() + ": " + error.message();
++    return Presence::kError;
++  }
++  if (status.type() == fs::file_type::regular) return Presence::kFile;
++  if (status.type() == fs::file_type::directory) return Presence::kFolder;
++  return Presence::kOther;
++}
++
++// Copies one file through a hidden temporary name and renames it into place.
++inline bool CopyFile(const fs::path& from, const fs::path& to, Writer writer, std::string& why) {
++  std::string bytes;
++  if (!ReadFile(from, bytes, why)) return false;
++  std::error_code error;
++  fs::create_directories(to.parent_path(), error);
++  if (error) {
++    why = "could not make " + to.parent_path().string() + ": " + error.message();
++    return false;
++  }
++  const fs::path temporary = to.parent_path() / ("." + to.filename().string() + ".moving");
++  if (!writer(temporary, bytes, why)) {
++    fs::remove(temporary, error);
++    return false;
++  }
++  fs::rename(temporary, to, error);
++  if (error) {
++    why = "could not rename " + temporary.string() + " to " + to.string() + ": " + error.message();
++    std::error_code ignored;
++    fs::remove(temporary, ignored);
++    return false;
++  }
++  return true;
++}
++
++struct Counts {
++  int copied = 0;
++  int present = 0;  // already in the data folder: not replaced
++};
++// Copies the files of `from` that `to` does not have, level by level.
++inline bool CopyMissing(const fs::path& from, const fs::path& to, int depth, Writer writer, Counts& counts,
++                        std::string& why) {
++  std::error_code error;
++  fs::directory_iterator it(from, error), end;
++  if (error) {
++    why = "could not list " + from.string() + ": " + error.message();
++    return false;
++  }
++  bool ok = true;
++  for (; it != end; it.increment(error)) {
++    const fs::path source = it->path();
++    const std::string name = source.filename().string();
++    if (name.size() > 7 && name.compare(name.size() - 7, 7, ".moving") == 0) continue;
++    std::string look_why;
++    const Presence kind = Look(source, look_why);
++    if (kind == Presence::kFolder) {
++      if (depth + 1 >= kMaxDepth) continue;
++      if (!CopyMissing(source, to / name, depth + 1, writer, counts, why)) ok = false;
++      continue;
++    }
++    if (kind != Presence::kFile) continue;
++    const fs::path target = to / name;
++    const Presence there = Look(target, look_why);
++    if (there == Presence::kError) { why = look_why; ok = false; continue; }
++    if (there != Presence::kAbsent) { ++counts.present; continue; }
++    if (CopyFile(source, target, writer, why)) ++counts.copied; else ok = false;
++  }
++  if (error) {
++    why = "could not list " + from.string() + ": " + error.message();
++    return false;
++  }
++  return ok;
++}
++
++struct Outcome {
++  fs::path root;              // the folder Use() is given
++  fs::path internal;          // the internal storage it was given
++  bool fallback = false;      // the data folder could not be used: the internal storage
++  std::string why;            // why not (fallback)
++  bool already = false;       // the marker was there: nothing looked at in the internal storage
++  bool marked = false;        // this start wrote the marker
++  int moved = 0;              // items copied (wholly or in part) this start
++  std::vector<std::string> lines;  // one per item copied, and one per item that failed
++};
++
++// One item: the internal storage's copy to the data folder, unless the data folder has it.
++inline bool MoveItem(const Item& item, const fs::path& internal, const fs::path& data, Writer writer,
++                     Outcome& outcome) {
++  const fs::path from = internal / item.from, to = data / item.to;
++  std::string why;
++  const Presence source = Look(from, why);
++  if (source == Presence::kError) {
++    outcome.lines.push_back(std::string("could not move ") + item.from + ": " + why);
++    return false;
++  }
++  if (source == Presence::kAbsent || source == Presence::kOther) return true;
++  if (item.folder) {
++    if (source != Presence::kFolder) return true;
++    Counts counts;
++    const bool ok = CopyMissing(from, to, 0, writer, counts, why);
++    if (counts.copied) {
++      ++outcome.moved;
++      outcome.lines.push_back(std::string("moved ") + item.from + "/: " + std::to_string(counts.copied) +
++                              (counts.copied == 1 ? " file" : " files") + " copied to " + to.string() +
++                              (counts.present ? ", " + std::to_string(counts.present) + " already there (kept)" : "") +
++                              "; the old copies stay in " + internal.string());
++    }
++    if (!ok) outcome.lines.push_back(std::string("could not move ") + item.from + "/: " + why);
++    return ok;
++  }
++  if (source != Presence::kFile) return true;
++  const Presence there = Look(to, why);
++  if (there == Presence::kError) {
++    outcome.lines.push_back(std::string("could not move ") + item.from + ": " + why);
++    return false;
++  }
++  if (there != Presence::kAbsent && !item.replace) return true;  // the data folder's own wins
++  std::string kept;
++  if (there != Presence::kAbsent) {
++    // framegen.conf: the internal storage's copy was the one in use.
++    std::string old_bytes, new_bytes;
++    if (ReadFile(to, old_bytes, why) && ReadFile(from, new_bytes, why) && old_bytes == new_bytes) return true;
++    const fs::path aside = data / (std::string(item.to) + ".before-move");
++    std::error_code error;
++    fs::rename(to, aside, error);
++    if (error) {
++      outcome.lines.push_back(std::string("could not move ") + item.from + ": could not rename " + to.string() +
++                              " to " + aside.string() + ": " + error.message());
++      return false;
++    }
++    kept = " (it replaced the one there, kept as " + aside.filename().string() + ")";
++  }
++  if (!CopyFile(from, to, writer, why)) {
++    outcome.lines.push_back(std::string("could not move ") + item.from + ": " + why);
++    return false;
++  }
++  ++outcome.moved;
++  outcome.lines.push_back(std::string("moved ") + item.from + ": copied to " + to.string() + kept +
++                          "; the old copy stays in " + internal.string());
++  return true;
++}
++
++// Picks the folder of the user's files and, once, copies them there from the internal storage.
++inline Outcome Choose(const fs::path& data, const fs::path& internal, Writer writer = WriteFile) {
++  Outcome outcome;
++  outcome.internal = internal;
++  const auto fall_back = [&](std::string why) {
++    outcome.root = internal;
++    outcome.fallback = true;
++    outcome.why = std::move(why);
++    std::error_code ignored;
++    fs::create_directories(internal, ignored);
++    return outcome;
++  };
++  std::error_code error;
++  fs::create_directories(data, error);
++  std::string why;
++  if (error) return fall_back("could not make " + data.string() + ": " + error.message());
++  if (Look(data, why) != Presence::kFolder)
++    return fall_back(why.empty() ? data.string() + " is not a folder" : why);
++  const fs::path probe = data / kProbe;
++  if (!writer(probe, "fix 165\n", why)) {
++    fs::remove(probe, error);
++    return fall_back(why);
++  }
++  fs::remove(probe, error);
++  outcome.root = data;
++  if (data.lexically_normal() == internal.lexically_normal()) return outcome;
++  const Presence marker = Look(data / kMarker, why);
++  if (marker == Presence::kFile) {
++    outcome.already = true;
++    return outcome;
++  }
++  bool ok = marker != Presence::kError;
++  if (!ok) outcome.lines.push_back("could not look at the marker: " + why);
++  if (Look(internal, why) == Presence::kFolder) {
++    for (const Item& item : kMoved)
++      if (!MoveItem(item, internal, data, writer, outcome)) ok = false;
++  }
++  if (ok) {
++    std::string text = "fix 165: the user's files moved from " + internal.string() + "\n";
++    for (const auto& line : outcome.lines) text += line + "\n";
++    if (writer(data / kMarker, text, why)) outcome.marked = true;
++    else outcome.lines.push_back("could not write the marker (the next start looks again): " + why);
++  }
++  return outcome;
++}
++
++// The boot and log line.
++inline std::string Summary(const Outcome& outcome) {
++  if (outcome.fallback)
++    return outcome.root.string() + " (the internal storage: " + outcome.why + ")";
++  if (outcome.already) return outcome.root.string();
++  return outcome.root.string() + " (" + std::to_string(outcome.moved) +
++         (outcome.moved == 1 ? " item" : " items") + " moved from " + outcome.internal.string() +
++         (outcome.marked ? "" : "; not finished, the next start tries again") + ")";
++}
++
++}  // namespace xbox360ps5::user_storage
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+index b74f6188cb02c877c55889e63b960e39e8f6dded..ec0ccfc88d6b5d68d9112ebdbfbb8dfe226efd4a 100644
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -14,6 +14,7 @@
+ #include "xbox360ps5/i18n.hpp"
+ #include "xbox360ps5/build_version.hpp"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
++#include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "xbox360ps5/official_import.hpp"  // fix 46: the first start's copy from PS5X360
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/title_switch.hpp"  // fix 51: XamSwapDisc looks beside the launched image
+@@ -2246,10 +2247,10 @@ void MeasurePerformance(xe::Emulator& emulator, float fps) {
+   }
+   xe::FlushLog();
+ }
+-// The profile the user chose in the launcher, kept between runs.
+-const char kProfileFile[] = "/download0/xbox360ps5/profile.txt";
++// The profile the user chose in the launcher, kept between runs (fix 165: in the user's data folder).
++std::string ProfileFile() { return (xbox360ps5::user_storage::Root() / "profile.txt").string(); }
+ uint64_t SavedProfile() {
+-  std::ifstream file(kProfileFile);
++  std::ifstream file(ProfileFile());
+   std::string text;
+   file >> text;
+   return text.empty() ? 0 : std::strtoull(text.c_str(), nullptr, 16);
+@@ -2257,7 +2258,7 @@ uint64_t SavedProfile() {
+ void SaveProfile(uint64_t xuid) {
+   char text[32];
+   std::snprintf(text, sizeof(text), "%016llX", static_cast<unsigned long long>(xuid));
+-  std::ofstream(kProfileFile, std::ios::trunc) << text << "\n";
++  std::ofstream(ProfileFile(), std::ios::trunc) << text << "\n";
+ }
+ class NativeContext final : public xe::ui::WindowedAppContext {
+  public:
+@@ -2640,7 +2641,7 @@ int main(int argc, char** argv) {
+   xe::kernel::xam::external_storage_root = "/mnt";
+   xe::kernel::xam::save_drive_chosen = &SaveDriveChosen;
+   xe::kernel::xam::storage_notice = &StorageNotice;
+-  const std::filesystem::path storage = "/download0/xbox360ps5";
++  const std::filesystem::path storage = xbox360ps5::user_storage::kInternalRoot;
+   std::error_code error;
+   std::filesystem::create_directories(storage, error);
+   if (error) { std::fprintf(stderr, "Writable storage unavailable: %s\n", error.message().c_str()); return 1; }
+@@ -2699,6 +2700,13 @@ int main(int argc, char** argv) {
+   if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone)
+     Stage((std::string("BOOT import from PS5X360: ") +
+            xbox360ps5::official_import::DecisionName(imported.plan.decision)).c_str());
++  // Fix 165: the user's files (options, each game's options, profile, recent list, game folders,
++  // patch choices, game configs, covers, avatars) are kept in the data folder, which a reinstall
++  // keeps; the first start copies them there from the internal storage, once (user_storage.hpp).
++  // Before anything reads them.
++  const auto user_data = xbox360ps5::user_storage::Choose(xbox360ps5::user_storage::kDataRoot, storage);
++  xbox360ps5::user_storage::Use(user_data.root);
++  Stage(("BOOT user data: " + xbox360ps5::user_storage::Summary(user_data)).c_str());
+   // The general options: what the launcher shows, changes and saves.
+   xbox360ps5::Settings global;
+   global.Load();
+@@ -2858,6 +2866,9 @@ int main(int argc, char** argv) {
+     XELOGW("Import from PS5X360: {}", xbox360ps5::official_import::Summary(imported));
+     for (const auto& line : imported.lines) XELOGW("Import from PS5X360: left out {}", line);
+   }
++  // Fix 165: where the user's files are, and one line per item moved there.
++  XELOGW("User data: {}", xbox360ps5::user_storage::Summary(user_data));
++  for (const auto& line : user_data.lines) XELOGW("User data: {}", line);
+   XELOGW("Graphics renderer requested: {}", xbox360ps5::RendererName(started.renderer));
+   if (!xbox360ps5::RendererAvailable(started.renderer)) {
+     XELOGE("Requested OpenGL game backend is not linked in this executable; launch cancelled");
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 100fbf25b3a41ac4cdd527e24f90f7aa860c84a8..31fe4e9ed7abd2605aabc55612102503dcc0cda5 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -42,6 +42,7 @@
+ #include <unistd.h>  // fix 148h
+ #include "xbox360ps5/install_notice.hpp"  // fix 148h
+ #include "xbox360ps5/write_bench.hpp"  // fix 148i
++#include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include <thread>  // fix 148i
+ #include <chrono>
+ #include <functional>
+@@ -135,7 +136,11 @@ std::string GameFolderName(const std::string& name) {
+   while (!out.empty() && (out.back() == ' ' || out.back() == '.')) out.pop_back();
+   return out.empty() ? "game" : out;
+ }
+-const fs::path kStorage = "/download0/xbox360ps5";
++// Fix 165: the app's internal storage keeps only what is made again when lost (the library's
++// cache, the disc drive's folder); the user's files are in UserData() (user_storage.hpp:
++// /data/homebrew/PPSA83600, which a reinstall keeps and FTP reaches).
++const fs::path kStorage = xbox360ps5::user_storage::kInternalRoot;
++const fs::path& UserData() { return xbox360ps5::user_storage::Root(); }
+ // What the last look at the disc drive found to say (a pressed disc), shown with the list.
+ static std::string g_disc_notice;
+ const char* const kFont = "/app0/assets/fonts/NotoSans-Regular.ttf";
+@@ -149,11 +154,11 @@ const char* const kHeadingFont = "/app0/assets/fonts/NotoSans-SemiBold.ttf";
+ // installation keeps its choice when it changes between the two builds. The
+ // choice of an official 1.0.2 on a writable /app0 is still read if there is
+ // no new file yet.
+-const char* const kFsiFile = "/download0/xbox360ps5/fsi.c";
++std::string FsiFile() { return (UserData() / "fsi.c").string(); }  // fix 165
+ const char* const kFsiOldFile = "/app0/render-target-fsi.conf";
+ bool& FsiChoice() {
+   static bool requested = [] {
+-    std::ifstream input(kFsiFile);
++    std::ifstream input(FsiFile());
+     if (!input) input.open(kFsiOldFile);
+     std::string line;
+     if (!std::getline(input, line)) return false;
+@@ -179,12 +184,13 @@ bool FsiAtStart() {
+ }
+ bool SetFsiRequested(bool enabled) {
+   FsiAtStart();
+-  const char* temporary = "/download0/xbox360ps5/fsi.c.new";
++  const std::string file = FsiFile(), temporary_name = file + ".new";  // fix 165
++  const char* temporary = temporary_name.c_str();
+   std::ofstream output(temporary, std::ios::trunc);
+   output << "render_target_path_vulkan=" << (enabled ? "fsi" : "fbo") << "\n";
+   output.close();
+   if (!output) { std::remove(temporary); return false; }
+-  if (std::rename(temporary, kFsiFile) != 0) { std::remove(temporary); return false; }
++  if (std::rename(temporary, file.c_str()) != 0) { std::remove(temporary); return false; }
+   XELOGW("Accurate render targets (FSI) requested={} (restart required)", enabled);
+   FsiChoice() = enabled;
+   return true;
+@@ -736,7 +742,7 @@ Settings ForGame(const Settings& general, const std::string& title_id, const Gam
+ }
+ std::string ScaleVerdict(const std::string& title_id) {
+   if (title_id.empty()) return {};
+-  std::ifstream input(kStorage / "game-settings" / (title_id + ".scale.txt"));
++  std::ifstream input(UserData() / "game-settings" / (title_id + ".scale.txt"));
+   std::string line;
+   std::getline(input, line);
+   return line;
+@@ -744,8 +750,8 @@ std::string ScaleVerdict(const std::string& title_id) {
+ bool SaveScaleVerdict(const std::string& title_id, const std::string& text) {
+   if (title_id.empty()) return false;
+   std::error_code error;
+-  fs::create_directories(kStorage / "game-settings", error);
+-  std::ofstream output(kStorage / "game-settings" / (title_id + ".scale.txt"), std::ios::trunc);
++  fs::create_directories(UserData() / "game-settings", error);
++  std::ofstream output(UserData() / "game-settings" / (title_id + ".scale.txt"), std::ios::trunc);
+   output << text << "\n";
+   output.flush();
+   return output.good();
+@@ -753,15 +759,15 @@ bool SaveScaleVerdict(const std::string& title_id, const std::string& text) {
+ void ClearScaleVerdict(const std::string& title_id) {
+   if (title_id.empty()) return;
+   std::error_code error;
+-  fs::remove(kStorage / "game-settings" / (title_id + ".scale.txt"), error);
++  fs::remove(UserData() / "game-settings" / (title_id + ".scale.txt"), error);
+ }
+ GameOverrides LoadGameOverrides(const std::string& title_id) {
+-  return title_id.empty() ? GameOverrides() : Checked(ReadValues(kStorage / "game-settings" / (title_id + ".txt")));
++  return title_id.empty() ? GameOverrides() : Checked(ReadValues(UserData() / "game-settings" / (title_id + ".txt")));
+ }
+ bool SaveGameOverrides(const std::string& title_id, const GameOverrides& overrides) {
+   if (title_id.empty()) return false;
+   std::error_code error;
+-  const fs::path folder = kStorage / "game-settings", path = folder / (title_id + ".txt");
++  const fs::path folder = UserData() / "game-settings", path = folder / (title_id + ".txt");
+   if (overrides.empty()) { fs::remove(path, error); return true; }
+   fs::create_directories(folder, error);
+   std::ofstream output(path, std::ios::trunc);
+@@ -788,22 +794,22 @@ void Settings::Load() {
+ #endif
+   console_language = ConsoleGameLanguage(ps5_language);
+   console_ui_language = ConsoleUiLanguage(ps5_language);
+-  if (!ReadGamePaths(kStorage / "game_paths.txt", game_paths)) {
++  if (!ReadGamePaths(UserData() / "game_paths.txt", game_paths)) {
+     ReadGamePaths("/app0/assets/game_paths.txt", game_paths);
+-    WriteGamePaths(kStorage / "game_paths.txt", game_paths);
++    WriteGamePaths(UserData() / "game_paths.txt", game_paths);
+   }
+   // Fix 60 (issue #12): a list saved before 1.0.4 gains the title's own assets/roms once (an
+   // image install's games copied there were not found); a folder the user removed later stays out.
+   {
+     std::error_code marker_error;
+-    const fs::path marker = kStorage / "game_paths.fix60";
++    const fs::path marker = UserData() / "game_paths.fix60";
+     if (!fs::exists(marker, marker_error)) {
+-      if (AddTitleRoms(game_paths)) WriteGamePaths(kStorage / "game_paths.txt", game_paths);
++      if (AddTitleRoms(game_paths)) WriteGamePaths(UserData() / "game_paths.txt", game_paths);
+       std::ofstream(marker.string(), std::ios::trunc) << "the title's assets/roms added to game_paths.txt once\n";
+     }
+   }
+   int logging_policy = 0;
+-  for (const auto& [key, value] : ReadValues(kStorage / "settings.txt")) {
++  for (const auto& [key, value] : ReadValues(UserData() / "settings.txt")) {
+     if (key == "language") language = value;
+     else if (key == "interface_language") interface_language = value;
+     else if (key == "logging_policy") logging_policy = value;
+@@ -824,7 +830,7 @@ void Settings::Load() {
+   // Automatic; 2x stays 2x.
+   {
+     std::error_code marker_error;
+-    const fs::path marker = kStorage / "draw_scale.fix163";
++    const fs::path marker = UserData() / "draw_scale.fix163";
+     if (!fs::exists(marker, marker_error)) {
+       if (draw_scale == 0) draw_scale = xbox360ps5::auto_scale::kAutomatic;
+       std::ofstream(marker.string(), std::ios::trunc) << "draw_scale 1x became Automatic once (fix 163)\n";
+@@ -840,7 +846,7 @@ void Settings::Load() {
+   if (logging_policy < 1) { detailed_logs = 0; Save(); }
+ }
+ void Settings::Save() const {
+-  std::ofstream output(kStorage / "settings.txt", std::ios::trunc);
++  std::ofstream output(UserData() / "settings.txt", std::ios::trunc);
+   output << "language=" << language << "\ninterface_language=" << interface_language
+          << "\nlogging_policy=1\nresolution_scale=" << resolution_scale << "\n";
+   for (const auto& option : Options()) output << option.key << "=" << this->*option.field << "\n";
+@@ -1332,7 +1338,7 @@ void Launcher::Scan() {
+     if (!g_disc_notice.empty()) { notice_ = g_disc_notice; notice_until_ = time_ + 10.0f; }
+   }
+   recents_.clear();
+-  std::ifstream input(kStorage / "recent.txt");
++  std::ifstream input(UserData() / "recent.txt");
+   for (std::string line; std::getline(input, line);) if (!line.empty()) recents_.push_back(line);
+   // Fix 159: what each disc's header said when fix 89 read it (by path), for the log of discs of one
+   // game that fix 89 left as entries of their own.
+@@ -1783,7 +1789,7 @@ void Launcher::RecordLaunch(const GameEntry& game, uint32_t title_id, const std:
+   std::vector<std::string> recents{path};
+   for (const auto& other : recents_) if (other != path && recents.size() < 12) recents.push_back(other);
+   recents_ = recents;
+-  std::ofstream output(kStorage / "recent.txt", std::ios::trunc);
++  std::ofstream output(UserData() / "recent.txt", std::ios::trunc);
+   for (const auto& line : recents_) output << line << "\n";
+ }
+ 
+@@ -2069,13 +2075,14 @@ const QrCode& CameraQr(const std::string& plain, const std::string& key) {
+ const char* CameraQrText() {
+   return Tr("Point the phone's camera at the code: the phone becomes the Kinect sensor, no PC needed. The first time, the phone installs the PS5 certificate (the page explains).");
+ }
+-// Frame generation as the menu shows it, read from kFramegenFile (framegen_config.hpp has
++// Frame generation as the menu shows it, read from FramegenFile() (framegen_config.hpp has
+ // the file's three lines). Kept here, not in the class or the Settings.
+ // Binary release patch group 11: the file lives in the title's writable storage. On a .ffpkg
+ // installation /app0 is read-only, so the choice was never saved and the presenter kept the
+ // packaged "off". The package's /app0/framegen.conf is still read while there is no new file
+ // (presenter_sidecar.hpp reads in the same order).
+-const char* const kFramegenFile = "/download0/xbox360ps5/framegen.conf";
++// Fix 165: in the user's data folder (user_storage.hpp), which presenter_sidecar.hpp reads first.
++std::string FramegenFile() { return (UserData() / "framegen.conf").string(); }
+ const char* const kFramegenPackagedFile = "/app0/framegen.conf";
+ struct FramegenChoiceState {
+   int mode = 0;        // 0 off, 1 automatic, 2 2x, 3 3x, 4 4x
+@@ -2086,7 +2093,7 @@ struct FramegenChoiceState {
+ FramegenChoiceState& FramegenChoice() {
+   static FramegenChoiceState choice = [] {
+     FramegenChoiceState state;
+-    std::ifstream input(kFramegenFile, std::ios::binary);
++    std::ifstream input(FramegenFile(), std::ios::binary);
+     if (!input) input.open(kFramegenPackagedFile, std::ios::binary);
+     std::string file((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+     if (file.size() > 1023) file.resize(1023);  // as much as the presenter reads
+@@ -2164,12 +2171,13 @@ bool WriteFramegen(int mode, const std::string& output) {
+   const int multiplier = mode ? mode : choice.last_on;  // 1 automatic, 2 to 4
+   const std::string file = ps5x360::framegen::FormatConfig(
+       mode != 0, multiplier == 1 ? 0u : uint32_t(multiplier), output, choice.pacing);
+-  const char* temporary = "/download0/xbox360ps5/framegen.conf.new";
++  const std::string target = FramegenFile(), temporary_name = target + ".new";  // fix 165
++  const char* temporary = temporary_name.c_str();
+   std::ofstream stream(temporary, std::ios::trunc | std::ios::binary);
+   stream << file;
+   stream.close();
+   if (!stream) { std::remove(temporary); return false; }
+-  if (std::rename(temporary, kFramegenFile) != 0) {
++  if (std::rename(temporary, target.c_str()) != 0) {
+     std::remove(temporary); return false;
+   }
+   XELOGW("Frame generation requested={} multiplier={} output_hz={} (restart required)", mode != 0,
+@@ -2682,7 +2690,7 @@ void Launcher::Press(Key key) {
+       if (key == Key::triangle && rows) {
+         auto changed = settings_.game_paths;
+         changed.erase(changed.begin() + path_row_);
+-        if (WriteGamePaths(kStorage / "game_paths.txt", changed)) {
++        if (WriteGamePaths(UserData() / "game_paths.txt", changed)) {
+           settings_.game_paths = std::move(changed);
+           path_row_ = std::max(0, std::min(path_row_, int(settings_.game_paths.size()) - 1));
+           Scan();
+@@ -2706,7 +2714,7 @@ void Launcher::Press(Key key) {
+         if (path.empty()) { path_error_ = Tr("Select a game folder."); break; }
+         auto changed = settings_.game_paths;
+         if (std::find(changed.begin(), changed.end(), path) == changed.end()) changed.push_back(path);
+-        if (WriteGamePaths(kStorage / "game_paths.txt", changed)) {
++        if (WriteGamePaths(UserData() / "game_paths.txt", changed)) {
+           settings_.game_paths = std::move(changed); path_error_.clear(); mode_ = Mode::paths; Scan();
+         } else path_error_ = Tr("Could not save game folders.");
+       }
+@@ -3037,10 +3045,10 @@ bool FsiInEffect() { return FsiAtStart(); }
+ // assets/presets.txt section (scale_threshold=); 0 when it has none.
+ // Fix 117f: else the compiled-in value (the staged package may lack the row); *from names the source.
+ // Fix 117k: the console's own list of a game's render target classes at 1x
+-// (/download0/xbox360ps5/resolution-scale/<TITLE ID>.txt); empty when there is none.
++// (<data>/resolution-scale/<TITLE ID>.txt, fix 165); empty when there is none.
+ std::string NativeClassesTextFor(const std::string& title_id) {
+   if (title_id.empty()) return {};
+-  std::ifstream input(kStorage / "resolution-scale" / (title_id + ".txt"), std::ios::binary);
++  std::ifstream input(UserData() / "resolution-scale" / (title_id + ".txt"), std::ios::binary);
+   if (!input) return {};
+   std::string text((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+   return text;
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+index ff4f59387ba90bf4a25c9382cc28a2fe34b65870..99a877fe15e1fb198ce6f26f611def1d528212cf 100644
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -45,7 +45,7 @@ struct GameEntry {
+ void ChooseDisc(GameEntry& game, size_t index);
+ // Fix 89: whether `path` is one of the entry's discs (its own path for a game of one disc).
+ bool HasDiscPath(const GameEntry& game, const std::string& path);
+-// Options kept in /download0/xbox360ps5/settings.txt. Every choice is a small
++// Options kept in <data>/settings.txt (fix 165: user_storage.hpp). Every choice is a small
+ // integer. Options() describes the ones the menus show: the settings sheet's
+ // sub-menus, a game's own sheet and the guide over a running game all draw
+ // from it, and so do the files.
+diff --git a/src/covers.cpp b/src/covers.cpp
+index ab4e9d3a969a78bfaf07688afe15cbfd3857740c..46db16085da3cd89a967969bb79021983d678c42 100644
+--- a/src/covers.cpp
++++ b/src/covers.cpp
+@@ -3,6 +3,7 @@
+ #include "xbox360ps5/covers.hpp"
+ #include "xbox360ps5/nui_image_scan.hpp"  // fix 57
+ #include "cover_fallback.hpp"  // fix 41: Microsoft box art after XboxUnity
++#include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include <algorithm>
+@@ -311,7 +312,7 @@ bool GameRequiresKinect(const fs::path& game) {
+ 
+ fs::path CoverFile(const std::string& title_id) {
+ #if XE_PLATFORM_PS5
+-  const fs::path folder = "/download0/xbox360ps5/covers";
++  const fs::path folder = xbox360ps5::user_storage::Root() / "covers";  // fix 165
+ #else
+   const fs::path folder = fs::temp_directory_path() / "xbox360ps5-covers";
+ #endif
+diff --git a/src/game_patches.cpp b/src/game_patches.cpp
+index afeddafb204681526574c1768a5ccd07b76920a4..f6676910bd4213af27494d50d82cd1904738e9ba 100644
+--- a/src/game_patches.cpp
++++ b/src/game_patches.cpp
+@@ -2,6 +2,7 @@
+ #include "xbox360ps5/game_patches.hpp"
+ #include "xbox360ps5/patch_runtime.hpp"
+ #include "xbox360ps5/app_identity.hpp"  // fix 155c: XBOX360PS5_DATA_ROOT
++#include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include "xenia/base/cvar.h"
+@@ -40,7 +41,8 @@ fs::path ChoiceFile(uint32_t title_id) {
+   char name[32];
+   std::snprintf(name, sizeof(name), "%08X.txt", title_id);
+ #if XE_PLATFORM_PS5
+-  return fs::path("/download0/xbox360ps5/patches") / name;
++  // Fix 165: in the user's data folder, named apart from assets/patches (the patch files).
++  return xbox360ps5::user_storage::Root() / "patch-choices" / name;
+ #else
+   if (const char* folder = std::getenv("XBOX360PS5_PATCH_CHOICES")) return fs::path(folder) / name;
+   return fs::temp_directory_path() / "xbox360ps5-patches" / name;
+diff --git a/src/title_switch.cpp b/src/title_switch.cpp
+index 5e2799d05cf4cb8bf2b444dfc2ba8230e35886b8..e7e1ae04356c588c29f2118ac71130054aeffbf0 100644
+--- a/src/title_switch.cpp
++++ b/src/title_switch.cpp
+@@ -2,6 +2,7 @@
+ #include "xbox360ps5/title_switch.hpp"
+ #include "xbox360ps5/multi_disc.hpp"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
++#include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include <cstdio>
+@@ -81,7 +82,8 @@ std::string TakeModuleOverride() { return std::exchange(module_override, std::st
+ 
+ void LoadGameConfigs(const std::string& title_id) {
+ #if XE_PLATFORM_PS5
+-  const fs::path folders[] = {"/app0/assets/game-configs", "/download0/xbox360ps5/game-configs"};
++  const fs::path folders[] = {"/app0/assets/game-configs",
++                              xbox360ps5::user_storage::Root() / "game-configs"};  // fix 165
+ #else
+   const fs::path folders[] = {"dist/" XBOX360PS5_TITLE_ID "/assets/game-configs"};
+ #endif
+diff --git a/include/xbox360ps5/title_switch.hpp b/include/xbox360ps5/title_switch.hpp
+index dc4783e4f0b44eb66d0710d3d7bc1886c75b7abb..3c2e304add64a1a002123665497617608210aa3f 100644
+--- a/include/xbox360ps5/title_switch.hpp
++++ b/include/xbox360ps5/title_switch.hpp
+@@ -29,6 +29,6 @@ void SetModuleOverride(const std::string& module);
+ std::string TakeModuleOverride();
+ // Per-game settings in Xenia's game config format (<TITLEID>.config.toml, keys
+ // such as GPU.readback_resolve): first the ones shipped with the title in
+-// assets/game-configs, then the user's in /download0/xbox360ps5/game-configs.
++// assets/game-configs, then the user's in <data>/game-configs (fix 165: user_storage.hpp).
+ void LoadGameConfigs(const std::string& title_id);
+ }
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+index 08ff5ffc6c97aeb81ca2920d0628bc6379977b22..12d3491c0af0434b0a7571fe8a133b5a8b4ac0ec 100644
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -66,7 +66,7 @@
+ // data between the 1x and 2x classes read the wrong layout. A threshold cannot tell them apart, so a game may name
+ // the exact classes (pitch in pixels and MSAA) that render at 1x instead: compiled in (Red Dead Redemption: its
+ // shadow cascade at 800 and the passes of 40 to 200 pixels, no threshold any more), or from the console's own file
+-// /download0/xbox360ps5/resolution-scale/<TITLE ID>.txt ("800x1 40x4 ..." ; # comments), which wins, so other sets
++// <data>/resolution-scale/<TITLE ID>.txt (fix 165) ("800x1 40x4 ..." ; # comments), which wins, so other sets
+ // can be tried without a new build.
+ #pragma once
+ 
+diff --git a/include/xbox360ps5/avatar_skeleton.hpp b/include/xbox360ps5/avatar_skeleton.hpp
+index 978e52d3ce56b3a8d4e3412e3078a56b8ee11a95..1954380773185648b69c25ef3ff9ebb579044fb7 100644
+--- a/include/xbox360ps5/avatar_skeleton.hpp
++++ b/include/xbox360ps5/avatar_skeleton.hpp
+@@ -16,7 +16,7 @@
+ // parents listed before children). The positions are our own numbers for a simple mannequin in a
+ // T-pose, Y up, in metres, the root between the feet; no avatar data is copied from anywhere.
+ // The shape: body type, height and weight per player profile, in the launcher's profile sheet,
+-// kept in /download0/xbox360ps5/avatars/<XUID>.txt.
++// kept in <data>/avatars/<XUID>.txt (fix 165: user_storage.hpp).
+ #pragma once
+ #include <cstdint>
+ #include <cstdio>
+@@ -26,6 +26,8 @@
+ #include <sstream>
+ #include <string>
+ 
++#include "xbox360ps5/user_storage.hpp"  // fix 165
++
+ namespace xbox360ps5::avatar_skeleton {
+ 
+ constexpr uint32_t kJoints = 71;
+@@ -155,7 +157,14 @@ inline Shape Parse(const std::string& text) {
+   }
+   return Clamped(shape);
+ }
+-constexpr const char* kFolder = "/download0/xbox360ps5/avatars";
++// Fix 165: in the user's data folder (user_storage.hpp), chosen at start. Reads as that folder's
++// path wherever a std::string is taken, so the callers (the launcher, the core's xam_avatar.cc)
++// pass kFolder as before.
++struct UserFolder {
++  const char* leaf;
++  operator std::string() const { return (user_storage::Root() / leaf).generic_string(); }
++};
++inline constexpr UserFolder kFolder{"avatars"};
+ inline std::string FileName(uint64_t xuid) {
+   char name[32];
+   std::snprintf(name, sizeof(name), "%016llX.txt", static_cast<unsigned long long>(xuid));
+diff --git a/port/presenter_sidecar.hpp b/port/presenter_sidecar.hpp
+index f610b759957bfb2fa08ee2b24ad27943e12816cf..4ef37684501d8576d2022073be249e3cb2e52856 100644
+--- a/port/presenter_sidecar.hpp
++++ b/port/presenter_sidecar.hpp
+@@ -11,6 +11,7 @@
+ #include <unordered_map>
+ #include "adaptive_pacing.hpp"
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
++#include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "framegen_config.hpp"
+ #include "pacing_adapter.hpp"
+ #include "vendor/ps5_framegen.h"
+@@ -51,13 +52,15 @@ void LoadFramegenPrivateConfig() {
+   // storage first (/app0 is read-only on a .ffpkg installation), then the packaged file.
+   std::FILE* file = nullptr;
+   const char* path = nullptr;
+-  for (const char* candidate : {"/download0/xbox360ps5/framegen.conf", "/app0/framegen.conf",
++  // Fix 165: the launcher's choice is in the user's data folder (user_storage.hpp).
++  const std::string user_file = (::xbox360ps5::user_storage::Root() / "framegen.conf").string();
++  for (const char* candidate : {user_file.c_str(), "/app0/framegen.conf",
+                                 XBOX360PS5_DATA_ROOT "/framegen.conf"}) {
+     path = candidate;
+     if ((file = std::fopen(path, "rb"))) break;
+   }
+   if (!file) {
+-    XELOGW("Framegen config unavailable in /download0, /app0 or installation root; disabled");
++    XELOGW("Framegen config unavailable in the user data folder, /app0 or installation root; disabled");
+     return;
+   }
+   char text[1024]{};

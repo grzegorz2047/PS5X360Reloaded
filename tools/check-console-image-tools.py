@@ -54,8 +54,25 @@ PACKAGE_ONE_ARG = PACKAGE_TWO_ARGS.replace(
     'def param_json(base):\n    p = json.loads(base); p[\'titleId\'] = TITLE_ID; p[\'contentVersion\'] = \'one-arg\'')
 
 
+# package.py since the rename to TrinityX360 (1.0.6): its own home-screen label, and PS5X360Reloaded's
+# refused like the official one.
+PACKAGE_TRINITY = PACKAGE_TWO_ARGS.replace(
+    "OFFICIAL_LABEL_RE = re.compile(rb'PS5X360 v[0-9]')",
+    "HOME_LABEL = b'TrinityX360 v'\nOFFICIAL_LABEL_RE = re.compile(rb'PS5X360(?:Reloaded)? v[0-9]')")
+assert PACKAGE_TRINITY != PACKAGE_TWO_ARGS
+# package.py with the home screen's pictures: OFFICIAL_LOGOS names the official orb's SHA-256; one
+# that replaces it in art_files() stages, one that does not is refused.
+_ORB = __import__('hashlib').sha256(b'OFFICIAL X ORB').hexdigest()
+PACKAGE_SKIN = PACKAGE_TRINITY.replace(
+    "    return {'sce_sys/icon0.png': b'NEW ICON'}",
+    "    return {'sce_sys/icon0.png': b'NEW ICON', 'assets/skin/ball.png': b'TRINITY ORB'}") + \
+    f"OFFICIAL_LOGOS = {{'{_ORB}': 'assets/skin/ball.png'}}\n"
+PACKAGE_SKIN_MISSING = PACKAGE_TRINITY + f"OFFICIAL_LOGOS = {{'{_ORB}': 'assets/skin/ball.png'}}\n"
+assert 'TRINITY ORB' in PACKAGE_SKIN
+
+
 def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_mentions=1,
-                      package=PACKAGE_TWO_ARGS):
+                      package=PACKAGE_TWO_ARGS, name='PS5X360Reloaded', extra_elf=b''):
     base = root / 'base/PPSA50011'
     write(base / 'eboot.bin', b'OFFICIAL EBOOT' * 100)
     write(base / 'sce_sys/param.json', json.dumps({'titleId': 'PPSA50011', 'contentVersion': '01.000.000'}))
@@ -63,8 +80,9 @@ def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_
     write(base / 'assets/lang/en.txt', 'Configuracoes = Settings\n')
     write(base / 'dlc/README.md', 'Put DLC in PPSA50011 here. ' * dlc_mentions if dlc_mentions else 'no id\n')
     write(base / 'AUTOLOG.md', 'official autolog guide\n')
+    write(base / 'assets/skin/ball.png', b'OFFICIAL X ORB')
     art = root / 'art'
-    elf = b'\x7fELF....' + f'PS5X360Reloaded v{label}'.encode() + b'\0'
+    elf = b'\x7fELF....' + f'{name} v{label}'.encode() + b'\0' + extra_elf
     if official_label:
         elf += b'PS5X360 v1.0.2\0'
     write(art / 'src102-out/eboot.elf', elf)
@@ -98,6 +116,12 @@ def stage_checks():
             check((app / 'eboot.bin').read_bytes() == (art / 'src102-out/eboot.bin').read_bytes(),
                   'stage: eboot.bin is the artifact\'s')
             check(len(list((app / 'assets/lang').glob('l*.txt'))) == 16, 'stage: the 16 language files are copied')
+            own = sorted((REPO / 'assets/patches').glob('*.patch.toml'))
+            check(own and all((app / 'assets/patches' / f.name).read_bytes() == f.read_bytes() for f in own),
+                  "stage: the repository's own game patches are copied into assets/patches (fix 155c)")
+            icons = [f for skin in ('skin', 'skin-dark') for f in sorted((REPO / 'assets' / skin).glob('*.png'))]
+            check(len(icons) == 12 and all((app / f.relative_to(REPO)).read_bytes() == f.read_bytes() for f in icons),
+                  "stage: the repository's home screen icons are copied into assets/skin and assets/skin-dark (fix 164)")
             param = json.loads((app / 'sce_sys/param.json').read_text())
             check(param == {'titleId': 'PPSA83600', 'contentVersion': '1.0.5'},
                   f'stage: param.json from package.py with the label\'s version ({param})')
@@ -137,6 +161,30 @@ def stage_checks():
         result, app = run_stage(root, *make_stage_inputs(root, package=PACKAGE_ONE_ARG))
         check(result.returncode == 0 and json.loads((app / 'sce_sys/param.json').read_text())['contentVersion'] == 'one-arg',
               'stage: an older package.py with param_json(base) works')
+
+    # The rename to TrinityX360: the package repo's package.py says which label the ELF must carry.
+    renamed = [
+        (dict(package=PACKAGE_TRINITY, name='TrinityX360'), None,
+         'stage: a TrinityX360 build with a TrinityX360 package.py stages'),
+        (dict(package=PACKAGE_TRINITY), 'does not carry',
+         'stage: a PS5X360Reloaded build with a TrinityX360 package.py is refused'),
+        (dict(name='TrinityX360'), 'does not carry',
+         'stage: a TrinityX360 build with an older package.py is refused'),
+        (dict(package=PACKAGE_TRINITY, name='TrinityX360', extra_elf=b'PS5X360Reloaded v1.0.5\0'), 'older name',
+         'stage: a TrinityX360 build that also carries PS5X360Reloaded\'s label is refused'),
+        (dict(package=PACKAGE_SKIN, name='TrinityX360'), None,
+         'stage: the official logo pictures replaced by package.py\'s art stage'),
+        (dict(package=PACKAGE_SKIN_MISSING, name='TrinityX360'), 'official PS5X360 logo',
+         'stage: a stage that keeps an official logo picture is refused'),
+    ]
+    for kwargs, text, what in renamed:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, app = run_stage(root, *make_stage_inputs(root, **kwargs))
+            if text is None:
+                check(result.returncode == 0 and (app / 'eboot.bin').is_file(), f'{what} ({result.stderr.strip()[:120]})')
+            else:
+                check(result.returncode != 0 and text in result.stderr, f'{what} ({result.stderr.strip()[:120]})')
 
 
 # ---------------------------------------------------------------- upload

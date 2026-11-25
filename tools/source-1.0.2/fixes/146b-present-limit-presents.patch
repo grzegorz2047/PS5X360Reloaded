@@ -1,0 +1,237 @@
+diff --git a/include/xbox360ps5/present_limit.hpp b/include/xbox360ps5/present_limit.hpp
+--- a/include/xbox360ps5/present_limit.hpp
++++ b/include/xbox360ps5/present_limit.hpp
+@@ -18,6 +18,17 @@
+ // 60 FPS: 1 at 60 Hz, 2 at 120 Hz). 40 FPS is not a whole number of refreshes at 60 Hz, so there
+ // it is not applied. Nor is any limit while frame generation is on (it paces its own pictures).
+ // Automatic (the default) and No limit both show every picture as before.
++//
++// Fix 146b: no time grid. On the console (1.0.6-work-fix146, 59.94 Hz FIFO) 30 FPS showed 24.7
++// new pictures/s of GTA IV's 37-43 and 15.8/s of Dragon Age II's 30.2. The grid's openings had a
++// phase of their own, so a picture could wait for an opening and be replaced before it. Now a
++// newer picture is taken as soon as the one on screen has been presented `refreshes` times (with
++// FIFO each present is on screen for at least one refresh), or has been there `refreshes` and a
++// half refreshes of time (a refresh without a present). So the newest picture is taken at the
++// first paint the limit allows, nothing waits for a phase, and a game at or below the limit is
++// shown as before (at most one refresh later, never dropped by the limit). The summary line also
++// says which drops were the limit's, the game's own times between pictures, the present times
++// and the longest time a picture stayed, for the next console test.
+ #pragma once
+ 
+ #include <algorithm>
+@@ -63,7 +74,8 @@ struct Plan {
+   bool applied = false;    // the limit holds pictures
+   uint32_t refreshes = 0;  // output refreshes per new picture
+   int64_t period_ns = 0;   // their length
+-  int64_t slack_ns = 0;    // half a refresh: a paint that wakes a little early is on time
++  int64_t slack_ns = 0;    // half a refresh
++  bool fifo = false;       // counted in presents (each one at least a refresh on screen)
+   const char* reason = "";
+ };
+ 
+@@ -95,6 +107,7 @@ inline Plan MakePlan(int choice, const Output& out) {
+   plan.refreshes = uint32_t(whole);
+   plan.period_ns = int64_t(whole * refresh_ns + 0.5);
+   plan.slack_ns = int64_t(refresh_ns * 0.5);
++  plan.fifo = out.fifo;
+   plan.reason = out.fifo ? "each new picture shown for whole refreshes"
+                          : "timed only: the swapchain is not FIFO";
+   return plan;
+@@ -132,6 +145,35 @@ class IntervalHistogram {
+   uint64_t count_ = 0;
+ };
+ 
++// The game's time between pictures, written by the producer without a lock (a count lost to a
++// race at the window's start does not matter for a summary).
++class AtomicIntervalHistogram {
++ public:
++  void Add(int64_t ns) {
++    const size_t bin = ns <= 0 ? 0
++                               : std::min(IntervalHistogram::kBins - 1,
++                                          size_t(ns / IntervalHistogram::kBinNs));
++    bins_[bin].fetch_add(1, std::memory_order_relaxed);
++    int64_t longest = longest_.load(std::memory_order_relaxed);
++    while (ns > longest &&
++           !longest_.compare_exchange_weak(longest, ns, std::memory_order_relaxed)) {
++    }
++  }
++  // Moves the counts into `out` and starts again.
++  int64_t Take(IntervalHistogram& out) {
++    out.Clear();
++    for (size_t i = 0; i < IntervalHistogram::kBins; ++i) {
++      const uint32_t count = bins_[i].exchange(0, std::memory_order_relaxed);
++      for (uint32_t n = 0; n < count; ++n) out.Add(int64_t(i) * IntervalHistogram::kBinNs);
++    }
++    return longest_.exchange(0, std::memory_order_relaxed);
++  }
++
++ private:
++  std::array<std::atomic<uint32_t>, IntervalHistogram::kBins> bins_{};
++  std::atomic<int64_t> longest_{0};
++};
++
+ class Gate {
+  public:
+   static constexpr int64_t kPauseNs = 250000000;    // no new picture for longer: start again
+@@ -148,7 +190,11 @@ class Gate {
+   // The producer (Presenter::RefreshGuestOutput): a new picture of the game is ready.
+   void NoteRefresh(int64_t now) {
+     refreshes_.fetch_add(1, std::memory_order_relaxed);
+-    last_arrival_.store(now, std::memory_order_relaxed);
++    const int64_t previous = last_arrival_.exchange(now, std::memory_order_relaxed);
++    if (previous && now > previous) game_intervals_.Add(now - previous);
++    // Fix 146b: the ready picture the limit was holding is replaced: a drop of the limit's own.
++    if (holding_.exchange(false, std::memory_order_relaxed))
++      limit_dropped_.fetch_add(1, std::memory_order_relaxed);
+   }
+ 
+   // The consumer (Presenter::ConsumeGuestOutput, under the mailbox's consumer lock), when a
+@@ -157,22 +203,16 @@ class Gate {
+   bool Take(int64_t now, bool current_active) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     const int64_t arrival = last_arrival_.load(std::memory_order_relaxed);
+-    if (!plan_.applied || !current_active || !deadline_ ||
+-        (last_taken_ && now - last_taken_ > kPauseNs)) {
+-      // No limit, nothing shown yet, or after a pause: show it now and start the grid here.
+-      deadline_ = plan_.applied ? now + plan_.period_ns : 0;
+-      Taken(now, arrival);
+-      return true;
+-    }
+-    if (now + plan_.slack_ns >= deadline_) {
+-      // On time (within half a refresh of the grid) keeps the grid; later, because the game's
+-      // picture came late, starts it again from now: no short picture to catch up.
+-      deadline_ = now - deadline_ <= plan_.slack_ns ? deadline_ + plan_.period_ns
+-                                                    : now + plan_.period_ns;
++    if (!plan_.applied || !current_active || !restarted_ || now - last_taken_ > kPauseNs ||
++        Allowed(now)) {
++      // No limit, nothing shown yet (or a new choice), after a pause, or the picture on screen
++      // has had its refreshes: the newest picture now.
++      restarted_ = plan_.applied;
+       Taken(now, arrival);
+       return true;
+     }
+     ++held_;
++    holding_.store(true, std::memory_order_relaxed);
+     return false;
+   }
+ 
+@@ -182,6 +222,8 @@ class Gate {
+   int NotePaint(int64_t now, bool fifo, bool framegen, uint64_t vblanks, std::string lines[2]) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     int count = 0;
++    if (last_paint_ && now > last_paint_) present_intervals_.Add(now - last_paint_);
++    last_paint_ = now;
+     ++paints_;
+     const int choice = choice_.load(std::memory_order_relaxed);
+     Output out;
+@@ -197,8 +239,10 @@ class Gate {
+       planned_ = true;
+       plan_choice_ = choice;
+       plan_ = plan;
+-      deadline_ = 0;
++      restarted_ = false;
+       if (announce) lines[count++] = PlanLine(choice, out);
++      // A summary covers one choice: the window starts again with it.
++      if (announce) report_at_ = 0;
+     }
+     if (!report_at_) {
+       StartWindow(now, vblanks);
+@@ -213,19 +257,42 @@ class Gate {
+   const Plan& plan() const { return plan_; }
+   uint64_t taken() const { return taken_; }
+   uint64_t held() const { return held_; }
++  uint64_t limit_dropped() const { return limit_dropped_.load(std::memory_order_relaxed); }
+ 
+  private:
++  // Whether the picture on screen has had its refreshes (the limit applied and a picture shown).
++  bool Allowed(int64_t now) const {
++    const int64_t elapsed = now - last_taken_;
++    if (!plan_.fifo) return elapsed >= plan_.period_ns - plan_.slack_ns;
++    // NotePaint counted this paint already: the picture taken at paint P has been presented
++    // `paints_ - paints_at_take_` times when paint P + n consumes.
++    // A refresh without a present (a slow paint) still counts when the time says so: one
++    // present short and the whole time but a quarter of a refresh passed.
++    const uint64_t presents = paints_ - paints_at_take_;
++    return presents >= plan_.refreshes ||
++           (presents + 1 >= plan_.refreshes && elapsed >= plan_.period_ns - plan_.slack_ns / 2);
++  }
+   void Taken(int64_t now, int64_t arrival) {
+     ++taken_;
++    holding_.store(false, std::memory_order_relaxed);
+     if (arrival && now >= arrival) waited_ns_ += uint64_t(now - arrival);
+-    if (last_taken_ && now - last_taken_ <= kPauseNs) intervals_.Add(now - last_taken_);
++    if (last_taken_) {
++      const int64_t gap = now - last_taken_;
++      if (gap <= kPauseNs) intervals_.Add(gap);
++      longest_gap_ = std::max(longest_gap_, gap);
++    }
+     last_taken_ = now;
++    paints_at_take_ = paints_;
+   }
+   void StartWindow(int64_t now, uint64_t vblanks) {
+     report_at_ = now;
+     window_ = {paints_, taken_, held_, waited_ns_, refreshes_.load(std::memory_order_relaxed),
+-               vblanks};
++               vblanks, limit_dropped_.load(std::memory_order_relaxed)};
+     intervals_.Clear();
++    present_intervals_.Clear();
++    longest_gap_ = 0;
++    IntervalHistogram discard;
++    game_intervals_.Take(discard);
+   }
+   std::string PlanLine(int choice, const Output& out) const {
+     char text[320];
+@@ -251,18 +318,27 @@ class Gate {
+                     plan_.refreshes, out.hz);
+     else
+       std::snprintf(target, sizeof(target), "%s, not applied", ChoiceText(plan_choice_));
+-    char text[512];
++    const uint64_t by_limit =
++        limit_dropped_.load(std::memory_order_relaxed) - window_.limit_dropped;
++    IntervalHistogram game;
++    const int64_t game_longest = game_intervals_.Take(game);
++    char text[900];
+     std::snprintf(text, sizeof(text),
+                   "Presentation limit (fix 146): %s; %.1f new pictures/s of %.1f game swaps/s, "
+-                  "%.1f presents/s, %.1f vblanks/s; held %.1f/s, repeated %.1f/s, dropped %.1f/s; "
+-                  "waited %.1f ms/s (%.1f ms a picture); interval median %.2f ms, p95 %.2f ms",
++                  "%.1f presents/s, %.1f vblanks/s; held %.1f/s, repeated %.1f/s, dropped %.1f/s "
++                  "(%.1f/s by the limit); waited %.1f ms/s (%.1f ms a picture); interval median "
++                  "%.2f ms, p95 %.2f ms, longest %.1f ms; game interval median %.2f ms, p95 "
++                  "%.2f ms, longest %.1f ms; present interval median %.2f ms, p95 %.2f ms",
+                   target, double(taken) / seconds, double(arrived) / seconds,
+                   double(paints) / seconds, double(vblanks - window_.vblanks) / seconds,
+                   double(held) / seconds,
+                   double(paints > taken ? paints - taken : 0) / seconds,
+-                  double(arrived > taken ? arrived - taken : 0) / seconds, waited_ms / seconds,
++                  double(arrived > taken ? arrived - taken : 0) / seconds,
++                  double(by_limit) / seconds, waited_ms / seconds,
+                   taken ? waited_ms / double(taken) : 0.0, intervals_.PercentileMs(0.5),
+-                  intervals_.PercentileMs(0.95));
++                  intervals_.PercentileMs(0.95), double(longest_gap_) / 1e6,
++                  game.PercentileMs(0.5), game.PercentileMs(0.95), double(game_longest) / 1e6,
++                  present_intervals_.PercentileMs(0.5), present_intervals_.PercentileMs(0.95));
+     return text;
+   }
+ 
+@@ -274,12 +350,16 @@ class Gate {
+   Plan plan_;
+   int plan_choice_ = kAutomatic;
+   bool planned_ = false;
+-  int64_t deadline_ = 0, last_taken_ = 0, report_at_ = 0;
+-  uint64_t paints_ = 0, taken_ = 0, held_ = 0, waited_ns_ = 0;
++  int64_t last_taken_ = 0, report_at_ = 0, last_paint_ = 0, longest_gap_ = 0;
++  bool restarted_ = false;  // a picture was taken under the current plan
++  uint64_t paints_ = 0, paints_at_take_ = 0, taken_ = 0, held_ = 0, waited_ns_ = 0;
++  std::atomic<bool> holding_{false};
++  std::atomic<uint64_t> limit_dropped_{0};
+   struct Window {
+-    uint64_t paints, taken, held, waited_ns, refreshes, vblanks;
++    uint64_t paints, taken, held, waited_ns, refreshes, vblanks, limit_dropped;
+   } window_{};
+-  IntervalHistogram intervals_;
++  IntervalHistogram intervals_, present_intervals_;
++  mutable AtomicIntervalHistogram game_intervals_;  // emptied by the summary
+ };
+ 
+ // The one the launcher, the presenter and the guide share.

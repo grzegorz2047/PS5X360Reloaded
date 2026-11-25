@@ -1,0 +1,441 @@
+diff --git a/.deps/xenia-canary/src/xenia/ui/presenter.cc b/.deps/xenia-canary/src/xenia/ui/presenter.cc
+--- a/.deps/xenia-canary/src/xenia/ui/presenter.cc
++++ b/.deps/xenia-canary/src/xenia/ui/presenter.cc
+@@ -14,6 +14,10 @@
+ #include "xenia/base/logging.h"
+ #include "xenia/base/platform.h"
+ #include "xenia/ui/window.h"
++#if __has_include("xbox360ps5/present_limit.hpp")
++#include "xbox360ps5/present_limit.hpp"  // fix 146
++#define XBOX360PS5_PRESENT_LIMIT 1
++#endif
+ 
+ #if XE_PLATFORM_WIN32
+ #include "xenia/ui/window_win.h"
+@@ -397,6 +401,12 @@ bool Presenter::RefreshGuestOutput(
+       (last_acquired_and_ready & 3) | (guest_output_mailbox_writable_ << 2),
+       std::memory_order_acq_rel, std::memory_order_relaxed)) {
+   }
++#if XBOX360PS5_PRESENT_LIMIT
++  // Fix 146: a new picture of the game is ready (its time, for what the limit holds, and the
++  // game's rate for the limit's summary). The producer never asks the limit: it never waits.
++  xbox360ps5::present_limit::Instance().NoteRefresh(
++      xbox360ps5::present_limit::NowNs());
++#endif
+   // Now, it's known that `ready == writable` on the host presentation side.
+   // Take the next `writable` with this assumption about its current value in
+   // mind.
+@@ -624,6 +634,18 @@ std::unique_lock<std::mutex> Presenter::ConsumeGuestOutput(
+   // Desired ready = current ready (changed only by the producer).
+   uint32_t desired_acquired_and_ready =
+       (old_acquired_and_ready & ~uint32_t(3)) | (old_acquired_and_ready >> 2);
++#if XBOX360PS5_PRESENT_LIMIT
++  // Fix 146: a newer picture than the acquired one is ready, and the frame rate limit may keep
++  // the acquired one for now (xbox360ps5/present_limit.hpp). The acquired image stays this
++  // consumer's, so the producer keeps writing the other two and replacing the ready one: the
++  // game never waits for the limit. A blank acquired picture is replaced at once.
++  if (desired_acquired_and_ready != old_acquired_and_ready &&
++      !xbox360ps5::present_limit::Instance().Take(
++          xbox360ps5::present_limit::NowNs(),
++          guest_output_properties_[old_acquired_and_ready & 3].IsActive())) {
++    desired_acquired_and_ready = old_acquired_and_ready;
++  }
++#endif
+   // Either the same image as during the last consumption, or a new one, is
+   // satisfying. However, if it's new, using memory_order_acq_rel to acquire the
+   // new ready image (to make it acquired) and to release the old acquired image
+diff --git a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+--- a/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
++++ b/.deps/xenia-canary/src/xenia/ui/vulkan/vulkan_presenter.cc
+@@ -20,6 +20,10 @@
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47
+ #endif
+ #include "xenia/ui/vulkan/vulkan_util.h"
++#if __has_include("xbox360ps5/present_limit.hpp")
++#include "xbox360ps5/present_limit.hpp"  // fix 146
++#define XBOX360PS5_PRESENT_LIMIT 1
++#endif
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/display_surface.hpp"
+ #include "xbox360ps5/vulkan_driver.hpp"
+@@ -618,6 +622,10 @@ VulkanPresenter::ConnectOrReconnectPaintingToSurfaceFromUIThread(
+         }
+         FramegenNoteDisplay(requested_refresh, display_surface.refresh(),
+                             selected_refresh);
++#if XBOX360PS5_PRESENT_LIMIT
++        // Fix 146: the frame rate limit holds pictures whole refreshes of this mode.
++        xbox360ps5::present_limit::Instance().SetOutputHz(double(selected_refresh) / 1000.0);
++#endif
+         if (cvars::ps5_frame_interpolation) {
+           paint_context_.completion_timeline.AwaitAllSubmissions();
+           auto& sidecar = GetFramegenSidecar(this);
+@@ -1467,6 +1475,19 @@ Presenter::PaintResult VulkanPresenter::PaintAndPresentImpl(
+     bool execute_ui_drawers) {
+   // The normal paint mutex serializes this method; no frozen class fields added.
+   ps5x360::output_metrics::enabled.store(bool(cvars::ps5_frame_interpolation), std::memory_order_relaxed);
++#if XBOX360PS5_PRESENT_LIMIT
++  {
++    // Fix 146: one paint (a present); the output as it is now, frame generation (which paces its
++    // own pictures, so the limit is off with it) and the emulated vblanks, for the limit's line
++    // when the choice or what it does changes and its summary every 30 s.
++    std::string lines[2];
++    const int count = xbox360ps5::present_limit::Instance().NotePaint(
++        xbox360ps5::present_limit::NowNs(), paint_context_.swapchain_is_fifo,
++        bool(cvars::ps5_frame_interpolation),
++        ps5x360::framegen::source_ticks.load(std::memory_order_relaxed), lines);
++    for (int i = 0; i < count; ++i) XELOGW("{}", lines[i]);
++  }
++#endif
+   FramegenSidecar* fg = nullptr;
+   std::shared_ptr<GuestOutputImage> pinned;
+   GuestOutputProperties pinned_properties{};
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -81,6 +81,9 @@ struct Settings {
+   int internal_resolution = 0;  // The emulated console's display mode: 0 720p, 1 1080p, 2 848x480, 3 960x540, 4 1600x900 (fix 140).
+   int stretch = 0;              // The picture fills the screen instead of keeping its proportions.
+   int video_clock = 0;          // The emulated console's refresh: 0 60 Hz, 1 120 Hz.
++  // Fix 146: how often the screen takes a new picture: 0 Automatic (as before), 1 No limit,
++  // 2 30, 3 40 (120 Hz output), 4 60 FPS (xbox360ps5/present_limit.hpp). Live, per game.
++  int present_limit = 0;
+   int gamma = 0;                // What the console says its display is: 0 HDTV, 1 sRGB, 2 linear.
+   int depth_precision = 0;      // 24-bit depth: 0 converted on copy, 1 in the pixel shader, 2 there and rounded.
+   int decal_bias = 0;           // Polygon offset of decals through shader depth.
+diff --git a/include/xbox360ps5/present_limit.hpp b/include/xbox360ps5/present_limit.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/present_limit.hpp
+@@ -0,0 +1,292 @@
++// SPDX-License-Identifier: MIT
++// Fix 146 (GFX-02A): a limit on how often the game's new pictures are shown, on the presentation
++// side only (research/fps-limit/DESIGN.md).
++//
++// Three clocks are separate here. The emulated console's vblank (the "GPU Frame limiter" thread,
++// 60 or 120 Hz from the Emulated video rate option) is what the game paces itself by; fix 116
++// sleeps a game's VdSwap only when its own swaps come faster than that vblank. Each swap that
++// reaches the presenter makes its picture the "ready" one of a mailbox of three images
++// (Presenter::RefreshGuestOutput) and never waits for the screen. The screen (VK_KHR_display at
++// 59.94 or 119.88 Hz, FIFO) takes the newest ready picture at each paint of the UI thread
++// (Presenter::ConsumeGuestOutput) and shows the one it holds until it takes another.
++//
++// The limit decides only that last step: while it holds, the paint shows the picture it already
++// has, and the game's next pictures replace one another in the mailbox as they do today when the
++// game is faster than the screen. Nothing sleeps for it and the game is never made to wait, so
++// the game's clock, its vblanks, fix 116 and the sound are what they were. A picture is held a
++// whole number of output refreshes (30 FPS: 2 at 60 Hz, 4 at 120 Hz; 40 FPS: 3 at 120 Hz;
++// 60 FPS: 1 at 60 Hz, 2 at 120 Hz). 40 FPS is not a whole number of refreshes at 60 Hz, so there
++// it is not applied. Nor is any limit while frame generation is on (it paces its own pictures).
++// Automatic (the default) and No limit both show every picture as before.
++#pragma once
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <chrono>
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <string>
++
++namespace xbox360ps5 {
++namespace present_limit {
++
++// Settings::present_limit, the launcher's choice.
++enum Choice : int { kAutomatic = 0, kNoLimit = 1, k30 = 2, k40 = 3, k60 = 4, kChoices = 5 };
++
++inline int TargetFps(int choice) {
++  return choice == k30 ? 30 : choice == k40 ? 40 : choice == k60 ? 60 : 0;
++}
++inline const char* ChoiceText(int choice) {
++  return choice == k30 ? "30 FPS" : choice == k40 ? "40 FPS" : choice == k60 ? "60 FPS"
++       : choice == kNoLimit ? "No limit" : "Automatic";
++}
++
++inline int64_t NowNs() {
++  return std::chrono::duration_cast<std::chrono::nanoseconds>(
++             std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++// The output as the presenter knows it.
++struct Output {
++  double hz = 0;          // the display mode's refresh (VK_KHR_display): 59.94 or 119.88
++  bool fifo = false;      // the swapchain shows each present for at least a whole refresh
++  bool framegen = false;  // frame generation is on
++};
++
++// What a choice does on an output.
++struct Plan {
++  int fps = 0;             // the chosen target (0: none)
++  bool applied = false;    // the limit holds pictures
++  uint32_t refreshes = 0;  // output refreshes per new picture
++  int64_t period_ns = 0;   // their length
++  int64_t slack_ns = 0;    // half a refresh: a paint that wakes a little early is on time
++  const char* reason = "";
++};
++
++inline constexpr double kWholeTolerance = 0.05;  // 59.94 / 30 = 1.998 refreshes is 2
++
++inline Plan MakePlan(int choice, const Output& out) {
++  Plan plan;
++  plan.fps = TargetFps(choice);
++  if (!plan.fps) {
++    plan.reason = choice == kNoLimit ? "no limit chosen" : "Automatic: every picture, as before";
++    return plan;
++  }
++  if (!(out.hz >= 30 && out.hz <= 240)) {
++    plan.reason = "no display refresh known (the Vulkan display output only)";
++    return plan;
++  }
++  if (out.framegen) {
++    plan.reason = "frame generation is on and paces its own pictures";
++    return plan;
++  }
++  const double ratio = out.hz / plan.fps;
++  const double whole = std::round(ratio);
++  if (whole < 1 || std::fabs(ratio - whole) > kWholeTolerance * whole) {
++    plan.reason = "not a whole number of refreshes of this output (40 FPS needs the 120 Hz output)";
++    return plan;
++  }
++  const double refresh_ns = 1e9 / out.hz;
++  plan.applied = true;
++  plan.refreshes = uint32_t(whole);
++  plan.period_ns = int64_t(whole * refresh_ns + 0.5);
++  plan.slack_ns = int64_t(refresh_ns * 0.5);
++  plan.reason = out.fifo ? "each new picture shown for whole refreshes"
++                         : "timed only: the swapchain is not FIFO";
++  return plan;
++}
++
++// The time between new pictures, for the median and the 95th percentile of a report.
++class IntervalHistogram {
++ public:
++  static constexpr int64_t kBinNs = 250000;  // 0.25 ms
++  static constexpr size_t kBins = 400;       // up to 100 ms; longer ones count in the last
++  void Add(int64_t ns) {
++    const size_t bin = ns <= 0 ? 0 : std::min(kBins - 1, size_t(ns / kBinNs));
++    ++bins_[bin];
++    ++count_;
++  }
++  uint64_t count() const { return count_; }
++  // The upper edge of the bin that holds the given share of the intervals, in ms (0: none).
++  double PercentileMs(double share) const {
++    if (!count_) return 0;
++    const uint64_t wanted = std::max<uint64_t>(1, uint64_t(std::ceil(share * double(count_))));
++    uint64_t seen = 0;
++    for (size_t i = 0; i < kBins; ++i) {
++      seen += bins_[i];
++      if (seen >= wanted) return double((i + 1) * kBinNs) / 1e6;
++    }
++    return double(kBins * kBinNs) / 1e6;
++  }
++  void Clear() {
++    bins_.fill(0);
++    count_ = 0;
++  }
++
++ private:
++  std::array<uint32_t, kBins> bins_{};
++  uint64_t count_ = 0;
++};
++
++class Gate {
++ public:
++  static constexpr int64_t kPauseNs = 250000000;    // no new picture for longer: start again
++  static constexpr int64_t kReportNs = 30000000000;  // the summary line, every 30 s
++
++  // The launcher's choice (Settings::Apply, any thread, also from the guide while a game runs).
++  void SetChoice(int choice) {
++    choice_.store(choice >= 0 && choice < kChoices ? choice : kAutomatic, std::memory_order_relaxed);
++  }
++  int choice() const { return choice_.load(std::memory_order_relaxed); }
++  // The display mode the presenter got (at the surface's creation).
++  void SetOutputHz(double hz) { output_hz_.store(hz, std::memory_order_relaxed); }
++
++  // The producer (Presenter::RefreshGuestOutput): a new picture of the game is ready.
++  void NoteRefresh(int64_t now) {
++    refreshes_.fetch_add(1, std::memory_order_relaxed);
++    last_arrival_.store(now, std::memory_order_relaxed);
++  }
++
++  // The consumer (Presenter::ConsumeGuestOutput, under the mailbox's consumer lock), when a
++  // newer picture than the one it holds is ready: whether it takes it now. `current_active`:
++  // the picture it holds has content (a blank output is always replaced at once).
++  bool Take(int64_t now, bool current_active) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    const int64_t arrival = last_arrival_.load(std::memory_order_relaxed);
++    if (!plan_.applied || !current_active || !deadline_ ||
++        (last_taken_ && now - last_taken_ > kPauseNs)) {
++      // No limit, nothing shown yet, or after a pause: show it now and start the grid here.
++      deadline_ = plan_.applied ? now + plan_.period_ns : 0;
++      Taken(now, arrival);
++      return true;
++    }
++    if (now + plan_.slack_ns >= deadline_) {
++      // On time (within half a refresh of the grid) keeps the grid; later, because the game's
++      // picture came late, starts it again from now: no short picture to catch up.
++      deadline_ = now - deadline_ <= plan_.slack_ns ? deadline_ + plan_.period_ns
++                                                    : now + plan_.period_ns;
++      Taken(now, arrival);
++      return true;
++    }
++    ++held_;
++    return false;
++  }
++
++  // Once per paint of the presenter: the output as it is now and the emulated vblanks so far
++  // (ps5x360::framegen::source_ticks). Returns how many log lines it wrote to `lines`: one when
++  // the choice or what it does changed, one every 30 s with what happened.
++  int NotePaint(int64_t now, bool fifo, bool framegen, uint64_t vblanks, std::string lines[2]) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    int count = 0;
++    ++paints_;
++    const int choice = choice_.load(std::memory_order_relaxed);
++    Output out;
++    out.hz = output_hz_.load(std::memory_order_relaxed);
++    out.fifo = fifo;
++    out.framegen = framegen;
++    const Plan plan = MakePlan(choice, out);
++    // (30 FPS is 4 refreshes at 119.88 Hz and 2 at 59.94 Hz: the same period, a new output.)
++    if (!planned_ || choice != plan_choice_ || plan.applied != plan_.applied ||
++        plan.refreshes != plan_.refreshes || plan.period_ns != plan_.period_ns ||
++        plan.reason != plan_.reason) {
++      const bool announce = planned_ || plan.fps;  // a first Automatic is not news
++      planned_ = true;
++      plan_choice_ = choice;
++      plan_ = plan;
++      deadline_ = 0;
++      if (announce) lines[count++] = PlanLine(choice, out);
++    }
++    if (!report_at_) {
++      StartWindow(now, vblanks);
++    } else if (now - report_at_ >= kReportNs) {
++      lines[count++] = ReportLine(now, out, vblanks);
++      StartWindow(now, vblanks);
++    }
++    return count;
++  }
++
++  // For the host check.
++  const Plan& plan() const { return plan_; }
++  uint64_t taken() const { return taken_; }
++  uint64_t held() const { return held_; }
++
++ private:
++  void Taken(int64_t now, int64_t arrival) {
++    ++taken_;
++    if (arrival && now >= arrival) waited_ns_ += uint64_t(now - arrival);
++    if (last_taken_ && now - last_taken_ <= kPauseNs) intervals_.Add(now - last_taken_);
++    last_taken_ = now;
++  }
++  void StartWindow(int64_t now, uint64_t vblanks) {
++    report_at_ = now;
++    window_ = {paints_, taken_, held_, waited_ns_, refreshes_.load(std::memory_order_relaxed),
++               vblanks};
++    intervals_.Clear();
++  }
++  std::string PlanLine(int choice, const Output& out) const {
++    char text[320];
++    if (plan_.applied)
++      std::snprintf(text, sizeof(text),
++                    "Presentation limit (fix 146): %s chosen; applied: each new picture shown "
++                    "for %u refreshes of %.2f Hz%s (the game runs as before)",
++                    ChoiceText(choice), plan_.refreshes, out.hz, out.fifo ? " (FIFO)" : " (not FIFO)");
++    else
++      std::snprintf(text, sizeof(text), "Presentation limit (fix 146): %s chosen; not applied: %s",
++                    ChoiceText(choice), plan_.reason);
++    return text;
++  }
++  std::string ReportLine(int64_t now, const Output& out, uint64_t vblanks) const {
++    const double seconds = double(now - report_at_) / 1e9;
++    const uint64_t paints = paints_ - window_.paints, taken = taken_ - window_.taken;
++    const uint64_t held = held_ - window_.held;
++    const uint64_t arrived = refreshes_.load(std::memory_order_relaxed) - window_.refreshes;
++    const double waited_ms = double(waited_ns_ - window_.waited_ns) / 1e6;
++    char target[96];
++    if (plan_.applied)
++      std::snprintf(target, sizeof(target), "target %d FPS (%u refreshes of %.2f Hz)", plan_.fps,
++                    plan_.refreshes, out.hz);
++    else
++      std::snprintf(target, sizeof(target), "%s, not applied", ChoiceText(plan_choice_));
++    char text[512];
++    std::snprintf(text, sizeof(text),
++                  "Presentation limit (fix 146): %s; %.1f new pictures/s of %.1f game swaps/s, "
++                  "%.1f presents/s, %.1f vblanks/s; held %.1f/s, repeated %.1f/s, dropped %.1f/s; "
++                  "waited %.1f ms/s (%.1f ms a picture); interval median %.2f ms, p95 %.2f ms",
++                  target, double(taken) / seconds, double(arrived) / seconds,
++                  double(paints) / seconds, double(vblanks - window_.vblanks) / seconds,
++                  double(held) / seconds,
++                  double(paints > taken ? paints - taken : 0) / seconds,
++                  double(arrived > taken ? arrived - taken : 0) / seconds, waited_ms / seconds,
++                  taken ? waited_ms / double(taken) : 0.0, intervals_.PercentileMs(0.5),
++                  intervals_.PercentileMs(0.95));
++    return text;
++  }
++
++  std::atomic<int> choice_{kAutomatic};
++  std::atomic<double> output_hz_{0};
++  std::atomic<uint64_t> refreshes_{0};
++  std::atomic<int64_t> last_arrival_{0};
++  std::mutex mutex_;
++  Plan plan_;
++  int plan_choice_ = kAutomatic;
++  bool planned_ = false;
++  int64_t deadline_ = 0, last_taken_ = 0, report_at_ = 0;
++  uint64_t paints_ = 0, taken_ = 0, held_ = 0, waited_ns_ = 0;
++  struct Window {
++    uint64_t paints, taken, held, waited_ns, refreshes, vblanks;
++  } window_{};
++  IntervalHistogram intervals_;
++};
++
++// The one the launcher, the presenter and the guide share.
++inline Gate& Instance() {
++  static Gate gate;
++  return gate;
++}
++
++}  // namespace present_limit
++}  // namespace xbox360ps5
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -24,6 +24,7 @@
+ #include "xbox360ps5/gpu_diagnostics.hpp"
+ #include "xbox360ps5/bug_report.hpp"  // fix 93
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/present_limit.hpp"  // fix 146
+ #include "xbox360ps5/video_mode.hpp"  // fix 140
+ #include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
+@@ -475,6 +476,11 @@ const std::vector<Option>& Options() {
+        {"60 Hz", "120 Hz (test)"}},
+       {"vsync", &S::vsync, 0, W::start, 1, true, "VSync",
+        "Controls the emulated vertical sync. On: games show at most 60 frames per second, so games with a 60 FPS patch do not speed up. Off: no frame cap.", off_on},
++      // Fix 146 (GFX-02A): how often the screen takes a new picture of the game; the game, its
++      // vblank and fix 116 are unchanged (xbox360ps5/present_limit.hpp). Live, per game.
++      {"present_limit", &S::present_limit, 0, W::live, 0, true, "Frame rate limit (screen)",
++       "Shows the game's new pictures at most this many times a second, each for the same time, for an even motion on screen. The game itself runs as before (its speed, its sound and the Emulated video rate do not change), and a game slower than the limit is shown as it is. 40 needs the 120 Hz output (Frame generation output: Up to 120 Hz); at 60 Hz it shows every picture. It does nothing while frame generation is on. Automatic: as before.",
++       {"Automatic", "No limit", "30", "40", "60"}},
+       {"gamma", &S::gamma, 0, W::launch, 0, true, "Emulated console gamma",
+        "The kind of display the emulated console reports to the game. Some games get lighter or darker shadows depending on the choice. HDTV is the Xbox 360's default.",
+        {"HDTV", "sRGB", "Linear"}},
+@@ -747,6 +753,8 @@ void Settings::Load() {
+     // test is the draw_scale option, with its own key: this one is 1 in every file.
+     // Fix 141: an unknown colour preset or crop is the default (Off, 0%), not the nearest choice.
+     else if ((key == "color_preset" || key == "overscan_crop") && (value < 0 || value > 3)) {}
++    // Fix 146: an unknown frame rate limit is Automatic too.
++    else if (key == "present_limit" && (value < 0 || value > 4)) {}
+     else if (const Option* option = FindOption(key))
+       this->*option->field = std::clamp(value, 0, int(option->choices.size()) - 1);
+   }
+@@ -820,6 +828,7 @@ void Settings::Apply() const {
+   // Read each time they matter.
+   cvars::framerate_limit = video_clock ? 120 : 60;
+   cvars::present_letterbox = stretch == 0;
++  xbox360ps5::present_limit::Instance().SetChoice(present_limit);  // fix 146
+   // Read as the emulator starts.
+   cvars::depth_float24_convert_in_pixel_shader = depth_precision != 0;
+   cvars::depth_float24_round = depth_precision == 2;

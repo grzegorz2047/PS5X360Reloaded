@@ -1,0 +1,86 @@
+title_name = "Grand Theft Auto IV" # Four, 4
+title_id = "545407F2" # TT-2034
+hash = "4CBE7EEB2455A159" # default.xex
+#media_id = "6AC07221" # Disc (USA): https://redump.info/disc/12492
+
+# This file replaces the official package's file of the same name (build_package.py copies
+# assets/patches/*.patch.toml by name), so it keeps that file's four community patches below,
+# unchanged, and adds the draw distance patches at the end.
+
+[[patch]]
+    name = "Unlock FPS"
+    desc = "Allows the game to go above 67 FPS. (Disable V-Sync in the config)"
+    author = "Tervel"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x829a963c
+        value = 0x48000048
+
+[[patch]]
+    name = "Skip Legal Screens"
+    author = "illusion"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x82123fbc
+        value = 0x39600001
+
+[[patch]]
+    name = "Disable blur filter"
+    author = "illusion"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x822f8a08
+        value = 0x908be904 # stw r4,-0x16fc(r11)
+    [[patch.be32]]
+        address = 0x822f8a4c
+        value = 0x908be904 # stw r4,-0x16fc(r11)
+
+[[patch]]
+    name = "Aspect Ratio"
+    desc = "See note about aspect ratio patches in the README."
+    author = "Clippy95"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x820ae698
+        value = 0x4018e393
+
+# Draw distance. The game multiplies each view's level-of-detail scale by a global float
+# (1.0 on the console, never written by the game) once per frame:
+#   8222b29c  lis   r11, 0x82a3
+#   8222b2a0  lfs   f0, 0x8e4(r31)        ; the view's base LOD scale
+#   8222b2a4  lfs   f13, -0x425c(r11)     ; [82a2bda4] = 1.0  <- patched
+#   8222b2a8  fmuls f13, f0, f13
+#   8222b2ac  stfs  f13, 0x924(r31)       ; the view's LOD scale
+#   8222b2b8  fmuls f0, f0, f13
+#   8222b2bc  stfs  f0, -0x4264(r11)      ; [82a2bd9c] global LOD scale (peds, vehicles, ...)
+# The world scan draws an object's high-detail model while (distance - fade) < its lodDist
+# (IDE/WPL, entity +0x50) times the view's LOD scale, clamped to the far clip, so a larger
+# multiplier keeps buildings, props and trees in full detail farther away and streams them
+# in sooner. Both patches write the same value, so only one of them can be on.
+# Console (1.0.6_candidate_6, AF 16x, waterfront with the Algonquin skyline, swaps/s):
+# off 52.5-55.1, +25% 45.9, +50% 38.4-40.1, +100% 29.2-30.3 (dropped: about -45% for no
+# visible gain at that spot). Bound by the GPU command thread in all runs.
+
+[[patch]]
+    name = "Draw Distance +25%"
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.25x farther (the game's level-of-detail scale 1.0 -> 1.25). Costs about 15% of the frame rate (about 46 instead of 54 frames per second on an open view). Only one draw distance patch can be on."
+    author = "PS5X360Reloaded"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x82a2bda4
+        value = 0x3fa00000 # 1.25f
+
+[[patch]]
+    name = "Draw Distance +50%"
+    desc = "Draws buildings, trees, props, people and vehicles in full detail 1.5x farther (the game's level-of-detail scale 1.0 -> 1.5). Costs about 28% of the frame rate (about 39 instead of 54 frames per second on an open view). Use +25% if this one is too slow. Only one draw distance patch can be on."
+    author = "PS5X360Reloaded"
+    is_enabled = false
+
+    [[patch.be32]]
+        address = 0x82a2bda4
+        value = 0x3fc00000 # 1.5f

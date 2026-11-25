@@ -436,7 +436,10 @@ std::string presets_path = "assets/presets.txt";
 void CheckLauncher() {
   const std::string launcher = Read("src/launcher.cpp");
   const std::string header = Read("include/xbox360ps5/launcher.hpp");
-  Expect(Has(header, "int draw_scale = 0;"), "Settings::draw_scale, 1x by default");
+  // Fix 163: Automatic (2) is the default and recommended, the third choice (check-auto-scale.cpp).
+  const bool automatic = Has(header, "int draw_scale = 2;  // fix 163");
+  Expect(Has(header, automatic ? "int draw_scale = 2;" : "int draw_scale = 0;"),
+         automatic ? "Settings::draw_scale, Automatic by default (fix 163)" : "Settings::draw_scale, 1x by default");
   Expect(Has(header, "int resolution_scale = 1;"), "the old field stays (written to settings.txt as before)");
   const std::regex option(
       R"re(\{"draw_scale", &S::draw_scale, (\d+), W::(\w+), (\d+), (true|false), "([^"]*)",\s*"[^"]*",\s*\{([^}]*)\}\})re");
@@ -446,10 +449,12 @@ void CheckLauncher() {
   if (found) {
     Expect(m[1] == "0", "in the Video sub-menu");
     Expect(m[2] == "start", "a start option (the core reads the scale as it starts)");
-    Expect(m[3] == "0", "1x recommended");
+    Expect(m[3] == (automatic ? "2" : "0"), automatic ? "Automatic recommended (fix 163)" : "1x recommended");
     Expect(m[4] == "true", "a game may have its own");
     Expect(m[5] == "Resolution scale (test)", "label (" + m[5].str() + ")");
-    Expect(m[6] == R"x("1x (720p, native)", "2x (1440p, demanding)")x", "exactly 1x and 2x (" + m[6].str() + ")");
+    Expect(m[6] == (automatic ? R"x("1x (720p, native)", "2x (1440p, demanding)", "Automatic (2x while the game keeps 30 fps)")x"
+                              : R"x("1x (720p, native)", "2x (1440p, demanding)")x"),
+           std::string(automatic ? "exactly 1x, 2x and Automatic (" : "exactly 1x and 2x (") + m[6].str() + ")");
   }
   Expect(Has(launcher, "cvars::draw_resolution_scale_x = cvars::draw_resolution_scale_y =\n"
                        "      xbox360ps5::resolution_scale::ScaleForChoice(draw_scale);"),
@@ -653,9 +658,11 @@ void CheckCore() {
   Expect(native_check != std::string::npos && threshold_read != std::string::npos && native_check < threshold_read,
          "fix 117k: IsScaleNativeForPitch asks the game's class list before the threshold");
   const size_t file_fn = launcher.find("std::string NativeClassesTextFor(const std::string& title_id) {");
+  // Fix 165: in the user's data folder (UserData()); before 165 the internal storage (kStorage).
   Expect(file_fn != std::string::npos &&
-             launcher.find("kStorage / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos,
-         "fix 117k: the launcher reads /download0/xbox360ps5/resolution-scale/<TITLE ID>.txt");
+             (launcher.find("UserData() / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos ||
+              launcher.find("kStorage / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos),
+         "fix 117k: the launcher reads <data>/resolution-scale/<TITLE ID>.txt");
   const size_t classes_set = game_main.find("xbox360ps5::resolution_scale::SetNativeClasses(");
   Expect(Has(game_main, "std::string NativeClassesTextFor(const std::string& title_id);") &&
              Has(game_main, "classes_text.empty() ? xbox360ps5::resolution_scale::CompiledNativeClasses(settings_title)\n"

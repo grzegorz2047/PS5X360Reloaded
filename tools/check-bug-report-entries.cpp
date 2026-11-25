@@ -60,16 +60,21 @@ void CheckLauncher() {
   Expect(Has(launcher, "for (int category = 0; category < int(std::size(kOptionCategories)); ++category)"),
          "(a) a game's subjects are the categories from 0 (never -1)");
   // (b)
-  const std::string press = Between(launcher, "const int rows = 15;", "if (key == Key::up || key == Key::down)");
-  Expect(Has(press, "else if (settings_row_ == 14) {") && Has(press, "settings_.bug_report = settings_.bug_report ? 0 : 1;") &&
+  // Fix 149b: the top list has 13 rows (Game settings and Library and saves are levels of their own);
+  // the bug report row is still the last one.
+  const bool tree = Has(launcher, "const int rows = 13;  // fix 93d, 149b");
+  const std::string last = tree ? "12" : "14";
+  const std::string press = Between(launcher, tree ? "const int rows = 13;" : "const int rows = 15;", "if (key == Key::up || key == Key::down)");
+  Expect(Has(press, "else if (settings_row_ == " + last + ") {") && Has(press, "settings_.bug_report = settings_.bug_report ? 0 : 1;") &&
              Has(press, "settings_.Save();"),
-         "(b) the settings sheet's 15th row toggles the general value and saves it");
+         "(b) the settings sheet's last row toggles the general value and saves it");
   const std::string sheet = Between(launcher, "void Launcher::DrawSettingsSheet(Canvas& c) {", "c.Wrapped(rows[settings_row_].about");
   Expect(Has(sheet, "{Tr(\"Problem with a game? Logs for a bug report\"), Tr(settings_.bug_report ? \"Next game\" : \"Off||plural\"),"),
          "(b) its row and value");
-  Expect(Has(sheet, "for (int n = 0; n < 14; ++n) {") &&
-             Has(sheet, "DrawBugReportRow(c, x, 668, rows[14].label, rows[14].value, settings_row_ == 14, settings_.bug_report != 0);"),
-         "(b) drawn apart, below the 14 others");
+  Expect(Has(sheet, "for (int n = 0; n < " + last + "; ++n) {") &&
+             Has(sheet, "DrawBugReportRow(c, x, 668, rows[" + last + "].label, rows[" + last + "].value, settings_row_ == " + last +
+                            ", settings_.bug_report != 0);"),
+         "(b) drawn apart, below the others");
   // (c)
   const std::string game_press = Between(launcher, "// Fix 93d: one more row after the subjects", "if (key == Key::circle) close();");
   Expect(Has(game_press, "const int categories = int(game_categories_.size()) + (identified ? 1 : 0);") &&

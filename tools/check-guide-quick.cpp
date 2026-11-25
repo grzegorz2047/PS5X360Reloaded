@@ -6,8 +6,8 @@
 //  (a) guide_quick.hpp: a plain restart sets no bug_report value; the one with logs sets the
 //      game's own value (the general one without a title ID);
 //  (b) guide_quick.hpp: Game volume is kept for the game even when it has no value of its own
-//      (with a title ID); every other option keeps the rule from before (the game's own value or
-//      its preset: the game; otherwise the general options);
+//      (with a title ID); fix 143 (check-guide-per-game.cpp) made that the rule of every option a
+//      game may have its own value of, so (b) checks Game volume and the Sound switch with it;
 //  (c) guide_quick.hpp: the quick mute row says On while the game is muted;
 //  (d) the guide's first page: "Restart game" right after "Close the game and return to the
 //      menu", then the Sound option as "Mute game sound", with its value; the restart not over
@@ -73,17 +73,10 @@ void CheckRules() {
   Expect(!logs_unknown.game && logs_unknown.general, "(a) ... the general one without a title ID");
   // (b)
   using K = gq::Keep;
-  Expect(gq::WhereToKeep("volume", false, false, true) == K::game, "(b) Game volume: the game's, with no value of its own yet");
-  Expect(gq::WhereToKeep("volume", true, false, true) == K::game, "(b) Game volume: the game's, with its own value");
-  Expect(gq::WhereToKeep("volume", false, true, true) == K::game, "(b) Game volume: the game's, with a preset");
-  Expect(gq::WhereToKeep("volume", false, false, false) == K::general, "(b) Game volume: general without a title ID");
-  for (const char* key : {"mute", "show_fps", "ui_sounds", "ui_sound_volume", "touchpad_menu", "volume_boost", "vol"}) {
-    const std::string k = key;
-    Expect(gq::WhereToKeep(key, false, false, true) == K::general, "(b) " + k + ": general, as before");
-    Expect(gq::WhereToKeep(key, true, false, true) == K::game, "(b) " + k + ": the game's own value stays the game's");
-    Expect(gq::WhereToKeep(key, false, true, true) == K::game, "(b) " + k + ": a preset's value is kept for the game");
-    Expect(gq::WhereToKeep(key, false, false, false) == K::general, "(b) " + k + ": general without a title ID");
-  }
+  // Game volume ("volume") is a per-game option; the Sound switch ("mute") is not (launcher.cpp).
+  Expect(gq::WhereToKeep(true, true) == K::game, "(b) Game volume: the game's, with no value of its own yet");
+  Expect(gq::WhereToKeep(true, false) == K::general, "(b) Game volume: general without a title ID");
+  Expect(gq::WhereToKeep(false, true) == K::general, "(b) the Sound switch (the mute row): general");
   // (c)
   Expect(std::strcmp(gq::MuteRowValue(1), "On") == 0 && std::strcmp(gq::MuteRowValue(0), "Off") == 0,
          "(c) the quick mute row: On while muted, Off otherwise");
@@ -152,11 +145,9 @@ void CheckGame() {
   Expect(Has(main, "ShutdownLogging") , "(e) fix 93i's bounded way out is in the tree");
   // (f)
   const std::string option = Between(main, "case GuideAction::option: {", "case GuideAction::capture:");
-  Expect(Has(option, "xbox360ps5::guide_quick::WhereToKeep(option.key, overrides.count(option.key) != 0,") &&
-             Has(option, "xbox360ps5::GamePreset(settings_title).count(option.key) != 0,") &&
-             Has(option, "!settings_title.empty()) == xbox360ps5::guide_quick::Keep::game) {") &&
+  Expect(Has(option, "xbox360ps5::guide_quick::WhereToKeep(option.per_game, !settings_title.empty()) ==") &&
              Has(option, "overrides[option.key] = value;") && Has(option, "global.*option.field = value;"),
-         "(f) the option rows keep values by WhereToKeep");
+         "(f) the option rows keep values by WhereToKeep (fix 143's form)");
   Expect(!Has(option, "if (overrides.count(option.key) || xbox360ps5::GamePreset(settings_title).count(option.key)) {"),
          "(f) the rule from before is gone from the guide");
   Expect(Has(option, "value = (value + step + count) % count;"), "(f) a press switches the option (the mute row: on, off)");
