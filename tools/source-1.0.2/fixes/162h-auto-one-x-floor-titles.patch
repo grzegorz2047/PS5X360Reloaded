@@ -1,0 +1,24 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -316,8 +316,19 @@ inline bool TwoXUnfit(const std::string& title_id) {
+ // 1.0.6-work-fix156q2 at 2x they made 50 (2430 MiB) and 56 (2682 MiB) scaled render targets within
+ // minutes, as Kinect Sports did; Zumba then fell to 1 frame a second.
+ #define XBOX360PS5_KINECT_SPORTS_2 1  // fix 162d (the host checks look for it)
++// Fix 162h: the games our console logs show hitting fix 117b's floor at 2x (render targets not made
++// under the free memory floor, their classes at 1x mid-session: the picture mixes 1x and 2x).
++// Automatic made 2x the default in 1.0.6, so their first session would break before the verdict:
++//  - Grand Theft Auto V (545408A7), 1.0.6_candidate_9: 10 classes at 1x within minutes, 2570 MiB of
++//    scaled render targets, direct free 626 MiB, the picture garbled for the rest of the session;
++//  - Battlefield 3 (45410950), 1.0.5-work-fix117c (1 class) and 117f (10 classes);
++//  - Tekken Tag Tournament 2 (4E4D0859), 1.0.5-work-fix117e (18 classes) and 1.0.6-work-fix142e (1);
++//  - Red Dead Redemption (5454082B), 1.0.5-work-fix133 (4 classes).
++// Grand Theft Auto IV (545407F2) is not here: five 2x logs, the floor never hit.
++#define XBOX360PS5_AUTO_ONE_X_FLOOR_TITLES 1  // fix 162h (the host checks look for it)
+ inline bool AutomaticStartsAtOneX(const std::string& title_id) {
+-  static constexpr const char* kTitles[] = {"4D5308C9", "4D5309D6", "4D4A07F0"};
++  static constexpr const char* kTitles[] = {"4D5308C9", "4D5309D6", "4D4A07F0",
++                                            "545408A7", "45410950", "4E4D0859", "5454082B"};
+   for (const char* id : kTitles) {
+     if (title_id.size() != 8) continue;
+     bool same = true;

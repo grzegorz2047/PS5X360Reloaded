@@ -179,7 +179,7 @@ checks=(
   check-utility-cache-drive.cpp    # fixes 150c, 150d and 150f
   check-two-x-unfit.cpp            # fix 150g
   check-kinect-camera-classes.cpp  # fix 162a
-  check-scale-pressure.cpp         # fixes 162c and 163
+  check-scale-pressure.cpp         # fixes 162c, 162h and 163
   check-kinect-title-rule.cpp      # fixes 162f and 163
   check-auto-scale.cpp             # fix 163
   check-write-bench.cpp            # fixes 148i, 148j, 148k

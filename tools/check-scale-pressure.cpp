@@ -12,6 +12,8 @@
 //      line ends with both only once either happened (otherwise it is fix 117's line as it was);
 //  (c) the tree: the Vulkan texture cache counts its scaled textures made under the floor, the Vulkan
 //      render target cache each colour or depth transfer's scales.
+//  fix 162h: Grand Theft Auto V, Battlefield 3, Tekken Tag Tournament 2 and Red Dead Redemption listed
+//      (they hit fix 117b's floor at 2x in our logs), an explicit 2x still 2x; GTA IV not listed.
 // Run from the assembled tree's root.
 #include <cstdio>
 #include <filesystem>
@@ -49,6 +51,17 @@ void List() {
          "(a) fix 162d: Season Two listed: Automatic 1x, an explicit 2x still 2x");
   Expect(rs::AutomaticStartsAtOneX("4D4A07F0") && as::Resolve(as::kAutomatic, "4d4a07f0", false).choice == 0,
          "(a) fix 162d: Zumba Fitness Core listed: Automatic 1x");
+#ifdef XBOX360PS5_AUTO_ONE_X_FLOOR_TITLES
+  // Fix 162h: the games our logs show hitting fix 117b's floor at 2x.
+  for (const char* id : {"545408A7", "45410950", "4E4D0859", "5454082B", "545408a7"}) {
+    const as::Start start = as::Resolve(as::kAutomatic, id, false);
+    Expect(rs::AutomaticStartsAtOneX(id) && start.choice == 0 && start.why == "Automatic: 1x (compiled-in list)" &&
+               as::Resolve(1, id, false).choice == 1,
+           std::string("(a) fix 162h: ") + id + " listed: Automatic 1x (" + start.why + "), an explicit 2x still 2x");
+  }
+  Expect(!rs::AutomaticStartsAtOneX("545407F2") && as::Resolve(as::kAutomatic, "545407F2", false).choice == 1,
+         "(a) fix 162h: GTA IV (five 2x logs, the floor never hit) stays at 2x under Automatic");
+#endif
   Expect(!rs::AutomaticStartsAtOneX("545407F2") && !rs::AutomaticStartsAtOneX("") && !rs::AutomaticStartsAtOneX("4D5308C"),
          "(a) GTA IV, no title, a short ID are not");
 #else
