@@ -1,0 +1,1073 @@
+diff --git a/port/phone_camera_tls.cpp b/port/phone_camera_tls.cpp
+--- a/port/phone_camera_tls.cpp
++++ b/port/phone_camera_tls.cpp
+@@ -1,7 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ // See phone_camera_tls.hpp. TLS 1.2 with an ECDSA P-256 certificate (mbedTLS); one thread per
+-// phone connection, at most six; HTTP/1.1 keep-alive so a phone sends every pose frame on one
+-// connection. Only the camera page's own files, a reachability probe and the two motion
++// phone connection, at most twelve (fix 169; six before); HTTP/1.1 keep-alive so a phone sends
++// its pose frames on a few connections. Only the camera page's own files, a reachability probe and the two motion
+ // routes (key required) are served.
+ #include "phone_camera_tls.hpp"
+ 
+@@ -10,6 +10,8 @@
+ #include "phone_camera_tracker.hpp"  // fix 106: the title's kinect_tracker.mjs
+ #include "xbox360ps5/phone_latency.hpp"  // fix 66: the page's delay by stage
+ #include "xbox360ps5/camera_picture.hpp"  // fix 119: the page's camera picture
++#include "xbox360ps5/phone_link.hpp"  // fix 169: the phone link in the log
++#include "xbox360ps5/body_identity.hpp"  // fix 169: tracking ids kept through a gap
+ #include "third_party/stb/stb_image.h"  // fix 119i: the JPEG picture (the implementation: xenia/ui/imgui_drawer.cc)
+ #include "xenia/base/logging.h"        // fix 66: its line in the game log
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the certificates' names
+@@ -63,7 +65,12 @@ extern "C" int mbedtls_hardware_poll(void*, unsigned char* output, size_t length
+ 
+ namespace xbox360ps5::phone_tls {
+ namespace {
+-constexpr int kAuthorityDays = 398, kCertificateDays = 397, kMaxConnections = 6;
++// Fix 169: twelve connections (six before). A browser opens up to six to the console, and a
++// connection the phone dropped without the console hearing of it (Wi-Fi) holds its place until the
++// idle timeout; the page now gives up on a stalled frame (its connection is closed) and opens
++// another, so six left a phone's new connection refused, and that failed request made the page
++// re-pair.
++constexpr int kAuthorityDays = 398, kCertificateDays = 397, kMaxConnections = 12;
+ constexpr const char* kAssets = "/app0/assets/kinect/";
+ constexpr const char* kAuthorityName = "CN=" XBOX360PS5_PRODUCT_NAME " Kinect camera (this console),O=" XBOX360PS5_PRODUCT_NAME;
+ 
+@@ -246,18 +253,50 @@ bool UseAddress(const std::string& address) {
+ }
+ 
+ // ---- One phone connection --------------------------------------------------------------------
++// Fix 169: the socket and how its last read or write failed, for the log's reason.
++struct Socket {
++  int fd;
++  int error = 0;             // errno of the last failed send or recv (not EINTR)
++  bool peer_closed = false;  // recv gave 0
++};
+ int SendBytes(void* context, const unsigned char* data, size_t length) {
+-  const int fd = *static_cast<int*>(context);
+-  const ssize_t sent = send(fd, data, length, 0);
++  auto* socket = static_cast<Socket*>(context);
++  const ssize_t sent = send(socket->fd, data, length, 0);
+   if (sent >= 0) return int(sent);
+-  return errno == EINTR ? MBEDTLS_ERR_SSL_WANT_WRITE : MBEDTLS_ERR_NET_SEND_FAILED;
++  if (errno == EINTR) return MBEDTLS_ERR_SSL_WANT_WRITE;
++  socket->error = errno;
++  return MBEDTLS_ERR_NET_SEND_FAILED;
+ }
+ int ReceiveBytes(void* context, unsigned char* data, size_t length) {
+-  const int fd = *static_cast<int*>(context);
+-  const ssize_t got = recv(fd, data, length, 0);
++  auto* socket = static_cast<Socket*>(context);
++  const ssize_t got = recv(socket->fd, data, length, 0);
+   if (got > 0) return int(got);
+-  if (got == 0) return MBEDTLS_ERR_NET_CONN_RESET;
+-  return errno == EINTR ? MBEDTLS_ERR_SSL_WANT_READ : MBEDTLS_ERR_NET_RECV_FAILED;  // includes the idle timeout
++  if (got == 0) {
++    socket->peer_closed = true;
++    return MBEDTLS_ERR_NET_CONN_RESET;
++  }
++  if (errno == EINTR) return MBEDTLS_ERR_SSL_WANT_READ;
++  socket->error = errno;
++  return MBEDTLS_ERR_NET_RECV_FAILED;  // includes the idle timeout
++}
++// Fix 169: why a read (or the handshake) ended the connection; `detail`: errno or the TLS code.
++phone_link::Close ReadFailure(const Socket& socket, int code, bool handshake, int* detail) {
++  *detail = 0;
++  if (socket.peer_closed || code == 0 || code == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return phone_link::Close::kPeer;
++  if (socket.error == EAGAIN || socket.error == EWOULDBLOCK) return phone_link::Close::kIdle;
++  if (socket.error == ECONNRESET || socket.error == EPIPE) {
++    *detail = socket.error;
++    return phone_link::Close::kPeer;
++  }
++  if (socket.error) {
++    *detail = socket.error;
++    return phone_link::Close::kRead;
++  }
++  *detail = code;
++  return handshake ? phone_link::Close::kHandshake : phone_link::Close::kTls;
++}
++uint64_t Us(std::chrono::steady_clock::duration d) {
++  return uint64_t(std::max<int64_t>(0, std::chrono::duration_cast<std::chrono::microseconds>(d).count()));
+ }
+ 
+ std::string Header(const std::string& head, const char* name) {
+@@ -327,6 +366,9 @@ std::string Route(const std::string& method, std::string target, const std::stri
+       if (const auto line = phone_latency::Line(body)) XELOGW("{}", *line);
+       if (const auto reasons = phone_latency::ReasonsLine(body)) XELOGW("{}", *reasons);  // fix 106
+     }
++    // Fix 169: the page's own counts of its frames and of its link to the console.
++    if (const auto link_line = phone_link::page_lines.Line(body, int64_t(phone_latency::NowMs())))
++      XELOGW("{}", *link_line);
+     return Response("204 No Content", "text/plain", "");
+   }
+   if (method == "POST" && target == "/api/motion/frame") {
+@@ -367,6 +409,16 @@ struct Connection {
+ void* Serve(void* argument) {
+   std::unique_ptr<Connection> connection(static_cast<Connection*>(argument));
+   int fd = connection->fd;
++  // Fix 169: the connection's number, age and requests, and why it ended, in the log; each pose
++  // frame's times in the console (phone_link.hpp).
++  using Clock = std::chrono::steady_clock;
++  const auto opened_at = Clock::now();
++  const auto opened = phone_link::stats.Open(connections.load());
++  if (opened.line) XELOGW("{}", *opened.line);
++  phone_link::Close why = phone_link::Close::kPeer;
++  int why_detail = 0;
++  uint32_t requests = 0;
++  Socket socket{fd};
+   timeval idle{20, 0};
+   setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &idle, sizeof(idle));
+   setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &idle, sizeof(idle));
+@@ -383,21 +435,29 @@ void* Serve(void* argument) {
+   mbedtls_ssl_context ssl;
+   mbedtls_ssl_init(&ssl);
+   if (!mbedtls_ssl_setup(&ssl, connection->config)) {
+-    mbedtls_ssl_set_bio(&ssl, &fd, SendBytes, ReceiveBytes, nullptr);
++    mbedtls_ssl_set_bio(&ssl, &socket, SendBytes, ReceiveBytes, nullptr);
+     int status;
+     while ((status = mbedtls_ssl_handshake(&ssl)) == MBEDTLS_ERR_SSL_WANT_READ || status == MBEDTLS_ERR_SSL_WANT_WRITE) {}
++    if (status) why = ReadFailure(socket, status, true, &why_detail);  // fix 169
+     std::string data;
+     unsigned char buffer[4096];
++    auto answered_at = Clock::now();  // fix 169: the previous answer written (or the handshake done)
+     while (status == 0) {
+       size_t head_end;
++      // Fix 169: when this request's first bytes came; none waited for when they came with the last.
++      const bool waited = data.empty();
++      auto first_at = Clock::now();
+       while ((head_end = data.find("\r\n\r\n")) == std::string::npos && data.size() < 16384) {
+         const int got = mbedtls_ssl_read(&ssl, buffer, sizeof(buffer));
+         if (got == MBEDTLS_ERR_SSL_WANT_READ || got == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+-        if (got <= 0) { status = -1; break; }
++        if (got <= 0) { status = -1; why = ReadFailure(socket, got, false, &why_detail); break; }
++        if (data.empty()) first_at = Clock::now();
+         data.append(reinterpret_cast<char*>(buffer), size_t(got));
+       }
+-      if (status || head_end == std::string::npos) break;
++      if (status) break;
++      if (head_end == std::string::npos) { why = phone_link::Close::kHeadTooLarge; break; }
+       const std::string head = data.substr(0, head_end + 2);
++      const bool frame = head.compare(0, 23, "POST /api/motion/frame ") == 0;  // fix 169
+       // Fix 119: a camera picture is larger than the other requests (at most kPictureMaxBytes).
+       const bool picture = head.compare(0, 25, "POST /api/motion/picture ") == 0;
+       const size_t length = std::min<size_t>(size_t(std::atoi(Header(head, "Content-Length").c_str())),
+@@ -406,12 +466,12 @@ void* Serve(void* argument) {
+       while (data.size() < head_end + 4 + length) {
+         const int got = mbedtls_ssl_read(&ssl, buffer, sizeof(buffer));
+         if (got == MBEDTLS_ERR_SSL_WANT_READ || got == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+-        if (got <= 0) { status = -1; break; }
++        if (got <= 0) { status = -1; why = ReadFailure(socket, got, false, &why_detail); break; }
+         data.append(reinterpret_cast<char*>(buffer), size_t(got));
+       }
+       if (status) break;
+       const size_t space = head.find(' '), space2 = head.find(' ', space + 1);
+-      if (space == std::string::npos || space2 == std::string::npos) break;
++      if (space == std::string::npos || space2 == std::string::npos) { why = phone_link::Close::kBadRequest; break; }
+       const auto body_at = std::chrono::steady_clock::now();
+       const std::string reply = Route(head.substr(0, space), head.substr(space + 1, space2 - space - 1), head,
+                                       data.substr(head_end + 4, length));
+@@ -419,22 +479,41 @@ void* Serve(void* argument) {
+         const auto us = [](auto d) { return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(d).count()); };
+         motion::picture_stats.Served(us(body_at - head_at), us(std::chrono::steady_clock::now() - body_at));
+       }
++      const auto handled_at = Clock::now();  // fix 169
+       data.erase(0, head_end + 4 + length);
+       for (size_t sent = 0; sent < reply.size();) {
+         const int wrote = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(reply.data()) + sent, reply.size() - sent);
+         if (wrote == MBEDTLS_ERR_SSL_WANT_READ || wrote == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+-        if (wrote <= 0) { status = -1; break; }
++        if (wrote <= 0) { status = -1; why = phone_link::Close::kWrite; why_detail = socket.error; break; }
+         sent += size_t(wrote);
+       }
++      // Fix 169: a pose frame's times in the console, and the summary every 10 s.
++      ++requests;
++      const auto written_at = Clock::now();
++      if (frame) {
++        const phone_link::FrameTimes times{waited ? Us(first_at - answered_at) : 0, Us(body_at - first_at),
++                                           Us(handled_at - body_at), Us(written_at - handled_at)};
++        for (const auto& line : phone_link::stats.Frame(opened.id, times, motion::SteadyMs())) XELOGW("{}", line);
++        if (const auto ids = motion::IdentityLine()) XELOGW("{}", *ids);  // when a body came or came back
++      }
++      answered_at = written_at;
++      if (status) break;
+       std::string close_header = Header(head, "Connection");
+       std::transform(close_header.begin(), close_header.end(), close_header.begin(), ::tolower);
+-      if (close_header == "close") break;
++      if (close_header == "close") { why = phone_link::Close::kClose; break; }
+     }
+     mbedtls_ssl_close_notify(&ssl);
++  } else {
++    why = phone_link::Close::kHandshake;  // fix 169: no TLS context for it
+   }
+   mbedtls_ssl_free(&ssl);
+   close(fd);
+   --connections;
++  // Fix 169: why it ended (the first 64 events), and the summary when frames stopped with it.
++  if (const auto line = phone_link::stats.Closed(opened.id, why, int64_t(Us(Clock::now() - opened_at) / 1000), requests,
++                                                why_detail, connections.load()))
++    XELOGW("{}", *line);
++  if (const auto summary = phone_link::stats.Summary(motion::SteadyMs())) XELOGW("{}", *summary);
+   return nullptr;
+ }
+ 
+@@ -460,7 +539,12 @@ void* Listen(void*) {
+         if (UseAddress(now)) address = now;
+       }
+     }
+-    if (connections.load() >= kMaxConnections) { close(client); continue; }
++    if (connections.load() >= kMaxConnections) {
++      // Fix 169: said in the log; the page's request fails (before 169 one failure was 'lost').
++      if (const auto line = phone_link::stats.Refused(connections.load())) XELOGW("{}", *line);
++      close(client);
++      continue;
++    }
+     ++connections;
+     pthread_t thread;
+     auto* connection = new Connection{client, &identity->config};
+diff --git a/port/phone_camera_page.hpp b/port/phone_camera_page.hpp
+--- a/port/phone_camera_page.hpp
++++ b/port/phone_camera_page.hpp
+@@ -14,6 +14,10 @@
+ // page of another version (the app was updated) reloads once.
+ // pose.mjs and demo_body.mjs still come from the package's assets/kinect/; kinect_tracker.mjs is
+ // the title's since fix 106 (phone_camera_tracker.hpp).
++// Fix 169 (#74): pose frames sent steadily (up to 4 on their way, the newest waiting for a free
++// slot, a stalled one given up after 600 ms) and one failed request no longer sends the page to
++// 'lost' (pairing.mjs: PoseSender, LinkHealth, keepsSession); the page's counts go to the console
++// in its 2 s report ("link") for the game log.
+ #pragma once
+ 
+ namespace xbox360ps5::phone_camera {
+@@ -97,6 +101,8 @@ body.focus #exit-focus{display:block}
+ import {skeleton} from './pose.mjs?v=kinect5';
+ import {KinectTracker, GestureMonitor, BODY_DISTANCE, MIRRORED, mirrorLandmarks} from './kinect_tracker.mjs?v=kinect106';
+ import {afterStatus, afterFrame, shouldPoll, shouldAutoStart, afterCameraError, view, POLL_MS} from './pairing.mjs?v=56';
++import {PoseSender, LinkHealth, keepsSession, POSE_SLOTS, POSE_SLOTS_WITH_PICTURES, FRAME_TIMEOUT_MS,
++  STATUS_TIMEOUT_MS} from './pairing.mjs?v=56';  // fix 169
+ import {StageWindow, smoothingLagMs, summaryValues, REPORT_MS, frameReason, RecentreState,
+   PictureGate, packPicture, pictureCrop, PICTURE_WIDTH, PICTURE_HEIGHT} from './latency.mjs?v=119';
+ import {packJpegPicture, PICTURE_JPEG_QUALITY} from './latency.mjs?v=119';  // fix 119i: the JPEG picture
+@@ -144,7 +150,10 @@ recenter.onclick = () => { tracker.resetCalibration('recentre'); gestures.reset(
+ cameraChoice.onchange = quality.onchange = remember;
+ sides.onchange = () => { tracker.setMirror(sides.value === 'mirror'); gestures.reset(); remember(); };
+ 
+-let stream, models = new Map(), engine = '', frame, latest = null, active = false, busy = false, paired = false, inFlight = 0, nextSend = 0, wakeLock = null;
++let stream, models = new Map(), engine = '', frame, latest = null, active = false, busy = false, paired = false, nextSend = 0, wakeLock = null;
++// Fix 169: the pose frames on their way (pairing.mjs, PoseSender) and the link's health (LinkHealth).
++const poses = new PoseSender(), consoleLink = new LinkHealth();
++let lostAt = -Infinity;  // when the page last took the console as lost
+ // A Kinect keeps a body through short dropouts. A body that is lost and found again gets a
+ // new tracking identity on the console, and the game starts looking for its player again,
+ // so the last pose is kept for up to a second before the body is reported lost.
+@@ -174,7 +183,7 @@ function packFrame(session, sequence, tracked, joints) {
+   });
+   return buffer;
+ }
+-let motionSession = {session: 0, sequence: 0}, pendingLost = null, lastTracked = null, fps = 0, lastFrameAt = 0, lastVideoTime = -1;
++let motionSession = {session: 0, sequence: 0}, lastTracked = null, fps = 0, lastFrameAt = 0, lastVideoTime = -1;
+ relay.textContent = T('disconnected');
+ status.textContent = demo ? T('demo') : T('camera_off');
+ 
+@@ -221,6 +230,7 @@ function render() {
+   start.classList.toggle('big', state.camera === 'needs_tap' || state.pairing === 'paired');
+ }
+ function setPairing(next) {
++  if (next === 'lost' && state.pairing !== 'lost') lostAt = performance.now();  // fix 169
+   if (next !== 'paired') paired = false;
+   state.pairing = next;
+   render();
+@@ -234,22 +244,39 @@ async function ask(quiet) {
+   asking = true;
+   if (!quiet) setPairing('connecting');
+   let http = 0, json = null;
++  // Fix 169: a status poll that hangs (the console went away mid-answer) ends after STATUS_TIMEOUT_MS;
++  // before, it kept asking=true and no later poll ran.
++  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), STATUS_TIMEOUT_MS);
+   try {
+-    const response = await fetch('/api/motion/status', {headers: {'X-Key': typed}, cache: 'no-store'});
++    const response = await fetch('/api/motion/status', {headers: {'X-Key': typed}, cache: 'no-store', signal: abort.signal});
+     http = response.status;
+     // Fix 72: an updated app's page is loaded instead of this one.
+     if (reloadIfUpdated(response.headers.get('X-Page-Version'), typed, sessionStorage, () => location.reload())) return;
+     if (response.ok) json = await response.json();
+   } catch {}
++  clearTimeout(timer);
+   if (json) recentring.note(json, performance.now());  // fix 107: a re-centre asked on the PS5
+   if (json) { pictures.note(json); showPictureNote(); }  // fix 119: whether the PS5 wants the picture
+   asking = false;
+   if (quiet && state.pairing === 'disconnected') return;  // Disconnect was pressed meanwhile
++  // Fix 169: while paired, one failed poll is not a lost console (LinkHealth); any answer is one.
++  if (http && http !== 502) consoleLink.answer(performance.now());
++  else if (state.pairing === 'paired') {
++    consoleLink.statusFailed++;
++    if (!consoleLink.failure(performance.now())) return;
++  }
+   const next = afterStatus(state.pairing, http, json);
+   if (next === 'paired' && state.pairing !== 'paired') {
+-    consoleKey = typed; tracker.resetMotion(); gestures.reset();
+-    motionSession = {session: crypto.getRandomValues(new Uint32Array(1))[0] || 1, sequence: 0};
+-    nextSend = 0; lastGood = null; paired = true;
++    if (keepsSession(state.pairing, consoleKey, typed, motionSession.session, lostAt, performance.now())) {
++      // Fix 169: back from 'lost' with the same key (the same app on the console) soon: the same
++      // motion session and tracker, so the console keeps the body's tracking id.
++      consoleLink.resumed++; paired = true;
++    } else {
++      consoleKey = typed; tracker.resetMotion(); gestures.reset();
++      motionSession = {session: crypto.getRandomValues(new Uint32Array(1))[0] || 1, sequence: 0};
++      nextSend = 0; lastGood = null; paired = true;
++    }
++    consoleLink.paired(performance.now());  // fix 169
+   }
+   if (json) game.textContent = json.guest_skeleton_bound ? T('game_bound', json.guest_skeleton_frames, json.guest_skeleton_bodies) :
+     json.guest_camera_open ? T('game_no_skeleton') : json.enabled ? T('game_no_camera') : '';
+@@ -291,7 +318,7 @@ function reportLatency(now) {
+   if (!lastLatency) { lastLatency = now; latencyWindow.reset(now); return; }
+   if (now - lastLatency < REPORT_MS) return;
+   lastLatency = now;
+-  const report = latencyWindow.report(now, inFlight);
++  const report = latencyWindow.report(now, poses.inFlight);
+   report.recentred = recentring.done;  // fix 107: the pad re-centre this page ran
+   // Fix 119b: the camera picture switch and counts, for the console's 10 s line.
+   report.picture_on = pictureChoice.value === 'on' ? 1 : 0;
+@@ -302,9 +329,12 @@ function reportLatency(now) {
+   Object.assign(report, pictures.takeTimes());  // fix 119g: picture_capture_ms, _pack_ms, _upload_ms
+   latencyLine.textContent = T('latency', ...summaryValues(report)) + ' · ' + report.fps + ' fps';
+   latencyLine.hidden = false;
+-  if (onConsole && paired && consoleKey)
++  if (onConsole && paired && consoleKey) {
++    // Fix 169: the frames and the link since the last report sent (PoseSender, LinkHealth), for the log.
++    report.link = [...poses.take(), ...consoleLink.take()];
+     fetch('/api/motion/latency', {method: 'POST', headers: {'X-Key': consoleKey, 'Content-Type': 'application/json'},
+       body: JSON.stringify(report)}).catch(() => {});
++  }
+ }
+ 
+ function showPose(pose, extra) {
+@@ -392,26 +422,41 @@ async function sendPicture() {
+   }
+ }
+ 
++// Fix 169 (#74): up to POSE_SLOTS frames on their way (2 before; 2 while camera pictures go, which
++// take 3 of the browser's 6 connections); a frame that finds them all busy waits as the newest and
++// goes when one is free (before, it was dropped: about 20 detected and 6 sent a second, as a few
++// POSTs stalled 0.5-2 s and held both slots); a frame unanswered after FRAME_TIMEOUT_MS is given
++// up, which closes its stalled connection. A loss (no pose) waits for its own session and goes
++// first: it must survive Stop/Hide/Disconnect, and its session owns its counter even if the user
++// reconnects before it goes. One failed or given-up request no longer makes the console lost
++// (LinkHealth).
+ async function sendPose(pose, queuedSession = null) {
+   if (!paired && !queuedSession) return;
+   const target = queuedSession || motionSession;
+-  if (inFlight >= 2) { if (!pose) pendingLost = target; return; }
+-  if (++target.sequence > 0xffffffff) { if (target === motionSession) setPairing('lost'); return; }
+-  inFlight++;
++  if (target.sequence >= 0xffffffff) { if (target === motionSession) setPairing('lost'); return; }
++  poses.slots = pictureChoice.value === 'on' && pictures.wanted ? POSE_SLOTS_WITH_PICTURES : POSE_SLOTS;
++  if (!poses.offer({pose, target})) return;  // fix 169: it waits for a free slot
++  ++target.sequence;
++  const sentAt = performance.now();  // fix 66: half the round trip is the network stage
++  const abort = new AbortController(), timer = setTimeout(() => abort.abort(), FRAME_TIMEOUT_MS);
++  let outcome = 'failed';
+   try {
+     const joints = pose?.joints.map(j => ({x: j.x, y: j.y, z: j.z, confidence: j.confidence})) ||
+       Array.from({length: 20}, () => ({x: 0, y: 0, z: 0, confidence: 0}));
+-    const sentAt = performance.now();  // fix 66: half the round trip is the network stage
+     const response = onConsole ?
+       await fetch('/api/motion/frame', {method: 'POST', headers: {'X-Key': consoleKey, 'Content-Type': 'application/octet-stream'},
+-        body: packFrame(target.session, target.sequence, !!pose, joints)}) :
++        body: packFrame(target.session, target.sequence, !!pose, joints), signal: abort.signal}) :
+       await fetch('/relay/frame', {method: 'POST', headers: {'Content-Type': 'application/json'},
+-        body: JSON.stringify({session: target.session, sequence: target.sequence, tracked: !!pose, joints})});
++        body: JSON.stringify({session: target.session, sequence: target.sequence, tracked: !!pose, joints}), signal: abort.signal});
++    // Fix 169: any answer but the relay's 502 (no console behind it) is the console's. The timer
++    // runs on until the answer's body is read: a body that stalls is given up too.
++    if (response.status !== 502) { outcome = 'answered'; consoleLink.answer(performance.now()); }
+     if (!response.ok) {
+       const result = await response.json().catch(() => ({}));
+       // An older or odd frame (409, 400) is skipped; the setting off, a new key or no console moves the state.
+       if ((response.status === 409 || response.status === 400) && result.error !== 'disabled') return;
+-      if (target === motionSession) setPairing(afterFrame(state.pairing, response.status, result.error));
++      if (target === motionSession && (response.status !== 502 || consoleLink.failure(performance.now())))
++        setPairing(afterFrame(state.pairing, response.status, result.error));
+       return;
+     }
+     if (paired && target === motionSession) sentTimes.push(performance.now());
+@@ -426,12 +471,19 @@ async function sendPose(pose, queuedSession = null) {
+       void sendPicture();
+     }
+   } catch (e) {
+-    if (target === motionSession) setPairing(afterFrame(state.pairing, 0, ''));
++    // Fix 169: failed, or given up after FRAME_TIMEOUT_MS; lost only when nothing has been answered
++    // for a while (LinkHealth).
++    if (outcome !== 'answered') {
++      outcome = abort.signal.aborted ? 'timeout' : 'failed';
++      if (target === motionSession && consoleLink.failure(performance.now())) setPairing(afterFrame(state.pairing, 0, ''));
++    }
+   } finally {
+-    inFlight--;
+-    // A loss admitted while paired must survive Stop/Hide/Disconnect. Its session owns its
+-    // counter even if the user reconnects before the pending POST ends.
+-    if (pendingLost) { const lostSession = pendingLost; pendingLost = null; void sendPose(null, lostSession); }
++    clearTimeout(timer);
++    // Fix 169: the slot is free; a waiting loss goes first, else the newest waiting pose of the
++    // current session.
++    const next = poses.done(outcome, performance.now() - sentAt);
++    if (next && !next.pose) void sendPose(null, next.target);
++    else if (next && paired && next.target === motionSession) void sendPose(next.pose);
+   }
+ }
+ async function loadModel(name) {
+@@ -789,6 +841,89 @@ export function view(state) {
+   show.disconnect = ['paired', 'waiting_game', 'waiting_setting', 'lost', 'connecting'].includes(pairing);
+   return {step, tone, args, show};
+ }
++
++// Fix 169 (#74): pose frames sent steadily, and one failed request is not a lost console.
++// A player's phone detected about 20 frames a second and sent about 6: with 2 frames on their way
++// the page dropped every new one, and a few POSTs that stalled 0.5-2 s on the Wi-Fi held both
++// (the mean round trip was ~330 ms against a median of ~56 ms). And one failed request (a frame or
++// the status) sent the page to 'lost'; it re-paired with a new motion session, so the console
++// gave the body a new tracking id and the game identified its player again.
++export const POSE_SLOTS = 4;                 // frames on their way at once (2 before; with the status and
++                                             // the report, the browser's 6 connections to the console)
++export const POSE_SLOTS_WITH_PICTURES = 2;   // while camera pictures go (3 of the browser's 6 connections)
++export const FRAME_TIMEOUT_MS = 600;         // a frame unanswered this long is given up (~10x the median)
++export const STATUS_TIMEOUT_MS = 5000;       // a status poll unanswered this long has failed
++export const LOST_AFTER_FAILURES = 3;        // the console is lost after this many unanswered in a row
++export const LOST_AFTER_MS = 2500;           // and nothing answered for this long
++export const KEEP_SESSION_MS = 30000;        // back from 'lost' within this: the same motion session
++
++// The pose frames on their way. offer({pose, target}) is true when the frame goes now (a slot is
++// taken); else it waits: a loss (no pose) for its session (a waiting pose of that session, older,
++// is dropped), a pose as the newest (an older waiting pose is replaced, and counted).
++// done(outcome, ms) frees the slot and gives the frame to
++// offer next (a waiting loss first), or null. take() gives the counts since its last call:
++// [sent, answered, failed, timed out, replaced, slowest answer ms].
++export class PoseSender {
++  constructor(slots = POSE_SLOTS) {
++    this.slots = slots; this.inFlight = 0; this.waiting = null; this.loss = null;
++    this.take();
++  }
++  offer(item) {
++    if (this.inFlight < this.slots) { this.inFlight++; this.sent++; return true; }
++    if (!item.pose) {
++      this.loss = item;
++      if (this.waiting && this.waiting.target === item.target) this.waiting = null;  // older than the loss
++      return false;
++    }
++    if (this.waiting) this.replaced++;
++    this.waiting = item;
++    return false;
++  }
++  done(outcome, ms) {
++    this.inFlight = Math.max(0, this.inFlight - 1);
++    if (outcome === 'answered') this.answered++;
++    else if (outcome === 'timeout') this.timeouts++;
++    else this.failed++;
++    if (ms > this.slowest) this.slowest = Math.round(ms);
++    const next = this.loss || this.waiting;
++    if (this.loss) this.loss = null; else this.waiting = null;
++    return next;
++  }
++  take() {
++    const counts = [this.sent, this.answered, this.failed, this.timeouts, this.replaced, this.slowest].map(n => n || 0);
++    this.sent = this.answered = this.failed = this.timeouts = this.replaced = this.slowest = 0;
++    return counts;
++  }
++}
++
++// Whether the console still answers. answer(now) for any answer; failure(now) for a request
++// that failed or was given up: true (the console is lost) once LOST_AFTER_FAILURES went
++// unanswered in a row and nothing was answered for LOST_AFTER_MS. take(): [status polls failed,
++// times lost, times back in the same session] since its last call.
++export class LinkHealth {
++  constructor() { this.failures = 0; this.lastAnswer = -Infinity; this.take(); }
++  paired(now) { this.failures = 0; this.lastAnswer = now; }
++  answer(now) { this.failures = 0; this.lastAnswer = now; }
++  failure(now) {
++    if (++this.failures < LOST_AFTER_FAILURES || now - this.lastAnswer < LOST_AFTER_MS) return false;
++    this.failures = 0;
++    this.lost++;
++    return true;
++  }
++  take() {
++    const counts = [this.statusFailed, this.lost, this.resumed].map(n => n || 0);
++    this.statusFailed = this.lost = this.resumed = 0;
++    return counts;
++  }
++}
++
++// Back to 'paired' from 'lost' with the key the session was made with (the same app on the
++// console: the key changes when the emulator or a game restarts), within KEEP_SESSION_MS: the
++// page keeps its motion session (and its sequence), so the console keeps the body's identity.
++export function keepsSession(pairing, sessionKey, typedKey, session, lostAt, now) {
++  return pairing === 'lost' && !!session && !!sessionKey && sessionKey === typedKey &&
++    now >= lostAt && now - lostAt <= KEEP_SESSION_MS;
++}
+ )PAIRINGJS";
+ inline constexpr char kLatencyModule[] = R"LATENCYJS(// SPDX-License-Identifier: MIT
+ // PS5X360Reloaded fix 66: the phone page's delay by stage, for the end-to-end Kinect latency
+@@ -1013,5 +1148,5 @@ export function summaryValues(report) {
+   });
+ }
+ )LATENCYJS";
+-inline constexpr char kPageVersion[] = "a51b77192b989ffb";
++inline constexpr char kPageVersion[] = "0d9d02b8b6a8ed56";
+ }  // namespace xbox360ps5::phone_camera
+diff --git a/include/xbox360ps5/phone_link.hpp b/include/xbox360ps5/phone_link.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/phone_link.hpp
+@@ -0,0 +1,262 @@
++// SPDX-License-Identifier: MIT
++// Fix 169 (#74): the phone link in the game log, to see why pose frames come late or stop.
++//
++// A player's bug reports (1.0.6) showed no real disconnects, but slow and uneven delivery: the
++// phone detected about 20 frames a second and sent about 6, every POST it sent arrived, and the
++// mean round trip implied by the two frames in flight was about 330 ms against a median of
++// about 56 ms, so a few POSTs stalled for 0.5-2 s. Nothing in the log said whether they stalled
++// in the console (reading, handling, answering) or before they reached it, nor when the phone's
++// connections opened, closed or timed out, nor when the page gave up on the console ('lost')
++// or the TV panel flipped to "no phone connected".
++//
++// port/phone_camera_tls.cpp reports to Link: each connection's opening and closing (with why),
++// a connection refused because kMaxConnections were open, and each /api/motion/frame POST's
++// times in the console. Link gives the lines to log: the first kEventLines connection events,
++// each frame POST that took over kSlowFrameUs in the console (the first kSlowLines), and every
++// kWindowMs a summary (frames, their console times, the waits between requests and the gaps
++// between frames). PageLine turns the page's own counts ("link" in its 2 s report, pairing.mjs's
++// PoseSender and LinkHealth) into a line: at once when something went wrong, else every
++// kWindowMs. PanelFlips (phone_qr_panel.hpp) logs the TV panel's flips.
++#pragma once
++#include <algorithm>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <optional>
++#include <string>
++#include <vector>
++
++#include "xbox360ps5/phone_latency.hpp"  // Numbers, kMaxBody
++
++namespace xbox360ps5::phone_link {
++
++constexpr int64_t kWindowMs = 10000;       // the summary's window
++constexpr uint64_t kSlowFrameUs = 250000;  // a frame POST this long in the console gets its own line
++constexpr int64_t kGapMs = 500;            // motion::Snapshot() drops a body this old
++constexpr uint32_t kEventLines = 64, kSlowLines = 32, kPageAlarmLines = 200;
++constexpr size_t kSamples = 2000;          // per window (the phone sends at most ~30 a second)
++
++// Why a phone connection ended.
++enum class Close {
++  kPeer,          // the phone closed it (or reset it)
++  kIdle,          // no request for the idle timeout (SO_RCVTIMEO)
++  kHandshake,     // the TLS handshake failed
++  kTls,           // a TLS error while reading
++  kRead,          // a socket error while reading (errno)
++  kWrite,         // the answer could not be written
++  kHeadTooLarge,  // no end of the request head within 16 KiB
++  kBadRequest,    // no method and target
++  kClose,         // the phone asked for it (Connection: close)
++};
++inline const char* CloseText(Close why) {
++  switch (why) {
++    case Close::kPeer: return "the phone closed it";
++    case Close::kIdle: return "idle timeout (no request for 20 s)";
++    case Close::kHandshake: return "TLS handshake failed";
++    case Close::kTls: return "TLS error while reading";
++    case Close::kRead: return "read error";
++    case Close::kWrite: return "the answer could not be written";
++    case Close::kHeadTooLarge: return "request head too large";
++    case Close::kBadRequest: return "bad request line";
++    case Close::kClose: return "the phone asked to close it";
++  }
++  return "?";
++}
++
++// One /api/motion/frame POST in the console, in microseconds: the wait for its first bytes
++// after the previous answer on its connection (the phone and the network; 0 when they were
++// already read), reading the rest of it, handling it (Route), writing the answer.
++struct FrameTimes {
++  uint64_t wait_us = 0, read_us = 0, handle_us = 0, write_us = 0;
++};
++
++inline uint64_t Median(std::vector<uint64_t> values) {
++  if (values.empty()) return 0;
++  const size_t middle = (values.size() - 1) / 2;
++  std::nth_element(values.begin(), values.begin() + middle, values.end());
++  return values[middle];
++}
++inline uint64_t Max(const std::vector<uint64_t>& values) {
++  return values.empty() ? 0 : *std::max_element(values.begin(), values.end());
++}
++inline std::string Ms(uint64_t us) {
++  char text[32];
++  if (us < 10000) std::snprintf(text, sizeof(text), "%.1f", double(us) / 1000.0);
++  else std::snprintf(text, sizeof(text), "%llu", (unsigned long long)((us + 500) / 1000));
++  return text;
++}
++
++class Link {
++ public:
++  struct Opened {
++    uint32_t id = 0;
++    std::optional<std::string> line;
++  };
++  // A phone connection accepted; `open`: how many are open with it.
++  Opened Open(int open) {
++    std::lock_guard lock(mutex_);
++    Opened out;
++    out.id = ++next_id_;
++    ++opened_;
++    if (event_lines_ < kEventLines) {
++      ++event_lines_;
++      out.line = "Phone link: connection " + std::to_string(out.id) + " opened (" + std::to_string(open) +
++                 " open) (fix 169)";
++    }
++    return out;
++  }
++  // A connection ended after `age_ms` and `requests`; `detail`: errno or the TLS error code (0: none);
++  // `open`: how many stay open.
++  std::optional<std::string> Closed(uint32_t id, Close why, int64_t age_ms, uint32_t requests, int detail,
++                                    int open) {
++    std::lock_guard lock(mutex_);
++    ++closed_;
++    if (why == Close::kIdle) ++idle_;
++    else if (why != Close::kPeer && why != Close::kClose) ++errors_;
++    if (event_lines_ >= kEventLines) return std::nullopt;
++    ++event_lines_;
++    char text[256];
++    std::snprintf(text, sizeof(text),
++                  "Phone link: connection %u closed after %.1f s and %u request(s): %s%s (%d open) (fix 169)", id,
++                  double(age_ms) / 1000.0, requests, CloseText(why), Detail(why, detail).c_str(), open);
++    return std::string(text);
++  }
++  // A connection refused: `open` were open already.
++  std::optional<std::string> Refused(int open) {
++    std::lock_guard lock(mutex_);
++    ++refused_;
++    if (event_lines_ >= kEventLines) return std::nullopt;
++    ++event_lines_;
++    return "Phone link: a new connection refused, " + std::to_string(open) +
++           " already open (the page's request fails) (fix 169)";
++  }
++  // A frame POST served on connection `id` (its body complete at now_ms): the lines to log, a slow
++  // one's and the summary when due.
++  std::vector<std::string> Frame(uint32_t id, const FrameTimes& t, int64_t now_ms) {
++    std::lock_guard lock(mutex_);
++    std::vector<std::string> lines;
++    if (start_ms_ < 0) start_ms_ = now_ms;
++    if (wait_.size() < kSamples) {
++      wait_.push_back(t.wait_us);
++      read_.push_back(t.read_us);
++      handle_.push_back(t.handle_us);
++      write_.push_back(t.write_us);
++    }
++    ++frames_;
++    if (last_frame_ms_ >= 0) {
++      const int64_t gap = std::max<int64_t>(0, now_ms - last_frame_ms_);
++      if (gaps_.size() < kSamples) gaps_.push_back(uint64_t(gap) * 1000);
++      if (gap >= kGapMs) ++long_gaps_;
++    }
++    last_frame_ms_ = now_ms;
++    const uint64_t inside = t.read_us + t.handle_us + t.write_us;
++    if (inside >= kSlowFrameUs && slow_lines_ < kSlowLines) {
++      ++slow_lines_;
++      lines.push_back("Phone link: a frame POST on connection " + std::to_string(id) + " took " + Ms(inside) +
++                      " ms in the console (read " + Ms(t.read_us) + ", handle " + Ms(t.handle_us) + ", write " +
++                      Ms(t.write_us) + " ms) (fix 169)");
++    }
++    if (auto summary = SummaryLocked(now_ms, false)) lines.push_back(*summary);
++    return lines;
++  }
++  // The summary when kWindowMs have passed since the window began (or now, with `force`, when
++  // anything happened); it starts the next window.
++  std::optional<std::string> Summary(int64_t now_ms, bool force = false) {
++    std::lock_guard lock(mutex_);
++    return SummaryLocked(now_ms, force);
++  }
++
++ private:
++  static std::string Detail(Close why, int detail) {
++    if (!detail) return "";
++    char text[48];
++    if (why == Close::kHandshake || why == Close::kTls) std::snprintf(text, sizeof(text), " (-0x%04X)", -detail);
++    else std::snprintf(text, sizeof(text), " (errno %d)", detail);
++    return text;
++  }
++  std::optional<std::string> SummaryLocked(int64_t now_ms, bool force) {
++    if (start_ms_ < 0) {
++      if (!force || (!opened_ && !closed_ && !refused_)) return std::nullopt;
++      start_ms_ = now_ms;
++    }
++    const int64_t span = now_ms - start_ms_;
++    if (span < kWindowMs && !force) return std::nullopt;
++    char text[640];
++    const double seconds = std::max<double>(double(span) / 1000.0, 0.001);
++    std::snprintf(text, sizeof(text),
++                  "Phone link: %.1f s: %u frame POSTs (%.1f/s); in the console read/handle/write median "
++                  "%s/%s/%s ms, max %s/%s/%s ms; wait for the next request on a connection median %s ms, max "
++                  "%s ms; between frames median %s ms, max %s ms, %u gap(s) of %lld ms or more; connections "
++                  "opened %u, closed %u (idle %u, errors %u), refused %u (fix 169)",
++                  seconds, frames_, double(frames_) / seconds, Ms(Median(read_)).c_str(),
++                  Ms(Median(handle_)).c_str(), Ms(Median(write_)).c_str(), Ms(Max(read_)).c_str(),
++                  Ms(Max(handle_)).c_str(), Ms(Max(write_)).c_str(), Ms(Median(wait_)).c_str(),
++                  Ms(Max(wait_)).c_str(), Ms(Median(gaps_)).c_str(), Ms(Max(gaps_)).c_str(), long_gaps_,
++                  (long long)kGapMs, opened_, closed_, idle_, errors_, refused_);
++    start_ms_ = -1;
++    frames_ = long_gaps_ = opened_ = closed_ = idle_ = errors_ = refused_ = 0;
++    wait_.clear();
++    read_.clear();
++    handle_.clear();
++    write_.clear();
++    gaps_.clear();
++    return std::string(text);
++  }
++
++  std::mutex mutex_;
++  uint32_t next_id_ = 0, event_lines_ = 0, slow_lines_ = 0;
++  int64_t start_ms_ = -1, last_frame_ms_ = -1;
++  uint32_t frames_ = 0, long_gaps_ = 0, opened_ = 0, closed_ = 0, idle_ = 0, errors_ = 0, refused_ = 0;
++  std::vector<uint64_t> wait_, read_, handle_, write_, gaps_;
++};
++inline Link stats;
++
++// ---- The page's own counts ---------------------------------------------------------------------
++// "link":[sent, answered, failed, timed out, replaced, slowest ms, status failed, lost, resumed]
++// in the page's 2 s report (pairing.mjs: PoseSender.take(), LinkHealth.take()), since its last
++// report.
++constexpr int kPageNumbers = 9;
++struct PageLink {
++  double sent = 0, answered = 0, failed = 0, timeouts = 0, replaced = 0, slowest_ms = 0, status_failed = 0,
++         lost = 0, resumed = 0;
++  bool Alarm() const { return failed > 0 || timeouts > 0 || status_failed > 0 || lost > 0 || resumed > 0; }
++};
++inline std::optional<PageLink> ParsePage(const std::string& json) {
++  if (json.empty() || json.size() > phone_latency::kMaxBody || json.front() != '{') return std::nullopt;
++  double v[kPageNumbers];
++  if (!phone_latency::Numbers(json, "link", v, kPageNumbers)) return std::nullopt;
++  for (double x : v)
++    if (x < 0) return std::nullopt;
++  return PageLink{v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]};
++}
++// The line for a report: at once when a request failed or timed out, or the page went 'lost' or
++// came back (the first kPageAlarmLines of those), else at most every kWindowMs.
++class PageLines {
++ public:
++  std::optional<std::string> Line(const std::string& json, int64_t now_ms) {
++    const auto page = ParsePage(json);
++    if (!page) return std::nullopt;
++    std::lock_guard lock(mutex_);
++    const bool alarm = page->Alarm() && alarms_ < kPageAlarmLines;
++    if (!alarm && last_ms_ >= 0 && now_ms - last_ms_ < kWindowMs) return std::nullopt;
++    if (alarm) ++alarms_;
++    last_ms_ = now_ms;
++    char text[400];
++    std::snprintf(text, sizeof(text),
++                  "Phone link (page): frames sent %.0f, answered %.0f, failed %.0f, given up after the timeout "
++                  "%.0f, replaced by a newer one while waiting %.0f, slowest answer %.0f ms; status polls "
++                  "failed %.0f; the page took the PS5 as lost %.0f time(s), came back in the same session %.0f "
++                  "time(s) (fix 169)",
++                  page->sent, page->answered, page->failed, page->timeouts, page->replaced, page->slowest_ms,
++                  page->status_failed, page->lost, page->resumed);
++    return std::string(text);
++  }
++
++ private:
++  std::mutex mutex_;
++  int64_t last_ms_ = -1;
++  uint32_t alarms_ = 0;
++};
++inline PageLines page_lines;
++
++}  // namespace xbox360ps5::phone_link
+diff --git a/include/xbox360ps5/body_identity.hpp b/include/xbox360ps5/body_identity.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/body_identity.hpp
+@@ -0,0 +1,104 @@
++// SPDX-License-Identifier: MIT
++// Fix 169 (#74): the player's Kinect identity kept through short gaps in the phone's frames.
++//
++// A gap of over 500 ms in the phone's frames drops the body (motion::Snapshot), and the body
++// that came back got a new tracking id (SkeletonIdentity, virtual_skeleton.hpp), so the title
++// ran its player identification again; fix 156l then answered that identification with the
++// skeleton frame's binding at delivery time, and for a frame inside a gap that was no profile:
++// "profile matched false (user FE)". In Fighters Uncaged the start-screen punch was not taken.
++//
++// Now a body that comes back within kIdentityGraceMs in the same phone session keeps its
++// tracking id (virtual_skeleton.hpp), and an identify request is answered for the profile its
++// body was bound to (BoundUsers, filled by PublishNuiFrame; AnswerUser). The three 156l log
++// lines (the title's identify, enrollment and answer) get LogBudget's 64 lines instead of 8.
++#pragma once
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <cstdio>
++#include <mutex>
++#include <optional>
++#include <string>
++
++#include "xbox360ps5/virtual_skeleton.hpp"  // kUserIndexNone, identity_kept, identity_new
++
++namespace xbox360ps5::motion {
++
++// The profile slot each recent body (tracking id) was bound to.
++constexpr size_t kBoundBodies = 8;
++class BoundUsers {
++ public:
++  void Remember(uint32_t tracking_id, uint32_t user_index) {
++    if (!tracking_id || user_index >= 4) return;
++    std::lock_guard lock(mutex_);
++    for (size_t n = 0; n < kBoundBodies; ++n)
++      if (ids_[n] == tracking_id) {
++        users_[n] = user_index;
++        return;
++      }
++    ids_[next_] = tracking_id;
++    users_[next_] = user_index;
++    next_ = (next_ + 1) % kBoundBodies;
++  }
++  // The slot `tracking_id` was last bound to; kUserIndexNone when it never was.
++  uint32_t Of(uint32_t tracking_id) {
++    if (!tracking_id) return kUserIndexNone;
++    std::lock_guard lock(mutex_);
++    for (size_t n = 0; n < kBoundBodies; ++n)
++      if (ids_[n] == tracking_id) return users_[n];
++    return kUserIndexNone;
++  }
++  void Clear() {
++    std::lock_guard lock(mutex_);
++    for (size_t n = 0; n < kBoundBodies; ++n) ids_[n] = users_[n] = 0;
++    next_ = 0;
++  }
++
++ private:
++  std::mutex mutex_;
++  uint32_t ids_[kBoundBodies]{}, users_[kBoundBodies]{};
++  size_t next_ = 0;
++};
++inline BoundUsers bound_users;
++
++// The profile slot an identify answer is for: the slot the body was bound to while it is still
++// signed in; else the frame's binding while signed in; else the first signed-in slot (as
++// nui_identity::ProfileSlot, GetEnrollmentInformation's answer); kUserIndexNone when no profile
++// is signed in.
++inline uint32_t AnswerUser(uint32_t body_user, uint32_t live_user, uint32_t signed_in_mask) {
++  if (body_user < 4 && (signed_in_mask & (1u << body_user))) return body_user;
++  if (live_user < 4 && (signed_in_mask & (1u << live_user))) return live_user;
++  for (uint32_t slot = 0; slot < 4; ++slot)
++    if (signed_in_mask & (1u << slot)) return slot;
++  return kUserIndexNone;
++}
++
++// A log line budget for the 156l lines' `if (shown.fetch_add(1) < 8)`: fetch_add says 0 (within
++// the budget) for the first `Lines` calls and UINT32_MAX after, so those lines keep their text
++// (fix 156t's patch changes the lines next to the answer's) and log `Lines` times instead of 8.
++template <uint32_t Lines>
++struct LogBudget {
++  std::atomic<uint32_t> used{0};
++  uint32_t fetch_add(uint32_t n) { return used.fetch_add(n) < Lines ? 0 : UINT32_MAX; }
++};
++constexpr uint32_t kIdentifyLogLines = 64;
++
++// "Virtual Kinect: tracking ids so far: N new, K kept ..." when the counts changed since the last
++// line (port/phone_camera_tls.cpp asks after each pose frame), the first kIdentityLines times.
++constexpr uint32_t kIdentityLines = 64;
++inline std::optional<std::string> IdentityLine() {
++  static std::atomic<uint64_t> shown_new{0}, shown_kept{0};
++  static std::atomic<uint32_t> lines{0};
++  const uint64_t fresh = identity_new.load(), kept = identity_kept.load();
++  const bool same_new = fresh == shown_new.exchange(fresh);
++  const bool same_kept = kept == shown_kept.exchange(kept);
++  if ((same_new && same_kept) || lines.fetch_add(1) >= kIdentityLines) return std::nullopt;
++  char text[200];
++  std::snprintf(text, sizeof(text),
++                "Virtual Kinect: tracking ids so far: %llu new, %llu kept for a body back within %lld ms "
++                "in the same phone session (fix 169)",
++                (unsigned long long)fresh, (unsigned long long)kept, (long long)kIdentityGraceMs);
++  return std::string(text);
++}
++
++}  // namespace xbox360ps5::motion
+diff --git a/include/xbox360ps5/virtual_skeleton.hpp b/include/xbox360ps5/virtual_skeleton.hpp
+--- a/include/xbox360ps5/virtual_skeleton.hpp
++++ b/include/xbox360ps5/virtual_skeleton.hpp
+@@ -6,6 +6,8 @@
+ #pragma once
+ #include "xbox360ps5/motion_input.hpp"
+ #include <algorithm>
++#include <atomic>
++#include <chrono>
+ #include <cstddef>
+ #include <vector>
+ namespace xbox360ps5::motion {
+@@ -27,12 +29,33 @@ constexpr float kSensorHeight = 0.8f, kHipHeight = 0.9f, kBodyDistance = 2.5f;
+ // Called under the guest source mutex, once per delivered sensor period.
+ // Fix 107: `resume` (the emergency body, motion_emergency.hpp) brings the last body back under
+ // its old tracking id, so the title sees its player return rather than a new one.
++// Fix 169 (#74, body_identity.hpp): so does a body that comes back within kIdentityGraceMs of
++// being lost, in the phone session it was lost in. A gap of over 500 ms in the phone's frames
++// (Snapshot drops the body) gave it a new id, and the title identified its player again. A body
++// of another session, or back later, is a new body as before.
++constexpr int64_t kIdentityGraceMs = 2000;
++inline std::atomic<uint64_t> identity_new{0}, identity_kept{0};
+ struct SkeletonIdentity {
+   uint32_t tracking_id = 0, session = 0;
+   bool tracked = false;
+-  uint32_t Update(const Frame& pose, bool resume = false) {
++  uint32_t lost_session = 0;                     // fix 169: the session the body was lost in
++  std::chrono::steady_clock::time_point lost_at{};  // fix 169: and when
++  uint32_t Update(const Frame& pose, bool resume = false,
++                  std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now()) {
++    if (tracked && !pose.tracked) {
++      lost_session = session;
++      lost_at = now;
++    }
+     if (pose.tracked && (!tracked || session != pose.session) && !(resume && tracking_id)) {
+-      if (!++tracking_id) tracking_id = 1;
++      const bool back = !tracked && tracking_id && pose.session == lost_session &&
++                        lost_at != std::chrono::steady_clock::time_point{} && now >= lost_at &&
++                        now - lost_at <= std::chrono::milliseconds(kIdentityGraceMs);
++      if (back) {
++        ++identity_kept;
++      } else {
++        if (!++tracking_id) tracking_id = 1;
++        ++identity_new;
++      }
+     }
+     session = pose.session;
+     tracked = pose.tracked;
+diff --git a/include/xbox360ps5/virtual_nui.hpp b/include/xbox360ps5/virtual_nui.hpp
+--- a/include/xbox360ps5/virtual_nui.hpp
++++ b/include/xbox360ps5/virtual_nui.hpp
+@@ -2,6 +2,7 @@
+ // Single virtual player, associated with an existing signed-in profile slot.
+ #pragma once
+ #include "xbox360ps5/virtual_skeleton.hpp"
++#include "xbox360ps5/body_identity.hpp"  // fix 169: the profile each body was bound to
+ namespace xbox360ps5::motion {
+ // Fix 57: the virtual player serves every title whose executable requires Kinect
+ // (XEX skeletal tracking required, nui_image_scan.hpp), not one title ID; the core
+@@ -35,6 +36,7 @@ inline NuiBinding PublishNuiFrame(const Frame& pose, uint32_t tracking_id,
+   if (slot < 4) {
+     nui_binding.user_index = slot;
+     nui_binding.enrollment = kVirtualEnrollment;
++    bound_users.Remember(nui_binding.tracking_id, slot);  // fix 169: for its identify answers
+   }
+   return nui_binding;
+ }
+diff --git a/include/xbox360ps5/phone_qr_panel.hpp b/include/xbox360ps5/phone_qr_panel.hpp
+--- a/include/xbox360ps5/phone_qr_panel.hpp
++++ b/include/xbox360ps5/phone_qr_panel.hpp
+@@ -13,6 +13,8 @@
+ #pragma once
+ #include <chrono>
+ #include <cmath>
++#include <cstdio>
++#include <optional>
+ #include <string>
+ 
+ namespace xbox360ps5::motion {
+@@ -34,6 +36,43 @@ inline PanelView ChoosePanelView(std::chrono::steady_clock::time_point received,
+   return now - received > kPhoneQuiet ? PanelView::kPhoneQr : PanelView::kSkeleton;
+ }
+ 
++// Fix 169 (#74): the panel's flips to "no phone connected" and back, in the log (the first
++// kPanelFlipLines), with how long the phone's frames had stopped and how long the code showed.
++constexpr unsigned kPanelFlipLines = 64;
++struct PanelFlips {
++  bool known = false, showing_qr = false;
++  unsigned lines = 0;
++  std::chrono::steady_clock::time_point since{};
++  std::optional<std::string> Note(PanelView view, std::chrono::steady_clock::time_point received,
++                                  std::chrono::steady_clock::time_point now) {
++    const bool qr = view == PanelView::kPhoneQr;
++    if (known && qr == showing_qr) return std::nullopt;
++    const bool first = !known;
++    const auto shown_for = std::chrono::duration_cast<std::chrono::milliseconds>(now - since).count();
++    known = true;
++    showing_qr = qr;
++    since = now;
++    if (first || lines >= kPanelFlipLines) return std::nullopt;
++    ++lines;
++    char text[200];
++    if (qr) {
++      const bool never = received == std::chrono::steady_clock::time_point{};
++      const long long quiet = never ? -1 : (long long)std::chrono::duration_cast<std::chrono::milliseconds>(now - received).count();
++      if (never)
++        std::snprintf(text, sizeof(text), "Motion panel: \"no phone connected\" (no phone frame yet) (fix 169)");
++      else
++        std::snprintf(text, sizeof(text),
++                      "Motion panel: \"no phone connected\" (the phone's last frame came %lld ms ago) (fix 169)",
++                      quiet);
++    } else {
++      std::snprintf(text, sizeof(text), "Motion panel: phone frames again after %.1f s of the code (fix 169)",
++                    double(shown_for) / 1000.0);
++    }
++    return std::string(text);
++  }
++};
++inline PanelFlips panel_flips;  // the overlay's thread only
++
+ // Fix 107: the skeleton view's text, in 1080p units. At the top the status and the game's
+ // skeleton, one line each; the phone's distance and the position hint as one short line at the
+ // foot of the skeleton's drawing ("2.6 m · Step back"), above the hand-reach bars when they
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -471,6 +471,10 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+           phone_qr_ = url.empty() ? xbox360ps5::QrCode() : xbox360ps5::MakeQrCode(url);
+         }
+       }
++      // Fix 169: the panel's flips to "no phone connected" and back, in the log.
++      if (const auto flip = xbox360ps5::motion::panel_flips.Note(
++              xbox360ps5::motion::ChoosePanelView(pose.received, now, phone_url_), pose.received, now))
++        XELOGW("{}", *flip);
+       if (phone_qr_.size && xbox360ps5::motion::ChoosePanelView(pose.received, now, phone_url_) ==
+                                 xbox360ps5::motion::PanelView::kPhoneQr) {
+         draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1107,7 +1107,7 @@ void IdentityIdentifyHandler(cpu::ppc::PPCContext* ppc_context, KernelState* ker
+       tracking_id, flags, callback, context, xbox360ps5::motion::enabled.load() ? live : 0,
+       xbox360ps5::nui_identity::AllowedFlags(layout));  // fix 156q
+   ppc_context->r[3] = result;
+-  static std::atomic<uint32_t> shown{0};
++  static xbox360ps5::motion::LogBudget<xbox360ps5::motion::kIdentifyLogLines> shown;  // fix 169: 64 (8 before)
+   if (shown.fetch_add(1) < 8)
+     XELOGW("Virtual Kinect: the title identifies body {:08X} (flags {:X}, callback {:08X}, "
+            "context {:08X}; tracked body {:08X}) -> {:08X} (fix 156l)",
+@@ -1127,7 +1127,7 @@ void IdentityEnrollmentHandler(cpu::ppc::PPCContext* ppc_context, KernelState* k
+     xe::store_and_swap<uint32_t>(memory->TranslateVirtual(out + 4), info.flags);
+   }
+   ppc_context->r[3] = info.result;
+-  static std::atomic<uint32_t> shown{0};
++  static xbox360ps5::motion::LogBudget<xbox360ps5::motion::kIdentifyLogLines> shown;  // fix 169: 64 (8 before)
+   if (shown.fetch_add(1) < 8)
+     XELOGW("Virtual Kinect: enrollment {} is user {:X} (flags {:X}) -> {:08X} (fix 156l)",
+            index, info.user_index, info.flags, info.result);
+@@ -1139,6 +1139,12 @@ void IdentityEnrollmentHandler(cpu::ppc::PPCContext* ppc_context, KernelState* k
+ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+   auto requests = xbox360ps5::nui_identity::TakeDue();  // fix 156n: after a delay
+   if (requests.empty()) return;
++  // Fix 169 (#74, body_identity.hpp): answered for the profile the body was bound to. The frame's
++  // binding alone (user_index) answered a body gone for this frame (a gap in the phone's frames)
++  // with "profile matched false (user FE)".
++  user_index = xbox360ps5::motion::AnswerUser(
++      xbox360ps5::motion::bound_users.Of(requests.front().tracking_id), user_index,
++      SignedInMask(kernel_state));
+   auto* thread = cpu::ThreadState::Get();
+   Memory* memory = kernel_state->memory();
+   const uint32_t message =
+@@ -1151,7 +1157,7 @@ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+   const auto answer = xbox360ps5::nui_identity::AnswerFor(user_index);
+   const auto layout =
+       xbox360ps5::nui_identity::Layout(xbox360ps5::nui_identity::bound_layout.load());  // 156q
+-  static std::atomic<uint32_t> shown{0};
++  static xbox360ps5::motion::LogBudget<xbox360ps5::motion::kIdentifyLogLines> shown;  // fix 169: 64 (8 before)
+   for (const auto& r : requests) {
+     if (!IsGuestRangeMapped(memory, r.callback, 4, false)) continue;
+     uint8_t* m = memory->TranslateVirtual<uint8_t*>(message);

@@ -9,7 +9,8 @@
 # (fix 25, English keys), tools/check-game-patch-files.py (the shipped assets/patches files) and tools/check-kinect-fake-relay.py (fix 44's test payload, built with the
 # host's C compiler) run with python3, and tools/check-gdfx-names.sh (fix 26: GDFX names and
 # guest paths, linked with the tree's xenia/base and disc image device) with bash.
-# tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
+# tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node,
+# and so does tools/check-phone-pose-steady.mjs (fix 169: its pose frames and its link).
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
 # threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
@@ -204,6 +205,7 @@ checks=(
   check-user-storage.cpp           # fix 165
   check-game-configs.cpp           # fix 166
   check-resolve-trace.cpp          # fix 167
+  check-phone-link.cpp             # fix 169
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -394,6 +396,7 @@ declare -A fix_of=(
   [check-user-storage.cpp]=165
   [check-game-configs.cpp]=166
   [check-resolve-trace.cpp]=167
+  [check-phone-link.cpp]=169
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -618,6 +621,16 @@ elif node "$repo/tools/check-kinect-camera-picture.mjs" "$tree"; then
   echo "pass check-kinect-camera-picture.mjs"
 else
   echo "FAIL check-kinect-camera-picture.mjs"
+  status=1
+fi
+# Fix 169: the phone page's steadier pose frames and its tolerance of one failed request, with node.
+echo "=== check-phone-pose-steady.mjs"
+if [[ " $skipped_fixes " == *" 169 "* ]]; then
+  echo "skip check-phone-pose-steady.mjs (fix 169 left out of this build)"
+elif node "$repo/tools/check-phone-pose-steady.mjs" "$tree"; then
+  echo "pass check-phone-pose-steady.mjs"
+else
+  echo "FAIL check-phone-pose-steady.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

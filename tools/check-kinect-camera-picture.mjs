@@ -176,7 +176,8 @@ check('(d) the page', () => {
   // dropped pose frames are the page's normal pacing at 45-50 fps and skipped over half of them).
   assert.ok(page.includes("if (!pictures.due(performance.now(), pictureChoice.value === 'on', lastNetworkMs)) return;"));
   assert.ok(page.includes('let lastNetworkMs = 0, lastPictureFrame = -1;'));
-  assert.ok(page.includes('if (inFlight >= 2) { if (!pose) pendingLost = target; return; }'));  // as before 119
+  assert.ok(page.includes('if (inFlight >= 2) { if (!pose) pendingLost = target; return; }') ||  // as before 119
+            page.includes('if (!poses.offer({pose, target})) return;  // fix 169: it waits for a free slot'));  // fix 169
   assert.ok(!page.includes('lastPoseDrop'));
   assert.ok(!/pictures\.due\([^)]*inFlight/.test(page), 'frames in flight no longer hold pictures back');
   assert.ok(page.includes("  } catch {\n    pictures.failed++;  // fix 119d"));
