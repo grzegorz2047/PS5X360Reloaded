@@ -4,7 +4,7 @@ The shell is bash (Git Bash on Windows) unless marked PowerShell. Replace every 
 Set these once per shell:
 
 ```bash
-REPO=grzegorz2047/PS5X360Reloaded
+REPO=grzegorz2047/TrinityX360
 FTP="ftp://<console-ip>:<ftp-port>"
 TREE=<work-dir>/tree          # assembled 1.0.2 tree (~2.6 GB)
 ```
@@ -43,7 +43,7 @@ python -I tools/source-1.0.2/assemble.py --out "$TREE" --skip-fix 59 --skip-fix 
 ```
 
 `$TREE/SOURCES.json` records every drop, fix and edit (and `fixes_skipped`). `$TREE/VERSION` is
-what `BUILD_VERSION` said: the label the home screen shows as `PS5X360Reloaded v<label>`.
+what `BUILD_VERSION` said: the label the home screen shows as `TrinityX360 v<label>` (`PS5X360Reloaded v<label>` on builds without `fixes/199-trinityx360-name.patch`).
 
 ## Make or change a patch
 
@@ -141,7 +141,7 @@ Other inputs of the build: `lto=thin`, `title_opt=-O3` (test builds only).
 
 Check the label the artifact carries **before** staging:
 ```bash
-grep -aoE 'PS5X360Reloaded v[0-9][0-9A-Za-z._-]*' <work-dir>/art-<label>/src102-out/eboot.elf | sort -u
+grep -aoE '(TrinityX360|PS5X360Reloaded) v[0-9][0-9A-Za-z._-]*' <work-dir>/art-<label>/src102-out/eboot.elf | sort -u
 ```
 
 ## Stage a test package

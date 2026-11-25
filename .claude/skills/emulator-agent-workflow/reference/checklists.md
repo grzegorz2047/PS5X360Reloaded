@@ -79,7 +79,7 @@ Thanks for the report!
 <One plain sentence: what we think is going on, no internals.>
 
 Could you try this?
-1. Open PS5X360Reloaded and highlight <game> in the library.
+1. Open TrinityX360 (PS5X360Reloaded before 1.0.6) and highlight <game> in the library.
 2. Open the game's settings (<button as shown on screen>).
 3. Set "<exact option label>" to "<exact choice label>".
 4. Start the game and go to <the same place as before>.

@@ -8,11 +8,12 @@ With --version alone it only checks that the version is a release's (X.Y.Z, asse
 RELEASE_VERSION), so a workflow can stop before it compiles anything.
 
 In each executable (the ELF, and the signed eboot.bin, which keeps .rodata readable):
-  * the home-screen label "PS5X360Reloaded v<version>" and the boot.log line "BOOT version <version>"
+  * the home-screen label "TrinityX360 v<version>" and the boot.log line "BOOT version <version>"
     are there as whole C strings (NUL-terminated, so 1.0.30 does not pass for 1.0.3);
   * every such label carries exactly this version (no 1.0.2 fallback, no other build's label);
-  * the official app's label "PS5X360 v<version>" is not there (a build without the rename to
-    PS5X360Reloaded, title id PPSA83600);
+  * no older name's label: not the official app's "PS5X360 v<version>" (a build without fix 46,
+    title id PPSA83600) and not "PS5X360Reloaded v<version>" (the name until 1.0.5: a build
+    without the rename to TrinityX360);
   * no candidate label: nothing like 1.0.3_candidate_37 anywhere, and no label containing
     "candidate". A bare "candidate_" is not an error: RADV's ray-tracing shaders carry names such
     as candidate_infos and intersection_candidate_aabb_opaque.
@@ -28,9 +29,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from assemble import RELEASE_VERSION  # noqa: E402
 
-LABELS = (b'PS5X360Reloaded v', b'BOOT version ')
-# The official PS5X360's home-screen label (and this fork's before PS5X360Reloaded).
-OFFICIAL_LABEL = b'PS5X360 v'
+LABELS = (b'TrinityX360 v', b'BOOT version ')
+# The home-screen labels of the older names: the official PS5X360's (and this fork's before fix 46)
+# and PS5X360Reloaded's (1.0.3 to 1.0.5, before the rename to TrinityX360).
+OLD_LABELS = (b'PS5X360 v', b'PS5X360Reloaded v')
 # A candidate label wherever it is: the web status JSON and game-log headers carry the bare version.
 CANDIDATE_VERSION = re.compile(rb'[0-9]+\.[0-9]+\.[0-9]+[._-]?candidate[0-9A-Za-z_]*', re.IGNORECASE)
 
@@ -63,10 +65,11 @@ def binary_problems(data, version, name='eboot'):
                                          re.IGNORECASE)})
         if candidates:
             problems.append(f'{name}: candidate labels: {candidates}')
-    official = sorted(set(label_values(data, OFFICIAL_LABEL)))
-    if official:
-        problems.append(f'{name}: the official app\'s label "{OFFICIAL_LABEL.decode()}..." '
-                        f'(not built as PS5X360Reloaded): {official}')
+    for old_label in OLD_LABELS:
+        old = sorted(set(label_values(data, old_label)))
+        if old:
+            problems.append(f'{name}: an older name\'s label "{old_label.decode()}..." '
+                            f'(not built as TrinityX360): {old}')
     found = sorted({m.group(0).decode('latin-1') for m in CANDIDATE_VERSION.finditer(data)})
     if found:
         problems.append(f'{name}: candidate version strings: {found}')

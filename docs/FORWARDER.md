@@ -1,12 +1,14 @@
 # Starting a game from the PS5 home screen (forwarders)
 
 A **forwarder** is a small extra app with its own home screen tile: its own name, icon and
-title ID. Opening it starts PS5X360Reloaded (`PPSA83600`) with launch arguments, and
-PS5X360Reloaded goes straight into that game instead of opening the library.
+title ID. Opening it starts TrinityX360 (`PPSA83600`) with launch arguments, and
+TrinityX360 goes straight into that game instead of opening the library.
 
-Since v1.0.3 this fork's app is PS5X360Reloaded with the title ID **`PPSA83600`**. The official
-PS5X360 keeps `PPSA50011`, and so do this fork's earlier builds (`v1.0.2-opt`, r2 and the
-`1.0.3_candidate_N` test builds made before the rename). A tile starts whichever title ID its
+Since v1.0.3 this fork's app has its own title ID, **`PPSA83600`**: it was called PS5X360Reloaded
+until 1.0.5 and is TrinityX360 since 1.0.6, with the same title ID, so tiles made for
+PS5X360Reloaded keep working. The official PS5X360 keeps `PPSA50011`, and so do this fork's
+earlier builds (`v1.0.2-opt`, r2 and the `1.0.3_candidate_N` test builds made before the first
+rename). A tile starts whichever title ID its
 `forwarder.json` names in `target`.
 
 Forwarders use the [PS5 Forwarder Format](https://github.com/heydemoura/ps5-forwarder-format).
@@ -22,13 +24,13 @@ full path to a file.
 
 - A jailbroken PS5 with `elfldr` listening on port 9021.
 - [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus), which registers the new tiles.
-- PS5X360Reloaded installed as `PPSA83600` (v1.0.3 or newer).
+- TrinityX360 (or PS5X360Reloaded, v1.0.3 to v1.0.5) installed as `PPSA83600`.
 - **Forwarder Manager** (`PPSA99930`), release
   [00.001.006](https://github.com/heydemoura/ps5-forwarder-manager/releases/tag/00.001.006) or newer:
   asset `PPSA99930.zip` (SHA-256 `986eb9bce653f4cc30864d897b9da151030f41423ba7d9b870a97d8155c89a1d`).
   Its `PS5X360` target lists PS5X360's games (the darkxex fork's work, merged; the fork itself
   publishes no release), but it starts the **official** app, `PPSA50011`. Forwarder Manager has
-  no PS5X360Reloaded target yet, so a tile for it gets the target `PPSA83600` either from the
+  no TrinityX360 target yet, so a tile for it gets the target `PPSA83600` either from the
   **Generic** target or by editing `forwarder.json` (below).
 
 ## Making a tile for one game
@@ -72,21 +74,21 @@ full path to a file.
 
    The file is read each time the tile is opened; nothing needs registering again. Saving the tile
    again in Forwarder Manager may rewrite `target` or `args`; check the file afterwards. The same
-   edit moves an existing tile from the official PS5X360 to PS5X360Reloaded; tiles left with
+   edit moves an existing tile from the official PS5X360 to TrinityX360; tiles left with
    `PPSA50011` keep starting the official app.
-7. **Close PS5X360Reloaded before using a tile** if it is running. Arguments reach only a new
+7. **Close TrinityX360 before using a tile** if it is running. Arguments reach only a new
    process: if it is already open, the console brings it to the front as it was (library or
    running game) and the tile's game does not start.
 
-Opening the tile now shows PS5X360Reloaded's start screen and then the game.
+Opening the tile now shows TrinityX360's start screen and then the game.
 
-## Arguments PS5X360Reloaded accepts
+## Arguments TrinityX360 accepts
 
 | Argument | Meaning |
 | --- | --- |
 | `--rom <game>` or `--rom=<game>` | The game. A full path (`/mnt/usb0/xbox360/Halo 3.iso`), a path inside the library's game folders (Settings; by default `/app0/assets/roms`, `/data/xbox360` and `xbox360` on USB and extended storage), tried in their order (`Halo 3.iso`, `RPG/Fable 2`), or a **title ID** of a game the library lists (`4D5307E6`; with several copies, the most recently played). A folder stands for the game in it, as the library lists it. A relative path may not contain `..`. |
 | `<full path>` | A bare full path, without `--rom` (what Forwarder Manager writes for its `PS5X360` target). Same meaning as `--rom`. |
-| `--exit-after-game` | *Close the game* in the guide closes PS5X360Reloaded too, so the console goes back to the home screen. Without it the library opens, as usual. |
+| `--exit-after-game` | *Close the game* in the guide closes TrinityX360 too, so the console goes back to the home screen. Without it the library opens, as usual. |
 
 Other arguments are ignored. `--rom` wins over a bare path. Examples of `forwarder.json`
 `args`:
@@ -104,18 +106,18 @@ Other arguments are ignored. `--rom` wins over a bare path. Examples of `forward
   chosen there: its own options apply, its cover and name are the library's, and it becomes
   the most recently played game.
 - A game whose own options are only read as the emulator starts (start options, the FSI
-  render-target choice) makes PS5X360Reloaded restart once, straight into it. It is still the tile's
+  render-target choice) makes TrinityX360 restart once, straight into it. It is still the tile's
   game after that restart, `--exit-after-game` included.
 - If the game is not found (wrong path, a folder with several games, an unknown title ID),
   the library opens and says *Could not launch the game:* and why.
-- If the game is found but does not start, PS5X360Reloaded starts again into the library, which says
+- If the game is found but does not start, TrinityX360 starts again into the library, which says
   why (even with `--exit-after-game`).
-- *Close the emulator* in the guide closes PS5X360Reloaded either way. Choosing another game from the
+- *Close the emulator* in the guide closes TrinityX360 either way. Choosing another game from the
   library over the running game starts that one normally (no longer the tile's game).
 - A game that switches to another executable (a collection's menu, a second disc) restarts
-  PS5X360Reloaded from Canary's launch data; `--exit-after-game` no longer applies after that.
-- Every restart PS5X360Reloaded makes of itself runs without arguments, so the tile's game never
-  starts twice. `game.txt` is not read when a tile started PS5X360Reloaded.
+  TrinityX360 from Canary's launch data; `--exit-after-game` no longer applies after that.
+- Every restart TrinityX360 makes of itself runs without arguments, so the tile's game never
+  starts twice. `game.txt` is not read when a tile started TrinityX360.
 - The log (stream on TCP 9100 and the session log) shows `Start argument N: ...` and
   `Forwarder: ...` lines saying what was asked for and what was started.
 
@@ -125,7 +127,7 @@ Other arguments are ignored. `--rom` wins over a bare path. Examples of `forward
 
 The system's error screen (Polish: *Wystąpił błąd w grze lub aplikacji*) names the **tile's** title
 ID, not the emulator's, and its **Debug** box says (captured with a test build that still used
-`PPSA50011`; with PS5X360Reloaded the messages name `PPSA83600`):
+`PPSA50011`; with TrinityX360 the messages name `PPSA83600`):
 
 ```
 signal: 12 (SIGSYS)  thread name: eboot.bin  RIP: 0x00000008000003ac
@@ -172,9 +174,9 @@ the request* (another or an old launcher on port 10199, see `launcher.log`).
 The tile's `forwarder.json` still has `"target": "PPSA50011"` (the `PS5X360` target of Forwarder
 Manager). Change it to `PPSA83600` (step 6 above).
 
-### PS5X360Reloaded opens, but in the library
+### TrinityX360 opens, but in the library
 
-- PS5X360Reloaded was already open: the system brings it to the front and the arguments are lost.
+- TrinityX360 was already open: the system brings it to the front and the arguments are lost.
   Close it first.
 - The game was not found: the library says *Could not launch the game:* and why. The log has
   `Start argument N: ...` and `Forwarder: ...` lines.

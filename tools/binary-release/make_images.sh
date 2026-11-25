@@ -4,7 +4,7 @@
 #   bash tools/binary-release/make_images.sh <stage/ID> <out-dir> [<ID>]
 # <ID> is the title id (4 capital letters and 5 digits), PPSA50011 when left out: the binary
 # releases of the official package. The source releases (release-source.yml) pass PPSA83600,
-# PS5X360Reloaded's own id. It names both images and is the UFS2 volume label; the folder's
+# TrinityX360's own id (PS5X360Reloaded's until 1.0.5). It names both images and is the UFS2 volume label; the folder's
 # sce_sys/param.json, when there is one, must carry the same titleId, because ShadowMountPlus
 # registers the app by that titleId and mounts it by the image's file name.
 # Both tools are fetched at pinned revisions into .deps/packaging (or $PACKAGING_CACHE).

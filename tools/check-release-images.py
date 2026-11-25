@@ -3,10 +3,11 @@ release workflows that call it.
 
     python3 -I tools/check-release-images.py [--bash <bash>]
 
-PS5X360Reloaded's source releases are title id PPSA83600 (tools/source-1.0.2/package.py), next to
+TrinityX360's source releases (PS5X360Reloaded's until 1.0.5) are title id PPSA83600 (tools/source-1.0.2/package.py), next to
 the official PS5X360's PPSA50011, which the old binary releases (release-binary.yml) keep. Checks:
   * release-source.yml makes the images from stage/PPSA83600 with the id PPSA83600, attaches
-    PPSA83600.zip, .zip.sha256, .ffpkg and .ffpfsc, names its draft "PS5X360Reloaded v<version>",
+    PPSA83600.zip, .zip.sha256, .ffpkg and .ffpfsc, names its draft "TrinityX360 v<version>",
+    attaches the scripts archive under package.py's name (TrinityX360-<version>-scripts.tar.gz),
     and still downloads the official v1.0.2 PPSA50011.zip with the pinned SHA-256 (package.py's);
     PPSA50011 appears nowhere else in it;
   * release-binary.yml still makes PPSA50011.ffpkg/.ffpfsc from stage/PPSA50011 (the default id);
@@ -50,14 +51,17 @@ def check_workflows():
             f'name: Package {ID} and the sources',
             'python3 -I tools/source-1.0.2/package.py',
             '--out-dir dist/source-release\n',
-            'title="PS5X360Reloaded v$VERSION"',
+            'title="TrinityX360 v$VERSION"',
+            # The scripts archive the NOTICE and RELEASE.json name (package.source_names).
+            f'-o "$rel/{package.source_names("$VERSION")["scripts"]}" "$GITHUB_SHA"',
+            '--prefix="TrinityX360-$VERSION/"',
             # The official base, unchanged: its name, URL and pinned hash.
             f'curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/PPSA50011-v1.0.2.zip" \\\n'
             f'            {OFFICIAL_URL}\n',
             f'echo "{package.BASE_ZIP_SHA256}  $RUNNER_TEMP/PPSA50011-v1.0.2.zip" | sha256sum --check --strict',
             '--base-zip "$RUNNER_TEMP/PPSA50011-v1.0.2.zip"'):
         assert needle in text, needle
-    assert 'title="PS5X360 v' not in text
+    assert 'title="PS5X360 v' not in text and 'title="PS5X360Reloaded' not in text and 'PS5X360Reloaded-' not in text
     # PPSA50011 only for the official base (its download, its file and the comments saying so).
     for number, line in enumerate(text.splitlines(), 1):
         if OFFICIAL not in line:
@@ -190,21 +194,22 @@ def check_script(bash):
         assert calls[1].startswith('mkpfs -m mkpfs pack folder ') and \
             calls[1].endswith('/PPSA50011.ffpfsc --version PS5 --verify'), calls
 
-        # The source release: PPSA83600, with param.json as package.py writes it (CRLF) for 1.0.5:
-        # contentVersion 01.005.000, above the 00.001.000 of the official package and of v1.0.3, the 01.004.000 of v1.0.4
+        # The source release: PPSA83600, with param.json as package.py writes it (CRLF) for 1.0.6:
+        # contentVersion 01.006.000, above the 00.001.000 of the official package and of v1.0.3, the 01.004.000 of v1.0.4
         # and the hotfixes' 01.004.001 (v1.0.4.1) and 01.004.002 (v1.0.4.2).
-        reloaded = package.param_json(official_param, '1.0.5')
+        reloaded = package.param_json(official_param, '1.0.6')
         assert b'"titleId": "PPSA83600"' in reloaded and b'\r\n' in reloaded
-        assert b'"contentVersion": "01.005.000",\r\n' in reloaded and b'"masterVersion": "00.01"' in reloaded
-        assert package.SHIPPED_CONTENT_VERSIONS['1.0.3'] == '00.001.000' < package.content_version('1.0.5')
-        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4'] == '01.004.000' < package.content_version('1.0.5')
-        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4.1'] == '01.004.001' < package.content_version('1.0.5')
-        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4.2'] == '01.004.002' < package.content_version('1.0.5')
+        assert b'"contentVersion": "01.006.000",\r\n' in reloaded and b'"masterVersion": "00.01"' in reloaded
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.3'] == '00.001.000' < package.content_version('1.0.6')
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4'] == '01.004.000' < package.content_version('1.0.6')
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4.1'] == '01.004.001' < package.content_version('1.0.6')
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.4.2'] == '01.004.002' < package.content_version('1.0.6')
+        assert package.SHIPPED_CONTENT_VERSIONS['1.0.5'] == '01.005.000' < package.content_version('1.0.6')
         for base, version, message in (
-                (official_param.replace(b'"00.001.000"', b'"01.005.000"'), '1.0.5',
-                 'contentVersion 01.005.000 is not higher than 01.005.000 of the base package'),
-                (official_param.replace(b'"00.001.000"', b'"02.000.000"'), '1.0.5',
-                 'contentVersion 01.005.000 is not higher than 02.000.000 of the base package'),
+                (official_param.replace(b'"00.001.000"', b'"01.006.000"'), '1.0.6',
+                 'contentVersion 01.006.000 is not higher than 01.006.000 of the base package'),
+                (official_param.replace(b'"00.001.000"', b'"02.000.000"'), '1.0.6',
+                 'contentVersion 01.006.000 is not higher than 02.000.000 of the base package'),
                 (official_param, '1.0.4', 'contentVersion 01.004.000 is not higher than 01.004.000 of v1.0.4'),
                 (official_param, '1.0.100', 'does not fit contentVersion')):
             try:
@@ -245,7 +250,7 @@ def check_script(bash):
             assert result.returncode != 0 and message in result.stderr, (extra, result.returncode, result.stderr)
             assert calls == [] and made(out) == [], (extra, calls, made(out))
     print('  make_images.sh: id names the images and the volume label, PPSA50011 by default, '
-          'bad ids and a param.json of another title refused; contentVersion 01.005.000 for 1.0.5')
+          'bad ids and a param.json of another title refused; contentVersion 01.006.000 for 1.0.6')
 
 
 def main():

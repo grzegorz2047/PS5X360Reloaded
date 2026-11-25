@@ -6,7 +6,7 @@ is missing, and how close a rebuild gets.
 
 Since **v1.0.3**, this repository's releases are built this way: the `eboot.bin` is compiled
 from the assembled tree with the fixes below, and the release carries its GPL-3.0 corresponding
-source (see [Releases](#releases)). The released app is **PS5X360Reloaded** with its own title id
+source (see [Releases](#releases)). The released app is **TrinityX360** (named PS5X360Reloaded until 1.0.5) with its own title id
 `PPSA83600`, installed next to the official PS5X360 (`PPSA50011`). The earlier binary releases
 (`v1.0.2-opt`, `v1.0.2-opt-r2`: the official executable with binary patches,
 [`tools/binary-release`](../tools/binary-release/README.md)) are superseded.
@@ -23,7 +23,7 @@ source (see [Releases](#releases)). The released app is **PS5X360Reloaded** with
 
 ## Result
 
-**It builds.** [Run 44497867041](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44497867041)
+**It builds.** [Run 44497867041](https://github.com/grzegorz2047/TrinityX360/actions/runs/44497867041)
 assembled the tree, compiled every core and title object and linked a signed `eboot.bin`
 (37,551,301 bytes, SHA-256 `65e6e9c0…`; `eboot.elf` `9ef24b10…`). It is a Vulkan-only
 reconstruction of 1.0.2, about 22 MiB smaller than the official executable, almost all of it
@@ -34,8 +34,8 @@ On the console (user's test of that build): the launcher, Modern Warfare 2, Blac
 Age II run like the official build; the visible difference was the missing dark home theme,
 reconstructed since.
 
-Build with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44502949131))
-and the dark theme, before the release fixes: [run 44507850129](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507850129),
+Build with the `gameinfo.txt` reader ([run 44502949131](https://github.com/grzegorz2047/TrinityX360/actions/runs/44502949131))
+and the dark theme, before the release fixes: [run 44507850129](https://github.com/grzegorz2047/TrinityX360/actions/runs/44507850129),
 `eboot.bin` 37,574,693 bytes, SHA-256 `b7525acb…` (`eboot.elf` `a251fd04…`).
 Its official-only strings drop to 18,074; the dark theme's and `gameinfo.txt`'s are now in both.
 That build was not run on a console by itself; the later test builds that contain it, labelled
@@ -49,10 +49,10 @@ offers the button because `main` carries a copy of the workflow file) for a test
 reusable workflow (`workflow_call`) from the source release (see [Releases](#releases)).
 
 Earlier runs, each fixing what the previous one found:
-[44482112072](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44482112072) (stale core
+[44482112072](https://github.com/grzegorz2047/TrinityX360/actions/runs/44482112072) (stale core
 headers, missing 1.0.x language code),
-[44486101760](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44486101760) (5 files),
-[44491870772](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44491870772) (compiled; 4
+[44486101760](https://github.com/grzegorz2047/TrinityX360/actions/runs/44486101760) (5 files),
+[44491870772](https://github.com/grzegorz2047/TrinityX360/actions/runs/44491870772) (compiled; 4
 undefined symbols at the link).
 
 ## Short answer
@@ -146,7 +146,7 @@ From this repository (build glue no drop contains): `platform/ps5/compat/`,
 | 1.0.x `i18n.hpp` (17 interface languages) | `launcher.cpp` | 0.5.9's `i18n.hpp` (pt/en/es table) + reconstructed `i18n_ui.hpp` reading the package's `assets/lang/<code>.txt`, hooked in by three recorded edits; fix 25 keys the interface by English, so the rebuild reads the English-keyed files of [`tools/source-1.0.2/english/lang`](../tools/source-1.0.2/fixes/README.md#language-files-fix-25) instead of the package's (keyed by Portuguese). Fix 43 adds the official loader's second load (0x1c1a50): `/app0/lang/<code>.txt` is read after the package's file into the same table, adding or replacing texts (the package has no `lang/` folder, so nothing changes until one is added) | language codes host-tested against the official tables (0x1e63e48, 0x1e63e90) and every language file parsed by `check-ui-lang-overlay.cpp` (fix 43); on the console, switching the interface language works (`1.0.3_candidate_48`) |
 | `usb_kinect.hpp` (physical USB Kinect and its relay, `build/kinect-relay-20261015`) | the package's 1.0.x `virtual_depth_camera.hpp`, used by core `xboxkrnl_pscam.cc` | fix 44: the 1.0.x `virtual_depth_camera.hpp`, `factory_calibration.hpp` and `virtual_skeleton.hpp` come from the official package's `KINECT-source-and-licenses.zip` (pinned in `assemble.py`); [`usb_kinect.hpp`](../tools/source-1.0.2/reconstructed/xbox360ps5/usb_kinect.hpp) is reconstructed from the official executable (va 0x746510-0x7481e4) and the package's `kinect_tracker.c`: the relay client (127.0.0.1:9301, `KNCT`), the direct `/dev/ugen` camera (VID 045e, PID 02ae/02bf), `/data/kinect-tracker/calibration.bin`, the official 12 `Kinect USB: …` lines | relay and calibration switching checked on the host against a fake relay, the direct camera against a simulated ugen device; on the console (`1.0.3_candidate_49`, Dragon Ball Z for Kinect) the relay client received a test relay's frames at full rate and survived the relay closing; not yet tried with a real Kinect (issue #8). The `kinect-relay-20261015` folder may have held a newer `virtual_depth_camera.hpp` than the package's (the official build put it first on the include path); the official image's layout matches the package's |
 | 1.0.x `canary_audio.hpp` | `canary_audio.cpp`, `launcher.cpp` | 0.5.9's, with `override` dropped from `DestroyDriver` (no longer virtual in the netplay core; it did the same as the base) | none expected |
-| 1.0.2 dark home theme (`ui-dark.on`, `assets/skin-dark`) | the home and the Settings sheet | reconstructed from the official executable's code ([`dark_theme.hpp`](../tools/source-1.0.2/reconstructed/dark_theme.hpp) and recorded edits to `launcher.cpp`, `kinect_home.inc`, `kinect_state.inc`, `kinect_press.inc`): read once at start; picture folders `<data folder>/skin` (`/data/homebrew/PPSA50011/skin` in the official, `/data/homebrew/PPSA83600/skin` in PS5X360Reloaded), `/app0/assets/skin-dark`, `/app0/assets/skin`; graphite panel colours (`ApplyTheme(NxeUi() && !dark)`); slot type `#eef0f2`/`#a3a9ae` instead of `#282828`/`#8c8c8c`; a "Tema: CLARO/ESCURO" slot after System Link (message, restart) and a "Tema" Settings row before "Reiniciar o emulador" (rows 40 px apart, as in the official) that remove the marker or write `1\n` to it | reconstructed after the console test of run 44497867041 found it missing; the slot's icon (`kSettings`) is our choice |
+| 1.0.2 dark home theme (`ui-dark.on`, `assets/skin-dark`) | the home and the Settings sheet | reconstructed from the official executable's code ([`dark_theme.hpp`](../tools/source-1.0.2/reconstructed/dark_theme.hpp) and recorded edits to `launcher.cpp`, `kinect_home.inc`, `kinect_state.inc`, `kinect_press.inc`): read once at start; picture folders `<data folder>/skin` (`/data/homebrew/PPSA50011/skin` in the official, `/data/homebrew/PPSA83600/skin` in TrinityX360), `/app0/assets/skin-dark`, `/app0/assets/skin`; graphite panel colours (`ApplyTheme(NxeUi() && !dark)`); slot type `#eef0f2`/`#a3a9ae` instead of `#282828`/`#8c8c8c`; a "Tema: CLARO/ESCURO" slot after System Link (message, restart) and a "Tema" Settings row before "Reiniciar o emulador" (rows 40 px apart, as in the official) that remove the marker or write `1\n` to it | reconstructed after the console test of run 44497867041 found it missing; the slot's icon (`kSettings`) is our choice |
 | `__wrap_sceKernelDebugOutText` | 1.0.2 link (`--wrap`) | the wrap is left out: it belongs to the OpenGL renderer (glvk, issue #6), whose code is the only reader of the driver message it saves | debug output goes to the system unchanged; nothing without glvk |
 | Other title sources changed between 0.6.0 and 1.0.0 (input diagnostics, network self-test, cover download, …) | retained objects of `upstream-c28af11-20261020`, `kinect-home-20261021`, `dash-mode-20261020`, `input-fix-20261021`, … (`port.json`, `title-src/` there) | the newest published version is used, with what the official image shows rebuilt: the covers' Microsoft box-art fallback after XboxUnity (fix 41) and the network self-test's timed lines, resolver report and TCP probe (fix 42). The `InputDiag` lines of `input-fix-20261021`'s `xam_input.cc` are deliberately left out: a private Fable II diagnostic, on only when `/app0/input-diagnostic.once` holds `fable-input-20261009`, for one 30-second window | the input diagnostic is absent; other changes that left no strings may still be missing (see below) |
 | Compiler commands of the retained objects | every object the author did not recompile | the flags of 0.5.9's `canary/CMakeLists.txt` (title `-O2 -mavx`, all `-march=znver2 -fno-stack-protector`) and Canary's Release `-O3` (the per-object commands are not published) | code differs byte for byte even where sources match; no behaviour change known. Tuning the flags belongs to issue #2 |
@@ -159,10 +159,10 @@ branch `fix/mmio-gpr-and-ci` after it and never released in binary form). Each g
 source as one patch in [`tools/source-1.0.2/fixes`](../tools/source-1.0.2/fixes/README.md),
 which `assemble.py` applies last. The intent is ported, not the machine code: where the binary
 patch had to borrow room (repurposed strings, an unused settings field, a diagnostic counter),
-the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44507690116)
+the source does it properly. [Run 44507690116](https://github.com/grzegorz2047/TrinityX360/actions/runs/44507690116)
 applied all 14 patches and built `eboot.bin` (37,570,981 bytes, SHA-256 `ff26258c…`; `eboot.elf`
 `5bd5b0e8…`). With the dark theme merged in,
-[run 44511435853](https://github.com/grzegorz2047/PS5X360Reloaded/actions/runs/44511435853) applied them
+[run 44511435853](https://github.com/grzegorz2047/TrinityX360/actions/runs/44511435853) applied them
 after its edits: `eboot.bin` 37,577,765 bytes, SHA-256 `e15468f2…` (`eboot.elf` `e22e1cfb…`).
 The groups were not tested one by one on the console. They are in the `1.0.3_candidate_N`
 test builds run there since (candidates 19 and 30 were built without `01`, on purpose), next to
@@ -364,6 +364,7 @@ also listed here.
 | 155 (`155-xma-trace`) | Grand Theft Auto V froze ~100 s into the prologue on every XMA decoder (new, old, Xenia's original, each with and without its own thread): its audio thread loops taking decoded output from an XMA stream until it has what its own counters expect, the stream gives none, and the main thread waits for the audio thread every frame. A diagnostic of the emulator's XMA contexts: each kick's fields before and after the decoder's pass (input buffers and packets, read offset, output write/read offsets and blocks, errors), locks, clears with fix 67's watch lifts, allocations, releases and reads of the current context register 0606h; the first kicks of each context, new errors, a 30 s summary, and when no context was kicked for 5 s while some are allocated, each allocated context's totals, fields and last 8 events | host-checked (`tools/check-xma-trace.cpp`); console: `1.0.6-work-fix148j-155` |
 | 155b (`155b-xma-progress`) | 155's trace of GTA V's freeze: the stream the audio thread waits on (context 21) was kicked once, 31 s before; that pass filled the output ring, the write offset landed on the read offset and output-valid was cleared (full), while the game's own copy still showed the state before the kick (empty). An experiment behind `<data>/xma-progress.txt` (`on`; off by default, read at the decoder's start and logged once), for the new decoder: (a) with the decoder thread, a context that still has input and valid output stays enabled after a pass unless the game locked or released it meanwhile, so decoding goes on as the game frees output space, as the hardware does; (b) a pass never fills the ring, one block stays free. The trace counts a full ring as its free blocks and logs the game's 0601h writes | host-checked (`tools/check-xma-progress.cpp`, `tools/check-xma-trace.cpp`); console: `1.0.6-work-fix148j2-155b` |
 | 155c (`155c-user-patch-folder` and `assets/patches/545408A7 - Grand Theft Auto V.patch.toml`) | GTA V froze at the same prologue line on every decoder: its audio thread loops at 83140450 taking a prebuffered stream's decoded bytes from the game's own copy of the XMA context, which only a lock and snapshot refresh. The game patch "Audio freeze fix (prologue)" (on): the mixer locks and snapshots only the first stream set of a call (the `bne` at 83140458) and then reads a prebuffered stream from a copy nobody refreshed; the `bne` becomes a `nop`, so it snapshots every set it reads. Confirmed on the console (1.0.6-work-fix148j2-155b with the patch: past the line, no stall). An earlier experiment, counting from the game's copy at 836A96FC, did not help and is gone. The patch ships in assets/patches (release packages and, now, candidate images: stage-reloaded-candidate.py copies the repository's patch files); and on the PS5 the emulator also reads `<data>/assets/patches`, the folder the library's Patches tab names, which nothing read before | host-checked (`tools/check-gta5-audio-patch.cpp`); console: `1.0.6-work-fix155c` |
+| 199 (`199-trinityx360-name`, 1.0.6) | the app is renamed TrinityX360 (the homebrew catalog does not list a derivative whose name contains PS5X360): the home screen's label `TrinityX360 v<VERSION>`, the window, guide, notifications, web and phone pages and the About text (which also credits PS5X360 by BrinooTk and Xenia Canary). The title ID `PPSA83600`, the data root, the content ID and the drives' `PS5X360Reloaded/saves` folders stay, so installs and saves carry over | host-checked (`tools/check-app-identity.cpp`, `tools/check-save-folder.cpp`, `tools/check-guide-header.cpp`, `tools/check-title-id.py`) |
 
 ## Comparison with the official executable
 
@@ -430,14 +431,26 @@ pushed to a branch `release/source-X.Y.Z` (the version is the branch name's suff
 workflow is on the default branch. A tag push does not start it: GitHub makes the tag when the
 draft is published, at the commit the draft targets.
 
+Before the release commit is pushed, write the repository's copies of the package's
+`sce_sys/param.json` and `sce_sys/icon0.png` for the version and commit them in it:
+
+    python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip PPSA50011-v1.0.2.zip --version X.Y.Z --write
+
+Homebrew catalogs and stores (for example
+[ps5-homebrew-catalog](https://github.com/darkxex/ps5-homebrew-catalog/blob/main/docs/versioning.md))
+read the title id, the name, `contentVersion` and the icon from `sce_sys/` in the repository at
+the release tag. The workflow checks them before the build (`--check`) and compares them with the
+package after it, and stops when they are missing or are not the release's bytes
+(`tools/check-repo-sce-sys.py` is the host check).
+
 1. `build-source-1.0.2.yml` in release mode: the version label is `X.Y.Z` instead of
-   `BUILD_VERSION`'s candidate label (`PS5X360Reloaded vX.Y.Z` on the home screen, `BOOT version X.Y.Z` in
+   `BUILD_VERSION`'s candidate label (`TrinityX360 vX.Y.Z` on the home screen, `BOOT version X.Y.Z` in
    `boot.log`), no fix may be left out, and the linked `eboot.elf` is checked for both strings and
    for no candidate label. Artifacts: `eboot-X.Y.Z-from-source` and `source-X.Y.Z`.
 2. The package: the official v1.0.2 `PPSA50011.zip` (SHA-256 `230359c2…`) is the base, read
    under its `PPSA50011/` folder and written under `PPSA83600/`, with the source-built
    `eboot.bin` as it was signed, its own `sce_sys/param.json` (title id `PPSA83600`, name
-   PS5X360Reloaded, `contentVersion` from the version: `X.Y.Z` is `%02d.%03d.000` of X and
+   TrinityX360, `contentVersion` from the version: `X.Y.Z` is `%02d.%03d.000` of X and
    Y*100+Z, so 1.0.4 is `01.004.000`, higher than the `00.001.000` of the official package and
    of v1.0.3, and the console and catalogs see an older install as outdated; `masterVersion`
    stays `00.01`) and icon and backgrounds (`icon0.png`, `pic0.png`, `pic1.png`), the
@@ -452,7 +465,7 @@ draft is published, at the commit the draft targets.
    (`PS5X360-X.Y.Z-source.tar.xz`, the assembled tree that was compiled;
    `PS5X360-X.Y.Z-toolchain-source.tar.xz`, `PS5_Vulkan`, `PS5_Mesa` and `PS5_PayloadSDK` at the
    commits the build pins, whose RADV, `app_crt` and payload SDK runtime are linked in; and
-   `PS5X360Reloaded-X.Y.Z-scripts.tar.gz`, this repository at the commit), the game patches
+   `TrinityX360-X.Y.Z-scripts.tar.gz`, this repository at the commit), the game patches
    (`assets/patches/*.patch.toml`) and `SHA256SUMS.txt` over all of them. A later push to the
    branch replaces the draft's notes, target and files while it is still a draft;
    a published release is never changed (`tools/source-1.0.2/release_guard.py`).
@@ -463,7 +476,7 @@ differs in the source, but its bytes (and SHA-256) are not the candidate's.
 **v1.0.3** is the first release made this way (branch `release/source-1.0.3`, notes in
 [`docs/release-notes/v1.0.3.md`](release-notes/v1.0.3.md)), and the first under the title id
 `PPSA83600`: the binary releases and the earlier `1.0.3_candidate_N` test builds used the official
-`PPSA50011`. On its first start PS5X360Reloaded copies the saves and small settings files from
+`PPSA50011`. On its first start TrinityX360 copies the saves and small settings files from
 `/data/homebrew/PPSA50011` once, without changing that folder; the notes say what does not carry
 over. It replaces the binary releases `v1.0.2-opt` and `v1.0.2-opt-r2`; `release-binary.yml` and
 `tools/binary-release` stay only to rebuild those (the image script `make_images.sh` is shared).
@@ -493,7 +506,7 @@ The source release does this itself: the draft carries the assembled tree that w
 netplay core and its submodules, Mbed TLS, the applied fixes, `licenses/` and `SOURCES.json`)
 the toolchain parts linked into it (`PS5X360-X.Y.Z-toolchain-source.tar.xz`: `PS5_Vulkan`,
 `PS5_Mesa` and `PS5_PayloadSDK` at the commits `build-source-1.0.2.yml` pins) and this repository
-at the release commit (`PS5X360Reloaded-X.Y.Z-scripts.tar.gz`: the assembly, build and packaging
+at the release commit (`TrinityX360-X.Y.Z-scripts.tar.gz`: the assembly, build and packaging
 scripts and workflows), next to the binaries, so the source is offered from the same place as
 the package. The package's notice names the source tarball, the repository commit and the
 toolchain pins. Archives the pinned toolchain scripts download themselves (zlib, checked by

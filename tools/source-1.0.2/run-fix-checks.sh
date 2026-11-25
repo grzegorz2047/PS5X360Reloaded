@@ -14,8 +14,8 @@
 # step), tools/check-source-package.py (package.py), tools/check-release-images.py
 # (make_images.sh's title id and the release workflows' image names), tools/check-release-guard.py
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
-# tools/check-docs-reloaded.py checks the user docs for the PS5X360Reloaded name and title id
-# (PPSA83600, next to the official PPSA50011).
+# tools/check-docs-reloaded.py checks the user docs for the app's name, TrinityX360 since 1.0.6
+# (PS5X360Reloaded before), and its title id (PPSA83600, next to the official PPSA50011).
 # tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
@@ -559,6 +559,13 @@ if "$python" -I "$repo/tools/check-source-package.py"; then
   echo "pass check-source-package.py"
 else
   echo "FAIL check-source-package.py"
+  status=1
+fi
+echo "=== check-repo-sce-sys.py"
+if "$python" -I "$repo/tools/check-repo-sce-sys.py"; then
+  echo "pass check-repo-sce-sys.py"
+else
+  echo "FAIL check-repo-sce-sys.py"
   status=1
 fi
 echo "=== check-release-images.py"

@@ -49,7 +49,7 @@ draft GitHub release `vX.Y.Z` with its GPL-3.0 corresponding source: it is not
 patched here. Its package comes from the same official v1.0.2 `PPSA50011.zip`
 through `tools/source-1.0.2/package.py` (the source-built `eboot.bin` as signed,
 English-keyed language files, no `patches.py`, no `assets/lang-overrides`
-merge). That package is PS5X360Reloaded with its own title id `PPSA83600` (its own
+merge). That package is TrinityX360 (PS5X360Reloaded until 1.0.5) with its own title id `PPSA83600` (its own
 `sce_sys/param.json` and art, and its own `INSTALLATION.md` and release notes in place of the
 official docs that name `PPSA50011`, see `tools/source-1.0.2/package-docs`), so it installs next to the official PS5X360
 (`PPSA50011`): the files move to `PPSA83600/` and the images come from

@@ -1,4 +1,4 @@
-"""Builds the PPSA83600 package of a PS5X360Reloaded release compiled from source (tools/source-1.0.2).
+"""Builds the PPSA83600 package of a TrinityX360 release compiled from source (tools/source-1.0.2).
 
     python3 -I tools/source-1.0.2/package.py --base-zip PPSA50011-v1.0.2.zip \
         --eboot build/src102-out/eboot.bin --lang-dir build/src102-out/lang \
@@ -7,27 +7,32 @@
 
 The base is the official PS5X360 v1.0.2 PPSA50011.zip, checked against its SHA-256 as
 tools/binary-release/build_package.py checks it. Unlike that script, nothing is patched or
-signed again: eboot.bin is the source build's, already signed by build.sh. PS5X360Reloaded has
-its own title id, PPSA83600, so it installs next to the official PS5X360 (PPSA50011) instead of
-replacing it. This script:
+signed again: eboot.bin is the source build's, already signed by build.sh. TrinityX360 (named
+PS5X360Reloaded until 1.0.5) has its own title id, PPSA83600, so it installs next to the official
+PS5X360 (PPSA50011) instead of replacing it. The rename to TrinityX360 changed only the name: the
+title id, conceptId and contentId stay those of PS5X360Reloaded, so the console updates the
+installed app and keeps its saves. This script:
 
   * reads the base's files under PPSA50011/ and writes them under PPSA83600/;
   * rewrites sce_sys/param.json: titleId PPSA83600, conceptId 83600, contentId
-    UP9000-PPSA83600_00-PS5X360RELOADED0, the titleName PS5X360Reloaded in every language
+    UP9000-PPSA83600_00-PS5X360RELOADED0 (unchanged by the rename), the titleName TrinityX360 in every language
     entry and contentVersion from the release version (content_version(): X.Y.Z ->
     "%02d.%03d.000" % (X, Y * 100 + Z), so 1.0.4 -> 01.004.000), which must be higher than the
     base's and than every contentVersion already shipped (SHIPPED_CONTENT_VERSIONS); every other
     field (masterVersion included) and the file's layout (key order, indent, CRLF) stay the base's;
-  * replaces sce_sys/icon0.png, pic0.png and pic1.png with the PS5X360Reloaded art in
-    tools/source-1.0.2/package-art (checked by SHA-256 and size, see its README.md);
+  * replaces sce_sys/icon0.png, pic0.png and pic1.png, and the home screen's four pictures with the
+    PS5X360 logo (assets/skin/xbox-logo.png, basics.jpg, ball.png, ball-glow.png), with the
+    TrinityX360 art in tools/source-1.0.2/package-art (checked by SHA-256 and size, see its
+    README.md), and refuses a
+    package with any file that is one of the official logo pictures (OFFICIAL_LOGOS);
   * replaces the official user docs that name its folder PPSA50011 (tools/source-1.0.2/package-docs,
-    see its README.md): INSTALLATION.md with PS5X360Reloaded's own, RELEASE_NOTES.md with
+    see its README.md): INSTALLATION.md with TrinityX360's own, RELEASE_NOTES.md with
     docs/release-notes/v<version>.md, dlc/README.md and updates/README.md with the folder
     renamed, and leaves out AUTOLOG.md; then refuses the package if any other text file still
     names PPSA50011 (the English-keyed language files included);
   * replaces eboot.bin, after checking the SELF magic and that the binary carries the release's
-    version labels ("PS5X360Reloaded v<version>", "BOOT version <version>"), no candidate label
-    and not the official app's "PS5X360 v<version>" label;
+    version labels ("TrinityX360 v<version>", "BOOT version <version>"), no candidate label
+    and no older name's label ("PS5X360 v<version>", "PS5X360Reloaded v<version>");
   * replaces every assets/lang/*.txt with the English-keyed files of the build (fix 25; the
     eboot reads /app0/assets/lang/). It does not merge assets/lang-overrides, because those are
     keyed by Portuguese for the official executable and their texts are already in
@@ -71,14 +76,18 @@ PREFIX = TITLE_ID + '/'
 # sce_sys/param.json of the release. The contentId keeps the official package's form
 # (<service id UP9000>-<titleId>_00-<16 uppercase letters or digits>) with a label of its own, so
 # the console and ShadowMountPlus see a different app from the official UP9000-PPSA50011_00-...
+# The rename to TrinityX360 (1.0.6) kept the title id, conceptId and contentId of PS5X360Reloaded
+# (1.0.3 to 1.0.5): a new one would make the console see another app, installed beside the old one
+# without its saves. Only titleName changed. tools/check-source-package.py pins all four.
 CONCEPT_ID = TITLE_ID[4:]
 CONTENT_ID = f'UP9000-{TITLE_ID}_00-PS5X360RELOADED0'
-TITLE_NAME = 'PS5X360Reloaded'
+TITLE_NAME = 'TrinityX360'
 CONTENT_ID_RE = re.compile(r'UP9000-(PPSA[0-9]{5})_00-[A-Z0-9]{16}')
-# The home-screen label of the release (build_version.hpp) and the official app's, which a
-# PS5X360Reloaded eboot must not carry.
-HOME_LABEL = b'PS5X360Reloaded v'
-OFFICIAL_LABEL_RE = re.compile(rb'PS5X360 v[0-9]')
+# The home-screen label of the release (build_version.hpp: fix 46's product name, as the TrinityX360
+# fix renames it) and the older names' labels, which a TrinityX360 eboot must not carry: the
+# official app's and PS5X360Reloaded's.
+HOME_LABEL = b'TrinityX360 v'
+OFFICIAL_LABEL_RE = re.compile(rb'PS5X360(?:Reloaded)? v[0-9]')
 BASE_ZIP_SHA256 = build_package.BASE_ZIP_SHA256
 BASE_VERSION = build_package.BASE_VERSION
 UPSTREAM = build_package.UPSTREAM
@@ -89,10 +98,10 @@ VERSION_RE = re.compile(r'[0-9]+\.[0-9]+\.[0-9]+(?:\.[1-9][0-9]{0,2})?')  # X.Y.
 # sce_sys/param.json contentVersion, "NN.NNN.NNN". The console and the homebrew catalogs compare it
 # with the installed app's to tell an outdated install, so each release needs a higher one.
 CONTENT_VERSION_RE = re.compile(r'[0-9]{2}\.[0-9]{3}\.[0-9]{3}')
-# contentVersion of every PS5X360Reloaded release already published: v1.0.3 kept the official
+# contentVersion of every release already published (named PS5X360Reloaded then): v1.0.3 kept the official
 # package's value. A new release's contentVersion must be higher than all of them.
 SHIPPED_CONTENT_VERSIONS = {'1.0.3': '00.001.000', '1.0.4': '01.004.000', '1.0.4.1': '01.004.001',
-                            '1.0.4.2': '01.004.002'}
+                            '1.0.4.2': '01.004.002', '1.0.5': '01.005.000'}
 # A test build's label (BUILD_VERSION 1.0.3_candidate_N). A bare "candidate_" is not enough:
 # Mesa's own strings contain it (intersection_candidate_aabb_opaque, candidate_infos).
 CANDIDATE_LABEL_RE = re.compile(rb'[0-9]+\.[0-9]+\.[0-9]+_candidate')
@@ -123,25 +132,52 @@ LICENCES = [
 # package-art/README.md. The sizes are the official package's.
 ART = [
     ('icon0.png', 'sce_sys/icon0.png', (512, 512),
-     '0ea06e8927b1cf3a284a56e3440fd51017bc3e3efd1fc28b8015c4e6c662d50c'),
+     '7b55e75d4293b5bbb01b40c5831855bb626cab80d149a7a01f4c2adeecf7b26f'),
     ('pic0.png', 'sce_sys/pic0.png', (3840, 2160),
-     '279db3b467fed42d9f5213c725a221e92ac919a8673ead61cb3b8755d7db1054'),
+     'e0541c1987d983bb50ca04eb7b2c653afc4316f63d84620c7017cdacbfe5d350'),
     ('pic1.png', 'sce_sys/pic1.png', (1920, 1080),
-     'a44a30407639a3859a6efbffb9ec555a9a220f86c9b886e09e2e48bd8776e377'),
+     'd25b1bb70a158f1a07825a3b5bf0633469af8ae62e5cd791f004db9d54b90a62'),
+    # The home screen's own pictures that carried the PS5X360 logo (kinect_home.inc, kinect_state.inc;
+    # skin-dark has none of them, so both themes draw these): TrinityX360's, same names, sizes and
+    # formats (package-art/skin, make_art.py).
+    ('skin/xbox-logo.png', 'assets/skin/xbox-logo.png', (300, 196),
+     'df0939abce9b60cef25586051b050830ee0dac83c31f5db46b1412e01f0fb534'),
+    ('skin/basics.jpg', 'assets/skin/basics.jpg', (420, 200),
+     '8ce47a0083e137829dfd0a937b013fce92c549e928eeb765687dee131525bafa'),
+    ('skin/ball.png', 'assets/skin/ball.png', (96, 96),
+     'f02d6eefdd69c58dca4d925ecbd8a77fcb2045a4f70456444b209f639f973aa3'),
+    ('skin/ball-glow.png', 'assets/skin/ball-glow.png', (96, 96),
+     'ac14d7d75fe9c0715768e0e3882d971340b3870fa0372fab4a9dbafcb69c4aaf'),
 ]
+# SHA-256 of the official package's pictures with the PS5X360 logo (assets/skin of PPSA50011.zip
+# v1.0.2): xbox-logo.png, basics.jpg, ball.png, ball-glow.png. No file of the package may be one
+# of them (TrinityX360 shows no logo of the project it is based on); build() checks it.
+OFFICIAL_LOGOS = {
+    '4ac0244cee08eaa882b5757dd276c746f25aedb1d77c19b739cfedc589eb8ca5': 'assets/skin/xbox-logo.png',
+    'b4ce6c522ae9f6dc591ab195319b5d0bb21ecdced746b495526d4e68664d1a4e': 'assets/skin/basics.jpg',
+    'e527495051d09032e624431288a7c0a5e8f4e6c4ca25975460d4c409a34d9654': 'assets/skin/ball.png',
+    'a04d79843ac04e7417b336bc6e3a7a788ebc335cee776d91778703aa33545d89': 'assets/skin/ball-glow.png',
+}
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+# The package's files the repository also carries, at its root, in the commit a release tag points
+# at: homebrew catalogs and stores (github.com/darkxex/ps5-homebrew-catalog, docs/versioning.md)
+# read the title id, the name and contentVersion from sce_sys/param.json and the icon from
+# sce_sys/icon0.png in the repository, so the committed copies must be the release's bytes.
+# tools/source-1.0.2/repo_sce_sys.py writes them (--write) and checks them (--check); the release
+# workflow stops when they are not the package's.
+REPO_SCE_SYS = ('sce_sys/param.json', 'sce_sys/icon0.png')
 
 # The official package's user docs name its folder PPSA50011 (copy the folder there, put DLC and
 # updates in PPSA50011/..., logs in /data/homebrew/PPSA50011/logs); shipped as they are, they
-# would send PS5X360Reloaded's files into the official app's folder. See package-docs/README.md.
-# INSTALLATION.md: PS5X360Reloaded's own (package-docs/INSTALLATION.md, placeholders filled in).
+# would send TrinityX360's files into the official app's folder. See package-docs/README.md.
+# INSTALLATION.md: TrinityX360's own (package-docs/INSTALLATION.md, placeholders filled in).
 # RELEASE_NOTES.md: the release's notes, docs/release-notes/v<version>.md.
 # (path, times the official text names PPSA50011): that text with the folder renamed.
 DOC_RENAMES = [('dlc/README.md', 1), ('updates/README.md', 1)]
 # Left out: the official AutoLog payload's guide (it reads /data/homebrew/PPSA50011/logs only).
 DOCS_LEFT_OUT = ['AUTOLOG.md']
 # The package's files that may name the official title id: the notices of where the package came
-# from, the docs that tell PS5X360Reloaded apart from it, and binaries (eboot.bin reads the
+# from, the docs that tell TrinityX360 apart from it, and binaries (eboot.bin reads the
 # official folder for the first start's import; the official Kinect tracker and its source).
 # Every other text file naming it stops the packaging.
 # (licenses/PS5X360-<version>-NOTICE.txt too.)
@@ -176,7 +212,7 @@ def content_version(version):
 
 def check_content_version(value, base_value):
     """The derived contentVersion must be higher than the base package's and every shipped one
-    (SHIPPED_CONTENT_VERSIONS), or an installed older PS5X360Reloaded would not show as outdated.
+    (SHIPPED_CONTENT_VERSIONS), or an installed older release would not show as outdated.
     The fixed-width form compares as text."""
     others = [('the base package', base_value)]
     others += [(f'v{shipped}', other) for shipped, other in sorted(SHIPPED_CONTENT_VERSIONS.items())]
@@ -194,7 +230,7 @@ def source_names(version):
     and the git archive of this repository at the commit."""
     return {'tarball': f'PS5X360-{version}-source.tar.xz',
             'toolchain': f'PS5X360-{version}-toolchain-source.tar.xz',
-            'scripts': f'PS5X360Reloaded-{version}-scripts.tar.gz'}
+            'scripts': f'TrinityX360-{version}-scripts.tar.gz'}
 
 
 def parse_source_url(url):
@@ -257,8 +293,8 @@ def check_eboot(eboot, version):
         fail(f'eboot.bin carries a candidate label ({eboot[found.start():found.end() + 8]!r})')
     found = OFFICIAL_LABEL_RE.search(eboot)
     if found:
-        fail(f'eboot.bin carries the official app\'s label ({eboot[found.start():found.end() + 8]!r}): '
-             'not built as PS5X360Reloaded')
+        fail(f'eboot.bin carries an older name\'s label ({eboot[found.start():found.end() + 8]!r}): '
+             'not built as TrinityX360')
 
 
 def param_json(base, version):
@@ -305,16 +341,79 @@ def png_size(data):
     return int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
 
 
+def jpeg_size(data):
+    """(width, height) of a JPEG, from its first SOF segment."""
+    if data[:3] != b'\xff\xd8\xff':
+        return None
+    at = 2
+    while at + 9 <= len(data):
+        if data[at] != 0xFF:
+            return None
+        marker = data[at + 1]
+        length = int.from_bytes(data[at + 2:at + 4], 'big')
+        if marker in (0xC0, 0xC1, 0xC2):
+            return int.from_bytes(data[at + 7:at + 9], 'big'), int.from_bytes(data[at + 5:at + 7], 'big')
+        at += 2 + length
+    return None
+
+
 def art_files():
+    """{path in the package: bytes} of ART, each checked by SHA-256, format (its name's: PNG or
+    JPEG) and size. stage-reloaded-candidate.py writes the same files into console test images."""
     files = {}
     for name, target, size, digest in ART:
         data = (HERE / 'package-art' / name).read_bytes()
         if sha256(data) != digest:
             fail(f'tools/source-1.0.2/package-art/{name} is not the reviewed file (SHA-256 differs)')
-        if png_size(data) != size:
-            fail(f'tools/source-1.0.2/package-art/{name} is not a {size[0]}x{size[1]} PNG')
+        kind, found = ('JPEG', jpeg_size(data)) if name.endswith('.jpg') else ('PNG', png_size(data))
+        if found != size:
+            fail(f'tools/source-1.0.2/package-art/{name} is not a {size[0]}x{size[1]} {kind}')
+        if sha256(data) in OFFICIAL_LOGOS:
+            fail(f'tools/source-1.0.2/package-art/{name} is the official PS5X360 logo picture')
         files[target] = data
     return files
+
+
+def official_logo_problems(files):
+    """The package's files that are one of the official PS5X360 logo pictures (OFFICIAL_LOGOS)."""
+    return sorted(f'{name} (the official {OFFICIAL_LOGOS[sha256(data)]})'
+                  for name, data in files.items() if sha256(data) in OFFICIAL_LOGOS)
+
+
+def read_base_zip(path):
+    """The official PPSA50011.zip's files ({name: bytes}), after its SHA-256 check."""
+    base = Path(path).read_bytes()
+    if sha256(base) != BASE_ZIP_SHA256:
+        fail(f'{path} is not the official v{BASE_VERSION} PPSA50011.zip')
+    with zipfile.ZipFile(path) as zin:
+        return {i.filename: zin.read(i) for i in zin.infolist() if not i.is_dir()}
+
+
+def repo_sce_sys(base_files, version):
+    """{path at the repository root: bytes} of REPO_SCE_SYS for release `version`: the same bytes
+    build() puts under PPSA83600/ (param_json() of the base's param.json, the reviewed icon0.png)."""
+    check_version(version)
+    param = base_files.get(BASE_PREFIX + 'sce_sys/param.json')
+    if param is None:
+        fail('base package has no sce_sys/param.json')
+    files = {'sce_sys/param.json': param_json(param, version),
+             'sce_sys/icon0.png': art_files()['sce_sys/icon0.png']}
+    assert tuple(files) == REPO_SCE_SYS
+    return files
+
+
+def check_repo_sce_sys(expected, version, repo_root=ROOT):
+    """Stops when a REPO_SCE_SYS file at the repository root is missing or is not `expected`'s."""
+    wrong = []
+    for name, data in expected.items():
+        path = Path(repo_root) / name
+        if not path.is_file():
+            wrong.append(f'{name} is missing')
+        elif path.read_bytes() != data:
+            wrong.append(f"{name} is not the v{version} package's")
+    if wrong:
+        fail('; '.join(wrong) + ' in the repository: run python3 -I tools/source-1.0.2/repo_sce_sys.py '
+             f'--base-zip <official PPSA50011.zip> --version {version} --write and commit sce_sys/')
 
 
 def package_docs(files, version, repo, commit, repo_root=ROOT):
@@ -428,7 +527,7 @@ def notice(version, date, repo, commit, eboot_sha, sources, toolchain, sources_s
         else:
             pins.append(f'        build host  {pin["runner"]}, {pin["compiler"]}')
     pins = '\n'.join(pins)
-    return f"""PS5X360Reloaded {version} ({TITLE_ID}) - built from source, distributed under the GNU GPL version 3
+    return f"""TrinityX360 {version} ({TITLE_ID}) - built from source, distributed under the GNU GPL version 3
 
 Licence of eboot.bin
     eboot.bin as a whole is distributed under the terms of the GNU General Public License
@@ -499,9 +598,9 @@ Other files
     {TITLE_ID}, content id {CONTENT_ID}, name {TITLE_NAME}, so this
     app installs next to the official PS5X360 instead of replacing it; content version
     {content_version(version)}, so an older install shows as outdated), sce_sys/icon0.png,
-    pic0.png and pic1.png (the official art marked "RELOADED", tools/source-1.0.2/package-art),
+    pic0.png and pic1.png (TrinityX360's own art, tools/source-1.0.2/package-art),
     the user docs that named the official app's folder (tools/source-1.0.2/package-docs:
-    INSTALLATION.md is PS5X360Reloaded's own, RELEASE_NOTES.md is this release's notes,
+    INSTALLATION.md is TrinityX360's own, RELEASE_NOTES.md is this release's notes,
     dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
     assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
     assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml (from the
@@ -598,6 +697,10 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
     if named:
         fail(f'files that still name the official title id {BASE_PREFIX.rstrip("/")}: {", ".join(named)} '
              '(English-keyed language files: tools/source-1.0.2/english/rekey.py RENAMES)')
+    logos = official_logo_problems(files)
+    if logos:
+        fail(f'files that are the official PS5X360 logo pictures: {", ".join(logos)} '
+             '(TrinityX360 ships its own: package-art/skin, ART)')
     return files
 
 
@@ -649,11 +752,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     version = check_version(args.version)
-    base = args.base_zip.read_bytes()
-    if sha256(base) != BASE_ZIP_SHA256:
-        fail(f'{args.base_zip} is not the official v{BASE_VERSION} PPSA50011.zip')
-    with zipfile.ZipFile(args.base_zip) as zin:
-        base_files = {i.filename: zin.read(i) for i in zin.infolist() if not i.is_dir()}
+    base_files = read_base_zip(args.base_zip)
     sources_bytes = args.sources_json.read_bytes()
     sources = json.loads(sources_bytes)
     lang = {path.name: path.read_bytes() for path in sorted(args.lang_dir.glob('*.txt'))}

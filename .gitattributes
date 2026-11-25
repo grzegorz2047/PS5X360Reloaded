@@ -16,3 +16,6 @@ tools/source-1.0.2/english/official-lang/* -text
 assets/skin-src/*.svg text eol=lf
 assets/skin/*.png binary
 assets/skin-dark/*.png binary
+# Copies of the release package's sce_sys files (tools/source-1.0.2/repo_sce_sys.py), byte for byte:
+# param.json keeps the official CRLF lines.
+sce_sys/param.json -text
