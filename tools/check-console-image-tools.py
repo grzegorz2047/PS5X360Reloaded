@@ -119,6 +119,9 @@ def stage_checks():
             own = sorted((REPO / 'assets/patches').glob('*.patch.toml'))
             check(own and all((app / 'assets/patches' / f.name).read_bytes() == f.read_bytes() for f in own),
                   "stage: the repository's own game patches are copied into assets/patches (fix 155c)")
+            icons = [f for skin in ('skin', 'skin-dark') for f in sorted((REPO / 'assets' / skin).glob('*.png'))]
+            check(len(icons) == 12 and all((app / f.relative_to(REPO)).read_bytes() == f.read_bytes() for f in icons),
+                  "stage: the repository's home screen icons are copied into assets/skin and assets/skin-dark (fix 164)")
             param = json.loads((app / 'sce_sys/param.json').read_text())
             check(param == {'titleId': 'PPSA83600', 'contentVersion': '1.0.5'},
                   f'stage: param.json from package.py with the label\'s version ({param})')
