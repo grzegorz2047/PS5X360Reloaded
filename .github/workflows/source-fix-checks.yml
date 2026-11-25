@@ -217,6 +217,7 @@ on:
       - 'assets/skin-src/**'
       - 'tools/check-skin-icons.py'
       - 'tools/make-skin-icons.py'
+      - 'tools/check-player-choice.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 

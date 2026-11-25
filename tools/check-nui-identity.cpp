@@ -24,7 +24,11 @@
 //  (e) fix 156q (156q-nui-identity-newer-build.patch; Zumba Fitness 4D4A07F0, #63): the
 //      library's newer build (0x160-byte job, flags check allowing 0x20000000) is found with
 //      its layout; its flags; its message layout as Zumba's callback (82331FE8) reads it;
-//  (f) the tree: the handlers, the binding with the skeleton function, the delivery after the
+//  (f) fix 156t (156t-nui-identity-unidentified-start.patch; Zumba, #63): a body's frames say
+//      "call identify" until the title's identify was answered (a model of Zumba's identity
+//      state and loop), or, in a title that never asked, kAskWithinMs passed (Kinect Sports,
+//      DBZ);
+//  (g) the tree: the handlers, the binding with the skeleton function, the delivery after the
 //      skeleton frame, the reset.
 #include <cstdint>
 #include <cstdio>
@@ -165,6 +169,68 @@ static void CheckNewBuild() {
   ni::WriteComplete(m, body, ni::AnswerFor(0), ni::Layout::kOld);
   CHECK(LoadBE(m + 4) == body && LoadBE(m + 8) == 0 && LoadBE(m + 0xC) == 0 && LoadBE(m + 0x10) == 1);
   CHECK(ni::kMessageBytes >= 0x1C);
+}
+
+// Fix 156t: a body starts unidentified in a title whose identify is answered here.
+// Zumba's player record (82333248): enrollment -1 -> identity state 0, 0 and up -> 4; its loop
+// (8227E380) asks to identify a tracked body in state 0, every frame until answered.
+static int ZumbaIdentityState(uint32_t enrollment) {
+  return enrollment == ni::kEnrollmentUnknown ? 0 : (int32_t(enrollment) >= 0 ? 4 : 1);
+}
+static void CheckFrameIdentity() {
+  // Not bound: the binding's values, as before.
+  auto f = ni::ForFrame(false, true, 0, 0);
+  CHECK(f.enrollment == 0 && f.user_index == 0);
+  f = ni::ForFrame(true, true, 0, 0);
+  CHECK(f.enrollment == ni::kEnrollmentUnknown && f.user_index == ni::kUserIndexNone);
+  f = ni::ForFrame(true, false, 0, 1);
+  CHECK(f.enrollment == 0 && f.user_index == 1);
+
+  // Zumba: frames say "call identify", it asks, the answer comes, the frames say enrollment 0.
+  ni::Reset();
+  const uint32_t body = 1;
+  int64_t now = 100000;
+  int state = -1;
+  bool asked = false, answered = false;
+  for (int frame = 0; frame < 60; ++frame, now += 33) {
+    for (const auto& r : ni::TakeDue()) {  // the delivery after the frame
+      ni::MarkIdentified(r.tracking_id);
+      answered = true;
+    }
+    const auto id = ni::ForFrame(true, ni::Unidentified(body, now), 0, 0);
+    state = ZumbaIdentityState(id.enrollment);
+    if (state == 0) {
+      asked = true;
+      CHECK(ni::Identify(body, 0, 0x82331FE8, 0, body, ni::AllowedFlags(ni::Layout::kNew)) ==
+            ni::kPending);
+    }
+  }
+  CHECK(asked && answered && state == 4);
+  CHECK(!ni::Unidentified(body, now + 100000));  // identified stays, through dropouts too
+
+  // A title that never asks (Kinect Sports, Dragon Ball Z): enrollment 0 after kAskWithinMs.
+  ni::Reset();
+  now = 500000;
+  CHECK(ni::Unidentified(7, now));
+  CHECK(ni::Unidentified(7, now + ni::kAskWithinMs - 1));
+  CHECK(!ni::Unidentified(7, now + ni::kAskWithinMs));
+  CHECK(!ni::Unidentified(7, now + ni::kAskWithinMs + 1));
+  // A new body is watched from its own first frame.
+  CHECK(ni::Unidentified(8, now + ni::kAskWithinMs));
+  // A title that asked once never falls back: Zumba sees the body in its intro and asks only
+  // on its search screen, longer than kAskWithinMs later.
+  ni::Reset();
+  CHECK(ni::Unidentified(9, now));
+  CHECK(ni::Identify(10, 0, 0x82331FE8, 0, 10) == ni::kPending);  // another body, earlier
+  ni::TakeDue();
+  CHECK(ni::Unidentified(9, now + 10 * ni::kAskWithinMs));
+  CHECK(ni::Identify(9, 0, 0x82331FE8, 0, 9) == ni::kPending);
+  CHECK(ni::Unidentified(9, now + 11 * ni::kAskWithinMs));  // until answered
+  ni::MarkIdentified(9);
+  CHECK(!ni::Unidentified(9, now + 11 * ni::kAskWithinMs));
+  CHECK(!ni::Unidentified(0, now));  // no body: nothing to say
+  CHECK(ni::kAskWithinMs >= 10000);
+  ni::Reset();
 }
 
 static void CheckIdentify() {
@@ -315,7 +381,8 @@ static void CheckScript() {
   CHECK(ni::kAnswerDelayFrames >= 3);  // after the wait's entry cleared the results
 }
 
-// Fix 156u (156u-nui-identity-proven-titles.patch): bound only in the titles it was proven in.
+// Fix 156u (156u-nui-identity-proven-titles.patch): bound only in the titles it was proven in;
+// fix 156v (156v-nui-identity-zumba.patch, 1.0.7): Zumba Fitness too.
 // Dance Central 3 crashed on 1.0.6_candidate_9 with the functions bound (never called) and
 // played without the binding (162f).
 static void CheckProvenTitles() {
@@ -323,7 +390,7 @@ static void CheckProvenTitles() {
   CHECK(ni::ProvenTitle(0x4E4D084E));   // Dragon Ball Z for Kinect
   CHECK(ni::ProvenTitle(0x4D5308C9));   // Kinect Sports
   CHECK(!ni::ProvenTitle(0x373307D9));  // Dance Central 3
-  CHECK(!ni::ProvenTitle(0x4D4A07F0));  // Zumba Fitness
+  CHECK(ni::ProvenTitle(0x4D4A07F0));   // Zumba Fitness (fix 156v, 1.0.7)
   CHECK(!ni::ProvenTitle(0x4D5309D6));  // Kinect Sports Season Two (no in-title identify)
   CHECK(!ni::ProvenTitle(0));
 }
@@ -363,12 +430,28 @@ static void CheckTree() {
   const size_t bind = cam.find("!BindTitleFunction(kernel_state, xex, enrollment, IdentityEnrollmentHandler)");
   CHECK(proven != std::string::npos && layout_set != std::string::npos && bind != std::string::npos);
   CHECK(proven < layout_set && proven < bind);
+  // Fixes 156t and 156v: a title off the list returns before 156t's flag is set, so a new body
+  // starts unidentified only in the listed titles.
+  const size_t flag_off = cam.find("xbox360ps5::nui_identity::identify_bound = false;  // fix 156t");
+  const size_t flag_on = cam.find("xbox360ps5::nui_identity::identify_bound = true;  // fix 156t");
+  CHECK(flag_off != std::string::npos && flag_on != std::string::npos);
+  CHECK(flag_off < proven && proven < flag_on);
   CHECK(Has(cam, "const uint32_t title_id = kernel_state->title_id();"));
   CHECK(Has(cam, "not bound in \"\n"
                  "           \"title {:08X}, which keeps its own identification (fix 156u)\""));
   // Fix 156q: the layout is the bound identify's, and the flags follow it.
   CHECK(Has(cam, "xbox360ps5::nui_identity::bound_layout = int(found.layout);  // fix 156q"));
   CHECK(Has(cam, "xbox360ps5::nui_identity::AllowedFlags(layout));  // fix 156q"));
+  // Fix 156t: the frame says who the body is through ForFrame; answered bodies are marked;
+  // the binding sets the flag (cleared first for every title).
+  const size_t for_frame = cam.find("const auto identity = xbox360ps5::nui_identity::ForFrame(");
+  const size_t frame_write = cam.find("      tracking_id, identity.enrollment, identity.user_index);");
+  CHECK(for_frame != std::string::npos && frame_write != std::string::npos && for_frame < frame_write);
+  CHECK(!Has(cam, "      tracking_id, binding.enrollment, binding.user_index);"));
+  CHECK(Has(cam, "    xbox360ps5::nui_identity::MarkIdentified(r.tracking_id);  // fix 156t"));
+  const size_t cleared = cam.find("xbox360ps5::nui_identity::identify_bound = false;  // fix 156t");
+  const size_t set = cam.find("xbox360ps5::nui_identity::identify_bound = true;  // fix 156t");
+  CHECK(cleared != std::string::npos && set != std::string::npos && cleared < set);
 }
 
 int main() {
@@ -378,6 +461,7 @@ int main() {
   CheckScript();
   CheckNewBuild();
   CheckProvenTitles();
+  CheckFrameIdentity();
   CheckTree();
   if (failures) {
     std::printf("check-nui-identity: %d failure(s)\n", failures);

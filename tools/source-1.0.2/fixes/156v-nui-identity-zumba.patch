@@ -1,0 +1,21 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -150,13 +150,15 @@ inline Found FindIdentityFunctions(const motion::CodeView& view) {
+ // at 82553440 walked into an object without a vtable) with both functions bound and never
+ // called; on 162f, without the binding, it played a song. The answer stays for the titles it
+ // was tested in: Fighters Uncaged (it identifies with it), Dragon Ball Z for Kinect and Kinect
+-// Sports (they ran bound since 156l/156q). Any other title, where the shapes are found too
+-// (Dance Central 3, Zumba Fitness), keeps its own identification, as before 156l.
++// Sports (they ran bound since 156l/156q). Fix 156v (1.0.7): and Zumba Fitness, which leaves its
++// "Searching for player..." with it and fix 156t. Any other title where the shapes are found too
++// (Dance Central 3) keeps its own identification, as before 156l.
+ inline bool ProvenTitle(uint32_t title_id) {
+   switch (title_id) {
+     case 0x5553084E:  // Fighters Uncaged
+     case 0x4E4D084E:  // Dragon Ball Z for Kinect
+     case 0x4D5308C9:  // Kinect Sports
++    case 0x4D4A07F0:  // Zumba Fitness (fix 156v: with 156t it finds its player, 1.0.6-work-fix156t)
+       return true;
+     default:
+       return false;
