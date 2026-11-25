@@ -190,8 +190,6 @@ checks=(
   check-kinect-title-rule.cpp      # fixes 162f and 163
   check-auto-scale.cpp             # fix 163
   check-write-bench.cpp            # fixes 148i, 148j, 148k
-  check-xma-trace.cpp              # fixes 155, 155b
-  check-xma-progress.cpp           # fix 155b
   check-gta5-audio-patch.cpp       # fix 155c
   check-single-game-folder.cpp     # fix 159
   check-nui-device-status.cpp      # fix 156
@@ -378,8 +376,6 @@ declare -A fix_of=(
   [check-scale-pressure.cpp]="162c 163"
   [check-kinect-title-rule.cpp]="162f 163"
   [check-auto-scale.cpp]=163
-  [check-xma-trace.cpp]="155 155b"
-  [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
   [check-single-game-folder.cpp]=159
   [check-nui-device-status.cpp]=156

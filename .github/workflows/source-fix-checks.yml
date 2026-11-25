@@ -217,8 +217,6 @@ on:
       - 'tools/check-scale-pressure.cpp'
       - 'tools/check-kinect-title-rule.cpp'
       - 'tools/check-auto-scale.cpp'
-      - 'tools/check-xma-trace.cpp'
-      - 'tools/check-xma-progress.cpp'
       - 'tools/check-gta5-audio-patch.cpp'
       - 'tools/check-single-game-folder.cpp'
       - 'tools/check-user-storage.cpp'
