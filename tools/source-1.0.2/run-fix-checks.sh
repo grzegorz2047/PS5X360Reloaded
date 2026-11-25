@@ -203,6 +203,7 @@ checks=(
   check-diag-stuck-dump.cpp        # fixes 156o and 156r
   check-avatar-assets-success.cpp  # fix 156p
   check-player-choice.cpp          # fix 156s
+  check-nui-identity-retrack.cpp   # fix 156w
   check-user-storage.cpp           # fix 165
   check-game-configs.cpp           # fix 166
   check-resolve-trace.cpp          # fix 167
@@ -397,6 +398,7 @@ declare -A fix_of=(
   [check-diag-stuck-dump.cpp]="156o 156r"
   [check-avatar-assets-success.cpp]=156p
   [check-player-choice.cpp]=156s
+  [check-nui-identity-retrack.cpp]=156w
   [check-user-storage.cpp]=165
   [check-game-configs.cpp]=166
   [check-resolve-trace.cpp]=167
