@@ -129,7 +129,11 @@ static void CheckTree() {
   const size_t returned = status.find("    return status.result;\n  }");
   CHECK(virtual_mode != std::string::npos && answer != std::string::npos &&
         returned != std::string::npos && virtual_mode < answer && answer < returned);
-  CHECK(Has(status, "status_ptr->status_bits = status.status_bits;") &&
+  // Fix 170 answers the Kinect speech library's microphone questions with adjusted bits
+  // (check-nui-speech.cpp); fix 156's bits for everyone else.
+  CHECK((Has(status, "status_ptr->status_bits = status.status_bits;") ||
+         (Has(status, "SpeechStatusBits(site, status.status_bits);") &&
+          Has(status, "status_ptr->status_bits = bits;"))) &&
         Has(status, "status_ptr->tilt_status = status.tilt_status;") &&
         Has(status, "status_ptr->mic_status = status.mic_status;"));
   CHECK(Has(status, "const bool changed = last.exchange(status.result) != status.result;") &&
