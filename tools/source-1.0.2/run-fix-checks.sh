@@ -202,6 +202,8 @@ checks=(
   check-diag-stuck-dump.cpp        # fixes 156o and 156r
   check-avatar-assets-success.cpp  # fix 156p
   check-user-storage.cpp           # fix 165
+  check-game-configs.cpp           # fix 166
+  check-resolve-trace.cpp          # fix 167
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -390,6 +392,8 @@ declare -A fix_of=(
   [check-diag-stuck-dump.cpp]="156o 156r"
   [check-avatar-assets-success.cpp]=156p
   [check-user-storage.cpp]=165
+  [check-game-configs.cpp]=166
+  [check-resolve-trace.cpp]=167
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

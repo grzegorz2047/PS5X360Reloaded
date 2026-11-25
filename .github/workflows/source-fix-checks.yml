@@ -195,6 +195,8 @@ on:
       - 'tools/check-gta5-audio-patch.cpp'
       - 'tools/check-single-game-folder.cpp'
       - 'tools/check-user-storage.cpp'
+      - 'tools/check-game-configs.cpp'
+      - 'tools/check-resolve-trace.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
