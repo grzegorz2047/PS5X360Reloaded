@@ -198,6 +198,7 @@ on:
       - 'tools/check-game-configs.cpp'
       - 'tools/check-resolve-trace.cpp'
       - 'tools/check-half-pixel-host.cpp'
+      - 'tools/check-exit-cache-timing.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
