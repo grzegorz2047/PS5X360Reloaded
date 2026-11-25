@@ -37,7 +37,7 @@ folder. On its first start it copies your PS5X360 saves once (see
 
 The earlier releases of this fork, `v1.0.2-opt` and `v1.0.2-opt-r2`, were the official v1.0.2
 executable with binary patches. They are superseded: every patch they carried (and the ones made
-after r2) is now a source change in v1.0.3. See [tools/binary-release](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/tools/binary-release/README.md).
+after r2) is now a source change in v1.0.3. See [tools/binary-release](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/tools/binary-release/README.md).
 
 **Games run, but compatibility varies.** Expect crashes, visual errors and uneven performance in
 some titles. There is no promise of full-library compatibility or 60 FPS.
@@ -53,47 +53,52 @@ so the fork, PS5X360Reloaded until v1.0.5, needed a name of its own. What change
   emulator's home screen shows TrinityX360's pictures in place of the PS5X360 logo.
 - The title id is still **`PPSA83600`** and the data folder `/data/homebrew/PPSA83600`. Install
   v1.0.6 over PS5X360Reloaded as you would any update: the console keeps one tile, and your saves,
-  settings (`/download0`), game folders and caches stay.
+  settings, game folders and caches stay. On its first start v1.0.6 moves the settings from
+  `/download0` to `/data/homebrew/PPSA83600`.
 - The saves folder on each external drive keeps its name, `<drive>/PS5X360Reloaded/saves`. Do not
   rename it.
 - The PS5 keeps the old icon and name (PS5X360Reloaded) after an update: it stores them when the
   app is first installed. To see TrinityX360's, start the PS5 in **Safe Mode** and choose
   **Rebuild Database** (it keeps games, apps and saved data). Deleting the app (**Options** >
-  **Delete** on its tile) and installing it again also works, but it erases the app's `/download0`:
-  the saves kept in **Internal storage** (a choice of the **Save drive** setting) and the settings
-  there. Copy `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP first
-  (while TrinityX360 is open) and copy it back afterwards; saves on an M.2 or USB drive stay.
+  **Delete** on its tile) and installing it again also works, but it erases the app's `/download0`,
+  with the saves kept in **Internal storage** (a choice of the **Save drive** setting). Copy
+  `/mnt/sandbox/PPSA83600_000/download0/xbox360ps5` to your computer over FTP first (while
+  TrinityX360 is open) and copy it back afterwards; saves on an M.2 or USB drive stay. Start
+  v1.0.6 once before deleting the app, so that it moves your settings out of `/download0`.
 - Forwarder tiles that start `PPSA83600` keep working.
 - The repository is now `github.com/grzegorz2047/TrinityX360`; the old address,
   `github.com/grzegorz2047/PS5X360Reloaded`, redirects there.
 
-## v1.0.3
+## v1.0.6
 
-The home screen shows **PS5X360Reloaded v1.0.3**. The full notes, with what was confirmed on the
-console and what only by host tests, are in [docs/release-notes/v1.0.3.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/docs/release-notes/v1.0.3.md).
+The latest release. The home screen shows **TrinityX360 v1.0.6**. The full notes, with what was
+confirmed on the console and what only by host tests, are in
+[docs/release-notes/v1.0.6.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/release-notes/v1.0.6.md);
+the notes of earlier versions are on the [releases page](https://github.com/grzegorz2047/TrinityX360/releases).
 
-- **New name and title id:** PS5X360Reloaded, `PPSA83600`, next to the official PS5X360
-  (`PPSA50011`), with a one-time copy of its saves and small settings files on the first start.
-- **Game fixes:** Battlefield 3 works (with its built-in `memexport` preset), Handball 16 starts
-  and gets past START, Naruto: The Broken Bond no longer closes at start, and Minecraft runs at
-  60 FPS in the world instead of about 1 FPS.
-- **The `v1.0.2-opt` patches in source (fixes 01–13):** JIT, memory protection and fault-handler
-  speed-ups, the GPU thread on its own core, FSI and frame generation settings that work on image
-  installs, the cache folder, selective pipeline waits, the VSync cap, a third background-shader
-  mode and a per-game FSI option. Fixes 06–13 were never in a binary release.
-- **New in source:** save drive choice (internal, M.2 and USB drives), starting a game straight
-  from a PS5 home screen tile (forwarders), the guide's network row, English as the interface's
-  source language, a crash notice instead of a silent freeze, title switches, XMP music at any
-  sample rate, and smaller gaps to the official 1.0.2 closed (button colours, covers, network
-  self-test, language files, the USB Kinect relay).
-- **Presets:** Battlefield: Bad Company holds 60 FPS (FSI off), Fable II is back to the official
-  preset, Fable III keeps the r2 preset and optional patches.
+- **New name:** TrinityX360 with new art and new home screen icons. Same app, same title id
+  `PPSA83600`; it installs over PS5X360Reloaded (see [New name: TrinityX360](#new-name-trinityx360)).
+- **"Automatic" resolution scale, the new default:** games run at 2x while they keep 30 FPS and
+  have enough memory, otherwise at 1x. Kinect games, GTA V, Battlefield 3, Tekken Tag Tournament 2
+  and Red Dead Redemption start at 1x.
+- **Games:** GTA IV drives without the growing pauses and has optional draw distance patches;
+  GTA V installs from its Install disc, gets past the prologue freeze and holds 30 FPS; Dance
+  Central 3 starts and plays; Virtua Tennis 3 no longer freezes in replays; FIFA Street's pitch is
+  no longer black.
+- **Kinect:** Kinect Sports: Season Two's darts loads, Fighters Uncaged gets past player
+  identification, Kinect Sports records replays without stutter, and Kinect games at 2x no longer
+  drop to 0–2 FPS after a few minutes.
+- **Picture:** anti-aliasing (FXAA, SMAA), color presets, overscan crop, a 900p emulated
+  resolution and a screen frame rate limit; no more short screen freezes every ~30 seconds.
+- **Settings:** a new settings menu with clearer names and help in the guide; settings, per-game
+  settings, game folders and covers are now kept in `/data/homebrew/PPSA83600`, so they survive a
+  reinstall.
 
 ## Installation
 
 <img src="docs/images/installation.png" alt="Download the ZIP, copy PPSA83600 via FTP, add one folder per game, and launch TrinityX360" width="100%">
 
-The [v1.0.3 release](https://github.com/grzegorz2047/TrinityX360/releases) has:
+The [latest release](https://github.com/grzegorz2047/TrinityX360/releases/latest) has:
 - `PPSA83600.ffpkg`: a UFS2 image, mounted by etaHEN / ShadowMountPlus.
 - `PPSA83600.ffpfsc`: a compressed PFS image, mounted by ShadowMountPlus.
 - `PPSA83600.zip`: the `PPSA83600` folder to copy over FTP (checksum in `PPSA83600.zip.sha256`).
@@ -110,8 +115,8 @@ names the mount after it (`/mnt/shadowmnt/PPSA83600_*`). Then open **TrinityX360
 PS5 home screen. To update, close the emulator, replace the image with the new one and start it
 again; if a game hung on exit, restart the console first, because the old image can stay mounted
 until then. With an image install, `/data/homebrew/PPSA83600` holds only the emulator's data
-(saves, cache, logs): do not put `eboot.bin` or `sce_sys` there. Settings saved in
-`/download0/xbox360ps5` are not part of the image. An image is read-only, so put the games on
+(saves, cache, logs and, from v1.0.6, your settings): do not put `eboot.bin` or `sce_sys` there.
+Settings are not part of the image. An image is read-only, so put the games on
 another drive and add the folder in **Settings → Game folders**.
 
 **ZIP:**
@@ -123,10 +128,10 @@ another drive and add the folder in **Settings → Game folders**.
 4. Put each game in its own folder under `PPSA83600/assets/roms/`, or in a folder added in
    **Settings → Game folders**. Reopen the emulator or select **Settings → Refresh game list**.
 
-> **Do not copy only `eboot.bin`** into an existing 1.0.2 or r2 install. The v1.0.3 executable
+> **Do not copy only `eboot.bin`** into an existing 1.0.2 or r2 install. The executable (since v1.0.3)
 > reads language files keyed in English (`assets/lang/*.txt`, 16 files including `pt-BR.txt`);
 > with the official files the whole interface is in English whatever language is selected, and
-> the r2 `eboot.bin` does not match the v1.0.3 language files either. Always install the whole
+> the r2 `eboot.bin` does not match the newer language files either. Always install the whole
 > package.
 
 The development setup uses **PS5 firmware 13.60 with homebrew access, etaHEN, ShadowMountPlus
@@ -199,7 +204,7 @@ folder's name, so nothing needs moving there.
 **Forwarders.** Forwarder Manager tiles made for the `PS5X360` target start the official app
 (`PPSA50011`). For TrinityX360, a tile needs the target `PPSA83600`: choose the **Generic**
 target and enter `PPSA83600`, or change `"target"` in the tile's `forwarder.json`. Steps in
-[docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/docs/FORWARDER.md).
+[docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/FORWARDER.md).
 
 **Kinect tracker.** The official `kinect-tracker.elf` sends its frames with the web-settings key
 from `/data/homebrew/PPSA50011`. TrinityX360 also accepts that key (read only) for tracker
@@ -209,9 +214,10 @@ fork has run once.
 
 ## Game status on the console
 
-Results on a PS5. Most come from `1.0.3_candidate_N` test builds (source builds labelled that way
-on the home screen); rows marked *binary build* were measured on the official v1.0.2 executable
-with this fork's binary patches and not again on a source build. FPS values come from the
+Results on a PS5. The rows marked *v1.0.6* were checked on the v1.0.6 test builds; most others
+come from `1.0.3_candidate_N` test builds (source builds labelled that way on the home screen).
+Rows marked *binary build* were measured on the official v1.0.2 executable with this fork's
+binary patches and not again on a source build. FPS values come from the
 emulator's own logs.
 
 | Game | Status | Notes |
@@ -227,7 +233,15 @@ emulator's own logs.
 | Fable II (`4D5307F1`) | 30 FPS, the game's own cap, with tuned settings (*binary build*) | Measured with `memory_boost` and `fast_dot` on and `fast_locks`, `readback` and `clear_pages` off in the game's settings (26.4 FPS before). v1.0.3 uses the official preset again (`clear_pages=1`, `readback=1`); `fast_locks` on makes the game ignore the controller. |
 | Fable III (`4D5308D6`) | about 22–24 FPS (*binary build*) | r2 preset, config and optional patches, unchanged in v1.0.3. |
 | Ninja Gaiden II (`544307D5`) | closes about 30 s after the intro videos | [#11](https://github.com/grzegorz2047/TrinityX360/issues/11) |
-| Dragon Ball Z for Kinect (`4E4D084E`) | the only game offered the emulated Kinect camera, as in the official 1.0.2 | Steady 30 FPS with a test relay (`candidate_49`). Other Kinect games (e.g. Kinect Sports) keep asking for the camera and stay on a white screen. |
+| Dragon Ball Z for Kinect (`4E4D084E`) | works with the emulated Kinect camera (*v1.0.6*) | Steady 30 FPS with a test relay (`candidate_49`); still works with the updated player identification. |
+| Grand Theft Auto IV (`545407F2`) | 43–58 FPS at 2x under "Automatic" (*v1.0.6*) | The pauses that grew while driving are gone in test runs at 1x. Optional "Draw Distance +25%" and "+50%" patches. |
+| Grand Theft Auto V (`545408A7`) | steady 30 FPS, the game's own cap, at 1x (*v1.0.6*) | Installs from "Disc 1 (Install)"; the built-in "Audio freeze fix (prologue)" patch gets it past the prologue. |
+| Dance Central 3 (`373307D9`) | plays, 45–59 FPS (*v1.0.6*) | On the first start it asks for the game's music keys (QR code); a full song after a restart. |
+| Kinect Sports (`4D5308C9`) | plays at 1x, 45–59 FPS (*v1.0.6*) | Replays recorded without stutter. |
+| Kinect Sports: Season Two | darts loads and plays (*v1.0.6*) | Some stutter remains ([#63](https://github.com/grzegorz2047/TrinityX360/issues/63)); the other sports are not confirmed yet. |
+| Fighters Uncaged (`5553084E`) | reaches Training, about 60 FPS (*v1.0.6*) | Gets past player identification with the signed-in profile. |
+| Zumba Fitness Core | finds the camera, stops at "Searching for player" (*v1.0.6*) | [#68](https://github.com/grzegorz2047/TrinityX360/issues/68) |
+| Virtua Tennis 3 | no freeze during replays (*v1.0.6*) | About 25 minutes over two sessions. |
 
 ## Known limitations
 
@@ -259,7 +273,7 @@ made with Forwarder Manager, with the target title id `PPSA83600` (its `PS5X360`
 the official app). Close TrinityX360 before using a tile: arguments only reach a new
 TrinityX360 process. When the forwarder launcher is already running, ShadowMountPlus may
 refuse the start (`0x80940033`, [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)).
-Setup and workarounds: [docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/docs/FORWARDER.md).
+Setup and workarounds: [docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/FORWARDER.md).
 
 ## Organize your games
 
@@ -343,17 +357,17 @@ written. The included log downloader can create a ZIP to share.
 | Branch | Contents |
 | --- | --- |
 | [`source-1.0.2-patches`](https://github.com/grzegorz2047/TrinityX360/tree/source-1.0.2-patches) | Development: the assembly and build scripts of the source rebuild, the reconstructed files and every fix (`tools/source-1.0.2/fixes`). Fixes are made on `fix/*` branches and merged here. |
-| [`release/source-1.0.3`](https://github.com/grzegorz2047/TrinityX360/tree/release/source-1.0.3) | The v1.0.3 release commit. A push builds the draft release (`release-source.yml`). |
+| [`release/source-1.0.6`](https://github.com/grzegorz2047/TrinityX360/tree/release/source-1.0.6) | The release commit of v1.0.6 (each version has its own `release/source-X.Y.Z`). A push builds the draft release (`release-source.yml`). |
 | [`main`](https://github.com/grzegorz2047/TrinityX360/tree/main) | The default branch: its landing page, the repository's older C++ (v0.5.7-fix.1, not used by the releases) and a copy of `build-source-1.0.2.yml` for the *Run workflow* button. The tools of the superseded binary releases (`tools/binary-release`) are on the source branches above. |
 
 ## Building from source
 
-The v1.0.2 sources are not one tree: [`tools/source-1.0.2/assemble.py`](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/tools/source-1.0.2/assemble.py)
+The v1.0.2 sources are not one tree: [`tools/source-1.0.2/assemble.py`](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/tools/source-1.0.2/assemble.py)
 downloads the author's source packages (`0.5.9-fix1`, `0.6.0`, `1.0.0`, `1.0.2`, pinned by
 SHA-256) and the Xenia Canary netplay core (`AdrianCassar/xenia-canary` `d2cf527aa`), layers them,
 adds the reconstructed headers and applies the fixes. What came from where, and what is missing,
-is in [docs/SOURCE-1.0.2.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/docs/SOURCE-1.0.2.md); the fixes are listed in
-[tools/source-1.0.2/fixes](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.5/tools/source-1.0.2/fixes/README.md).
+is in [docs/SOURCE-1.0.2.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/SOURCE-1.0.2.md); the fixes are listed in
+[tools/source-1.0.2/fixes](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/tools/source-1.0.2/fixes/README.md).
 
 **Host checks** (no PS5 toolchain; needs Python 3 and clang 18):
 
