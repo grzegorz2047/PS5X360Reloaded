@@ -1,0 +1,142 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -151,6 +151,7 @@ struct Request {
+   uint32_t frames_left = kAnswerDelayFrames;  // fix 156n
+ };
+ inline std::mutex mutex;
++inline bool ever_asked = false;  // fix 156t: under mutex; set by Identify
+ inline std::vector<Request> pending;
+ 
+ // NuiIdentityIdentify(tracking_id, flags, callback, context) for the virtual player, whose body
+@@ -168,6 +169,7 @@ inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback
+       return kPending;  // already on its way
+   if (pending.size() >= kMaxPending) pending.erase(pending.begin());
+   pending.push_back({tracking_id, callback, context});
++  ever_asked = true;  // fix 156t
+   return kPending;
+ }
+ // Called once per skeleton frame the title gets: the requests whose delay has run out.
+@@ -181,9 +183,67 @@ inline std::vector<Request> TakeDue() {
+   pending.swap(keep);
+   return due;
+ }
++// Fix 156t (Zumba Fitness, #63): a body starts unidentified. In a title that identifies its
++// players itself, a body's skeleton frames carry "call identify" (enrollment -1, no user) until
++// the title has asked to identify it and got the answer, as the console's library writes them;
++// then the signed-in profile's enrollment and user index. Zumba maps the frame's enrollment to
++// its identity state (82333248: -1 -> 0, 0 and up -> 4) and calls identify only for state 0
++// (8227E380); its identify callback (82331FE8) is what fills its user slots (tracking ID,
++// profile matched, enrollment). Our frames said enrollment 0 from the first one, so Zumba never
++// asked and its "Searching for player..." never ended (1.0.6-work-fix156s: our body picked
++// for 56 s in a row, the library tracking it, inside the play area 1.80-3.60 m).
++inline std::atomic<bool> identify_bound{false};  // this title's identify is answered here
++inline std::vector<uint32_t> identified;          // bodies answered (under mutex)
++constexpr size_t kMaxIdentified = 16;
++inline void MarkIdentified(uint32_t tracking_id) {
++  if (!tracking_id) return;
++  std::lock_guard lock(mutex);
++  for (uint32_t id : identified)
++    if (id == tracking_id) return;
++  if (identified.size() >= kMaxIdentified) identified.erase(identified.begin());
++  identified.push_back(tracking_id);
++}
++// A title that never asks (Kinect Sports and Dragon Ball Z have the function bound too): while
++// it has not asked to identify anyone since its binding, a body it has seen for kAskWithinMs is
++// taken as identified, and the frames say what they said before 156t. A title that asked once
++// never falls back (Zumba may first see the body during its intro and ask only on its search
++// screen).
++constexpr int64_t kAskWithinMs = 20000;
++inline uint32_t watched_body = 0;  // under mutex
++inline int64_t watched_since_ms = 0;
++inline bool Unidentified(uint32_t tracking_id, int64_t now_ms) {
++  if (!tracking_id) return false;
++  std::lock_guard lock(mutex);
++  for (uint32_t id : identified)
++    if (id == tracking_id) return false;
++  if (tracking_id != watched_body) {
++    watched_body = tracking_id;
++    watched_since_ms = now_ms;
++  }
++  if (!ever_asked && now_ms - watched_since_ms >= kAskWithinMs) {
++    if (identified.size() >= kMaxIdentified) identified.erase(identified.begin());
++    identified.push_back(tracking_id);
++    return false;
++  }
++  return true;
++}
++struct FrameIdentity {
++  uint32_t enrollment, user_index;
++};
++// What a body's skeleton frame says about who it is.
++inline FrameIdentity ForFrame(bool bound, bool unidentified, uint32_t enrollment,
++                              uint32_t user_index) {
++  if (bound && unidentified) return {kEnrollmentUnknown, kUserIndexNone};  // call identify
++  return {enrollment, user_index};
++}
++
+ inline void Reset() {
+   std::lock_guard lock(mutex);
+   pending.clear();
++  identified.clear();  // fix 156t
++  ever_asked = false;
++  watched_body = 0;
++  watched_since_ms = 0;
+ }
+ 
+ // What identification found: the signed-in profile the virtual player is bound to.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1162,6 +1162,7 @@ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+     kernel_state->processor()->Execute(thread, r.callback, args, 2);
+     xbox360ps5::nui_identity::WriteComplete(m, r.tracking_id, answer, layout);
+     kernel_state->processor()->Execute(thread, r.callback, args, 2);
++    xbox360ps5::nui_identity::MarkIdentified(r.tracking_id);  // fix 156t
+     if (shown.fetch_add(1) < 8)
+       XELOGW("Virtual Kinect: body {:08X} identified: result {:08X}, enrollment {:X}, "
+              "profile matched {} (user {:X}) (fix 156l)", r.tracking_id, answer.result,
+@@ -1321,10 +1322,26 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+              pose.joints[11].confidence);
+     }
+   }
++  // Fix 156t: unidentified ("call identify") until the title's identify was answered.
++  const bool bound_identify = xbox360ps5::nui_identity::identify_bound.load();
++  const auto identity = xbox360ps5::nui_identity::ForFrame(
++      bound_identify,
++      bound_identify && pose.tracked &&
++          xbox360ps5::nui_identity::Unidentified(
++              tracking_id, std::chrono::duration_cast<std::chrono::milliseconds>(
++                               clock::now().time_since_epoch()).count()),
++      binding.enrollment, binding.user_index);
++  {
++    static std::atomic<uint32_t> last{0xFFFFFFFE}, shown{0};
++    if (pose.tracked && last.exchange(identity.enrollment) != identity.enrollment &&
++        shown.fetch_add(1) < 8)
++      XELOGW("Virtual Kinect: body {:08X} enters the frames as enrollment {:X}, user {:X} "
++             "(fix 156t)", tracking_id, identity.enrollment, identity.user_index);
++  }
+   xbox360ps5::motion::WriteSkeletonFrame(
+       memory->TranslateVirtual(frame_ptr), pose, frame_number,
+       uint64_t(frame_number) * kSkeletonPeriodMs,
+-      tracking_id, binding.enrollment, binding.user_index);
++      tracking_id, identity.enrollment, identity.user_index);
+   ++xbox360ps5::motion::guest_skeleton_frames;
+   if (pose.tracked) {
+     ++xbox360ps5::motion::guest_skeleton_bodies;
+@@ -1566,6 +1583,7 @@ bool BindTitleFunction(KernelState* kernel_state, cpu::XexModule* xex, uint32_t
+ void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
+                   uint32_t size) {
+   Memory* memory = kernel_state->memory();
++  xbox360ps5::nui_identity::identify_bound = false;  // fix 156t: set below once bound
+   const auto found = xbox360ps5::nui_identity::FindIdentityFunctions(
+       {memory->TranslateVirtual<const uint8_t*>(base), size, base});
+   // Without NuiIdentityIdentify the title asks the system (Kinect Sports Season Two has only the
+@@ -1585,6 +1603,7 @@ void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
+            "bound (fix 156l)", identify, enrollment);
+     return;
+   }
++  xbox360ps5::nui_identity::identify_bound = true;  // fix 156t
+   XELOGW("Virtual Kinect: the title's Kinect ID answers for the signed-in profile (identify at "
+          "{:08X}, enrollment information at {:08X}) (fix 156l); the library's {} build "
+          "(fix 156q)", identify, enrollment,

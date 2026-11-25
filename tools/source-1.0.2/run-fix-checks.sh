@@ -184,7 +184,7 @@ checks=(
   check-skeleton-frame-number.cpp  # fix 156i
   check-xex-dll-heap.cpp           # fix 156j
   check-diag-r31.cpp               # fixes 156k and 156m
-  check-nui-identity.cpp           # fixes 156l, 156n and 156q
+  check-nui-identity.cpp           # fixes 156l, 156n, 156q and 156t
   check-diag-stuck-dump.cpp        # fixes 156o and 156r
   check-avatar-assets-success.cpp  # fix 156p
   check-player-choice.cpp          # fix 156s
@@ -358,7 +358,7 @@ declare -A fix_of=(
   [check-skeleton-frame-number.cpp]=156i
   [check-xex-dll-heap.cpp]=156j
   [check-diag-r31.cpp]="156k 156m"
-  [check-nui-identity.cpp]="156l 156n 156q"
+  [check-nui-identity.cpp]="156l 156n 156q 156t"
   [check-diag-stuck-dump.cpp]="156o 156r"
   [check-avatar-assets-success.cpp]=156p
   [check-player-choice.cpp]=156s
