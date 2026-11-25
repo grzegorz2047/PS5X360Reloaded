@@ -207,7 +207,7 @@ checks=(
   check-half-pixel-host.cpp        # fix 168
   check-gta4-core-config.cpp       # fix 168b (assets/config/545407F2.config.toml)
   check-exit-cache-timing.cpp      # fix 173
-  check-pipeline-cache-skip.cpp    # fix 173b
+  check-pipeline-cache-skip.cpp    # fixes 173b and 173c
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"

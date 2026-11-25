@@ -11,11 +11,21 @@
 //  (d) the tree: the cache notes the data it loaded once its header is accepted, checks a snapshot
 //      before WriteCacheAtomically (logging "unchanged, not written" and counting it as saved), and
 //      notes a snapshot only after a successful write.
+// Fix 173c (173c-pipeline-cache-no-new-pipeline.patch): the driver orders its cache differently each
+// time, so 173b's bytes never matched (1.0.6-work-fix173b: the same size, written again, timed out).
+//  (e) a snapshot of the size on the drive is not written when no pipeline was made since the file was
+//      noted; one made, written; another size, written; the same bytes still not written; noting the
+//      written file starts the count again;
+//  (f) <file>.pending-N beside the cache (a write cut off) removed, other files kept;
+//  (g) the tree: a pipeline made in ConfigurePipeline counted (not the start's stored ones), the stale
+//      files removed before the load, and the snapshot decided by Check before its write.
 // Run from the assembled tree's root.
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <algorithm>
 #include <vector>
 
 #include "xbox360ps5/pipeline_cache_skip.hpp"
@@ -85,20 +95,86 @@ void Wiring() {
                                      accepted);
   Expect(accepted != std::string::npos && note_load != std::string::npos,
          "(d) the loaded data noted once its header is accepted");
+#ifdef XBOX360PS5_PIPELINE_CACHE_SKIP_PIPELINES
+  const size_t check = code.find("constautoverdict=on_drive.Check(vk_pipeline_cache_path_.string(),data.data(),written);");
+  const size_t skipped = code.find("unchanged,not\"\"written(fix173c:{})\"", check);
+#else
   const size_t check = code.find("if(on_drive.Unchanged(vk_pipeline_cache_path_.string(),data.data(),written)){");
   const size_t skipped = code.find("unchanged,not\"\"written(fix173b)\"", check);
+#endif
   const size_t returned = code.find("returntrue;", skipped);
   const size_t write = code.find("constboolsaved=xbox360ps5::WriteCacheAtomically(", check);
   const size_t note_save = code.find("if(saved){on_drive.Note(vk_pipeline_cache_path_.string(),data.data(),written);}", write);
   Expect(check != std::string::npos && skipped != std::string::npos && returned != std::string::npos &&
              write != std::string::npos && returned < write && note_save != std::string::npos,
          "(d) an unchanged snapshot logged and counted as saved before the write; noted only after a successful write");
+#ifdef XBOX360PS5_PIPELINE_CACHE_SKIP_PIPELINES
+  const size_t configure = code.find("boolVulkanPipelineCache::ConfigurePipeline(");
+  const size_t emplace = code.find("*pipelines_.emplace(description,Pipeline(pipeline_layout)).first;", configure);
+  const size_t counted = code.find("xbox360ps5::pipeline_cache_skip::Global().NotePipelineCreated();", configure);
+  const size_t stored = code.find("*pipelines_.emplace(pipeline_description,Pipeline(pipeline_layout))");
+  Expect(configure != std::string::npos && emplace != std::string::npos && counted != std::string::npos &&
+             emplace < counted && counted - emplace < 200 && stored != std::string::npos &&
+             code.find("NotePipelineCreated", stored) == std::string::npos,
+         "(g) a pipeline made in ConfigurePipeline counted, not the start's stored ones");
+  const size_t stale = code.find("xbox360ps5::pipeline_cache_skip::RemoveStalePending(vk_pipeline_cache_path_)");
+  const size_t load = code.find("//TrytoloadexistingVkPipelineCachedata.", stale);
+  Expect(stale != std::string::npos && load != std::string::npos, "(g) the stale files removed before the load");
+#endif
 }
+
+#ifdef XBOX360PS5_PIPELINE_CACHE_SKIP_PIPELINES
+void NoNewPipeline() {
+  pcs::Store store;
+  const std::string path = "/data/cache/545407F2.vk.bin";
+  const auto loaded = Data(4096 + 13, 1);
+  auto reordered = loaded;
+  std::reverse(reordered.begin() + 32, reordered.end());  // the same size, the driver's other order
+  Expect(store.Check(path, reordered.data(), reordered.size()) == pcs::Verdict::kWrite, "(e) nothing known: written");
+  store.Note(path, loaded.data(), loaded.size());
+  Expect(store.Check(path, loaded.data(), loaded.size()) == pcs::Verdict::kSameBytes, "(e) the same bytes: not written");
+  Expect(store.Check(path, reordered.data(), reordered.size()) == pcs::Verdict::kSameSizeNoNewPipeline &&
+             !store.Unchanged(path, reordered.data(), reordered.size()),
+         "(e) the same size in another order, no new pipeline: not written (173b alone would write)");
+  store.NotePipelineCreated();
+  Expect(store.Check(path, reordered.data(), reordered.size()) == pcs::Verdict::kWrite,
+         "(e) a pipeline made this session: written");
+  auto grown = loaded;
+  grown.resize(grown.size() + 512, 9);
+  Expect(store.Check(path, grown.data(), grown.size()) == pcs::Verdict::kWrite, "(e) another size: written");
+  store.Note(path, reordered.data(), reordered.size());  // the write succeeded
+  Expect(store.Check(path, loaded.data(), loaded.size()) == pcs::Verdict::kSameSizeNoNewPipeline,
+         "(e) noted after the write: the count starts again");
+}
+
+void Stale() {
+  const auto folder = std::filesystem::temp_directory_path() / "check-pipeline-cache-skip";
+  std::error_code error;
+  std::filesystem::remove_all(folder, error);
+  std::filesystem::create_directories(folder, error);
+  const auto cache = folder / "545407F2.vk.bin";
+  for (const char* name : {"545407F2.vk.bin", "545407F2.vk.bin.pending-0", "545407F2.vk.bin.pending-3",
+                           "4D5308C9.vk.bin.pending-0", "545407F2.xpso"}) {
+    std::ofstream(folder / name) << "x";
+  }
+  Expect(pcs::RemoveStalePending(cache) == 2 && std::filesystem::exists(cache) &&
+             !std::filesystem::exists(folder / "545407F2.vk.bin.pending-0") &&
+             std::filesystem::exists(folder / "4D5308C9.vk.bin.pending-0") &&
+             std::filesystem::exists(folder / "545407F2.xpso"),
+         "(f) this cache's .pending-N files removed; the cache, other titles' and other files kept");
+  Expect(pcs::RemoveStalePending(folder / "missing" / "X.vk.bin") == 0, "(f) a missing folder: nothing");
+  std::filesystem::remove_all(folder, error);
+}
+#endif
 }  // namespace
 
 int main() {
   Hash();
   Store();
+#ifdef XBOX360PS5_PIPELINE_CACHE_SKIP_PIPELINES
+  NoNewPipeline();
+  Stale();
+#endif
   if (std::ifstream(".deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc")) {
     Wiring();
   } else {
