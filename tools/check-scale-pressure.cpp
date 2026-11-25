@@ -47,6 +47,8 @@ void List() {
   Expect(rs::AutomaticStartsAtOneX("4D5309D6") && rs::AutomaticStartsAtOneX("4d5309d6") &&
              as::Resolve(as::kAutomatic, "4D5309D6", false).choice == 0 && as::Resolve(1, "4D5309D6", false).choice == 1,
          "(a) fix 162d: Season Two listed: Automatic 1x, an explicit 2x still 2x");
+  Expect(rs::AutomaticStartsAtOneX("4D4A07F0") && as::Resolve(as::kAutomatic, "4d4a07f0", false).choice == 0,
+         "(a) fix 162d: Zumba Fitness Core listed: Automatic 1x");
   Expect(!rs::AutomaticStartsAtOneX("545407F2") && !rs::AutomaticStartsAtOneX("") && !rs::AutomaticStartsAtOneX("4D5308C"),
          "(a) GTA IV, no title, a short ID are not");
 #else

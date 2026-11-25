@@ -42,6 +42,9 @@ void Classes() {
   Expect(ks2.size() == 3 && ks2[0].pitch_px == 80 && ks2[1].pitch_px == 160 && ks2[2].pitch_px == 320 &&
              ks2[0].samples == 1 && ks2[1].samples == 1 && ks2[2].samples == 1,
          "(a) fix 162d: Season Two (4D5309D6, either case): 80x1 160x1 320x1 too");
+  const auto zumba = rs::CompiledNativeClasses("4D4A07F0");
+  Expect(zumba.size() == 3 && zumba[0].pitch_px == 80 && zumba[1].pitch_px == 160 && zumba[2].pitch_px == 320,
+         "(a) fix 162d: Zumba Fitness Core (4D4A07F0): 80x1 160x1 320x1 too (the Kinect library's passes)");
   Expect(rs::CompiledNativeClasses("5454082B").size() == 8 && rs::CompiledNativeClasses("545407F2").empty(),
          "(a) Red Dead Redemption keeps its list; GTA IV has none");
 #else
