@@ -227,10 +227,11 @@ int main(int argc, char** argv) {
     CHECK(helper_body.find("sk::Load(sk::kFolder, xuid, &shape)") != std::string::npos);
     CHECK(helper_body.find("sk::WriteSkeleton(assets, address, shape);") != std::string::npos);
     CHECK(helper_body.find("\"Avatars: a generated skeleton of {} joints") != std::string::npos);
-    const std::string get_body = xam.substr(get, 1600);
+    // Fix 156p: the overlapped's result is chosen there (success in a Kinect title), after both.
+    const std::string get_body = xam.substr(get, 2600);
     const size_t prepare = get_body.find("PrepareEmptyAssets(");
     const size_t call = get_body.find("WriteGeneratedSkeleton(avatar_metadata_ptr, result_buffer_ptr);");
-    const size_t fail = get_body.find("X_ERROR_FUNCTION_FAILED");
+    const size_t fail = get_body.find("CompleteOverlappedImmediateEx(");
     CHECK(prepare != std::string::npos && call != std::string::npos && fail != std::string::npos && prepare < call && call < fail);
     // The launcher: Triangle on a profile opens its avatar, Circle saves it.
     CHECK(header.find("saves, avatar };") != std::string::npos && header.find("void DrawAvatarSheet(Canvas& c);") != std::string::npos);

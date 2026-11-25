@@ -194,8 +194,9 @@ checks=(
   check-skeleton-frame-number.cpp  # fix 156i
   check-xex-dll-heap.cpp           # fix 156j
   check-diag-r31.cpp               # fixes 156k and 156m
-  check-nui-identity.cpp           # fixes 156l and 156n
-  check-diag-stuck-dump.cpp        # fix 156o
+  check-nui-identity.cpp           # fixes 156l, 156n and 156q
+  check-diag-stuck-dump.cpp        # fixes 156o and 156r
+  check-avatar-assets-success.cpp  # fix 156p
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -375,8 +376,9 @@ declare -A fix_of=(
   [check-skeleton-frame-number.cpp]=156i
   [check-xex-dll-heap.cpp]=156j
   [check-diag-r31.cpp]="156k 156m"
-  [check-nui-identity.cpp]="156l 156n"
-  [check-diag-stuck-dump.cpp]=156o
+  [check-nui-identity.cpp]="156l 156n 156q"
+  [check-diag-stuck-dump.cpp]="156o 156r"
+  [check-avatar-assets-success.cpp]=156p
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -1,0 +1,51 @@
+diff --git a/include/xbox360ps5/avatar_assets.hpp b/include/xbox360ps5/avatar_assets.hpp
+--- a/include/xbox360ps5/avatar_assets.hpp
++++ b/include/xbox360ps5/avatar_assets.hpp
+@@ -59,4 +59,24 @@ inline void PrepareEmptyAssets(uint8_t* assets, uint32_t address) {
+   assets[3] = uint8_t(skeleton);
+ }
+ 
++// Fix 156p (Kinect Sports Season Two, #63): how XamAvatarGetAssets' overlapped completes.
++// Upstream completes it with ERROR_FUNCTION_FAILED ("58410907 doesn't crash if we return
++// failure"), after fix 99 has written an empty, self-consistent asset set. Season Two's avatar
++// loader keeps the call in an async record (82533478: overlapped result 0 -> state 2 done,
++// 0x3E4 -> still pending, anything else -> state 3 failed) and its sport loads wait for state 2
++// (824E0320 -> 824490F8 / 82447E60): with the failure the darts and tennis loading screens
++// never ended (1.0.6-work-fix156o's dump: the record in state 3). Kinect Sports' own state
++// machine (825252B8) retries once after a failure and runs the same loader on a second failure
++// or on success. A title whose executable requires Kinect now gets success for the empty set;
++// every other title keeps the failure.
++constexpr uint32_t kErrorSuccess = 0, kErrorFunctionFailed = 0x65B;
++constexpr uint32_t kExtendedSuccess = 0, kExtendedFail = 0x80004005;
++struct AssetsCompletion {
++  uint32_t result, extended;
++};
++inline AssetsCompletion GetAssetsCompletion(bool kinect_title) {
++  if (kinect_title) return {kErrorSuccess, kExtendedSuccess};
++  return {kErrorFunctionFailed, kExtendedFail};
++}
++
+ }  // namespace xbox360ps5::avatar_assets
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_avatar.cc
+@@ -226,10 +226,17 @@ dword_result_t XamAvatarGetAssets_entry(
+              result_buffer_ptr.guest_address() + xbox360ps5::avatar_assets::kSkeletonAt);
+     WriteGeneratedSkeleton(avatar_metadata_ptr, result_buffer_ptr);  // fix 113
+   }
+-  // 58410907 doesn't crash if we return failure.
++  // 58410907 doesn't crash if we return failure. Fix 156p: a title that requires Kinect gets
++  // success for the empty set (xbox360ps5/avatar_assets.hpp GetAssetsCompletion): Kinect Sports
++  // Season Two's sport loads wait for it forever after a failure.
+   if (overlapped_ptr) {
++    const auto completion =
++        xbox360ps5::avatar_assets::GetAssetsCompletion(KinectRequiredTitle(kernel_state()));
+     kernel_state()->CompleteOverlappedImmediateEx(
+-        overlapped_ptr, X_ERROR_FUNCTION_FAILED, X_E_FAIL, 0);
++        overlapped_ptr, completion.result, completion.extended, 0);
++    static std::atomic<uint32_t> completed{0};
++    if (completed.fetch_add(1) < 4)
++      XELOGW("Avatars: the asset request completes with {:X} (fix 156p)", completion.result);
+ 
+     return X_ERROR_IO_PENDING;
+   }

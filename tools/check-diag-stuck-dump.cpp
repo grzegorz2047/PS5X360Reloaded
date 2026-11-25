@@ -12,7 +12,8 @@
 //  (a) StuckChain: the same chain twice dumps once; a short chain never; a new chain again;
 //  (b) DumpObjects over fake memory: the op (r31), its resource at +0x1E8 (one level), not a
 //      stack or code pointer, no object twice, the limit; DumpLines' text;
-//  (c) the tree: the dump in the snapshot, after the r31 line; Zumba's line of the skeleton's
+//  (c) fix 156r: WaitingCall's names, the 2-dump budget, 16 objects;
+//  (d) the tree: the dump in the snapshot, after the r31 line; Zumba's line of the skeleton's
 //      hands against its shoulders (its hand cursor never appears; a stretched arm should read
 //      forward 0.3 m or more).
 #include <cstdint>
@@ -110,6 +111,24 @@ static void CheckDump() {
   CHECK(kd::DumpObjects(frames, 1, read_many).size() == kd::kDumpObjects);
 }
 
+// Fix 156r (156r-diag-dump-gate.patch): no dump for a thread parked in a wait or lock call (on
+// 1.0.6-work-fix156q2 all 5 dumps were such idle workers, ~4,000 lines in one burst during
+// Season Two's darts load); at most kMaxDumps per Kinect session; kDumpObjects each.
+static void CheckGate() {
+  for (const char* name : {"RtlEnterCriticalSection", "NtWaitForSingleObjectEx",
+                           "KeWaitForMultipleObjects", "KfAcquireSpinLock", "KeDelayExecutionThread",
+                           "NtYieldExecution", "NtReleaseSemaphore", "NtReleaseMutant"})
+    CHECK(kd::WaitingCall(name));
+  for (const char* name : {"XNotifyGetNext", "XamNuiGetDeviceStatus", "NtReadFile",
+                           "XamAvatarGetAssets"})
+    CHECK(!kd::WaitingCall(name));
+  CHECK(kd::WaitingCall(nullptr));
+  kd::dumps_taken = 0;
+  CHECK(kd::TakeDump() && kd::TakeDump() && !kd::TakeDump() && !kd::TakeDump());
+  CHECK(kd::kMaxDumps == 2 && kd::kDumpObjects == 16);
+  kd::dumps_taken = 0;
+}
+
 static void CheckTree() {
   const std::string shim = ReadText(".deps/xenia-canary/src/xenia/kernel/util/shim_utils.h");
   if (shim.empty()) {
@@ -118,10 +137,12 @@ static void CheckTree() {
     return;
   }
   const size_t r31 = shim.find("Kinect diag: thread {} r31 by frame {} (fix 156k)");
-  const size_t note = shim.find("if (stuck.Note(callers, n)) {");
+  const size_t note = shim.find("if (stuck.Note(callers, n) && !kd::WaitingCall(name) && kd::TakeDump()) {");
   const size_t dump = shim.find("kd::DumpObjects(frames, m, KinectDiagRead);");
   CHECK(r31 != std::string::npos && note != std::string::npos && r31 < note && note < dump);
   CHECK(Has(shim, "thread_local kd::StuckChain stuck;"));
+  CHECK(Has(ReadText(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc"),
+            "xbox360ps5::kinect_diag::dumps_taken = 0;  // fix 156r"));
   CHECK(Has(shim, "Kinect diag: thread {} object {:08X} (from {:08X}, frame {:08X}) {} (fix 156o)"));
   // Zumba: the skeleton's hands against its shoulders, before the frame is written.
   const std::string cam = ReadText(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc");
@@ -136,6 +157,7 @@ static void CheckTree() {
 int main() {
   CheckStuck();
   CheckDump();
+  CheckGate();
   CheckTree();
   if (failures) {
     std::printf("check-diag-stuck-dump: %d failure(s)\n", failures);

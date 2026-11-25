@@ -1,0 +1,52 @@
+diff --git a/include/xbox360ps5/kinect_diag.hpp b/include/xbox360ps5/kinect_diag.hpp
+--- a/include/xbox360ps5/kinect_diag.hpp
++++ b/include/xbox360ps5/kinect_diag.hpp
+@@ -166,7 +166,23 @@ inline std::string Hex(const uint8_t* bytes, size_t size) {
+ // readable r31 along it, then the heap objects those point to (one level), kDumpWords words
+ // each, at most kDumpObjects objects.
+ constexpr uint32_t kDumpWords = 0x120;  // 0x480 bytes
+-constexpr size_t kDumpObjects = 40;
++// Fix 156r: on 1.0.6-work-fix156q2 (Season Two, darts loading again) the dumps were all idle
++// workers parked in a lock or a wait (threads 17, 20, 30, 31, 32: RtlEnterCriticalSection,
++// NtWaitForSingleObjectEx, KeWaitForMultipleObjects), about 4,000 lines in one burst during
++// the load, beside the run's longest frame gap. Such a thread is not working on anything; the
++// load's own wait (thread 6 polling XNotifyGetNext) is. Now: no dump for a thread in a wait or
++// lock call, at most kMaxDumps per Kinect session, kDumpObjects objects each.
++constexpr size_t kDumpObjects = 16;
++constexpr uint32_t kMaxDumps = 2;
++inline std::atomic<uint32_t> dumps_taken{0};
++inline bool WaitingCall(const char* name) {
++  if (!name) return true;
++  for (const char* part : {"Wait", "CriticalSection", "SpinLock", "Sleep", "Yield", "Delay",
++                           "Semaphore", "Mutant"})
++    if (std::strstr(name, part)) return true;
++  return false;
++}
++inline bool TakeDump() { return dumps_taken.fetch_add(1) < kMaxDumps; }
+ inline bool HeapPointer(uint32_t v) { return v >= 0x40000000 && v < 0x70000000 && !(v & 3); }
+ struct ObjectDump {
+   uint32_t address = 0, parent = 0, ret = 0;  // parent: the object that points to it (0: r31)
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -549,7 +549,8 @@ inline void KinectDiagCall(const char* name, PPCContext* context) {
+            kd::ChainR31(frames, m));
+     // Fix 156o: a thread at the same place as 10 s ago: the objects it is working on.
+     thread_local kd::StuckChain stuck;
+-    if (stuck.Note(callers, n)) {
++    // Fix 156r: not for a thread parked in a wait or lock call; 2 dumps per Kinect session.
++    if (stuck.Note(callers, n) && !kd::WaitingCall(name) && kd::TakeDump()) {
+       const auto objects = kd::DumpObjects(frames, m, KinectDiagRead);
+       XELOGW("Kinect diag: thread {} is where it was 10 s ago; {} object(s) follow (fix 156o)",
+              context->thread_id, objects.size());
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1645,6 +1645,7 @@ void ShutdownCameraDevice() {
+   xbox360ps5::motion::emergency_pose.Reset();  // fix 107
+   xbox360ps5::kinect_diag::enabled = false;  // fix 108
+   xbox360ps5::kinect_diag::first_calls.Reset();
++  xbox360ps5::kinect_diag::dumps_taken = 0;  // fix 156r
+ }
+ 
+ #if !XE_PLATFORM_PS5
