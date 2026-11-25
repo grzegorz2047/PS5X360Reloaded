@@ -207,6 +207,7 @@ checks=(
   check-half-pixel-host.cpp        # fix 168
   check-gta4-core-config.cpp       # fix 168b (assets/config/545407F2.config.toml)
   check-exit-cache-timing.cpp      # fix 173
+  check-pipeline-cache-skip.cpp    # fix 173b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -401,6 +402,7 @@ declare -A fix_of=(
   [check-half-pixel-host.cpp]=168
   [check-gta4-core-config.cpp]=168
   [check-exit-cache-timing.cpp]=173
+  [check-pipeline-cache-skip.cpp]=173b
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

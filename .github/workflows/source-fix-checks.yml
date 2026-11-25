@@ -201,6 +201,7 @@ on:
       - 'tools/check-gta4-core-config.cpp'
       - 'assets/config/**'
       - 'tools/check-exit-cache-timing.cpp'
+      - 'tools/check-pipeline-cache-skip.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
