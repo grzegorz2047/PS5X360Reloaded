@@ -1,0 +1,207 @@
+diff --git a/include/xbox360ps5/resolve_trace.hpp b/include/xbox360ps5/resolve_trace.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/resolve_trace.hpp
+@@ -0,0 +1,138 @@
++// SPDX-License-Identifier: MIT
++// Fix 167: a trace of the render target resolves, for GTA IV's thin bright seams at resolution
++// scale 2x (1.0.6_candidate_9: an L along the top and left of the minimap's square, and a column in
++// the scene near the left edge; neither at 1x, neither gone with its 320 or 560 pixel targets at 1x).
++// At 2x the half-pixel offset (PA_SU_VTX_CNTL pixel centre at D3D zero) leaves a gap of one host
++// pixel on the left and the top of what is drawn, which the core's fill stretches over only at the
++// left and top edge of a resolve's own area; a resolve that starts inside its surface, or one that
++// is not filled, would leave such a seam. With resolve-trace.txt in the data folder, each distinct
++// resolve (its source area and layout, destination, pixel centre, fill, copy command, scaled or 1x)
++// is logged once, at most kMaxLines a session, as fix 161 caps its lines.
++#pragma once
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <filesystem>
++#include <mutex>
++#include <string>
++#include <unordered_set>
++
++namespace xbox360ps5::resolve_trace {
++
++inline constexpr size_t kMaxLines = 400;
++inline constexpr char kSwitchFile[] = "resolve-trace.txt";
++
++struct Resolve {
++  bool depth = false;
++  uint32_t base_tiles = 0;      // the source's EDRAM base with the resolve's offset (ResolveEdramInfo)
++  uint32_t original_base = 0;   // the surface's own base (ResolveInfo color/depth_original_base)
++  uint32_t pitch_tiles = 0;     // ResolveEdramInfo pitch (doubled for 64bpp)
++  uint32_t msaa_index = 0;      // 0 1x, 1 2x, 2 4x
++  uint32_t format = 0;
++  bool is_64bpp = false;
++  bool fill = false;            // fill_half_pixel_offset
++  uint32_t offset_x = 0, offset_y = 0;  // in the base tile, pixels
++  uint32_t width = 0, height = 0;       // pixels
++  uint32_t dest_base = 0, dest_pitch = 0, dest_height = 0, dest_x = 0, dest_y = 0, dest_format = 0;
++  bool copy = false;            // a copy to memory (copy_dest_extent_length)
++  uint32_t copy_command = 0;
++  bool color_clear = false, depth_clear = false;
++  uint32_t pixel_center = 0;    // PA_SU_VTX_CNTL pix_center: 0 D3D zero (xenos::PixelCenter::kD3DZero), 1 OpenGL
++  bool scaled = false;          // drawn at resolution scale > 1
++  bool native = false;          // copied at 1x (every owner of its source at 1x)
++};
++
++// Where the resolve area starts in its surface, in pixels (the tiles from the surface's base, plus
++// the offset in the base tile). A tile is 80x16 samples: 80 pixels wide (40 with 4xMSAA), 16 rows
++// (8 with 2x or 4xMSAA); a 64bpp surface's tiles count twice.
++inline uint32_t SurfaceTiles32(const Resolve& r) {
++  const uint32_t offset = r.base_tiles >= r.original_base ? r.base_tiles - r.original_base : 0;
++  return r.is_64bpp ? offset >> 1 : offset;
++}
++inline uint32_t Pitch32(const Resolve& r) { return r.is_64bpp ? r.pitch_tiles >> 1 : r.pitch_tiles; }
++inline uint32_t SurfaceX(const Resolve& r) {
++  const uint32_t pitch = Pitch32(r);
++  const uint32_t column = pitch ? SurfaceTiles32(r) % pitch : 0;
++  return column * (r.msaa_index >= 2 ? 40u : 80u) + r.offset_x;
++}
++inline uint32_t SurfaceY(const Resolve& r) {
++  const uint32_t pitch = Pitch32(r);
++  const uint32_t row = pitch ? SurfaceTiles32(r) / pitch : 0;
++  return row * (r.msaa_index >= 1 ? 8u : 16u) + r.offset_y;
++}
++
++inline std::string Key(const Resolve& r) {
++  char key[200];
++  std::snprintf(key, sizeof(key), "%d/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%u/%d/%d/%u/%d/%d/%d/%d", int(r.depth),
++                r.base_tiles, r.pitch_tiles, r.msaa_index, r.format, r.offset_x, r.offset_y, r.width, r.height,
++                r.dest_base, r.dest_pitch, r.dest_x, r.dest_y, r.dest_format, int(r.copy), int(r.fill),
++                r.copy_command, int(r.color_clear), int(r.depth_clear), int(r.native), int(r.pixel_center));
++  return key;
++}
++
++inline std::string Line(uint64_t number, const Resolve& r) {
++  char line[700];
++  std::snprintf(line, sizeof(line),
++                "Resolve (fix 167) #%llu: %s %ux%u at %u,%u of its surface (EDRAM base %u, surface base %u, pitch %u "
++                "tiles, %uxMSAA, format %u%s); pixel centre %s, half-pixel fill %s, %s; %s",
++                (unsigned long long)number, r.depth ? "depth" : "colour", r.width, r.height, SurfaceX(r), SurfaceY(r),
++                r.base_tiles, r.original_base, r.pitch_tiles, 1u << (r.msaa_index > 2 ? 2 : r.msaa_index), r.format,
++                r.is_64bpp ? ", 64bpp" : "", r.pixel_center == 0 ? "D3D zero" : "OpenGL (.5)", r.fill ? "on" : "off",
++                !r.scaled ? "at 1x" : r.native ? "scaled, copied at 1x" : "scaled", r.copy ? "copy" : "no copy");
++  std::string text = line;
++  if (r.copy) {
++    std::snprintf(line, sizeof(line), " (command %u) to %08X, %ux%u at %u,%u, format %u", r.copy_command, r.dest_base,
++                  r.dest_pitch, r.dest_height, r.dest_x, r.dest_y, r.dest_format);
++    text += line;
++  }
++  if (r.color_clear || r.depth_clear) {
++    text += std::string(", clears") + (r.color_clear ? " colour" : "") + (r.depth_clear ? " depth" : "");
++  }
++  return text;
++}
++
++// The distinct resolves seen this session; Note is true for a new one while under kMaxLines.
++class Trace {
++ public:
++  bool Note(const Resolve& r, uint64_t* number = nullptr) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    ++seen_;
++    if (keys_.size() >= kMaxLines || !keys_.insert(Key(r)).second) return false;
++    if (number) *number = keys_.size();
++    return true;
++  }
++  size_t lines() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return keys_.size();
++  }
++  uint64_t seen() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return seen_;
++  }
++
++ private:
++  std::mutex mutex_;
++  std::unordered_set<std::string> keys_;
++  uint64_t seen_ = 0;
++};
++inline Trace& Session() {
++  static Trace* trace = new Trace();
++  return *trace;
++}
++
++// On when <folder>/resolve-trace.txt exists; Enabled asks once a session (the folder: the data folder).
++inline bool EnabledIn(const std::filesystem::path& folder) {
++  std::error_code error;
++  return std::filesystem::exists(folder / kSwitchFile, error);
++}
++inline std::atomic<int> enabled_state{-1};
++inline bool Enabled(const std::filesystem::path& folder) {
++  int state = enabled_state.load(std::memory_order_relaxed);
++  if (state < 0) {
++    state = EnabledIn(folder) ? 1 : 0;
++    enabled_state.store(state, std::memory_order_relaxed);
++  }
++  return state == 1;
++}
++
++}  // namespace xbox360ps5::resolve_trace
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_render_target_cache.cc
+@@ -32,6 +32,8 @@
+ #include "xenia/ui/vulkan/vulkan_util.h"
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117b
++#include "xbox360ps5/resolve_trace.hpp"     // fix 167
++#include "xbox360ps5/user_storage.hpp"      // fix 167: the data folder
+ #endif
+ 
+ DEFINE_string(
+@@ -1234,6 +1236,51 @@ bool VulkanRenderTargetCache::Resolve(
+       }
+     }
+   }
++#if XE_PLATFORM_PS5
++  // Xbox360PS5 (fix 167): with resolve-trace.txt in the data folder, each
++  // distinct resolve once (resolve_trace.hpp), before fix 154's skip below.
++  if (xbox360ps5::resolve_trace::Enabled(
++          xbox360ps5::user_storage::Root())) {
++    namespace trace = xbox360ps5::resolve_trace;
++    trace::Resolve r;
++    r.depth = resolve_info.IsCopyingDepth();
++    const draw_util::ResolveEdramInfo& edram =
++        r.depth ? resolve_info.depth_edram_info
++                : resolve_info.color_edram_info;
++    r.base_tiles = edram.base_tiles;
++    r.original_base = r.depth ? resolve_info.depth_original_base
++                              : resolve_info.color_original_base;
++    r.pitch_tiles = edram.pitch_tiles;
++    r.msaa_index = uint32_t(edram.msaa_samples);
++    r.format = edram.format;
++    r.is_64bpp = !r.depth && edram.format_is_64bpp;
++    r.fill = edram.fill_half_pixel_offset != 0;
++    r.offset_x = resolve_info.coordinate_info.edram_offset_x_div_8 << 3;
++    r.offset_y = resolve_info.coordinate_info.edram_offset_y_div_8 << 3;
++    r.width = resolve_info.coordinate_info.width_div_8 << 3;
++    r.height = resolve_info.height_div_8 << 3;
++    r.copy = resolve_info.copy_dest_extent_length != 0;
++    r.dest_base = resolve_info.copy_dest_base;
++    r.dest_pitch =
++        resolve_info.copy_dest_coordinate_info.pitch_aligned_div_32 << 5;
++    r.dest_height =
++        resolve_info.copy_dest_coordinate_info.height_aligned_div_32 << 5;
++    r.dest_x = resolve_info.copy_dest_coordinate_info.offset_x_div_8 << 3;
++    r.dest_y = resolve_info.copy_dest_coordinate_info.offset_y_div_8 << 3;
++    r.dest_format = uint32_t(resolve_info.copy_dest_info.copy_dest_format);
++    r.copy_command = uint32_t(resolve_info.rb_copy_control.copy_command);
++    r.color_clear = resolve_info.rb_copy_control.color_clear_enable != 0;
++    r.depth_clear = resolve_info.rb_copy_control.depth_clear_enable != 0;
++    r.pixel_center =
++        uint32_t(register_file().Get<reg::PA_SU_VTX_CNTL>().pix_center);
++    r.scaled = draw_resolution_scaled;
++    r.native = copy_native;
++    uint64_t number = 0;
++    if (trace::Session().Note(r, &number)) {
++      XELOGW("{}", trace::Line(number, r));
++    }
++  }
++#endif
+   if (resolve_info.copy_dest_extent_length && draw_resolution_scaled &&
+       !copy_native &&
+       resolve_info.rb_copy_control.copy_command ==
