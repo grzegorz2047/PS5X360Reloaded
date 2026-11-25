@@ -39,6 +39,8 @@ installed app and keeps its saves. This script:
     tools/source-1.0.2/english/lang. A base language with no English-keyed file stops the build.
   * takes assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml from this
     repository, as the binary release does, and drops readback-auto.off;
+  * takes the home screen's icons, assets/skin/*.png and assets/skin-dark/*.png (fix 164), from
+    this repository over the base's pictures of the same names;
   * writes VERSION, RELEASE.json (a source build), licenses/PS5X360-<version>-NOTICE.txt (the
     GPL-3.0 notice), the licence texts the official package lacks (tools/source-1.0.2/licenses),
     and MANIFEST.json;
@@ -603,8 +605,8 @@ Other files
     INSTALLATION.md is TrinityX360's own, RELEASE_NOTES.md is this release's notes,
     dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
     assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
-    assets/presets.txt, assets/config/*.toml and assets/patches/*.patch.toml (from the
-    repository), VERSION, RELEASE.json, MANIFEST.json, this notice, the licence files above
+    assets/presets.txt, assets/config/*.toml, assets/patches/*.patch.toml and the home screen's
+    icons assets/skin/*.png and assets/skin-dark/*.png (from the repository), VERSION, RELEASE.json, MANIFEST.json, this notice, the licence files above
     (tools/source-1.0.2/licenses/README.md says where each came from) and LICENSE: the official
     LICENSE, the MIT License, is in licenses/PS5X360-MIT.txt under a header, and LICENSE is the
     GPL-3.0 text.
@@ -654,6 +656,17 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
         files[PREFIX + 'assets/config/' + path.name] = path.read_bytes()
     for path in sorted((repo_root / 'assets/patches').glob('*.patch.toml')):
         files[PREFIX + 'assets/patches/' + path.name] = path.read_bytes()
+    # Fix 164: the home screen's icons (assets/skin and assets/skin-dark, drawn by
+    # tools/make-skin-icons.py) over the base's pictures of the same names, as
+    # stage-reloaded-candidate.py puts them into the console test images. None may be one of ART's
+    # pictures (package-art decides those).
+    art_targets = {target for _, target, _, _ in ART}
+    for skin in ('skin', 'skin-dark'):
+        for path in sorted((repo_root / 'assets' / skin).glob('*.png')):
+            target = f'assets/{skin}/{path.name}'
+            if target in art_targets:
+                fail(f'{target} is in the repository and in package-art (ART): keep one')
+            files[PREFIX + target] = path.read_bytes()
     # As in the binary release: this marker would switch off the copy-back of small resolves.
     files.pop(PREFIX + 'readback-auto.off', None)
     files.pop(PREFIX + 'licenses/PS5X360-OPT-NOTICE.txt', None)

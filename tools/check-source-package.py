@@ -238,6 +238,8 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     repo_assets = {'assets/presets.txt'}
     repo_assets |= {f'assets/config/{p.name}' for p in (REPO / 'assets/config').glob('*.toml')}
     repo_assets |= {f'assets/patches/{p.name}' for p in (REPO / 'assets/patches').glob('*.patch.toml')}
+    repo_assets |= {f'assets/{skin}/{p.name}' for skin in ('skin', 'skin-dark')
+                    for p in (REPO / 'assets' / skin).glob('*.png')}
     added = {f'licenses/PS5X360-{VERSION}-NOTICE.txt', 'licenses/GPL-3.0.txt',
              'licenses/MBEDTLS-3.6.7-LICENSE.txt', 'licenses/CACERT-MPL-2.0.txt', 'assets/lang/pt-BR.txt',
              'licenses/PS5X360-MIT.txt'}
@@ -340,8 +342,15 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
             assert package.png_size(data) == size and data[25] == 6, name  # RGBA, as the official files
         assert package.OFFICIAL_LOGOS[official] == target and digest not in package.OFFICIAL_LOGOS, name
         assert f'`{name}`' in readme and digest in readme, name
-    assert files[P + 'assets/skin/icon-games.png'] == base[B + 'assets/skin/icon-games.png']
     assert files[P + 'assets/skin-dark/slot.jpg'] == base[B + 'assets/skin-dark/slot.jpg']
+    # Fix 164: the home screen's icons from the repository (tools/make-skin-icons.py), both themes,
+    # over the base's of the same names (the base's icon-games.png here).
+    icons = {f'assets/{skin}/{p.name}': p for skin in ('skin', 'skin-dark')
+             for p in sorted((REPO / 'assets' / skin).glob('*.png'))}
+    assert len(icons) == 12 and 'assets/skin/icon-games.png' in icons, sorted(icons)
+    for target, path in icons.items():
+        assert files[P + target] == path.read_bytes(), target
+    assert files[P + 'assets/skin/icon-games.png'] != base[B + 'assets/skin/icon-games.png']
     assert set(package.OFFICIAL_LOGOS) == {official for *_, official in SKIN}
     assert package.official_logo_problems(files) == []
     assert [(n, s, d) for n, _, s, d in package.ART] == \
@@ -616,6 +625,15 @@ def main():
         (other / 'docs/release-notes').mkdir(parents=True)
         (other / 'docs/release-notes/v1.0.6.md').write_bytes(b'## TrinityX360 v1.0.6\n')
         assert build(repo_root=other)[P + 'RELEASE_NOTES.md'] == b'## TrinityX360 v1.0.6\n'
+        # Fix 164: a repository icon is packaged over the base's; one named as an ART picture is
+        # refused (package-art decides those).
+        (other / 'assets/skin-dark').mkdir()
+        (other / 'assets/skin-dark/icon-games.png').write_bytes(b'\x89PNG repo icon')
+        assert build(repo_root=other)[P + 'assets/skin-dark/icon-games.png'] == b'\x89PNG repo icon'
+        (other / 'assets/skin').mkdir()
+        (other / 'assets/skin/ball.png').write_bytes(b'\x89PNG repo ball')
+        refused('assets/skin/ball.png is in the repository and in package-art (ART)', repo_root=other)
+        (other / 'assets/skin/ball.png').unlink()
         (other / 'assets/presets.txt').write_bytes(b'# /data/homebrew/PPSA50011/assets/roms\n')
         refused('still name the official title id PPSA50011: assets/presets.txt', repo_root=other)
     # Art that is not the reviewed files (here: wrong pinned digest or size) stops the packaging.
