@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/auto_scale.hpp b/include/xbox360ps5/auto_scale.h
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/auto_scale.hpp
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,153 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 163: "Automatic" resolution scale, the default. draw_scale's third choice (2): a game runs at
 +// 2x unless 2x was found not to suit it, then at 1x from its next start. 2x does not suit a game
@@ -44,7 +44,11 @@ new file mode 100644
 +  if (choice == 0) return {0, "1x chosen"};
 +  if (choice == 1) return {1, "2x chosen"};
 +  if (title_id.empty()) return {1, "Automatic, no game yet: 2x"};
-+#ifdef XBOX360PS5_AUTO_SCALE_ONE_X_LIST
++#if defined(XBOX360PS5_KINECT_TITLE_RULE)
++  // Fix 162f: a Kinect title, then fix 162c's list, start at 1x without trying 2x.
++  if (const char* why = xbox360ps5::resolution_scale::AutomaticOneXReason(title_id))
++    return {0, std::string("Automatic: 1x (") + why + ")"};
++#elif defined(XBOX360PS5_AUTO_SCALE_ONE_X_LIST)
 +  // Fix 162c: listed games start at 1x without trying 2x.
 +  if (xbox360ps5::resolution_scale::AutomaticStartsAtOneX(title_id)) return {0, "Automatic: 1x (compiled-in list)"};
 +#endif
@@ -272,7 +276,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
-@@ -153,6 +153,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+@@ -154,6 +154,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
  #include "xbox360ps5/display_surface.hpp"
  #include "xbox360ps5/dualsense_input.hpp"
  #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
@@ -280,7 +284,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "xbox360ps5/resolution_scale.hpp"  // fix 117
  #include "xbox360ps5/video_mode.hpp"  // fix 140c
  #include "xbox360ps5/system_heap_watch.hpp"  // fix 79: the system heap by holder
-@@ -1539,6 +1540,19 @@ std::string ImportAt(const std::map<uint32_t, std::string>& thunks, uint32_t tar
+@@ -1540,6 +1541,19 @@ std::string ImportAt(const std::map<uint32_t, std::string>& thunks, uint32_t tar
    --found;
    return target - found->first < 16 ? found->second : "";
  }
@@ -300,7 +304,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  void ReportStall(xe::Emulator& emulator, int pass) {
    namespace sd = xbox360ps5::stall_dump;
    namespace oh = xbox360ps5::object_history;
-@@ -3844,6 +3858,23 @@ int main(int argc, char** argv) {
+@@ -3862,6 +3876,23 @@ int main(int argc, char** argv) {
                   settings_title, own_scale != overrides.end() ? "its own setting" : "the general setting");
            xbox360ps5::Notify({XBOX360PS5_PRODUCT_NAME, Tr("Resolution scale (test): this game always runs at 1x. At 2x its Kinect camera pictures cannot be drawn and its video memory runs out."), "", false});
          }
@@ -324,7 +328,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
          {
            const auto core_config = std::filesystem::path("/app0/assets/config") / fmt::format("{:08X}.config.toml", emulator.title_id());
            std::error_code exists_error;
-@@ -4346,7 +4377,11 @@ int main(int argc, char** argv) {
+@@ -4364,7 +4395,11 @@ int main(int argc, char** argv) {
              const uint64_t swaps = processor->swap_count();
              const float elapsed = std::chrono::duration<float>(at - sample_at).count();
              fps = float(frames - sampled_frames) / elapsed;
@@ -337,7 +341,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
              sampled_swaps = swaps;
              sample_at = at; sampled_frames = frames;
              const double watch_seconds=std::chrono::duration<double>(at-watch_started).count();
-@@ -4393,8 +4428,23 @@ int main(int argc, char** argv) {
+@@ -4411,8 +4446,23 @@ int main(int argc, char** argv) {
                  XELOGW("{}", xbox360ps5::resolution_scale::Line(
                                   xbox360ps5::resolution_scale::counters,
                                   xbox360ps5::resolution_scale::driver_memory.Get(), scale_free));
