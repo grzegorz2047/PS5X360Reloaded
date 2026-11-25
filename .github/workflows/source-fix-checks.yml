@@ -200,6 +200,7 @@ on:
       - 'tools/check-phone-link.cpp'
       - 'tools/check-phone-pose-steady.mjs'
       - 'tools/check-kinect-camera-picture.mjs'
+      - 'tools/check-xbox-fitness.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
