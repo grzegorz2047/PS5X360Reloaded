@@ -1,0 +1,758 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+index 597f10f..d7b7fce 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -413,6 +413,9 @@ void CommandProcessor::WorkerThreadMain() {
+       // We spin here waiting for new ones, as the overhead of waiting on our
+       // event is too high.
+       PrepareForWait();
++#if XE_PLATFORM_PS5
++      GuestSyncPoint(5);  // fix 177: out of commands, waiting for the guest (kIdle)
++#endif
+       const uint64_t frame_cost_idle_start = xbox360ps5::frame_cost::NowNs();
+       uint32_t loop_count = 0;
+       do {
+@@ -463,6 +466,9 @@ void CommandProcessor::WorkerThreadMain() {
+     // Keep in mind that the gpu also updates the cpu-side copy if the write
+     // pointer and read pointer would be equal
+     if (read_ptr_writeback_ptr_) {
++#if XE_PLATFORM_PS5
++      GuestSyncPoint(3);  // fix 177: the ring's read pointer (kRingPart)
++#endif
+       xe::store_and_swap<uint32_t>(
+           memory_->TranslatePhysical(read_ptr_writeback_ptr_), read_ptr_index_);
+     }
+@@ -696,6 +702,9 @@ void CommandProcessor::HandleSpecialRegisterWrite(uint32_t index,
+       // Enabled - write to address.
+       uint32_t scratch_addr = regs.values[XE_GPU_REG_SCRATCH_ADDR];
+       uint32_t mem_addr = scratch_addr + (scratch_reg * 4);
++#if XE_PLATFORM_PS5
++      GuestSyncPoint(0);  // fix 177: a scratch write-back (kSyncPacket)
++#endif
+       xe::store_and_swap<uint32_t>(memory_->TranslatePhysical(mem_addr), value);
+       xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kScratch, mem_addr,
+                            value);  // Xbox360PS5 (fix 24)
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+index d28933e..de99d62 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -313,6 +313,11 @@ class CommandProcessor {
+ 
+   virtual void MakeCoherent();
+   virtual void PrepareForWait();
++#if XE_PLATFORM_PS5
++  // Xbox360PS5, fix 177 (memexport_deliver.h): a point where the CPU could learn that the GPU
++  // went on, before it takes effect (xenia/gpu/memexport_deliver.h's Point).
++  virtual void GuestSyncPoint(uint32_t point) {}
++#endif
+   virtual void ReturnFromWait();
+ 
+   virtual void PollCompletedSubmission() {}
+diff --git a/.deps/xenia-canary/src/xenia/gpu/memexport_deliver.h b/.deps/xenia-canary/src/xenia/gpu/memexport_deliver.h
+new file mode 100644
+index 0000000..f8a0999
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/memexport_deliver.h
+@@ -0,0 +1,193 @@
++// Xbox360PS5, fix 177 (docs/design/memexport-readback.md, D1): a draw whose memory exports are
++// read back (fix 30: the option or a small export; fix 48: learned) queues its before and after
++// copies instead of waiting for the GPU at once, and the GPU thread waits once for all of them at
++// the next point where the CPU could learn that the GPU went on (fix 133's sync points,
++// WAIT_REG_MEM, an interrupt, the ring's read pointer, a swap), or before guest memory is uploaded
++// over a queued range. The delayed merge keeps what the CPU wrote since the draw: a dword is stored
++// only while guest memory still holds the GPU's value from before the draw (a compare and swap).
++// Off by default: memexport-deliver.txt in the title folder ("on", "verify", "off"), read at most
++// once a second. "verify" keeps today's immediate wait and merge and counts, at the next sync
++// point, the dwords the CPU changed after the merge: the ones the queued merge would have kept.
++
++#ifndef XENIA_GPU_MEMEXPORT_DELIVER_H_
++#define XENIA_GPU_MEMEXPORT_DELIVER_H_
++
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <string>
++#include <vector>
++
++namespace xbox360ps5 {
++namespace memexport_deliver {
++
++enum class Mode { kOff, kOn, kVerify };
++inline const char* ModeName(Mode mode) {
++  return mode == Mode::kOn ? "on" : mode == Mode::kVerify ? "verify" : "off";
++}
++// The first word of the file ("on"/"1", "verify", "off"/"0"; "#" starts a comment); anything else
++// keeps `otherwise`.
++inline Mode ParseMode(const std::string& text, Mode otherwise) {
++  const size_t start = text.find_first_not_of(" \t\r\n");
++  if (start == std::string::npos) return otherwise;
++  const std::string word = text.substr(start, text.find_first_of(" \t\r\n#", start) - start);
++  if (word == "on" || word == "1") return Mode::kOn;
++  if (word == "verify") return Mode::kVerify;
++  if (word == "off" || word == "0") return Mode::kOff;
++  return otherwise;
++}
++
++// Why the queue was emptied with a wait.
++enum Point : uint32_t {
++  kSyncPacket = 0,  // MEM_WRITE, EVENT_WRITE_SHD/EXT, COND_WRITE, REG_TO_MEM, a scratch write-back
++  kWaitRegMem,      // the GPU about to wait for the guest
++  kInterrupt,       // an interrupt to the CPU
++  kRingPart,        // the ring's read pointer written back
++  kSwap,
++  kIdle,            // the GPU thread out of commands, waiting for the guest
++  kUpload,          // guest memory about to be uploaded over a queued range
++  kRefresh,         // fix 30's refresh of a queued range before another draw exports into it
++  kFull,            // the queue's byte limit
++  kSwitch,          // the switch left "on"
++  kPoints
++};
++inline const char* PointName(uint32_t point) {
++  static const char* const names[] = {"sync packets",  "WAIT_REG_MEM", "interrupts",
++                                      "ring parts",    "swaps",        "idle",
++                                      "uploads over a queued range", "refreshes",
++                                      "a full queue",  "the switch"};
++  return point < kPoints ? names[point] : "?";
++}
++
++// A dword of guest memory, raw (big-endian as stored).
++inline uint32_t LoadRaw(const uint8_t* at) {
++  uint32_t value;
++  std::memcpy(&value, at, 4);
++  return value;
++}
++
++struct Merged {
++  uint64_t written = 0;  // dwords the shader wrote, stored
++  uint64_t kept = 0;     // dwords the shader wrote, not stored: the CPU changed them since the draw
++};
++// The delayed merge: each dword where `after` (the GPU's copy once the draw was done) differs from
++// `before` (just before it) is stored only while guest memory still holds `before`, by an atomic
++// compare and swap, so a CPU write made since the draw (on any thread, also during the merge) wins,
++// as on the console, where the export lands when the GPU runs the draw. A tail shorter than a dword
++// goes byte by byte. `guest` must be 4-byte aligned (export ranges are dword ranges).
++inline Merged MergeKeepingCpu(uint8_t* guest, const uint8_t* before, const uint8_t* after,
++                              size_t size) {
++  Merged merged;
++  size_t at = 0;
++  for (; at + 4 <= size; at += 4) {
++    const uint32_t was = LoadRaw(before + at), now = LoadRaw(after + at);
++    if (was == now) continue;
++    uint32_t expected = was;
++    if (__atomic_compare_exchange_n(reinterpret_cast<uint32_t*>(guest + at), &expected, now,
++                                    false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
++      ++merged.written;
++    } else {
++      ++merged.kept;
++    }
++  }
++  for (; at < size; ++at) {
++    if (before[at] == after[at]) continue;
++    uint8_t expected = before[at];
++    if (__atomic_compare_exchange_n(guest + at, &expected, after[at], false, __ATOMIC_SEQ_CST,
++                                    __ATOMIC_SEQ_CST)) {
++      ++merged.written;
++    } else {
++      ++merged.kept;
++    }
++  }
++  return merged;
++}
++
++struct Range {
++  uint32_t start = 0, length = 0;
++};
++inline bool Overlaps(uint32_t a, uint32_t a_length, uint32_t b, uint32_t b_length) {
++  return uint64_t(a) < uint64_t(b) + b_length && uint64_t(b) < uint64_t(a) + a_length;
++}
++inline bool AnyOverlap(const std::vector<Range>& ranges, uint32_t start, uint32_t length) {
++  for (const Range& range : ranges)
++    if (Overlaps(range.start, range.length, start, length)) return true;
++  return false;
++}
++
++// Readback buffers come in powers of two from 64 KiB, kept for reuse after their merge.
++inline uint32_t SizeClass(uint32_t bytes) {
++  uint32_t size = 64 * 1024;
++  while (size < bytes && size < (1u << 31)) size <<= 1;
++  return size;
++}
++// The queue's limit: past it, the queue is emptied (with a wait) before another is queued.
++constexpr uint64_t kQueueLimitBytes = 64ull << 20;
++
++// "verify": the dwords the immediate merge stored (address, raw value), checked at the next sync
++// point against guest memory (read by `load(address)`): those changed since are the ones the
++// delayed merge would have kept.
++struct Stored {
++  uint32_t address = 0, raw = 0;
++};
++constexpr size_t kVerifyLimit = 65536;
++inline void RecordStores(uint32_t start, const uint8_t* before, const uint8_t* after, size_t size,
++                         std::vector<Stored>& out) {
++  for (size_t at = 0; at + 4 <= size && out.size() < kVerifyLimit; at += 4) {
++    const uint32_t was = LoadRaw(before + at), now = LoadRaw(after + at);
++    if (was != now) out.push_back({uint32_t(start + at), now});
++  }
++}
++template <typename Load>
++uint64_t CountChanged(const std::vector<Stored>& stored, Load load) {
++  uint64_t changed = 0;
++  for (const Stored& s : stored) changed += load(s.address) != s.raw;
++  return changed;
++}
++
++// The 30 s counts (GPU thread only).
++struct Stats {
++  uint64_t queued = 0, queued_bytes = 0, delivered = 0, waits = 0, polled = 0;
++  std::array<uint64_t, kPoints> waits_by{};
++  uint64_t written = 0, kept = 0, failed = 0;
++  uint64_t deepest = 0, deepest_bytes = 0;
++  uint64_t verify_checked = 0, verify_changed = 0;
++  void NoteDepth(uint64_t entries, uint64_t bytes) {
++    deepest = std::max(deepest, entries);
++    deepest_bytes = std::max(deepest_bytes, bytes);
++  }
++};
++inline std::string Line(Mode mode, const Stats& s, double wait_ms_s) {
++  std::string by;
++  for (uint32_t p = 0; p < kPoints; ++p) {
++    if (!s.waits_by[p]) continue;
++    char item[64];
++    std::snprintf(item, sizeof(item), "%s%s %llu", by.empty() ? "" : ", ", PointName(p),
++                  static_cast<unsigned long long>(s.waits_by[p]));
++    by += item;
++  }
++  char text[1024];
++  std::snprintf(
++      text, sizeof(text),
++      "Memexport delivery, last 30 s (fix 177, %s): %llu readbacks queued (%.1f MiB), %llu put "
++      "in guest memory, %llu without a wait; %llu waits (%.1f ms/s): %s; dwords stored %llu, kept "
++      "%llu (the CPU wrote them since the draw); %llu not merged (map failed); deepest queue %llu "
++      "(%.1f MiB); verify: %llu of %llu stored dwords changed by the CPU before the next sync point",
++      ModeName(mode), static_cast<unsigned long long>(s.queued),
++      double(s.queued_bytes) / (1024.0 * 1024.0), static_cast<unsigned long long>(s.delivered),
++      static_cast<unsigned long long>(s.polled), static_cast<unsigned long long>(s.waits),
++      wait_ms_s, by.empty() ? "none" : by.c_str(), static_cast<unsigned long long>(s.written),
++      static_cast<unsigned long long>(s.kept), static_cast<unsigned long long>(s.failed),
++      static_cast<unsigned long long>(s.deepest), double(s.deepest_bytes) / (1024.0 * 1024.0),
++      static_cast<unsigned long long>(s.verify_changed),
++      static_cast<unsigned long long>(s.verify_checked));
++  return text;
++}
++
++}  // namespace memexport_deliver
++}  // namespace xbox360ps5
++
++#endif  // XENIA_GPU_MEMEXPORT_DELIVER_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+index ace426f..f688980 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
++++ b/.deps/xenia-canary/src/xenia/gpu/pm4_command_processor_implement.h
+@@ -662,6 +662,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_INTERRUPT(
+ 
+   // generate interrupt from the command stream
+   uint32_t cpu_mask = reader_.ReadAndSwap<uint32_t>();
++#if XE_PLATFORM_PS5
++  if (cpu_mask) GuestSyncPoint(2);  // fix 177: an interrupt (kInterrupt)
++#endif
+   for (int n = 0; n < 6; n++) {
+     if (cpu_mask & (1 << n)) {
+       graphics_system_->DispatchInterruptCallback(1, n);
+@@ -788,6 +791,10 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_WAIT_REG_MEM(
+     if (!matched) {
+ #if XE_PLATFORM_PS5
+       frame_cost_wait.Missed();  // fix 77
++      // Fix 177: the GPU about to wait for the guest (kWaitRegMem): queued memory export merges
++      // first, so a CPU worker waiting for one can go on (Battlefield 3's jobs), and the value is
++      // read again below.
++      GuestSyncPoint(1);
+ #endif
+       if (!traced) {
+         // The packet's physical address: the reader is past its 6 dwords.
+@@ -902,6 +909,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_REG_TO_MEM(
+   mem_addr &= ~0x3;
+   xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kRegToMem, mem_addr,
+                        reg_val);  // Xbox360PS5 (fix 24)
++#if XE_PLATFORM_PS5
++  GuestSyncPoint(0);  // fix 177 (kSyncPacket)
++#endif
+   reg_val = GpuSwap(reg_val, endianness);
+   xe::store(memory_->TranslatePhysical(mem_addr), reg_val);
+   trace_writer_.WriteMemoryWrite(CpuToGpu(mem_addr), 4);
+@@ -919,6 +929,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_MEM_WRITE(
+     auto addr = write_addr & ~0x3;
+     xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kMemWrite, addr,
+                          write_data);  // Xbox360PS5 (fix 24)
++#if XE_PLATFORM_PS5
++    GuestSyncPoint(0);  // fix 177 (kSyncPacket)
++#endif
+     write_data = GpuSwap(write_data, endianness);
+     xe::store(memory_->TranslatePhysical(addr), write_data);
+     trace_writer_.WriteMemoryWrite(CpuToGpu(addr), 4);
+@@ -960,6 +973,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_COND_WRITE(
+       write_reg_addr &= ~0x3;
+       xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kCondWrite,
+                            write_reg_addr, write_data);  // Xbox360PS5 (fix 24)
++#if XE_PLATFORM_PS5
++      GuestSyncPoint(0);  // fix 177 (kSyncPacket)
++#endif
+       write_data = GpuSwap(write_data, endianness);
+       xe::store(memory_->TranslatePhysical(write_reg_addr), write_data);
+       trace_writer_.WriteMemoryWrite(CpuToGpu(write_reg_addr), 4);
+@@ -1017,6 +1033,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_SHD(
+   address &= ~0x3;
+   xbox360ps5::cp_trace::Global().Record(xbox360ps5::cp_trace::NowMs(), xbox360ps5::cp_trace::Kind::kEventShd, address,
+                        data_value);  // Xbox360PS5 (fix 24)
++#if XE_PLATFORM_PS5
++  GuestSyncPoint(0);  // fix 177 (kSyncPacket)
++#endif
+   data_value = GpuSwap(data_value, endianness);
+   uint8_t* write_destination = memory_->TranslatePhysical(address);
+   if (address > 0x1FFFFFFF) {
+@@ -1051,6 +1070,9 @@ bool COMMAND_PROCESSOR::ExecutePacketType3_EVENT_WRITE_EXT(
+   // Xbox360PS5 (fix 24): counted for the STALL report; fix 110: only counted
+   // (no clock, lock or target search per packet).
+   xbox360ps5::cp_trace::Global().Count(xbox360ps5::cp_trace::Kind::kEventExt);
++#if XE_PLATFORM_PS5
++  GuestSyncPoint(0);  // fix 177 (kSyncPacket)
++#endif
+ 
+   // Let us hope we can fake this.
+   // This callback tells the driver the xy coordinates affected by a previous
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+index 489ccdc..d7c1cb6 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.cc
+@@ -1193,6 +1193,11 @@ bool SharedMemory::RequestRange(uint32_t start, uint32_t length,
+                                            uploads[i].first, uploads[i].second,
+                                            page_size_log2_, &unit_exporter_);
+   }
++#endif
++#if XE_PLATFORM_PS5
++  if (current_upload_range && before_upload_hook_) {  // fix 177
++    before_upload_hook_(before_upload_context_, uploads, current_upload_range, page_size_log2_);
++  }
+ #endif
+   bool usable = !current_upload_range || UploadRanges(uploads, current_upload_range);
+ #if XE_PLATFORM_PS5
+diff --git a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+index 976e495..1042ae3 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
++++ b/.deps/xenia-canary/src/xenia/gpu/shared_memory.h
+@@ -189,6 +189,21 @@ class SharedMemory {
+   virtual bool UploadRanges(
+       const std::pair<uint32_t, uint32_t>* upload_page_ranges,
+       uint32_t num_upload_ranges) = 0;
++#if XE_PLATFORM_PS5
++ public:
++  // Xbox360PS5, fix 177: called before the pages in `ranges` (first page, page count) are
++  // uploaded from guest memory, so queued memory export merges into them are made first.
++  using BeforeUploadHook = void (*)(void* context, const std::pair<uint32_t, uint32_t>* ranges,
++                                    uint32_t count, uint32_t page_size_log2);
++  void SetBeforeUploadHook(BeforeUploadHook hook, void* context) {
++    before_upload_hook_ = hook;
++    before_upload_context_ = context;
++  }
++
++ protected:
++  BeforeUploadHook before_upload_hook_ = nullptr;
++  void* before_upload_context_ = nullptr;
++#endif
+ 
+   const std::vector<std::pair<uint32_t, uint32_t>>& trace_download_ranges() {
+     return trace_download_ranges_;
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index e7d7b59..893dc23 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -48,6 +48,8 @@
+ #include "xenia/gpu/vulkan/vulkan_render_target_cache.h"
+ #include "xenia/gpu/vulkan/vulkan_shader.h"
+ #include "xenia/gpu/memexport_merge.h"  // Xbox360PS5 (fix 30)
++#include "xenia/gpu/memexport_deliver.h"  // Xbox360PS5 (fix 177)
++#include <deque>
+ #include "xenia/gpu/vulkan/swap_effects.h"  // Xbox360PS5 (fix 141)
+ #include "xenia/gpu/vulkan/swap_fxaa.h"  // Xbox360PS5 (fix 137)
+ #include "xenia/gpu/vulkan/swap_smaa.h"  // Xbox360PS5 (fix 145)
+@@ -119,6 +121,32 @@ extern void (*texture_capture_run)(xe::gpu::vulkan::VulkanTextureCache& cache);
+ }  // namespace xbox360ps5
+ #endif
+ 
++#if XE_PLATFORM_PS5
++// Xbox360PS5, fix 177 (xenia/gpu/memexport_deliver.h): the queued memory export readbacks, the
++// GPU thread's alone.
++namespace fix177 {
++namespace md = xbox360ps5::memexport_deliver;
++struct Entry {
++  VkBuffer buffer = VK_NULL_HANDLE;
++  VkDeviceMemory memory = VK_NULL_HANDLE;
++  bool coherent = false;
++  uint32_t size_class = 0;
++  std::vector<md::Range> ranges;  // the draw's export ranges, in the buffer's order
++  uint32_t before_offset = 0;     // where the copy from before the draw starts in the buffer
++  uint64_t submission = 0;        // the submission holding the copies
++};
++md::Mode mode = md::Mode::kOff;
++bool logged = false, delivering = false;
++std::chrono::steady_clock::time_point checked{}, line_at{};
++std::deque<Entry> pending;
++uint64_t pending_bytes = 0;
++std::vector<Entry> spare;  // buffers kept for reuse
++md::Stats stats;
++uint64_t wait_ns = 0;
++std::vector<md::Stored> verify_stored;
++}  // namespace fix177
++#endif
++
+ namespace xe {
+ namespace gpu {
+ namespace vulkan {
+@@ -486,6 +514,10 @@ bool VulkanCommandProcessor::SetupContext() {
+     XELOGE("Failed to initialize shared memory");
+     return false;
+   }
++#if XE_PLATFORM_PS5
++  shared_memory_->SetBeforeUploadHook(&VulkanCommandProcessor::Fix177BeforeUpload,
++                                      this);  // fix 177
++#endif
+ 
+   primitive_processor_ = std::make_unique<VulkanPrimitiveProcessor>(
+       *register_file_, *memory_, trace_writer_, *shared_memory_, *this);
+@@ -1730,6 +1762,9 @@ void VulkanCommandProcessor::StopAsyncSubmit() {
+ void VulkanCommandProcessor::ShutdownContext() {
+   StopAsyncSubmit();  // fix 134
+   AwaitAllQueueOperationsCompletion();
++#if XE_PLATFORM_PS5
++  Fix177DestroyBuffers();  // fix 177: everything has completed above
++#endif
+   if (readback_read_callback_) {  // fix 91
+     memory_->UnregisterPhysicalMemoryReadCallback(readback_read_callback_);
+     readback_read_callback_ = nullptr;
+@@ -3706,6 +3741,9 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr,
+                                        uint32_t frontbuffer_width,
+                                        uint32_t frontbuffer_height) {
+   SCOPE_profile_cpu_f("gpu");
++#if XE_PLATFORM_PS5
++  GuestSyncPoint(xbox360ps5::memexport_deliver::kSwap);  // fix 177
++#endif
+   EndZPDFrame();
+ #if XE_PLATFORM_PS5
+   {
+@@ -5483,6 +5521,20 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+              xbox360ps5::memexport_loss::ReasonName(memexport_reason));
+     }
+   }
++#if XE_PLATFORM_PS5
++  // Fix 177: a queued merge into this draw's ranges goes first (fix 30's refresh below uploads
++  // them from guest memory, which lacks it until then).
++  if (memexport_readback && !fix177::pending.empty()) {
++    bool fix177_overlap = false;
++    for (const fix177::Entry& entry : fix177::pending) {
++      for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++        fix177_overlap |= xbox360ps5::memexport_deliver::AnyOverlap(
++            entry.ranges, memexport_range.base_address_dwords << 2, memexport_range.size_bytes);
++      }
++    }
++    if (fix177_overlap) Fix177Deliver(true, xbox360ps5::memexport_deliver::kRefresh);
++  }
++#endif
+   if (memexport_readback) {
+     // Fix 48: guest memory gets this export's data; the upload of the ranges
+     // just below (RefreshRanges) loses nothing that guest memory lacks.
+@@ -5586,9 +5638,29 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+   const uint32_t memexport_before_offset =
+       xbox360ps5::memexport_merge::BeforeOffset(memexport_total_bytes);
+   bool memexport_before_copied = false;
++#if XE_PLATFORM_PS5
++  // Fix 177: with "on", the copies go to a buffer of this draw's own, queued after the draw.
++  bool fix177_queue = false;
++  fix177::Entry fix177_entry;
++  if (memexport_readback && fix177::mode == xbox360ps5::memexport_deliver::Mode::kOn) {
++    const uint32_t fix177_bytes = memexport_before_offset + uint32_t(memexport_total_bytes);
++    if (fix177::pending_bytes + xbox360ps5::memexport_deliver::SizeClass(fix177_bytes) >
++        xbox360ps5::memexport_deliver::kQueueLimitBytes) {
++      Fix177Deliver(true, xbox360ps5::memexport_deliver::kFull);
++    }
++    fix177_queue = Fix177AcquireBuffer(fix177_bytes, &fix177_entry);
++  }
++#endif
+   if (memexport_readback) {
++#if XE_PLATFORM_PS5
++    VkBuffer readback_buffer =
++        fix177_queue ? fix177_entry.buffer
++                     : RequestReadbackBuffer(memexport_before_offset +
++                                             uint32_t(memexport_total_bytes));
++#else
+     VkBuffer readback_buffer = RequestReadbackBuffer(
+         memexport_before_offset + uint32_t(memexport_total_bytes));
++#endif
+     if (readback_buffer != VK_NULL_HANDLE) {
+       shared_memory_->Use(VulkanSharedMemory::Usage::kRead);
+       SubmitBarriers(true);
+@@ -5754,7 +5826,12 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+     }
+ 
+     if (memexport_total_size > 0) {
++#if XE_PLATFORM_PS5
++      VkBuffer readback_buffer = fix177_queue ? fix177_entry.buffer
++                                              : RequestReadbackBuffer(memexport_total_size);
++#else
+       VkBuffer readback_buffer = RequestReadbackBuffer(memexport_total_size);
++#endif
+       if (readback_buffer != VK_NULL_HANDLE) {
+         const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
+         const ui::vulkan::VulkanDevice::Functions& dfn =
+@@ -5790,6 +5867,22 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+             VK_ACCESS_HOST_READ_BIT);
+         SubmitBarriers(true);
+ 
++#if XE_PLATFORM_PS5
++        if (fix177_queue) {
++          // Fix 177: no wait here; merged at the next sync point (or sooner, once made).
++          for (const draw_util::MemExportRange& memexport_range : memexport_ranges_) {
++            fix177_entry.ranges.push_back(
++                {memexport_range.base_address_dwords << 2, memexport_range.size_bytes});
++          }
++          fix177_entry.before_offset = memexport_before_offset;
++          fix177_entry.submission = GetCurrentSubmission();
++          fix177::pending_bytes += fix177_entry.size_class;
++          ++fix177::stats.queued;
++          fix177::stats.queued_bytes += memexport_total_size;
++          fix177::pending.push_back(std::move(fix177_entry));
++          fix177::stats.NoteDepth(fix177::pending.size(), fix177::pending_bytes);
++        } else {
++#endif
+         // Wait for GPU to finish (SYNCHRONIZATION STALL)
+ #if XE_PLATFORM_PS5
+         xbox360ps5::frame_cost::CauseScope frame_cost_cause(  // fix 49
+@@ -5826,6 +5919,14 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+                     memory_->TranslatePhysical(range_start), before_bytes,
+                     readback_bytes, memexport_range.size_bytes,
+                     detail ? &changes : nullptr, mm::kChangesPerRange + 1);
++#if XE_PLATFORM_PS5
++                if (fix177::mode == xbox360ps5::memexport_deliver::Mode::kVerify) {
++                  // Fix 177: checked at the next sync point for what the CPU changes since.
++                  xbox360ps5::memexport_deliver::RecordStores(
++                      range_start, before_bytes, readback_bytes, memexport_range.size_bytes,
++                      fix177::verify_stored);
++                }
++#endif
+                 if (detail &&
+                     merged.written <= mm::kChangesPerRange) {
+                   for (const mm::Change& change : changes) {
+@@ -5874,6 +5975,9 @@ bool VulkanCommandProcessor::IssueDrawInner(xenos::PrimitiveType prim_type,
+               "VulkanCommandProcessor: Failed to complete queue operations for "
+               "memexport readback");
+         }
++#if XE_PLATFORM_PS5
++        }  // fix 177
++#endif
+       }
+     }
+   }
+@@ -6952,6 +7056,171 @@ bool VulkanCommandProcessor::MapReadbackMemory(VkDeviceMemory memory,
+   return true;
+ }
+ 
++#if XE_PLATFORM_PS5
++// Fix 177: memexport-deliver.txt at most once a second, and the line every 30 s.
++void VulkanCommandProcessor::Fix177Refresh() {
++  namespace md = xbox360ps5::memexport_deliver;
++  const auto now = std::chrono::steady_clock::now();
++  if (!fix177::logged || now - fix177::checked >= std::chrono::seconds(1)) {
++    fix177::checked = now;
++    md::Mode next = md::Mode::kOff;
++    const char* from = "the default";
++    const char* const path = XBOX360PS5_DATA_ROOT "/memexport-deliver.txt";
++    if (FILE* file = std::fopen(path, "rb")) {
++      char text[64] = {};
++      const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
++      std::fclose(file);
++      next = md::ParseMode(std::string(text, got), md::Mode::kOff);
++      from = path;
++    }
++    if (!fix177::logged || next != fix177::mode) {
++      // Copies still queued after "on" is left are merged at the next sync point as before (no
++      // wait here: this runs at the start of EndSubmission, which a wait would enter again).
++      XELOGW("Memexport delivery (fix 177): {}, from {}", md::ModeName(next), from);
++      fix177::mode = next;
++      fix177::logged = true;
++    }
++  }
++  if (fix177::line_at == std::chrono::steady_clock::time_point()) fix177::line_at = now;
++  const double seconds =
++      std::chrono::duration<double>(now - fix177::line_at).count();
++  if (seconds >= 30.0) {
++    const md::Stats& s = fix177::stats;
++    if (fix177::mode != md::Mode::kOff || s.queued || s.waits || s.verify_checked) {
++      XELOGW("{}", md::Line(fix177::mode, s, double(fix177::wait_ns) / 1e6 / seconds));
++    }
++    fix177::stats = md::Stats();
++    fix177::wait_ns = 0;
++    fix177::line_at = now;
++  }
++}
++
++// Fix 177: a point where the CPU could learn that the GPU went on: the queued merges first (with a
++// wait), and in "verify" the count of what the CPU changed since the last immediate merges.
++void VulkanCommandProcessor::GuestSyncPoint(uint32_t point) {
++  namespace md = xbox360ps5::memexport_deliver;
++  if (!fix177::verify_stored.empty()) {
++    fix177::stats.verify_checked += fix177::verify_stored.size();
++    fix177::stats.verify_changed +=
++        md::CountChanged(fix177::verify_stored, [this](uint32_t address) {
++          return md::LoadRaw(memory_->TranslatePhysical(address));
++        });
++    fix177::verify_stored.clear();
++  }
++  if (!fix177::pending.empty() && !fix177::delivering) Fix177Deliver(true, point);
++}
++
++// Fix 177: the queued merges whose copies the GPU has made (all of them after a wait), in draw
++// order, each keeping what the CPU wrote since its draw.
++void VulkanCommandProcessor::Fix177Deliver(bool wait, uint32_t point) {
++  namespace md = xbox360ps5::memexport_deliver;
++  if (fix177::pending.empty() || fix177::delivering) return;
++  fix177::delivering = true;
++  if (wait) {
++    ++fix177::stats.waits;
++    if (point < md::kPoints) ++fix177::stats.waits_by[point];
++    const uint64_t start = xbox360ps5::frame_cost::NowNs();
++    {
++      // Counted as fix 49's memexport readback wait, as the immediate wait it replaces.
++      namespace fc = xbox360ps5::frame_cost;
++      fc::CauseScope frame_cost_cause(fc::kMemexport);
++      AwaitAllQueueOperationsCompletion();
++    }
++    fix177::wait_ns += xbox360ps5::frame_cost::NowNs() - start;
++  }
++  const uint64_t completed = wait ? GetCompletedSubmission()
++                                  : completion_timeline_.UpdateAndGetCompletedSubmission();
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  const VkDevice device = GetVulkanDevice()->device();
++  while (!fix177::pending.empty() && fix177::pending.front().submission <= completed) {
++    fix177::Entry entry = std::move(fix177::pending.front());
++    fix177::pending.pop_front();
++    fix177::pending_bytes -= entry.size_class;
++    void* mapped = nullptr;
++    if (!device_lost_ && MapReadbackMemory(entry.memory, entry.coherent, &mapped) && mapped) {
++      const uint8_t* after = static_cast<const uint8_t*>(mapped);
++      const uint8_t* before = after + entry.before_offset;
++      for (const md::Range& range : entry.ranges) {
++        const md::Merged merged = md::MergeKeepingCpu(memory_->TranslatePhysical(range.start),
++                                                      before, after, range.length);
++        fix177::stats.written += merged.written;
++        fix177::stats.kept += merged.kept;
++        after += range.length;
++        before += range.length;
++      }
++      dfn.vkUnmapMemory(device, entry.memory);
++      ++fix177::stats.delivered;
++      fix177::stats.polled += !wait;
++    } else {
++      ++fix177::stats.failed;
++    }
++    entry.ranges.clear();
++    fix177::spare.push_back(std::move(entry));
++  }
++  fix177::delivering = false;
++}
++
++// Fix 177: a readback buffer for one queued draw, kept for reuse after its merge.
++bool VulkanCommandProcessor::Fix177AcquireBuffer(uint32_t bytes, void* entry_out) {
++  namespace md = xbox360ps5::memexport_deliver;
++  fix177::Entry& entry = *static_cast<fix177::Entry*>(entry_out);
++  const uint32_t size_class = md::SizeClass(bytes);
++  for (size_t i = 0; i < fix177::spare.size(); ++i) {
++    if (fix177::spare[i].size_class == size_class) {
++      entry = std::move(fix177::spare[i]);
++      fix177::spare.erase(fix177::spare.begin() + i);
++      return true;
++    }
++  }
++  const ui::vulkan::VulkanDevice* const vulkan_device = GetVulkanDevice();
++  uint32_t memory_type = 0;
++  if (!ui::vulkan::util::CreateDedicatedAllocationBuffer(
++          vulkan_device, size_class, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
++          ui::vulkan::util::MemoryPurpose::kReadback, entry.buffer, entry.memory,
++          &memory_type)) {
++    entry.buffer = VK_NULL_HANDLE;
++    entry.memory = VK_NULL_HANDLE;
++    return false;
++  }
++  entry.coherent = (vulkan_device->memory_types().host_coherent >> memory_type) & 1;
++  entry.size_class = size_class;
++  return true;
++}
++
++// Fix 177: at shutdown, after every submission completed.
++void VulkanCommandProcessor::Fix177DestroyBuffers() {
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  const VkDevice device = GetVulkanDevice()->device();
++  auto destroy = [&](fix177::Entry& entry) {
++    if (entry.buffer != VK_NULL_HANDLE) dfn.vkDestroyBuffer(device, entry.buffer, nullptr);
++    if (entry.memory != VK_NULL_HANDLE) dfn.vkFreeMemory(device, entry.memory, nullptr);
++  };
++  for (fix177::Entry& entry : fix177::pending) destroy(entry);
++  for (fix177::Entry& entry : fix177::spare) destroy(entry);
++  fix177::pending.clear();
++  fix177::spare.clear();
++  fix177::pending_bytes = 0;
++}
++
++// Fix 177: guest memory about to be uploaded over a queued range: its merge goes first.
++void VulkanCommandProcessor::Fix177BeforeUpload(void* context,
++                                                const std::pair<uint32_t, uint32_t>* ranges,
++                                                uint32_t count, uint32_t page_size_log2) {
++  auto* self = static_cast<VulkanCommandProcessor*>(context);
++  if (fix177::pending.empty() || fix177::delivering) return;
++  for (uint32_t i = 0; i < count; ++i) {
++    const uint32_t start = ranges[i].first << page_size_log2;
++    const uint32_t length = ranges[i].second << page_size_log2;
++    for (const fix177::Entry& entry : fix177::pending) {
++      if (xbox360ps5::memexport_deliver::AnyOverlap(entry.ranges, start, length)) {
++        self->Fix177Deliver(true, xbox360ps5::memexport_deliver::kUpload);
++        return;
++      }
++    }
++  }
++}
++#endif
++
+ VkBuffer VulkanCommandProcessor::RequestReadbackBuffer(uint32_t size) {
+   if (size == 0) {
+     return VK_NULL_HANDLE;
+@@ -7868,6 +8137,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
++  Fix177Refresh();               // fix 177
++  if (!fix177::delivering && !fix177::pending.empty()) Fix177Deliver(false, 0);
+ #endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 069d287..4a3aee1 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -574,6 +574,17 @@ class VulkanCommandProcessor final : public CommandProcessor {
+ 
+   // Requests a readback buffer for CPU access to GPU data.
+   VkBuffer RequestReadbackBuffer(uint32_t size);
++#if XE_PLATFORM_PS5
++  // Xbox360PS5, fix 177 (xenia/gpu/memexport_deliver.h): memory export readbacks queued and
++  // merged at the next point where the CPU could learn that the GPU went on.
++  void GuestSyncPoint(uint32_t point) override;
++  void Fix177Refresh();
++  void Fix177Deliver(bool wait, uint32_t point);
++  bool Fix177AcquireBuffer(uint32_t bytes, void* entry);
++  void Fix177DestroyBuffers();
++  static void Fix177BeforeUpload(void* context, const std::pair<uint32_t, uint32_t>* ranges,
++                                 uint32_t count, uint32_t page_size_log2);
++#endif
+   // Call only after the producing submission has completed. Maps the entire
+   // dedicated allocation so whole-range invalidation satisfies atom alignment.
+   bool MapReadbackMemory(VkDeviceMemory memory, bool host_coherent,
