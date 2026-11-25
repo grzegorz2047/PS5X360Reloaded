@@ -315,6 +315,19 @@ static void CheckScript() {
   CHECK(ni::kAnswerDelayFrames >= 3);  // after the wait's entry cleared the results
 }
 
+// Fix 156u (156u-nui-identity-proven-titles.patch): bound only in the titles it was proven in.
+// Dance Central 3 crashed on 1.0.6_candidate_9 with the functions bound (never called) and
+// played without the binding (162f).
+static void CheckProvenTitles() {
+  CHECK(ni::ProvenTitle(0x5553084E));   // Fighters Uncaged
+  CHECK(ni::ProvenTitle(0x4E4D084E));   // Dragon Ball Z for Kinect
+  CHECK(ni::ProvenTitle(0x4D5308C9));   // Kinect Sports
+  CHECK(!ni::ProvenTitle(0x373307D9));  // Dance Central 3
+  CHECK(!ni::ProvenTitle(0x4D4A07F0));  // Zumba Fitness
+  CHECK(!ni::ProvenTitle(0x4D5309D6));  // Kinect Sports Season Two (no in-title identify)
+  CHECK(!ni::ProvenTitle(0));
+}
+
 static void CheckTree() {
   const std::string cam = ReadText(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc");
   if (cam.empty()) {
@@ -344,6 +357,15 @@ static void CheckTree() {
   CHECK(Has(fn, "memory->SystemHeapFree(message);"));
   CHECK(Has(cam, "  xbox360ps5::motion::ResetVirtualNui();\n  xbox360ps5::nui_identity::Reset();  // fix 156l"));
   CHECK(Has(cam, "Virtual Kinect: the title's Kinect ID answers for the signed-in profile"));
+  // Fix 156u: the title check comes before anything is bound or the layout is set.
+  const size_t proven = cam.find("if (!xbox360ps5::nui_identity::ProvenTitle(title_id)) {");
+  const size_t layout_set = cam.find("xbox360ps5::nui_identity::bound_layout = int(found.layout);");
+  const size_t bind = cam.find("!BindTitleFunction(kernel_state, xex, enrollment, IdentityEnrollmentHandler)");
+  CHECK(proven != std::string::npos && layout_set != std::string::npos && bind != std::string::npos);
+  CHECK(proven < layout_set && proven < bind);
+  CHECK(Has(cam, "const uint32_t title_id = kernel_state->title_id();"));
+  CHECK(Has(cam, "not bound in \"\n"
+                 "           \"title {:08X}, which keeps its own identification (fix 156u)\""));
   // Fix 156q: the layout is the bound identify's, and the flags follow it.
   CHECK(Has(cam, "xbox360ps5::nui_identity::bound_layout = int(found.layout);  // fix 156q"));
   CHECK(Has(cam, "xbox360ps5::nui_identity::AllowedFlags(layout));  // fix 156q"));
@@ -355,6 +377,7 @@ int main() {
   CheckMessages();
   CheckScript();
   CheckNewBuild();
+  CheckProvenTitles();
   CheckTree();
   if (failures) {
     std::printf("check-nui-identity: %d failure(s)\n", failures);

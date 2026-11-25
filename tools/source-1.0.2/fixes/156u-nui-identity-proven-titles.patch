@@ -1,0 +1,46 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -145,6 +145,24 @@ inline Found FindIdentityFunctions(const motion::CodeView& view) {
+   return found;
+ }
+ 
++// ---- Fix 156u: only in titles where the answer was proven ----------------------------------
++// 1.0.6_candidate_9: Dance Central 3 (373307D9) crashed 22 s after its start (an observer list
++// at 82553440 walked into an object without a vtable) with both functions bound and never
++// called; on 162f, without the binding, it played a song. The answer stays for the titles it
++// was tested in: Fighters Uncaged (it identifies with it), Dragon Ball Z for Kinect and Kinect
++// Sports (they ran bound since 156l/156q). Any other title, where the shapes are found too
++// (Dance Central 3, Zumba Fitness), keeps its own identification, as before 156l.
++inline bool ProvenTitle(uint32_t title_id) {
++  switch (title_id) {
++    case 0x5553084E:  // Fighters Uncaged
++    case 0x4E4D084E:  // Dragon Ball Z for Kinect
++    case 0x4D5308C9:  // Kinect Sports
++      return true;
++    default:
++      return false;
++  }
++}
++
+ // ---- Identify: requests, answered on the title's next skeleton frame ------------------------
+ struct Request {
+   uint32_t tracking_id = 0, callback = 0, context = 0;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -1509,6 +1509,14 @@ void BindIdentity(KernelState* kernel_state, cpu::XexModule* xex, uint32_t base,
+     return;
+   }
+   const uint32_t identify = found.identify[0], enrollment = found.enrollment[0];
++  // Fix 156u: bound only where the answer was proven (nui_identity.hpp ProvenTitle).
++  const uint32_t title_id = kernel_state->title_id();
++  if (!xbox360ps5::nui_identity::ProvenTitle(title_id)) {
++    XELOGW("Virtual Kinect: the title's Kinect ID functions are at {:08X} / {:08X}; not bound in "
++           "title {:08X}, which keeps its own identification (fix 156u)", identify, enrollment,
++           title_id);
++    return;
++  }
+   xbox360ps5::nui_identity::bound_layout = int(found.layout);  // fix 156q
+   if (!BindTitleFunction(kernel_state, xex, enrollment, IdentityEnrollmentHandler) ||
+       !BindTitleFunction(kernel_state, xex, identify, IdentityIdentifyHandler)) {
