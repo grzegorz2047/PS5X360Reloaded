@@ -1,0 +1,37 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -79,6 +79,7 @@
+ #include <cstdio>
+ #include <mutex>
+ #include <string>
++#include <array>
+ #include <unordered_map>
+ #include <vector>
+ 
+@@ -285,8 +286,11 @@ inline std::string TrimLine(uint64_t destroyed, uint64_t kept, uint64_t driver_b
+ // a session), so the stadium's big screen showed green blocks and the replay panel stayed black;
+ // and its render targets (up to 3680x2880 at 2x) reached 4252 MiB with the utility cache on the
+ // drive, so fix 117b put several of them at 1x within minutes. At 1x both are fine (150d3).
++// Fix 162a: Kinect Sports is off the list: its camera classes are kept at 1x
++// (CompiledNativeClasses), and Automatic (fix 163) takes it to 1x if 2x still runs out of memory.
++#define XBOX360PS5_KINECT_SPORTS_CAMERA_CLASSES 1  // fix 162a (the host checks look for it)
+ inline bool TwoXUnfit(const std::string& title_id) {
+-  static constexpr const char* kTitles[] = {"4D5308C9"};
++  static constexpr std::array<const char*, 0> kTitles{};
+   for (const char* id : kTitles) {
+     if (title_id.size() != 8) continue;
+     bool same = true;
+@@ -379,6 +383,12 @@ inline std::vector<NativeClass> CompiledNativeClasses(const std::string& title_i
+   for (char ch : title_id) id += char(std::toupper(static_cast<unsigned char>(ch)));
+   // Red Dead Redemption: the shadow cascade's depth and the passes of 40 to 200 pixels (fix 117k).
+   if (id == "5454082B") return ParseNativeClasses("800x1 40x4 80x4 80x1 120x4 160x4 160x1 200x4");
++  // Fix 162a: Kinect Sports: the targets its Kinect camera pictures are copied from with copy
++  // command 2, which the core does only from targets at 1x (scaled, they were skipped: the big
++  // screen green, the replay panel black). 1.0.6-work-fix161b at 2x: every owner of those copies
++  // was k_8_8_8_8 1xMSAA at EDRAM base 0, pitch 80, 160 or 320 (a chain 320x120 down to 8x8).
++  // These classes held 32 of its 64 scaled targets, about 1 GiB at 2x.
++  if (id == "4D5308C9") return ParseNativeClasses("80x1 160x1 320x1");
+   return {};
+ }
+ // Set as a game starts (before it draws), read while it draws.

@@ -44,12 +44,21 @@ const std::string kNotice =
 
 void Rule() {
   namespace rs = xbox360ps5::resolution_scale;
+#ifdef XBOX360PS5_KINECT_SPORTS_CAMERA_CLASSES
+  // Fix 162a: Kinect Sports is off the list (its camera classes at 1x instead,
+  // tools/check-kinect-camera-classes.cpp); the list is empty, the rule still works.
+  Expect(!rs::TwoXUnfit("4D5308C9") && !rs::TwoXUnfit("4d5308c9"),
+         "(a) fix 162a: Kinect Sports (4D5308C9) is off the list: 2x allowed");
+  Expect(rs::ChoiceFor(1, "4D5308C9") == 1 && rs::ChoiceFor(0, "4D5308C9") == 0,
+         "(a) fix 162a: Kinect Sports keeps its choice (2x stays 2x, 1x stays 1x)");
+#else
   Expect(rs::TwoXUnfit("4D5308C9") && rs::TwoXUnfit("4d5308c9"), "(a) Kinect Sports (4D5308C9, either case): 1x");
+  Expect(rs::ChoiceFor(1, "4D5308C9") == 0 && rs::ChoiceFor(0, "4D5308C9") == 0,
+         "(a) Kinect Sports: 2x chosen gives 1x, 1x stays 1x");
+#endif
   Expect(!rs::TwoXUnfit("4D5309D6") && !rs::TwoXUnfit("545407F2") && !rs::TwoXUnfit("") &&
              !rs::TwoXUnfit("4D5308C"),
          "(a) Season Two (not measured), GTA IV, no title, a short ID: 2x allowed");
-  Expect(rs::ChoiceFor(1, "4D5308C9") == 0 && rs::ChoiceFor(0, "4D5308C9") == 0,
-         "(a) Kinect Sports: 2x chosen gives 1x, 1x stays 1x");
   Expect(rs::ChoiceFor(1, "545407F2") == 1 && rs::ChoiceFor(0, "545407F2") == 0 && rs::ChoiceFor(1, "") == 1,
          "(a) another game and the launcher (no title) keep their choice");
 }

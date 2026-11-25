@@ -178,6 +178,10 @@ checks=(
   check-log-ring.cpp               # fix 154
   check-utility-cache-drive.cpp    # fixes 150c, 150d and 150f
   check-two-x-unfit.cpp            # fix 150g
+  check-kinect-camera-classes.cpp  # fix 162a
+  check-scale-pressure.cpp         # fixes 162c and 163
+  check-kinect-title-rule.cpp      # fixes 162f and 163
+  check-auto-scale.cpp             # fix 163
   check-write-bench.cpp            # fixes 148i, 148j, 148k
   check-xma-trace.cpp              # fixes 155, 155b
   check-xma-progress.cpp           # fix 155b
@@ -205,6 +209,7 @@ declare -A arguments=(
   [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-two-x-unfit.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-auto-scale.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-save-devices.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-cover-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-ui-lang-overlay.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -361,6 +366,10 @@ declare -A fix_of=(
   [check-log-ring.cpp]=154
   [check-utility-cache-drive.cpp]="150c 150d"
   [check-two-x-unfit.cpp]=150g
+  [check-kinect-camera-classes.cpp]=162a
+  [check-scale-pressure.cpp]="162c 163"
+  [check-kinect-title-rule.cpp]="162f 163"
+  [check-auto-scale.cpp]=163
   [check-xma-trace.cpp]="155 155b"
   [check-xma-progress.cpp]=155b
   [check-gta5-audio-patch.cpp]=155c
