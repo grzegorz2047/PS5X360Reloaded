@@ -164,8 +164,8 @@ index a8a31b7..5c8162c 100644
 @@ -1014,4 +1014,4 @@ export function summaryValues(report) {
  }
  )LATENCYJS";
--inline constexpr char kPageVersion[] = "a51b77192b989ffb";
-+inline constexpr char kPageVersion[] = "c1c248e8c78793a0";
+-inline constexpr char kPageVersion[] = "0d9d02b8b6a8ed56";
++inline constexpr char kPageVersion[] = "814ed94c7ce1cec5";
  }  // namespace xbox360ps5::phone_camera
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 index 88d812f..a695f63 100644
