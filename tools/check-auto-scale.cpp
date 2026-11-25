@@ -44,6 +44,15 @@ std::string Squeezed(const std::string& text) {
     if (c != ' ' && c != '\t' && c != '\r' && c != '\n') out += c;
   return out;
 }
+// Fix 165 moves the user's files to UserData() (/data/homebrew/PPSA83600): a path may be either.
+size_t FindStored(const std::string& squeezed_source, const std::string& text) {
+  const size_t internal = squeezed_source.find(Squeezed(text));
+  if (internal != std::string::npos) return internal;
+  std::string moved = text;
+  for (size_t at = moved.find("kStorage /"); at != std::string::npos; at = moved.find("kStorage /", at))
+    moved.replace(at, 10, "UserData() /");
+  return squeezed_source.find(Squeezed(moved));
+}
 const char* kChoice = "Automatic (2x while the game keeps 30 fps)";
 const char* kNotice = "This game runs better at 1x: from its next start it runs at 1x.";
 const char* kAbout =
@@ -132,7 +141,7 @@ void Wiring() {
                                 kAbout + "\", {\"1x (720p, native)\", \"2x (1440p, demanding)\", \"" + kChoice + "\"}},")) !=
              std::string::npos,
          "(b) the option: Automatic its third choice and recommended, the help says what it does");
-  const size_t marker = launcher.find(Squeezed("const fs::path marker = kStorage / \"draw_scale.fix163\";"));
+  const size_t marker = FindStored(launcher, "const fs::path marker = kStorage / \"draw_scale.fix163\";");
   const size_t migrate = launcher.find(Squeezed("if (draw_scale == 0) draw_scale = xbox360ps5::auto_scale::kAutomatic;"), marker);
   Expect(marker != std::string::npos && migrate != std::string::npos &&
              launcher.find(Squeezed("Save();"), migrate) != std::string::npos,
@@ -144,9 +153,9 @@ void Wiring() {
   Expect(for_game != std::string::npos && resolve != std::string::npos && verdict != std::string::npos &&
              (cap == std::string::npos || resolve < cap),
          "(b) ForGame resolves Automatic with the game's verdict (before fix 150g's cap)");
-  Expect(launcher.find(Squeezed("std::ifstream input(kStorage / \"game-settings\" / (title_id + \".scale.txt\"));")) !=
+  Expect(FindStored(launcher, "std::ifstream input(kStorage / \"game-settings\" / (title_id + \".scale.txt\"));") !=
                  std::string::npos &&
-             launcher.find(Squeezed("fs::remove(kStorage / \"game-settings\" / (title_id + \".scale.txt\"), error);")) !=
+             FindStored(launcher, "fs::remove(kStorage / \"game-settings\" / (title_id + \".scale.txt\"), error);") !=
                  std::string::npos,
          "(b) the verdict in game-settings/<TITLE ID>.scale.txt");
   Expect(launcher.find(Squeezed("overrides_.clear(); SaveGameOverrides(Selected()->title_id, overrides_); "
