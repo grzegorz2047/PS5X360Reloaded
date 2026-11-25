@@ -1,0 +1,437 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_audio.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_audio.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_audio.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_audio.cc
+@@ -7,19 +7,205 @@
+  ******************************************************************************
+  */
+ 
++#include <atomic>   // fix 178
++#include <chrono>   // fix 178
++#include <cstring>  // fix 178
++#include <mutex>    // fix 178
++
++#include "xbox360ps5/motion_input.hpp"  // fix 178
++#include "xbox360ps5/virtual_mic.hpp"   // fix 178
+ #include "xenia/apu/audio_system.h"
++#include "xenia/base/logging.h"
++#include "xenia/base/threading.h"
++#include "xenia/cpu/processor.h"
+ #include "xenia/emulator.h"
+ #include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/kinect_title.h"  // fix 178
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
++#include "xenia/kernel/xevent.h"
++#include "xenia/kernel/xthread.h"
+ #include "xenia/xbox.h"
+ 
+ DECLARE_uint32(audio_flag);
+ 
++DEFINE_bool(kinect_microphone, true,
++            "Fix 178: a virtual Kinect microphone array that hears silence, for titles that "
++            "require Kinect, with the phone's motion on. Off: no microphone array (the capture "
++            "fails as device not connected).",
++            "Kinect");
++
+ namespace xe {
+ namespace kernel {
+ namespace xboxkrnl {
+ 
++// ---- Xbox360PS5 fix 178: the virtual Kinect microphone array (xbox360ps5/virtual_mic.hpp) ----
++// Harry Potter Kinect starts the Kinect audio capture every frame and shows "Kinect required"
++// until it works (issue 76). The NUI audio library hands its two microphone requests to
++// XamVoiceGetMicArrayAudioEx (xam_voice.cc), registers its pump as the render driver's echo
++// canceller client and expects the pump to be called every render-driver tic (5.33 ms), each
++// request to come back filled with 16 ms of audio (silence here) numbered by the tic its block
++// started at, and the speakers' frame on request.
++namespace {
++namespace vm = xbox360ps5::virtual_mic;
++
++class GuestMemory : public vm::Memory {
++ public:
++  bool Read32(uint32_t address, uint32_t* value) override {
++    if (!Allowed(address, 4, false)) return false;
++    *value = xe::load_and_swap<uint32_t>(kernel_memory()->TranslateVirtual(address));
++    return true;
++  }
++  bool Writable(uint32_t address, uint32_t size) override { return Allowed(address, size, true); }
++  void Zero(uint32_t address, uint32_t size) override {
++    std::memset(kernel_memory()->TranslateVirtual(address), 0, size);
++  }
++  void Write16(uint32_t address, uint16_t value) override {
++    xe::store_and_swap<uint16_t>(kernel_memory()->TranslateVirtual(address), value);
++  }
++  void Write32(uint32_t address, uint32_t value) override {
++    xe::store_and_swap<uint32_t>(kernel_memory()->TranslateVirtual(address), value);
++  }
++
++ private:
++  static bool Allowed(uint32_t address, uint32_t size, bool write) {
++    if (!address || uint64_t(address) + size > 0x100000000ull) return false;
++    for (uint64_t at = address; at < uint64_t(address) + size;
++         at = (at & ~uint64_t(4095)) + 4096) {
++      auto* heap = kernel_memory()->LookupHeap(uint32_t(at));
++      uint32_t protection = 0;
++      if (!heap || !heap->QueryProtect(uint32_t(at), &protection) ||
++          !(protection & kMemoryProtectRead) ||
++          (write && !(protection & kMemoryProtectWrite)))
++        return false;
++    }
++    return true;
++  }
++};
++
++constexpr uint32_t kMecHandle = 0x4D454301;  // "MEC" 1
++constexpr uint32_t kNotConnected = 0x8007048F;
++vm::Queue mic_requests;
++std::mutex mec_mutex;
++object_ref<XHostThread> mec_thread;
++std::atomic<uint32_t> mec_generation{0};
++std::atomic<bool> mec_running{false};
++std::atomic<uint32_t> mec_callback{0}, mec_callback_arg{0}, mec_title{0};
++std::atomic<uint32_t> driver_tic{0};
++const auto clock_start = std::chrono::steady_clock::now();
++
++uint64_t ClockNanoseconds() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                      std::chrono::steady_clock::now() - clock_start)
++                      .count());
++}
++void MicLog(const char* what, uint32_t a, uint32_t b) {
++  static std::atomic<uint32_t> shown{0};
++  if (shown.fetch_add(1) < 16)
++    XELOGW("Kinect microphone: {} ({:08X}, {:08X}) (fix 178)", what, a, b);
++}
++
++// The pump thread: follows the render-driver clock, completes the oldest request at each tic
++// that ends a block, and calls the library's pump once per tic.
++void MecPumpMain(uint32_t generation) {
++  uint32_t tic = vm::TicAt(ClockNanoseconds());
++  uint32_t completed = 0;
++  while (mec_running.load() && mec_generation.load() == generation &&
++         kernel_state()->title_id() == mec_title.load()) {
++    const uint64_t next = vm::TicStart(tic + 1), now = ClockNanoseconds();
++    if (next > now) xe::threading::Sleep(std::chrono::microseconds((next - now + 999) / 1000));
++    const uint32_t target = vm::TicAt(ClockNanoseconds());
++    // Late: catch up a few tics, then skip ahead (the pump resynchronises on its own).
++    if (target - tic > 6) tic = target - 6;
++    while (tic != target && mec_running.load() && mec_generation.load() == generation) {
++      ++tic;
++      driver_tic.store(tic);
++      vm::Request request;
++      if (mic_requests.Take(tic, &request)) {
++        GuestMemory memory;
++        vm::CompleteSilent(memory, request.request, vm::BlockSequence(tic));
++        if (auto event = XObject::GetNativeObject<XEvent>(
++                kernel_state(), kernel_memory()->TranslateVirtual(request.event)))
++          event->Set(0, false);
++        if (++completed == 1)
++          MicLog("first silent block delivered (request, event)", request.request,
++                 request.event);
++      }
++      uint64_t args[] = {mec_callback_arg.load()};
++      kernel_state()->processor()->Execute(XThread::GetCurrentThread()->thread_state(),
++                                           mec_callback.load(), args, 1);
++    }
++  }
++}
++}  // namespace
++
++// For xam_voice.cc (XamVoiceGetMicArrayAudioEx) and xam_nui.cc (fix 170's audio read rule).
++bool VirtualMicOn() {
++  return cvars::kinect_microphone && xbox360ps5::motion::enabled.load() &&
++         KinectRequiredTitle(kernel_state());
++}
++bool VirtualMicSubmit(uint32_t request, uint32_t event) {
++  GuestMemory memory;
++  if (!event || !vm::ValidRequest(memory, request)) return false;
++  return mic_requests.Submit({request, event});
++}
++
++dword_result_t XAudioRegisterRenderDriverMECClient_entry(lpdword_t callback_ptr,
++                                                         lpdword_t handle_ptr) {
++  if (!VirtualMicOn()) {
++    MicLog("XAudioRegisterRenderDriverMECClient: no microphone array (callback, result)",
++           callback_ptr.guest_address(), kNotConnected);
++    return kNotConnected;
++  }
++  if (!callback_ptr || !callback_ptr[0]) return X_E_INVALIDARG;
++  std::lock_guard lock(mec_mutex);
++  mec_callback.store(callback_ptr[0]);
++  mec_callback_arg.store(callback_ptr[1]);
++  mec_title.store(kernel_state()->title_id());
++  const uint32_t generation = mec_generation.fetch_add(1) + 1;
++  mec_running.store(true);
++  mec_thread = object_ref<XHostThread>(new XHostThread(
++      kernel_state(), 128 * 1024, 0,
++      [generation]() {
++        MecPumpMain(generation);
++        return 0;
++      },
++      kernel_state()->GetTitleProcess()));
++  mec_thread->set_name("Kinect Microphone Pump");
++  mec_thread->Create();
++  mec_thread->SetPriority(24);
++  if (handle_ptr) *handle_ptr = kMecHandle;
++  MicLog("XAudioRegisterRenderDriverMECClient: the pump runs every tic (callback, arg)",
++         callback_ptr[0], callback_ptr[1]);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XBOXKRNL_EXPORT1(XAudioRegisterRenderDriverMECClient, kAudio, kImplemented);
++
++dword_result_t XAudioUnregisterRenderDriverMECClient_entry(dword_t handle) {
++  std::lock_guard lock(mec_mutex);
++  mec_running.store(false);
++  mec_generation.fetch_add(1);
++  mic_requests.Clear();
++  mec_thread.reset();  // the thread ends at its next tic; never joined from a guest thread
++  MicLog("XAudioUnregisterRenderDriverMECClient (handle, 0)", uint32_t(handle), 0);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XBOXKRNL_EXPORT1(XAudioUnregisterRenderDriverMECClient, kAudio, kImplemented);
++
++dword_result_t XAudioGetRenderDriverTic_entry() {
++  return mec_running.load() ? driver_tic.load() : vm::TicAt(ClockNanoseconds());
++}
++DECLARE_XBOXKRNL_EXPORT2(XAudioGetRenderDriverTic, kAudio, kImplemented, kHighFrequency);
++
++// The speakers' last frame for the echo canceller: silence (256 samples, 6 channels).
++dword_result_t XAudioCaptureRenderDriverFrame_entry(dword_t handle, dword_t buffer) {
++  GuestMemory memory;
++  if (!buffer || !memory.Writable(buffer, vm::kSpeakerFrameBytes)) return X_E_INVALIDARG;
++  memory.Zero(buffer, vm::kSpeakerFrameBytes);
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XBOXKRNL_EXPORT2(XAudioCaptureRenderDriverFrame, kAudio, kImplemented, kHighFrequency);
++
+ dword_result_t XAudioGetSpeakerConfig_entry(lpdword_t config_ptr) {
+   kernel_state()->xconfig()->ReadSetting(
+       XCONFIG_USER_CATEGORY,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_voice.cc
+@@ -16,6 +16,11 @@
+ 
+ namespace xe {
+ namespace kernel {
++namespace xboxkrnl {
++// Fix 178 (xboxkrnl_audio.cc): the virtual Kinect microphone array.
++bool VirtualMicOn();
++bool VirtualMicSubmit(uint32_t request, uint32_t event);
++}  // namespace xboxkrnl
+ namespace xam {
+ 
+ dword_result_t XamVoiceIsActiveProcess_entry() {
+@@ -73,12 +78,34 @@ constexpr uint32_t kMicArrayNotConnected = 0x8007048F;
+ 
+ dword_result_t XamVoiceGetMicArrayAudioEx_entry(dword_t a1, dword_t a2, dword_t a3,
+                                                 dword_t a4) {
++  // Fix 178 (xbox360ps5/virtual_mic.hpp): for a title that requires Kinect, with the phone's
++  // motion on, the array is there: the request (a1, 0x68 bytes naming its five buffers) is
++  // queued with its event (a2), and the pump thread fills it with 16 ms of silence. Harry
++  // Potter shows "Kinect required" for as long as its capture fails (issue 76).
++  if (xboxkrnl::VirtualMicOn()) {
++    const bool queued = xboxkrnl::VirtualMicSubmit(uint32_t(a1), uint32_t(a2));
++    static std::atomic<uint32_t> virtual_shown{0};
++    if (virtual_shown.fetch_add(1) < 8)
++      XELOGW("Kinect microphone: XamVoiceGetMicArrayAudioEx({:08X}, {:08X}) -> {:08X}, "
++             "virtual microphone array, silence (fix 178)",
++             uint32_t(a1), uint32_t(a2), queued ? 0u : uint32_t(X_E_INVALIDARG));
++    return queued ? X_ERROR_SUCCESS : X_E_INVALIDARG;
++  }
+   MicArrayLog("XamVoiceGetMicArrayAudioEx", uint32_t(a1), uint32_t(a2),
+               kMicArrayNotConnected);
+   return kMicArrayNotConnected;
+ }
+ DECLARE_XAM_EXPORT1(XamVoiceGetMicArrayAudioEx, kNone, kStub);
+ 
++// Fix 178: no buffer of the array ran dry (the capture pump resets on bits 0x3 of the first).
++// It was an undefined extern, which left the pump's stack words as they were.
++dword_result_t XamVoiceGetMicArrayUnderrunStatus_entry(lpdword_t underrun, lpdword_t other) {
++  if (underrun) *underrun = 0;
++  if (other) *other = 0;
++  return X_ERROR_SUCCESS;
++}
++DECLARE_XAM_EXPORT1(XamVoiceGetMicArrayUnderrunStatus, kNone, kStub);
++
+ dword_result_t XamVoiceSetMicArrayIdleUsers_entry(dword_t a1, dword_t a2) {
+   MicArrayLog("XamVoiceSetMicArrayIdleUsers", uint32_t(a1), uint32_t(a2), 0);
+   return X_ERROR_SUCCESS;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+@@ -23,6 +23,9 @@
+ 
+ namespace xe {
+ namespace kernel {
++namespace xboxkrnl {
++bool VirtualMicOn();  // fix 178 (xboxkrnl_audio.cc)
++}  // namespace xboxkrnl
+ namespace xam {
+ namespace {
+ // Fix 99b: the Kinect ID and system calls answered below, logged (the first 32).
+@@ -116,8 +119,13 @@ dword_result_t XamNuiGetDeviceStatus_entry(
+     // again on every timeout while the device is ready: told not ready, it fails instead of
+     // waiting forever (Harry Potter, issue 74). Every other caller gets fix 156's bits.
+     uint32_t speech_at = 0;
+-    const auto site = xbox360ps5::nui_speech::ClassifyCaller(uint32_t(ctx->lr), uint32_t(ctx->r[1]),
+-                                                             NuiReadWord, &speech_at);
++    auto site = xbox360ps5::nui_speech::ClassifyCaller(uint32_t(ctx->lr), uint32_t(ctx->r[1]),
++                                                       NuiReadWord, &speech_at);
++    // Fix 178: with the virtual microphone array the capture delivers (silent) audio, so the
++    // Read waits for it as on a console; start-up still fails rather than waits for a
++    // notification the emulator does not send.
++    if (site == xbox360ps5::nui_speech::Site::kRead && xboxkrnl::VirtualMicOn())
++      site = xbox360ps5::nui_speech::Site::kOther;
+     const uint32_t bits = xbox360ps5::nui_speech::SpeechStatusBits(site, status.status_bits);
+     status_ptr->status_bits = bits;
+     if (bits != status.status_bits) {
+diff --git a/include/xbox360ps5/virtual_mic.hpp b/include/xbox360ps5/virtual_mic.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/virtual_mic.hpp
+@@ -0,0 +1,144 @@
++// SPDX-License-Identifier: MIT
++// Fix 178 (Harry Potter Kinect 57520826, issue 76): a virtual Kinect microphone array that is
++// there and hears silence.
++//
++// Harry Potter's audio manager (82796380, run every frame until it works) starts the Kinect audio
++// capture (the NUI audio library's start, 82BE43E0, flags 5). With fix 156f's "no microphone
++// array" (XamVoiceGetMicArrayAudioEx -> 0x8007048F) the start fails, and the title answers that
++// one error with XamShowNuiHardwareRequiredUI (82796534: any other error stops it on purpose),
++// then tries again: the "Kinect required" message never goes away (1.0.6-work-fix174, 23 dialogs).
++// A console's Kinect always has its microphones, so no title is written for a Kinect without them.
++//
++// The capture protocol, read from the NUI audio library (NUIAUD 2.0.21173.0; Zumba Fitness
++// Core's copy at 8254DDE8..8254F7E8, the same build as Harry Potter's):
++//  - The library owns two 0x68-byte requests (Zumba 82A6E510/82A6E578), each with its own
++//    event, and keeps one of them with the system at all times. A request names its buffers:
++//      +0x00 size 0x68; +0x04 the processed mono block (0x200 bytes); +0x08..+0x14 the four
++//      microphones (0x400 bytes each); +0x18..+0x28 those sizes; +0x40 the block's sequence (the
++//      16-bit render-driver tic it starts at); +0x44/+0x48 two floats (the beam's direction);
++//      +0x64 0x20.
++//    XamVoiceGetMicArrayAudioEx(request, event) hands one to the system, which fills it with
++//    16 ms of audio (3 render-driver tics of 5.33 ms) and sets the event.
++//  - XAudioRegisterRenderDriverMECClient({callback, arg}, &handle) registers the library's pump
++//    (8254DDE8), which the render driver calls every tic. The pump reads XAudioGetRenderDriverTic,
++//    XamVoiceGetMicArrayUnderrunStatus (a bit in 0x3 resets the capture), polls the request it
++//    waits for, and requires each completed block's sequence to be the previous one plus 3;
++//    it locks onto the stream when a block starts at a tic it noted (a tic divisible by 3), then
++//    hands the request back, copies the blocks into its rings and, with the echo canceller,
++//    takes the speakers' frame each tic (XAudioCaptureRenderDriverFrame: 256 samples of 6
++//    channels, 0x1800 bytes) and wakes its capture thread (8254E4D8), which feeds the speech
++//    library's audio source.
++// The virtual array: requests are queued; a pump thread follows the render-driver clock, and at
++// each tic divisible by 3 completes the oldest request as the block that started 3 tics before,
++// all zeros (silence), then calls the pump. The speakers' frame is zeros too.
++#pragma once
++#include <cstdint>
++#include <deque>
++#include <mutex>
++
++namespace xbox360ps5::virtual_mic {
++
++// The render driver's clock: 256 samples at 48 kHz.
++constexpr uint64_t kTicNanoseconds = 16000000 / 3;  // 5.333 ms
++constexpr uint32_t kTicsPerBlock = 3;                // 16 ms of 16 kHz audio
++constexpr uint32_t kSpeakerFrameBytes = 256 * 6 * 4;  // XAudioCaptureRenderDriverFrame
++
++// The request (all big-endian words).
++constexpr uint32_t kRequestSize = 0x68;
++constexpr uint32_t kBufferPointers = 0x04;  // 5 pointers: mono, then the 4 microphones
++constexpr uint32_t kBufferSizes = 0x18;     // their 5 sizes
++constexpr uint32_t kBufferCount = 5;
++constexpr uint32_t kSequence = 0x40;        // 16 bits
++constexpr uint32_t kBeam = 0x44;            // 2 floats
++constexpr uint32_t kLargestBuffer = 0x10000;
++
++inline uint32_t TicAt(uint64_t nanoseconds) { return uint32_t(nanoseconds / kTicNanoseconds); }
++inline uint64_t TicStart(uint32_t tic) { return uint64_t(tic) * kTicNanoseconds; }
++
++// A tic at which a block ends (the pump's own rule: the 16-bit tic divisible by 3).
++inline bool BlockEnds(uint32_t tic) { return (tic & 0xFFFF) % kTicsPerBlock == 0; }
++// The sequence of the block that ends at `tic`.
++inline uint16_t BlockSequence(uint32_t tic) { return uint16_t((tic - kTicsPerBlock) & 0xFFFF); }
++
++struct Request {
++  uint32_t request = 0;  // guest address
++  uint32_t event = 0;    // guest KEVENT
++};
++
++// Guest memory as the completion needs it.
++struct Memory {
++  virtual bool Read32(uint32_t address, uint32_t* value) = 0;
++  virtual bool Writable(uint32_t address, uint32_t size) = 0;
++  virtual void Zero(uint32_t address, uint32_t size) = 0;
++  virtual void Write16(uint32_t address, uint16_t value) = 0;
++  virtual void Write32(uint32_t address, uint32_t value) = 0;
++  virtual ~Memory() = default;
++};
++
++// A request the virtual array can fill: the right size, and each buffer writable at its size.
++inline bool ValidRequest(Memory& memory, uint32_t request) {
++  uint32_t size = 0;
++  if (!request || !memory.Read32(request, &size) || size != kRequestSize) return false;
++  if (!memory.Writable(request, kRequestSize)) return false;
++  for (uint32_t i = 0; i < kBufferCount; ++i) {
++    uint32_t pointer = 0, bytes = 0;
++    if (!memory.Read32(request + kBufferPointers + 4 * i, &pointer) ||
++        !memory.Read32(request + kBufferSizes + 4 * i, &bytes))
++      return false;
++    if (!pointer || !bytes || bytes > kLargestBuffer || !memory.Writable(pointer, bytes))
++      return false;
++  }
++  return true;
++}
++
++// Fill a request with a silent block: zero samples, the block's sequence, a centred beam.
++inline void CompleteSilent(Memory& memory, uint32_t request, uint16_t sequence) {
++  for (uint32_t i = 0; i < kBufferCount; ++i) {
++    uint32_t pointer = 0, bytes = 0;
++    if (memory.Read32(request + kBufferPointers + 4 * i, &pointer) &&
++        memory.Read32(request + kBufferSizes + 4 * i, &bytes) && pointer && bytes &&
++        bytes <= kLargestBuffer)
++      memory.Zero(pointer, bytes);
++  }
++  memory.Write16(request + kSequence, sequence);
++  memory.Write32(request + kBeam, 0);      // 0.0f
++  memory.Write32(request + kBeam + 4, 0);  // 0.0f
++}
++
++// The requests the title handed over, oldest first.
++class Queue {
++ public:
++  static constexpr size_t kMaxPending = 8;
++  bool Submit(Request request) {
++    std::lock_guard lock(mutex_);
++    if (pending_.size() >= kMaxPending) return false;
++    pending_.push_back(request);
++    return true;
++  }
++  // The request that completes at `tic`, if a block ends there.
++  bool Take(uint32_t tic, Request* out) {
++    std::lock_guard lock(mutex_);
++    if (!BlockEnds(tic) || pending_.empty()) return false;
++    *out = pending_.front();
++    pending_.pop_front();
++    return true;
++  }
++  void Clear() {
++    std::lock_guard lock(mutex_);
++    pending_.clear();
++  }
++  size_t size() {
++    std::lock_guard lock(mutex_);
++    return pending_.size();
++  }
++
++ private:
++  std::mutex mutex_;
++  std::deque<Request> pending_;
++};
++
++// The pump's checks on the blocks it gets (Zumba 8254DA08: the 16-bit difference, and 3 for
++// consecutive blocks; a lock onto the stream needs a block starting at a noted tic).
++inline int16_t SequenceDifference(uint16_t a, uint16_t b) { return int16_t(uint16_t(a - b)); }
++
++}  // namespace xbox360ps5::virtual_mic
