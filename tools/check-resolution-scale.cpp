@@ -658,9 +658,11 @@ void CheckCore() {
   Expect(native_check != std::string::npos && threshold_read != std::string::npos && native_check < threshold_read,
          "fix 117k: IsScaleNativeForPitch asks the game's class list before the threshold");
   const size_t file_fn = launcher.find("std::string NativeClassesTextFor(const std::string& title_id) {");
+  // Fix 165: in the user's data folder (UserData()); before 165 the internal storage (kStorage).
   Expect(file_fn != std::string::npos &&
-             launcher.find("kStorage / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos,
-         "fix 117k: the launcher reads /download0/xbox360ps5/resolution-scale/<TITLE ID>.txt");
+             (launcher.find("UserData() / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos ||
+              launcher.find("kStorage / \"resolution-scale\" / (title_id + \".txt\")", file_fn) != std::string::npos),
+         "fix 117k: the launcher reads <data>/resolution-scale/<TITLE ID>.txt");
   const size_t classes_set = game_main.find("xbox360ps5::resolution_scale::SetNativeClasses(");
   Expect(Has(game_main, "std::string NativeClassesTextFor(const std::string& title_id);") &&
              Has(game_main, "classes_text.empty() ? xbox360ps5::resolution_scale::CompiledNativeClasses(settings_title)\n"
