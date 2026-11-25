@@ -42,9 +42,18 @@ std::string Squeezed(const std::filesystem::path& path) {
 
 void List() {
   Expect(rs::AutomaticStartsAtOneX("4D5308C9") && rs::AutomaticStartsAtOneX("4d5308c9"), "(a) Kinect Sports (either case) is listed");
+#ifdef XBOX360PS5_KINECT_SPORTS_2
+  // Fix 162d: Kinect Sports: Season Two too.
+  Expect(rs::AutomaticStartsAtOneX("4D5309D6") && rs::AutomaticStartsAtOneX("4d5309d6") &&
+             as::Resolve(as::kAutomatic, "4D5309D6", false).choice == 0 && as::Resolve(1, "4D5309D6", false).choice == 1,
+         "(a) fix 162d: Season Two listed: Automatic 1x, an explicit 2x still 2x");
+  Expect(!rs::AutomaticStartsAtOneX("545407F2") && !rs::AutomaticStartsAtOneX("") && !rs::AutomaticStartsAtOneX("4D5308C"),
+         "(a) GTA IV, no title, a short ID are not");
+#else
   Expect(!rs::AutomaticStartsAtOneX("4D5309D6") && !rs::AutomaticStartsAtOneX("545407F2") && !rs::AutomaticStartsAtOneX("") &&
              !rs::AutomaticStartsAtOneX("4D5308C"),
          "(a) Season Two, GTA IV, no title, a short ID are not");
+#endif
   const as::Start automatic = as::Resolve(as::kAutomatic, "4D5308C9", false);
   Expect(automatic.choice == 0 && automatic.why == "Automatic: 1x (compiled-in list)",
          "(a) Automatic: Kinect Sports starts at 1x without trying 2x (" + automatic.why + ")");

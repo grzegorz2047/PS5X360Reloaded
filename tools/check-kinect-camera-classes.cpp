@@ -36,9 +36,19 @@ void Classes() {
   Expect(rs::CompiledNativeClasses("4d5308c9").size() == 3, "(a) its title ID in either case");
   Expect(rs::PitchTiles(80, 1) == 1 && rs::PitchTiles(160, 1) == 2 && rs::PitchTiles(320, 1) == 4,
          "(a) the classes are pitch 1, 2 and 4 tiles, as fix 161's owners (RT @ 0t, <1t>/<2t>/<4t>, 1xMSAA)");
+#ifdef XBOX360PS5_KINECT_SPORTS_2
+  // Fix 162d: Kinect Sports: Season Two, the same engine, the same three classes.
+  const auto ks2 = rs::CompiledNativeClasses("4d5309d6");
+  Expect(ks2.size() == 3 && ks2[0].pitch_px == 80 && ks2[1].pitch_px == 160 && ks2[2].pitch_px == 320 &&
+             ks2[0].samples == 1 && ks2[1].samples == 1 && ks2[2].samples == 1,
+         "(a) fix 162d: Season Two (4D5309D6, either case): 80x1 160x1 320x1 too");
+  Expect(rs::CompiledNativeClasses("5454082B").size() == 8 && rs::CompiledNativeClasses("545407F2").empty(),
+         "(a) Red Dead Redemption keeps its list; GTA IV has none");
+#else
   Expect(rs::CompiledNativeClasses("5454082B").size() == 8 && rs::CompiledNativeClasses("4D5309D6").empty() &&
              rs::CompiledNativeClasses("545407F2").empty(),
          "(a) Red Dead Redemption keeps its list; Season Two and GTA IV have none");
+#endif
 
   Expect(rs::SetNativeClasses(ks, 1) == 0 && !rs::IsNativeClass(1, 0) && !rs::IsNativeClass(4, 0),
          "(a) at 1x nothing to keep");
