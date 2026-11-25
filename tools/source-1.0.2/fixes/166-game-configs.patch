@@ -1,0 +1,24 @@
+diff --git a/.deps/xenia-canary/src/xenia/emulator.cc b/.deps/xenia-canary/src/xenia/emulator.cc
+--- a/.deps/xenia-canary/src/xenia/emulator.cc
++++ b/.deps/xenia-canary/src/xenia/emulator.cc
+@@ -10,6 +10,7 @@
+ #include <ranges>
+ 
+ #include "xenia/emulator.h"
++#include "xbox360ps5/title_switch.hpp"  // fix 166: LoadGameConfigs
+ 
+ // Xbox360PS5: small persisted phase markers, independent of verbose logging.
+ extern "C" void Xbox360PS5LoaderStage(const char*) __attribute__((weak));
+@@ -1771,6 +1772,12 @@ X_STATUS Emulator::CompleteLaunch(const std::filesystem::path& path,
+     // Load the per-game configuration file and make sure updates are handled
+     // by the callbacks.
+     config::LoadGameConfig(title_id);
++    // Xbox360PS5 (fix 166): then the title's own per-game configs, as the
++    // port's prepare.py did and the 1.0.2 source rebuild lost: the ones shipped
++    // in assets/game-configs, then the user's in <data>/game-configs (fix 165),
++    // which win (title_switch.cpp, "Game config: <file>"). Before the callbacks
++    // below, so their updates are handled the same way.
++    xbox360ps5::LoadGameConfigs(title_id);
+     assert_true(game_config_load_callback_loop_next_index_ == SIZE_MAX);
+     game_config_load_callback_loop_next_index_ = 0;
+     while (game_config_load_callback_loop_next_index_ <
