@@ -85,8 +85,11 @@ void CheckIdentity() {
 void CheckTree() {
   const std::string launcher = Read("src/launcher.cpp");
   const size_t load = launcher.find("void Settings::Load() {");
-  const size_t marker = launcher.find("const fs::path marker = kStorage / \"game_paths.fix60\";", load);
-  const size_t add = launcher.find("if (AddTitleRoms(game_paths)) WriteGamePaths(kStorage / \"game_paths.txt\", game_paths);", marker);
+  // Fix 165: the user's data folder (UserData()); before 165 the internal storage (kStorage).
+  const std::string folder = launcher.find("UserData() / \"game_paths.fix60\"") != std::string::npos ? "UserData()" : "kStorage";
+  const size_t marker = launcher.find("const fs::path marker = " + folder + " / \"game_paths.fix60\";", load);
+  const size_t add = launcher.find(
+      "if (AddTitleRoms(game_paths)) WriteGamePaths(" + folder + " / \"game_paths.txt\", game_paths);", marker);
   Expect(load != std::string::npos && marker != std::string::npos && add != std::string::npos,
          "a saved list gains the folder once");
   Expect(Count(launcher, "directory && !seen_directories.insert(*directory).second") == 2,
