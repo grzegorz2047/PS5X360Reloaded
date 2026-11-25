@@ -1,0 +1,464 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/cache_churn.h b/.deps/xenia-canary/src/xenia/vfs/devices/cache_churn.h
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/cache_churn.h
+@@ -0,0 +1,141 @@
++// SPDX-License-Identifier: MIT
++// Xbox360PS5, fix 172: a utility cache on a drive moves its new files to memory once the game churns
++// it (makes small files and deletes them again within seconds).
++// Kinect Sports: Season Two (4D5309D6) records its darts replays into \CACHE\videobufferN: files of
++// 320 KiB made, written, renamed for the delete and deleted again, several a second. On the ext1
++// drive of 1.0.7-work-integration1 every such host operation took 0.8-0.96 s about 2 s into the
++// recording (345 creates and 346 deletes in 30 s), and each was followed by a game swap of 165-939 ms
++// (43.6 frames/s, at worst 12). Kinect Sports (4D5308C9) makes the same files in memory (fix 150d's
++// list) and made 3580 of them in 16 ms in the same run. Fix 150d's list names titles; this watches
++// what the game does instead, for every game whose cache is not in memory already.
++//
++// The rule (Group): a file made on the devices of the group while it runs, still small (at most
++// kSmallBytes written) and deleted within kLifetimeMs of its making counts as one turn of churn; at
++// kTurns of them within kWindowMs, while the group is armed, the group moves to memory: from then on
++// a file or folder the game makes on cache: or cache1: lives in memory (memory_device.h's entries,
++// in fix 150d's pool), as long as the pool has less than kBudgetBytes in use and the direct memory
++// keeps fix 150d's reserve; otherwise it is made on the drive as before. Files already on the drive
++// stay there. Nothing is written back to the drive: as fix 150d's cache, the files in memory end
++// with the process (the utility cache may be emptied at any time; the game makes its files again).
++// Season Two's menus made 7 and 4 files in 30 s (no turn of churn), its darts several a second.
++#ifndef XENIA_VFS_DEVICES_CACHE_CHURN_H_
++#define XENIA_VFS_DEVICES_CACHE_CHURN_H_
++
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <deque>
++#include <iterator>
++#include <mutex>
++#include <unordered_map>
++
++#define XBOX360PS5_CACHE_CHURN 1  // fix 172 (the host checks look for it)
++
++namespace xe {
++namespace vfs {
++namespace cache_churn {
++
++inline constexpr uint64_t kSmallBytes = uint64_t(8) << 20;  // a file of at most 8 MiB is small
++inline constexpr uint64_t kLifetimeMs = 60000;              // deleted within a minute of its making
++inline constexpr uint64_t kWindowMs = 10000;                // kTurns of them within 10 s
++inline constexpr uint32_t kTurns = 8;
++inline constexpr uint64_t kBudgetBytes = uint64_t(128) << 20;  // in memory at most (new files)
++inline constexpr size_t kTracked = 4096;  // files made and not deleted yet, followed at most
++
++inline uint64_t SteadyMs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
++// The utility cache devices of one start (cache: and cache1:): a turn on either counts for both.
++// Files are keys (their entries); a key is followed from its making to its delete.
++class Group {
++ public:
++  explicit Group(uint64_t (*now_ms)() = SteadyMs) : now_ms_(now_ms) {}
++
++  // Whether churn may move the group to memory (the title's start decides; fix 150d's titles and a
++  // "drive"/"ram" switch do not watch). Disarming does not take files back out of memory.
++  void Arm(bool armed) { armed_.store(armed, std::memory_order_release); }
++  bool armed() const { return armed_.load(std::memory_order_acquire); }
++  bool in_memory() const { return in_memory_.load(std::memory_order_acquire); }
++
++  // A file made on the drive.
++  void NoteCreate(const void* key) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    const uint64_t now = now_ms_();
++    if (files_.size() >= kTracked) {
++      for (auto it = files_.begin(); it != files_.end();) {
++        it = now - it->second.made_ms > kLifetimeMs ? files_.erase(it) : std::next(it);
++      }
++      if (files_.size() >= kTracked) files_.clear();  // all young: start again
++    }
++    files_[key] = {now, 0};
++  }
++  // Written up to `end` (a write's end, a new length).
++  void NoteSize(const void* key, uint64_t end) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    auto found = files_.find(key);
++    if (found != files_.end() && end > found->second.bytes) found->second.bytes = end;
++  }
++  // A file deleted: true for the turn that moves the group to memory (once).
++  bool NoteDelete(const void* key) {
++    std::lock_guard<std::mutex> lock(mutex_);
++    auto found = files_.find(key);
++    if (found == files_.end()) return false;  // not made while the group watched
++    const File file = found->second;
++    files_.erase(found);
++    const uint64_t now = now_ms_();
++    if (file.bytes > kSmallBytes || now - file.made_ms > kLifetimeMs) return false;
++    ++turns_total_;
++    turns_.push_back(now);
++    while (!turns_.empty() && now - turns_.front() > kWindowMs) turns_.pop_front();
++    if (turns_.size() < kTurns || !armed() || in_memory()) return false;
++    in_memory_.store(true, std::memory_order_release);
++    tripped_after_ = turns_total_;
++    return true;
++  }
++  // A new file goes to memory: moved there, with less than the budget in the pool and its reserve
++  // of direct memory kept (free_now < 0: not known). Counted either way.
++  bool Admit(uint64_t pool_used, int64_t direct_free, int64_t reserve, uint64_t segment_bytes) {
++    if (!in_memory()) return false;
++    const bool room = pool_used < kBudgetBytes &&
++                      (direct_free < 0 || direct_free - int64_t(segment_bytes) >= reserve);
++    (room ? admitted_ : declined_).fetch_add(1, std::memory_order_relaxed);
++    return room;
++  }
++
++  uint64_t admitted() const { return admitted_.load(std::memory_order_relaxed); }
++  uint64_t declined() const { return declined_.load(std::memory_order_relaxed); }
++  uint64_t turns_total() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return turns_total_;
++  }
++  uint64_t tripped_after() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return tripped_after_;
++  }
++  size_t followed() const {
++    std::lock_guard<std::mutex> lock(mutex_);
++    return files_.size();
++  }
++
++ private:
++  struct File {
++    uint64_t made_ms = 0;
++    uint64_t bytes = 0;
++  };
++  uint64_t (*now_ms_)();
++  std::atomic<bool> armed_{false}, in_memory_{false};
++  std::atomic<uint64_t> admitted_{0}, declined_{0};
++  mutable std::mutex mutex_;
++  std::unordered_map<const void*, File> files_;
++  std::deque<uint64_t> turns_;
++  uint64_t turns_total_ = 0, tripped_after_ = 0;
++};
++
++}  // namespace cache_churn
++}  // namespace vfs
++}  // namespace xe
++
++#endif  // XENIA_VFS_DEVICES_CACHE_CHURN_H_
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.h b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.h
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.h
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_device.h
+@@ -11,10 +11,12 @@
+ #define XENIA_VFS_DEVICES_HOST_PATH_DEVICE_H_
+ 
+ #include <filesystem>
++#include <memory>  // fix 172
+ #include <string>
+ #include <vector>
+ 
+ #include "xenia/vfs/device.h"
++#include "xenia/vfs/devices/cache_churn.h"  // fix 172
+ 
+ namespace xe {
+ namespace vfs {
+@@ -44,6 +46,11 @@ class HostPathDevice : public Device {
+   uint32_t sectors_per_allocation_unit() const override { return 1; }
+   uint32_t bytes_per_sector() const override { return 0x200; }
+ 
++  // Xbox360PS5, fix 172: the utility cache's churn watch (cache_churn.h), shared by cache: and
++  // cache1: (MountUtilityCache); none on every other device.
++  void set_churn(std::shared_ptr<cache_churn::Group> churn) { churn_ = std::move(churn); }
++  cache_churn::Group* churn() const { return churn_.get(); }
++
+  protected:
+   friend class HostPathEntry;
+   std::filesystem::path host_path() const { return host_path_; }
+@@ -60,6 +67,7 @@ class HostPathDevice : public Device {
+   std::unique_ptr<Entry> root_entry_;
+   bool read_only_;
+   bool is_package_;
++  std::shared_ptr<cache_churn::Group> churn_;  // fix 172
+ };
+ 
+ }  // namespace vfs
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_entry.cc
+@@ -30,6 +30,7 @@
+ 
+ #include "readonly_file_pool.hpp"
+ #include "xenia/vfs/devices/host_delete_steps.h"  // fix 150b
++#include "xenia/vfs/devices/memory_device.h"       // fix 172
+ #include <chrono>
+ #include <thread>
+ 
+@@ -136,8 +137,43 @@ std::unique_ptr<MappedMemory> HostPathEntry::OpenMapped(MappedMemory::Mode mode,
+   return MappedMemory::Open(host_path_, mode, offset, length);
+ }
+ 
++namespace {
++// Xbox360PS5, fix 172 (cache_churn.h): the churn watch of this entry's device, if it has one.
++cache_churn::Group* ChurnOf(Device* device) {
++  auto* host_device = dynamic_cast<HostPathDevice*>(device);
++  return host_device ? host_device->churn() : nullptr;
++}
++// The first file made in memory, and every 64th declined (budget or direct memory), logged.
++void NoteChurnFile(cache_churn::Group& churn, bool admitted, const std::string& path) {
++  const uint64_t count = admitted ? churn.admitted() : churn.declined();
++  if (admitted ? count != 1 : (count - 1) % 64 != 0) {
++    return;
++  }
++  auto& pool = memory_cache::pool();
++  XELOGW("Utility cache (fix 172): {} {}; {} files made in memory, {} on the drive for want of room, "
++         "{:.1f} MiB of the pool in use, direct free {} MiB",
++         path, admitted ? "made in memory" : "made on the drive (no room in memory)", churn.admitted(),
++         churn.declined(), double(pool.used.load()) / 1048576.0,
++         pool.direct_free ? pool.direct_free() >> 20 : -1);
++}
++}  // namespace
++
+ std::unique_ptr<Entry> HostPathEntry::CreateEntryInternal(
+     const std::string_view name, uint32_t attributes) {
++  // Fix 172: once the game churned the utility cache, its new files (and folders) live in memory
++  // (memory_device.h's entries, in fix 150d's pool) while there is room; else on the drive.
++  cache_churn::Group* churn = ChurnOf(device_);
++  if (churn && churn->in_memory()) {
++    auto& pool = memory_cache::pool();
++    const bool admitted = churn->Admit(pool.used.load(), pool.direct_free ? pool.direct_free() : -1,
++                                       pool.reserve.load(), memory_cache::kSegmentBytes);
++    NoteChurnFile(*churn, admitted,
++                  xe::utf8::join_guest_paths(absolute_path(), std::string(name)));
++    if (admitted) {
++      return std::make_unique<MemoryEntry>(
++          device_, this, xe::utf8::join_guest_paths(path_, name), attributes, pool);
++    }
++  }
+   auto full_path = host_path_ / xe::to_path(name);
+   if (attributes & kFileAttributeDirectory) {
+     if (!std::filesystem::create_directories(full_path)) {
+@@ -154,11 +190,43 @@ std::unique_ptr<Entry> HostPathEntry::CreateEntryInternal(
+   if (!file_info) {
+     return nullptr;
+   }
+-  return std::unique_ptr<Entry>(
++  std::unique_ptr<Entry> created(
+       HostPathEntry::Create(device_, this, full_path, file_info.value()));
++  if (churn && !(attributes & kFileAttributeDirectory)) {
++    churn->NoteCreate(created.get());  // fix 172: followed until its delete
++  }
++  return created;
+ }
+ 
++// Fix 172: a delete of a file made on the drive while the device watches for churn; the turn that
++// moves the utility cache to memory is logged.
++static void NoteChurnDelete(Entry* parent, Entry* entry) {
++  cache_churn::Group* churn = ChurnOf(parent->device());
++  if (!churn || !churn->NoteDelete(entry)) {
++    return;
++  }
++  // The 30 s File I/O line (fix 148d) gets fix 150d's part on the memory in use.
++  xbox360ps5::package_io::memory_tail.store(&memory_cache::ReportTail);
++  auto& pool = memory_cache::pool();
++  XELOGW("Utility cache (fix 172): cache churn: {} small files made and deleted again within {} s on "
++         "the drive ({} in all, the last {}); the files cache: and cache1: make from now on live in "
++         "memory, at most {} MiB in use, direct memory kept above {} MiB (direct free {} MiB); the "
++         "files on the drive stay there",
++         cache_churn::kTurns, cache_churn::kWindowMs / 1000, churn->turns_total(), entry->absolute_path(),
++         cache_churn::kBudgetBytes >> 20, pool.reserve.load() >> 20,
++         pool.direct_free ? pool.direct_free() >> 20 : -1);
++}
++
++// Fix 172: an entry of memory_device.h under a folder on the drive (made after the churn).
++static MemoryEntry* InMemory(Entry* entry) { return dynamic_cast<MemoryEntry*>(entry); }
++
+ bool HostPathEntry::DeleteEntryInternal(Entry* entry) {
++  // Fix 172: nothing on the drive; its data goes with the entry (kept for handles still open).
++  if (MemoryEntry* memory = InMemory(entry)) {
++    if (auto* data = memory->data()) data->MarkDeleted();
++    return true;
++  }
++  NoteChurnDelete(this, entry);
+   auto full_path = host_path_ / xe::to_path(entry->name());
+   std::error_code ec;  // avoid exception on remove/remove_all failure
+   if (entry->attributes() & kFileAttributeDirectory) {
+@@ -187,6 +255,10 @@ bool HostPathEntry::DeleteEntryInternal(Entry* entry) {
+ // deleted by the function returned, which Entry::Delete runs once the name is free again.
+ std::function<bool()> HostPathEntry::DetachEntryInternal(Entry* entry) {
+   static std::atomic<uint64_t> next{0};
++  if (InMemory(entry)) {
++    return {};  // fix 172: DeleteEntryInternal, nothing to rename on the drive
++  }
++  NoteChurnDelete(this, entry);  // fix 172
+   const auto full_path = host_path_ / xe::to_path(entry->name());
+   const bool directory = entry->attributes() & kFileAttributeDirectory;
+   std::error_code ec;
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/vfs/devices/host_path_file.h"
+ 
+ #include "xenia/vfs/devices/host_path_entry.h"
++#include "xenia/vfs/devices/host_path_device.h"  // fix 172
+ 
+ #include <chrono>  // fix 148c
+ #include "xbox360ps5/package_io.hpp"  // fix 148c
+@@ -104,9 +105,18 @@ X_STATUS HostPathFile::WriteSync(std::span<const uint8_t> buffer,
+     const std::string line = pio::FileIoReport(pio::file_io, now_ns);
+     if (!line.empty()) XELOGW("{}", line);
+   }
++  NoteChurnSize(written ? uint64_t(byte_offset) + *out_bytes_written : 0);  // fix 172
+   return written ? X_STATUS_SUCCESS : X_STATUS_END_OF_FILE;
+ }
+ 
++// Xbox360PS5, fix 172: how much of a file the utility cache's churn watch follows was written.
++void HostPathFile::NoteChurnSize(uint64_t end) {
++  auto* device = entry_ ? dynamic_cast<HostPathDevice*>(entry_->device()) : nullptr;
++  if (device && device->churn()) {
++    device->churn()->NoteSize(entry_, end);
++  }
++}
++
+ X_STATUS HostPathFile::SetLength(size_t length) {
+   if (!(file_access_ &
+         (FileAccess::kGenericWrite | FileAccess::kFileWriteData))) {
+@@ -115,6 +125,7 @@ X_STATUS HostPathFile::SetLength(size_t length) {
+ 
+   const auto started = std::chrono::steady_clock::now();  // fix 148d
+   const bool set = file_handle_->SetLength(length);
++  if (set) NoteChurnSize(uint64_t(length));  // fix 172
+   {
+     // Xbox360PS5 fix 148d: counted for the file I/O line.
+     namespace pio = xbox360ps5::package_io;
+diff --git a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.h b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.h
+--- a/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.h
++++ b/.deps/xenia-canary/src/xenia/vfs/devices/host_path_file.h
+@@ -35,6 +35,7 @@ class HostPathFile : public File {
+   X_STATUS SetLength(size_t length) override;
+ 
+  private:
++  void NoteChurnSize(uint64_t end);  // Xbox360PS5, fix 172 (cache_churn.h)
+   std::unique_ptr<xe::filesystem::FileHandle> file_handle_;
+ };
+ 
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+@@ -281,7 +281,9 @@ X_STATUS VirtualFileSystem::OpenFile(Entry* root_entry,
+       const xe::vfs::HostPathEntry* host_path =
+           dynamic_cast<const xe::vfs::HostPathEntry*>(parent_entry);
+ 
+-      if (host_path) {
++      // Xbox360PS5, fix 172: not for a file the utility cache keeps in memory under a folder on
++      // the drive (devices/cache_churn.h): it has no host file.
++      if (host_path && dynamic_cast<const xe::vfs::HostPathEntry*>(entry)) {
+         auto const file_path = host_path->host_path() / entry->name();
+ 
+         if (!std::filesystem::exists(file_path)) {
+diff --git a/include/xbox360ps5/utility_cache.hpp b/include/xbox360ps5/utility_cache.hpp
+--- a/include/xbox360ps5/utility_cache.hpp
++++ b/include/xbox360ps5/utility_cache.hpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #pragma once
+ #include <filesystem>
++#include <memory>  // fix 172
+ #include <string>
+ #include <vector>
+ #include "xenia/base/logging.h"
+@@ -16,9 +17,12 @@ namespace xbox360ps5 {
+ // link that fails takes those registered before it out again, so fix 150c's fallback to the
+ // internal storage starts from nothing (it used to find a second \CACHE0 and cache0: link left
+ // by the extended storage's half-done mount, and failed).
++// Fix 172: cache1: and cache: on the drive share `churn` (xenia/vfs/devices/cache_churn.h): once the
++// game churns either, their new files live in memory. Not cache0: (fix 150d keeps it on the drive).
+ inline bool MountUtilityCache(xe::vfs::VirtualFileSystem& fs,
+                               const std::filesystem::path& storage,
+-                              std::initializer_list<const char*> in_memory = {}) {
++                              std::initializer_list<const char*> in_memory = {},
++                              std::shared_ptr<xe::vfs::cache_churn::Group> churn = {}) {
+   // Match the desktop frontend's order: CACHE must follow CACHE0/CACHE1,
+   // since VFS device resolution matches mount prefixes.
+   constexpr const char* kNames[] = {"cache0", "cache1", "cache"};
+@@ -47,7 +51,9 @@ inline bool MountUtilityCache(xe::vfs::VirtualFileSystem& fs,
+     if (memory) {
+       device = std::make_unique<xe::vfs::MemoryDevice>(mount);
+     } else {
+-      device = std::make_unique<xe::vfs::HostPathDevice>(mount, root, false);
++      auto host_device = std::make_unique<xe::vfs::HostPathDevice>(mount, root, false);
++      if (churn && std::string(name) != "cache0") host_device->set_churn(churn);  // fix 172
++      device = std::move(host_device);
+     }
+     const bool initialized = device->Initialize();
+     const bool device_registered = initialized && fs.RegisterDevice(std::move(device));
+diff --git a/include/xbox360ps5/utility_cache_drive.hpp b/include/xbox360ps5/utility_cache_drive.hpp
+--- a/include/xbox360ps5/utility_cache_drive.hpp
++++ b/include/xbox360ps5/utility_cache_drive.hpp
+@@ -55,6 +55,20 @@ inline bool CacheInMemory(const std::string& title_id, const std::string& text,
+   if (!CacheInMemory(title_id, text)) return false;
+   return draw_scale <= 1 || ForcedInMemory(text);
+ }
++#define XBOX360PS5_CACHE_CHURN_WATCH 1  // fix 172 (the host check looks for it)
++// Fix 172: whether cache: and cache1: on a drive watch the game for churn (xenia/vfs/devices/
++// cache_churn.h: small files made and deleted again, several a second) and then make its new files in
++// memory. Every game but fix 150d's titles (their list and 150f's scale decide for them, as before),
++// and not with "ram" (all in memory already) or "drive"/"data"/"console" (on a drive) in
++// utility-cache-drive.txt.
++inline bool ForcedOnDrive(const std::string& text) {
++  return text.find("drive") != std::string::npos || text.find("data") != std::string::npos ||
++         text.find("console") != std::string::npos;
++}
++inline bool WatchesChurn(const std::string& title_id, const std::string& text) {
++  return !ForcedInMemory(text) && !ForcedOnDrive(text) && !CacheInMemory(title_id, text);
++}
++
+ // For the log: in memory by the title, but on the drive for the scale.
+ inline bool KeptOnDriveForScale(const std::string& title_id, const std::string& text, uint32_t draw_scale) {
+   return CacheInMemory(title_id, text) && !CacheInMemory(title_id, text, draw_scale);
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -3171,13 +3171,19 @@ int main(int argc, char** argv) {
+                xe::vfs::memory_cache::pool().reserve.load() >> 20,
+                xbox360ps5::resolution_scale::DirectFreeFresh() >> 20);
+       }
++      // Fix 172: cache: and cache1: on a drive watch the game for churn (xenia/vfs/devices/
++      // cache_churn.h) and then make its new files in memory; decided again for the game below.
++      const auto cache_churn = std::make_shared<xe::vfs::cache_churn::Group>();
++      cache_churn->Arm(!cache_in_memory &&
++                       xbox360ps5::utility_cache_drive::WatchesChurn(settings_title, cache_drive_switch));
+       bool cache_mounted = xbox360ps5::MountUtilityCache(
+-          *emulator.file_system(), cache_drive.base, cache_in_memory ? memory_caches : no_memory_caches);
++          *emulator.file_system(), cache_drive.base, cache_in_memory ? memory_caches : no_memory_caches,
++          cache_churn);
+       if (!cache_mounted && cache_drive.base != bulk) {
+         XELOGW("Utility cache (fix 150c): {} not usable; the internal storage instead",
+                cache_drive.base.string());
+         cache_mounted = xbox360ps5::MountUtilityCache(
+-            *emulator.file_system(), bulk, cache_in_memory ? memory_caches : no_memory_caches);
++            *emulator.file_system(), bulk, cache_in_memory ? memory_caches : no_memory_caches, cache_churn);
+       }
+       if (!cache_mounted) {
+         XELOGE("Required utility cache is unavailable; launch cancelled");
+@@ -3764,6 +3770,22 @@ int main(int argc, char** argv) {
+                  "resolution scale {}x needs the memory",
+                  settings_title, cache_draw_scale);
+         }
++        // Fix 172: the game decides whether its cache: and cache1: on the drive watch for churn (not
++        // fix 150d's titles, whatever the scale, nor a "ram" or "drive" switch).
++        {
++          const bool churn_watch =
++              !cache_in_memory_now &&
++              xbox360ps5::utility_cache_drive::WatchesChurn(settings_title, cache_drive_switch);
++          cache_churn->Arm(churn_watch);
++          if (churn_watch) {
++            XELOGW("Utility cache (fix 172): cache: and cache1: on the drive watch {} for churn: at {} small "
++                   "files (up to {} MiB) made and deleted within {} s, the files they make from then on live "
++                   "in memory (at most {} MiB)",
++                   settings_title.empty() ? std::string("the game") : settings_title,
++                   xe::vfs::cache_churn::kTurns, xe::vfs::cache_churn::kSmallBytes >> 20,
++                   xe::vfs::cache_churn::kWindowMs / 1000, xe::vfs::cache_churn::kBudgetBytes >> 20);
++          }
++        }
+         // Fix 117e: at 2x, the game's preset may keep its small surfaces at 1x.
+         {
+           const char* scale_threshold_from = "";

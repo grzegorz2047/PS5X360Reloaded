@@ -61,9 +61,11 @@ orig=$(mktemp -d)
 trap 'rm -rf "$orig"' EXIT
 mkdir -p "$orig/.deps/xenia-canary/src/xenia"
 cp -r "$core/src/xenia/base" "$core/src/xenia/vfs" "$orig/.deps/xenia-canary/src/xenia/"
-# Fix 139, its follow-ups (139b, ...) and fix 150 (the background deletes), taken out newest
-# first (sorted by fix_order's number, then letter).
-for patch in $(ls "$repo"/tools/source-1.0.2/fixes/139*-*.patch "$repo"/tools/source-1.0.2/fixes/150*-*.patch 2>/dev/null |
+# Fix 139, its follow-ups (139b, ...), fix 150 (the background deletes) and fix 172 (the utility
+# cache's churn watch, built on 150d's entries), taken out newest first (sorted by fix_order's
+# number, then letter).
+for patch in $(ls "$repo"/tools/source-1.0.2/fixes/139*-*.patch "$repo"/tools/source-1.0.2/fixes/150*-*.patch \
+                  "$repo"/tools/source-1.0.2/fixes/172-*.patch 2>/dev/null |
                sort -t/ -k1,1 | awk -F/ '{n=$NF; sub(/-.*/, "", n); print n "\t" $0}' | sort -k1,1Vr | cut -f2); do
   (cd "$orig" && GIT_CEILING_DIRECTORIES="$orig/.." git -c core.autocrlf=false apply -R \
     --include='.deps/xenia-canary/src/xenia/vfs/*' "$patch")

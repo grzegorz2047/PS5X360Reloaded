@@ -34,6 +34,15 @@
 //  (h) fix 150e: MountUtilityCache all or nothing: a folder that cannot be made fails before
 //      anything is registered, a link that cannot be registered takes the mounts before it out
 //      again, and the fallback mounts cleanly afterwards.
+//  (i) fix 172 (Kinect Sports: Season Two's darts replays churning \CACHE on the drive, 0.8-0.96 s per
+//      host operation): MountUtilityCache with a churn watch (cache_churn.h) on a host folder: 7
+//      small files made and deleted on cache: leave it on the drive; the 8th moves cache: and
+//      cache1: to memory (cache0: not); then a new file is in memory (no host file, its chunks in
+//      fix 150d's pool), opens again by name (the VFS's host-file check keeps it), reads back,
+//      renames, is deleted on close (the pool given back) and is made again; a folder and its
+//      file are in memory too; a file left on the drive by an earlier session still reads and is
+//      deleted on the drive; with the direct memory at fix 150d's reserve a new file goes to the
+//      drive; a watch not armed never moves.
 // tools/check-vfs-entry-lifetime.sh also runs (a)-(c) on the tree without fix 139, where the
 // sanitizer must report the use of a freed entry (the console's crash).
 #include <atomic>
@@ -41,6 +50,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <random>
 #include <span>
 #include <string>
@@ -676,6 +686,161 @@ void MountAllOrNothing() {
   for (const auto& dir : {bad, good}) std::filesystem::remove_all(dir, error);
 }
 #endif
+
+#ifdef XBOX360PS5_CACHE_CHURN
+// (i) Fix 172.
+void CacheChurn() {
+  constexpr uint64_t kChunk = mc::kChunkBytes;
+  constexpr size_t kVideoBuffer = 320 * 1024;  // 5 chunks
+  const auto base = std::filesystem::temp_directory_path() / "check-vfs-172";
+  std::error_code error;
+  std::filesystem::remove_all(base, error);
+  // A file an earlier session left in cache: on the drive.
+  std::filesystem::create_directories(base / "utility-cache" / "cache", error);
+  std::ofstream(base / "utility-cache" / "cache" / "earlier.bin", std::ios::binary) << "EARLIER";
+  auto& pool = mc::pool();  // the one HostPathEntry uses
+  const auto saved_direct_free = pool.direct_free;
+  fake_direct_free = -1;
+  pool.direct_free = [] { return fake_direct_free; };
+  const uint64_t used_before = pool.used;
+  const auto on_drive = [&base](const char* device, const std::string& name) {
+    std::error_code exists_error;
+    return std::filesystem::exists(base / "utility-cache" / device / name, exists_error);
+  };
+  const auto open_as = [](vfs::VirtualFileSystem& fs, const std::string& path, vfs::FileDisposition disposition,
+                          bool directory = false) {
+    vfs::File* f = nullptr;
+    vfs::FileAction action = vfs::FileAction::kDoesNotExist;
+    return fs.OpenFile(nullptr, path, disposition, kAccess, directory, !directory, &f, &action) == X_STATUS_SUCCESS
+               ? f
+               : nullptr;
+  };
+  // One replay file: made, written (320 KiB), deleted on close, as Season Two's videobuffers.
+  const auto replay = [&open_as](vfs::VirtualFileSystem& fs, const std::string& path) {
+    vfs::File* f = open_as(fs, path, vfs::FileDisposition::kOverwriteIf);
+    if (!f) return false;
+    size_t written = 0;
+    const bool ok = WriteAt(f, Pattern(kVideoBuffer, 7), 0, &written) == X_STATUS_SUCCESS && written == kVideoBuffer;
+    f->entry()->SetForDeletion(true);
+    f->Destroy();
+    return ok;
+  };
+  {
+    vfs::VirtualFileSystem fs;
+    auto churn = std::make_shared<vfs::cache_churn::Group>();
+    churn->Arm(true);
+    Expect(xbox360ps5::MountUtilityCache(fs, base, {}, churn), "fix 172: the caches mounted on the drive with a watch");
+    bool all = true;
+    for (int i = 0; i < int(vfs::cache_churn::kTurns) - 1; ++i)
+      all = replay(fs, "cache:\\videobuffer" + std::to_string(i)) && all;
+    vfs::Entry::FlushBackgroundDeletes();
+    Expect(all && !churn->in_memory() && churn->turns_total() == vfs::cache_churn::kTurns - 1,
+           "fix 172: 7 replay files made and deleted on the drive: still on the drive");
+    vfs::File* probe = open_as(fs, "cache:\\probe7", vfs::FileDisposition::kOverwriteIf);
+    Expect(probe && on_drive("cache", "probe7"), "fix 172: before the move a new file is a host file");
+    if (probe) probe->Destroy();
+    Expect(replay(fs, "cache:\\videobuffer7") && churn->in_memory() && churn->turns_total() == vfs::cache_churn::kTurns,
+           "fix 172: the 8th made and deleted within 10 s moves the cache to memory");
+    vfs::Entry::FlushBackgroundDeletes();
+    Expect(!on_drive("cache", "videobuffer7"), "fix 172: the 8th's host file deleted all the same");
+
+    // A replay file now: in memory.
+    vfs::File* f = open_as(fs, "cache:\\videobuffer8", vfs::FileDisposition::kOverwriteIf);
+    size_t written = 0;
+    const auto data = Pattern(kVideoBuffer, 8);
+    Expect(f && WriteAt(f, data, 0, &written) == X_STATUS_SUCCESS && written == kVideoBuffer,
+           "fix 172: videobuffer8 made and written after the move");
+    Expect(!on_drive("cache", "videobuffer8") && pool.used - used_before == 5 * kChunk,
+           "fix 172: no host file; its 320 KiB in fix 150d's pool (5 chunks): " +
+               std::to_string((pool.used - used_before) / kChunk));
+    if (f) f->Destroy();
+    vfs::File* again = open_as(fs, "cache:\\videobuffer8", vfs::FileDisposition::kOpen);
+    Expect(again && ReadAt(again, kVideoBuffer, 0) == data,
+           "fix 172: opened again by name (the VFS's host-file check keeps it) and read back");
+    if (again) {
+      again->entry()->update();
+      Expect(again->entry()->size() == kVideoBuffer, "fix 172: its entry's size is 320 KiB");
+      again->entry()->Rename("cache:\\videobuffer8.done");
+      again->Destroy();
+    }
+    vfs::File* renamed = open_as(fs, "cache:\\videobuffer8.done", vfs::FileDisposition::kOpen);
+    vfs::File* old_name = open_as(fs, "cache:\\videobuffer8", vfs::FileDisposition::kOpen);
+    Expect(renamed && ReadAt(renamed, 16, 0) == Head(data, 16) && !on_drive("cache", "videobuffer8.done") && !old_name,
+           "fix 172: renamed in memory, found under its new name only");
+    if (old_name) old_name->Destroy();
+    if (renamed) {
+      renamed->entry()->SetForDeletion(true);
+      renamed->Destroy();
+    }
+    vfs::File* gone = open_as(fs, "cache:\\videobuffer8.done", vfs::FileDisposition::kOpen);
+    Expect(pool.used == used_before && !gone, "fix 172: deleted on close: gone, its chunks back in the pool");
+    if (gone) gone->Destroy();
+    Expect(replay(fs, "cache:\\videobuffer8") && pool.used == used_before && !on_drive("cache", "videobuffer8"),
+           "fix 172: made again under the same name, in memory, and deleted");
+
+    // cache1: shares the watch; cache0: has none.
+    vfs::File* c1 = open_as(fs, "cache1:\\level_3.tmp", vfs::FileDisposition::kOverwriteIf);
+    vfs::File* c0 = open_as(fs, "cache0:\\cache010.map", vfs::FileDisposition::kOverwriteIf);
+    Expect(c1 && c0 && !on_drive("cache1", "level_3.tmp") && on_drive("cache0", "cache010.map"),
+           "fix 172: cache1: in memory as well, cache0: still on the drive");
+    for (vfs::File* x : {c1, c0})
+      if (x) x->Destroy();
+
+    // A folder made after the move, and a file in it.
+    vfs::File* folder = open_as(fs, "cache:\\replays", vfs::FileDisposition::kOpenIf, true);
+    vfs::File* inside = folder ? open_as(fs, "cache:\\replays\\take1", vfs::FileDisposition::kOverwriteIf) : nullptr;
+    Expect(folder && inside && !on_drive("cache", "replays") && WriteAt(inside, data, 0, &written) == X_STATUS_SUCCESS,
+           "fix 172: a folder made after the move is in memory, a file in it is written");
+    if (inside) inside->Destroy();
+    if (folder) {
+      folder->entry()->SetForDeletion(true);
+      folder->Destroy();
+    }
+    vfs::File* in_folder = open_as(fs, "cache:\\replays\\take1", vfs::FileDisposition::kOpen);
+    Expect(!in_folder && pool.used == used_before, "fix 172: the folder deleted with its file, the pool given back");
+    if (in_folder) in_folder->Destroy();
+
+    // The earlier session's file: still on the drive, read and deleted there.
+    vfs::File* earlier = open_as(fs, "cache:\\earlier.bin", vfs::FileDisposition::kOpen);
+    const std::vector<uint8_t> earlier_text = {'E', 'A', 'R', 'L', 'I', 'E', 'R'};
+    Expect(earlier && ReadAt(earlier, 7, 0) == earlier_text, "fix 172: a file on the drive from before still reads");
+    if (earlier) {
+      earlier->entry()->SetForDeletion(true);
+      earlier->Destroy();
+    }
+    vfs::Entry::FlushBackgroundDeletes();
+    Expect(!on_drive("cache", "earlier.bin"), "fix 172: and is deleted on the drive");
+
+    // The direct memory at fix 150d's reserve: the next file goes to the drive.
+    fake_direct_free = pool.reserve.load();
+    vfs::File* tight = open_as(fs, "cache:\\videobuffer9", vfs::FileDisposition::kOverwriteIf);
+    Expect(tight && on_drive("cache", "videobuffer9") && churn->declined() >= 1,
+           "fix 172: no room in the direct memory: videobuffer9 made on the drive");
+    if (tight) {
+      tight->entry()->SetForDeletion(true);
+      tight->Destroy();
+    }
+    fake_direct_free = -1;
+    vfs::Entry::FlushBackgroundDeletes();
+  }
+  Expect(pool.used == used_before, "fix 172: nothing of the cache left in the pool after the VFS is gone");
+  {
+    // A watch not armed (fix 150d's titles, "drive"): never moves.
+    std::filesystem::remove_all(base, error);
+    vfs::VirtualFileSystem fs;
+    auto churn = std::make_shared<vfs::cache_churn::Group>();
+    Expect(xbox360ps5::MountUtilityCache(fs, base, {}, churn), "fix 172: mounted with a watch not armed");
+    for (int i = 0; i < 24; ++i) replay(fs, "cache:\\videobuffer" + std::to_string(i));
+    vfs::File* f = open_as(fs, "cache:\\after", vfs::FileDisposition::kOverwriteIf);
+    Expect(!churn->in_memory() && churn->turns_total() == 24 && f && on_drive("cache", "after"),
+           "fix 172: not armed: 24 replay files counted, still on the drive");
+    if (f) f->Destroy();
+    vfs::Entry::FlushBackgroundDeletes();
+  }
+  pool.direct_free = saved_direct_free;
+  std::filesystem::remove_all(base, error);
+}
+#endif
 #endif
 }  // namespace
 
@@ -712,6 +877,9 @@ int main() {
   MemoryCache();  // (g) fix 150d
 #ifdef XBOX360PS5_UTILITY_CACHE_ALL_OR_NOTHING
   MountAllOrNothing();  // (h) fix 150e
+#endif
+#ifdef XBOX360PS5_CACHE_CHURN
+  CacheChurn();  // (i) fix 172
 #endif
 #endif
   std::error_code error;
