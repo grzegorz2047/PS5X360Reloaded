@@ -1,0 +1,261 @@
+diff --git a/include/xbox360ps5/nui_choice.hpp b/include/xbox360ps5/nui_choice.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/nui_choice.hpp
+@@ -0,0 +1,127 @@
++// SPDX-License-Identifier: MIT
++// Fix 156s (Zumba Fitness 4D4A07F0, issue 63): a diagnostic of which body a title picks as its
++// player. Zumba stays at "Searching for player..." (1.0.6-work-fix156q2) with our body tracked
++// in every skeleton frame and already identified (enrollment 0): it never calls its identify,
++// so its search waits on something before that. Two candidates, both in vector code that
++// cannot be read statically:
++//  - its player choice (82333918, by mode at +0x40: closest, ...): the tracking IDs it keeps
++//    at +0x48/+0x4C of its skeleton consumer and hands to NuiSkeletonSetTrackedSkeletons
++//    (8250F6A8), which stores them, relative to a base, in the NUI library's globals only when
++//    the library is ready (+0x874), skeleton tracking is on (+0x1F10) and the system path flag
++//    (+0x84, set by an XMsg 2B002 answer we do not give) is clear;
++//  - its play area ("Single Player Forward Boundary", "Rear Boundary", "Boundary Size"):
++//    our body always stands 2.5 m from the sensor.
++// Logged each second (at most kChoiceLines lines): the consumer's mode and IDs (the skeleton
++// frame function's caller keeps the consumer in r31, and the consumer holds the frame at
++// +0x20), the library's flags and stored IDs, and our body's ID; once, the play area's words.
++#pragma once
++#include <cstdint>
++#include <vector>
++
++#include "xbox360ps5/nui_image_scan.hpp"
++
++namespace xbox360ps5::nui_choice {
++
++constexpr uint32_t kChoiceLines = 120;
++constexpr int64_t kChoiceIntervalMs = 1000;
++
++// NuiSkeletonSetTrackedSkeletons, by shape: `cmplwi crN,r3,0` near the start, the codes
++// 80070057, 83010002, 83010005 and 8301000B (ori 0x57, 2, 5, 0xB), the library's globals
++// loaded as `lis rA,hi; addi rB,rA,lo` and three `lwz ?,d(rB)` (ready, tracking enabled,
++// system path), and three large `ori` offsets (the ID base and the two stored IDs).
++struct SetTracked {
++  uint32_t function = 0, globals = 0;
++  uint32_t ready = 0, enabled = 0, system = 0;  // offsets of the three flags
++  uint32_t base = 0, id0 = 0, id1 = 0;          // offsets of the ID base and the stored IDs
++};
++inline std::vector<SetTracked> FindSetTrackedSkeletons(const motion::CodeView& view) {
++  std::vector<SetTracked> found;
++  if (!view.code || (view.base & 3)) return found;
++  constexpr uint32_t kSpan = 0x200;
++  for (uint32_t start = view.base; view.Has(start); start += 4) {
++    if (view.Word(start) != motion::kMflrR12) continue;
++    std::vector<uint32_t> words;
++    for (uint32_t at = start; at - start < kSpan && view.Has(at); at += 4) {
++      const uint32_t w = view.Word(at);
++      if (at != start && w == motion::kMflrR12) break;
++      words.push_back(w);
++    }
++    bool r3_check = false, c57 = false, c2 = false, c5 = false, cB = false;
++    std::vector<uint32_t> large;
++    for (size_t i = 0; i < words.size(); ++i) {
++      const uint32_t w = words[i], op = w >> 26, low = w & 0xFFFF;
++      if (i < 8 && op == 10 && ((w >> 16) & 31) == 3 && low == 0) r3_check = true;
++      if (op == 24) {
++        c57 |= low == 0x57;
++        c2 |= low == 2;
++        c5 |= low == 5;
++        cB |= low == 0xB;
++        if (low >= 0x8000) large.push_back(low);
++      }
++    }
++    if (!r3_check || !c57 || !c2 || !c5 || !cB || large.size() != 3) continue;
++    SetTracked s;
++    s.function = start;
++    int reg = -1;
++    for (size_t i = 0; i + 1 < words.size(); ++i) {
++      const uint32_t a = words[i], b = words[i + 1];
++      if (a >> 26 == 15 && ((a >> 16) & 31) == 0 && b >> 26 == 14 &&
++          ((b >> 16) & 31) == ((a >> 21) & 31)) {
++        s.globals = ((a & 0xFFFF) << 16) + uint32_t(int32_t(int16_t(b & 0xFFFF)));
++        reg = int((b >> 21) & 31);
++        break;
++      }
++    }
++    std::vector<uint32_t> flags;
++    for (uint32_t w : words)
++      if (reg >= 0 && w >> 26 == 32 && int((w >> 16) & 31) == reg) flags.push_back(w & 0xFFFF);
++    if (!s.globals || flags.size() != 3) continue;
++    s.ready = flags[0];
++    s.enabled = flags[1];
++    s.system = flags[2];
++    s.base = large[0];
++    s.id0 = large[1];
++    s.id1 = large[2];
++    found.push_back(s);
++  }
++  return found;
++}
++// A stored ID back to a tracking ID (the function stores id - base, and 0 for 0).
++inline uint32_t TrackingId(uint32_t stored, uint32_t base) { return stored ? stored + base : 0; }
++
++// Zumba Fitness's play area (research, this executable only): its options object is allocated
++// at 8227B6D0 and kept at 82BACD98 (8227B6F4 `lis r10,-0x7d45`, 8227B6FC `stw r3,-0x3268(r10)`);
++// the play-area options are registered at object + 0xAC (8227D078 `addi r3,r31,0xac`):
++// forward boundary +4, rear boundary +8, size +0xC (floats), 16 words logged.
++struct PlayArea {
++  bool ok = false;
++  uint32_t pointer = 0, offset = 0;
++};
++inline PlayArea FindZumbaPlayArea(const motion::CodeView& view) {
++  PlayArea area;
++  struct Expected {
++    uint32_t at, word;
++  };
++  static constexpr Expected kWords[] = {
++      {0x8227B6F4, 0x3D4082BB}, {0x8227B6FC, 0x906ACD98}, {0x8227D078, 0x387F00AC}};
++  for (const auto& e : kWords)
++    if (!view.Has(e.at) || view.Word(e.at) != e.word) return area;
++  area.ok = true;
++  area.pointer = 0x82BACD98;
++  area.offset = 0xAC;
++  return area;
++}
++
++// At most once per interval and kChoiceLines in all.
++struct RateLimit {
++  int64_t last_ms = -kChoiceIntervalMs;
++  uint32_t lines = 0;
++  bool Due(int64_t now_ms) {
++    if (lines >= kChoiceLines || now_ms - last_ms < kChoiceIntervalMs) return false;
++    last_ms = now_ms;
++    ++lines;
++    return true;
++  }
++};
++
++}  // namespace xbox360ps5::nui_choice
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -14,6 +14,7 @@
+ 
+ #include <algorithm>
+ #include <atomic>
++#include <bit>
+ #include <chrono>
+ #include <cstdint>
+ #include <cstdlib>
+@@ -45,6 +46,7 @@
+ #include "xbox360ps5/pscam_state.hpp"  // fix 156d
+ #include "xbox360ps5/page_watch.hpp"  // fix 156h
+ #include "xbox360ps5/nui_identity.hpp"  // fix 156l
++#include "xbox360ps5/nui_choice.hpp"  // fix 156s
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+@@ -1355,11 +1357,78 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+   return X_E_SUCCESS;
+ }
+ 
++// Fix 156s (xbox360ps5/nui_choice.hpp): which body the title picks as its player, once a second
++// (120 lines at most), read from guest memory only; and Zumba's play area once.
++xbox360ps5::nui_choice::SetTracked g_choice{};    // set at binding, before any frame
++xbox360ps5::nui_choice::PlayArea g_play_area{};  // set at binding, before any frame
++std::atomic<bool> g_play_area_logged{false};
++std::mutex g_choice_mutex;
++xbox360ps5::nui_choice::RateLimit g_choice_limit;
++
++void LogPlayerChoice(cpu::ppc::PPCContext* ppc_context, KernelState* kernel_state,
++                     uint32_t frame) {
++  namespace nc = xbox360ps5::nui_choice;
++  const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                             std::chrono::steady_clock::now().time_since_epoch())
++                             .count();
++  {
++    std::lock_guard lock(g_choice_mutex);
++    if (!g_choice_limit.Due(now_ms)) return;
++  }
++  Memory* memory = kernel_state->memory();
++  auto word = [memory](uint32_t address, uint32_t* value) {
++    if (!address || (address & 3) || !IsGuestRangeMapped(memory, address, 4, false)) return false;
++    *value = xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++    return true;
++  };
++  // Zumba's play area, once its options object exists.
++  uint32_t object = 0;
++  if (g_play_area.ok && !g_play_area_logged.load() && word(g_play_area.pointer, &object) &&
++      object) {
++    uint32_t w[16] = {};
++    bool all = true;
++    for (uint32_t i = 0; i < 16; ++i) all &= word(object + g_play_area.offset + 4 * i, &w[i]);
++    if (all && !g_play_area_logged.exchange(true))
++      XELOGW("Virtual Kinect: the title's play area at {:08X}: forward boundary {:.2f} m, rear "
++             "boundary {:.2f} m, size {:.2f} m; words {:08X} {:08X} {:08X} {:08X} {:08X} {:08X} "
++             "{:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X} {:08X} (fix 156s)",
++             object + g_play_area.offset, std::bit_cast<float>(w[1]),
++             std::bit_cast<float>(w[2]), std::bit_cast<float>(w[3]), w[0], w[1], w[2], w[3],
++             w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11], w[12], w[13], w[14], w[15]);
++  }
++  // The caller's consumer: r31 holds it when it keeps the frame at +0x20 (Zumba 82333678).
++  const uint32_t consumer = uint32_t(ppc_context->r[31]);
++  uint32_t held = 0, mode = 0, pick0 = 0, pick1 = 0;
++  const bool has_consumer = word(consumer + 0x20, &held) && held == frame &&
++                            word(consumer + 0x40, &mode) && word(consumer + 0x48, &pick0) &&
++                            word(consumer + 0x4C, &pick1);
++  // The NUI library's own record of the choice (NuiSkeletonSetTrackedSkeletons).
++  uint32_t ready = 0, enabled = 0, system = 0, base = 0, id0 = 0, id1 = 0;
++  const bool has_library = g_choice.function && word(g_choice.globals + g_choice.ready, &ready) &&
++                           word(g_choice.globals + g_choice.enabled, &enabled) &&
++                           word(g_choice.globals + g_choice.system, &system) &&
++                           word(g_choice.globals + g_choice.base, &base) &&
++                           word(g_choice.globals + g_choice.id0, &id0) &&
++                           word(g_choice.globals + g_choice.id1, &id1);
++  uint32_t body = 0;
++  {
++    std::lock_guard lock(xbox360ps5::motion::nui_mutex);
++    body = xbox360ps5::motion::nui_binding.tracking_id;
++  }
++  XELOGW("Virtual Kinect: player choice: the title {} (mode {}, IDs {:08X} {:08X}); the "
++         "library {} (ready {}, tracking {}, system path {}, tracked {:08X} {:08X}); our body "
++         "{:08X} (fix 156s)",
++         has_consumer ? "picks" : "(no consumer in r31)", mode, pick0, pick1,
++         has_library ? "keeps" : "(not found)", ready, enabled, system,
++         nc::TrackingId(id0, base), nc::TrackingId(id1, base), body);
++}
++
+ void SkeletonGetNextFrameHandler(cpu::ppc::PPCContext* ppc_context,
+                                  KernelState* kernel_state) {
+   const uint32_t frame = uint32_t(ppc_context->r[4]);
+   ppc_context->r[3] = uint32_t(SkeletonGetNextFrame(
+       kernel_state, uint32_t(ppc_context->r[3]), frame));
++  LogPlayerChoice(ppc_context, kernel_state, frame);  // fix 156s
+   // Reviewed DBZ caller embeds its frame at object+80. Observe the previous
+   // update without changing guest state. The hand context is separate from
+   // the raised-hand prompt; a delivered skeleton is not proof it is usable.
+@@ -1598,6 +1667,19 @@ void BindSkeletonSource(KernelState* kernel_state) {
+   xbox360ps5::motion::guest_skeleton_bound = true;
+   BindEstimatedHands(kernel_state, xex);
+   BindIdentity(kernel_state, xex, base, size);  // fix 156l
++  {
++    // Fix 156s: where the title's player choice is kept, for the line above.
++    const xbox360ps5::motion::CodeView view{memory->TranslateVirtual<const uint8_t*>(base), size,
++                                            base};
++    const auto found = xbox360ps5::nui_choice::FindSetTrackedSkeletons(view);
++    if (found.size() == 1) g_choice = found[0];
++    g_play_area = xbox360ps5::nui_choice::FindZumbaPlayArea(view);
++    g_play_area_logged = false;
++    XELOGW("Virtual Kinect: player choice diagnostic: NuiSkeletonSetTrackedSkeletons {} "
++           "({} candidate(s), globals {:08X}), play area {} (fix 156s)",
++           found.size() == 1 ? fmt::format("at {:08X}", found[0].function) : std::string("not used"),
++           found.size(), g_choice.globals, g_play_area.ok ? "found" : "not this title");
++  }
+   XELOGW("Virtual Kinect: skeleton frames of the title come from the "
+          "estimated pose (function at {:08X}, {} call(s); executable hash {:016X})",
+          address, calls.size(), ExecutableHash(kernel_state));
+@@ -1646,6 +1728,10 @@ void ShutdownCameraDevice() {
+   xbox360ps5::kinect_diag::enabled = false;  // fix 108
+   xbox360ps5::kinect_diag::first_calls.Reset();
+   xbox360ps5::kinect_diag::dumps_taken = 0;  // fix 156r
++  {
++    std::lock_guard lock(g_choice_mutex);  // fix 156s: the next title gets its own lines
++    g_choice_limit = {};
++  }
+ }
+ 
+ #if !XE_PLATFORM_PS5

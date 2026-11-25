@@ -196,6 +196,7 @@ on:
       - 'tools/check-nui-identity.cpp'
       - 'tools/check-diag-stuck-dump.cpp'
       - 'tools/check-avatar-assets-success.cpp'
+      - 'tools/check-player-choice.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
