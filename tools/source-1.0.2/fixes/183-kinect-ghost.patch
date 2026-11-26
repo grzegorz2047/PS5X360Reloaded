@@ -1,0 +1,475 @@
+diff --git a/include/xbox360ps5/kinect_ghost.hpp b/include/xbox360ps5/kinect_ghost.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/kinect_ghost.hpp
+@@ -0,0 +1,138 @@
++// SPDX-License-Identifier: MIT
++// Fix 183 (two-player Kinect, research/design-v108/kinect-2-players.md step 1): the "ghost
++// player" probe. Do the games take a second skeleton at all, and what do they do with a guest
++// second player? One person can answer it: with the switch file on, the skeleton frames carry a
++// second tracked body in slot 1, a copy of the player's pose from `delay-s` seconds earlier moved
++// `offset-m` metres to the side, under its own tracking ID (kGhostTrackingId) for as long as it
++// is shown. The ghost has no profile: it is a guest.
++//  - In a title whose identify is answered here (156l/156u): "call identify" (enrollment -1, no
++//    user) until the title asked to identify the ghost and got the guest answer (result 0,
++//    enrollment kGuestEnrollment, profile not matched), or, when the title never asks about it,
++//    for kGhostAskWithinMs; then the guest pair kGuestEnrollment / kUserIndexNone (Zumba maps -2
++//    to "identified, not enrolled", 82333248). Its state is its own: the player's 156t/156w
++//    timers are not touched.
++//  - In any other title: enrollment -1 and no user, as a body without a profile has today.
++// Off by default: without the switch file nothing here runs and the frames are as before.
++//
++// The switch file (/data/homebrew/PPSA83600/kinect-ghost.txt), one setting a line:
++//   on                 the ghost is shown (without it the file does nothing)
++//   offset-m 1.1       metres to the side (0.3 - 3.0)
++//   delay-s 3          seconds behind the player (0 - 10)
++// Anything after '#' and any other line is ignored.
++#pragma once
++#include <cstdint>
++#include <fstream>
++#include <sstream>
++#include <string>
++#include <vector>
++
++#include "xbox360ps5/motion_input.hpp"
++
++namespace xbox360ps5::kinect_ghost {
++
++constexpr const char* kSwitchPath = "/data/homebrew/PPSA83600/kinect-ghost.txt";
++constexpr uint32_t kGhostSlot = 1;
++constexpr uint32_t kGhostTrackingId = 0x00000F01;  // stable; the player's IDs count up from 1
++constexpr uint32_t kGuestEnrollment = 0xFFFFFFFE;
++constexpr uint32_t kEnrollmentCallIdentify = 0xFFFFFFFF, kUserIndexNone = 0xFE;
++constexpr int64_t kGhostAskWithinMs = 20000;  // as 156t's kAskWithinMs
++constexpr float kOffsetMin = 0.3f, kOffsetMax = 3.0f, kDefaultOffset = 1.1f;
++constexpr float kDelayMin = 0.0f, kDelayMax = 10.0f, kDefaultDelay = 3.0f;
++constexpr size_t kDelayFrames = 512;  // 10 s at 30 fps, with room
++
++struct Config {
++  bool on = false;
++  float offset_m = kDefaultOffset;
++  float delay_s = kDefaultDelay;
++};
++inline float Clamp(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
++inline Config Parse(const std::string& text) {
++  Config c;
++  std::istringstream lines(text);
++  std::string line;
++  while (std::getline(lines, line)) {
++    const size_t hash = line.find('#');
++    if (hash != std::string::npos) line.resize(hash);
++    std::istringstream words(line);
++    std::string key;
++    if (!(words >> key)) continue;
++    if (key == "on") {
++      c.on = true;
++    } else if (key == "offset-m" || key == "delay-s") {
++      float value = 0;
++      if (!(words >> value)) continue;
++      if (key == "offset-m") c.offset_m = Clamp(value, kOffsetMin, kOffsetMax);
++      else c.delay_s = Clamp(value, kDelayMin, kDelayMax);
++    }
++  }
++  return c;
++}
++inline Config Load(const char* path = kSwitchPath) {
++  std::ifstream in(path, std::ios::binary);
++  if (!in) return {};
++  std::stringstream s;
++  s << in.rdbuf();
++  return Parse(s.str());
++}
++
++// The player's poses, to be shown `delay` later.
++class DelayBuffer {
++ public:
++  void Push(const motion::Frame& pose, int64_t now_ms) {
++    if (frames_.size() < kDelayFrames) {
++      frames_.push_back({pose, now_ms});
++    } else {
++      frames_[next_] = {pose, now_ms};
++    }
++    next_ = (next_ + 1) % kDelayFrames;
++  }
++  // The newest pose taken at or before now - delay; an untracked pose when there is none yet.
++  motion::Frame Delayed(int64_t now_ms, int64_t delay_ms) const {
++    const int64_t at = now_ms - delay_ms;
++    const Entry* best = nullptr;
++    for (const Entry& e : frames_)
++      if (e.ms <= at && (!best || e.ms > best->ms)) best = &e;
++    if (!best) return {};
++    return best->pose;
++  }
++  size_t size() const { return frames_.size(); }
++  void Clear() {
++    frames_.clear();
++    next_ = 0;
++  }
++
++ private:
++  struct Entry {
++    motion::Frame pose;
++    int64_t ms = 0;
++  };
++  std::vector<Entry> frames_;
++  size_t next_ = 0;
++};
++
++// Moved `offset_m` to the side in the phone's space (+x to the right of the picture), every joint
++// the phone sent (the spine joint, which stands for the body's position, too).
++inline motion::Frame Shifted(motion::Frame pose, float offset_m) {
++  for (auto& joint : pose.joints)
++    if (joint.confidence > 0.0f) joint.x += offset_m;
++  return pose;
++}
++
++// Who the ghost is in the frames.
++struct Identity {
++  bool asked = false;     // the title asked to identify the ghost
++  bool answered = false;  // and got the guest answer
++  int64_t first_seen_ms = -1;
++};
++struct FramePair {
++  uint32_t enrollment, user_index;
++};
++inline FramePair ForFrame(bool identify_bound, const Identity& id, int64_t now_ms) {
++  if (!identify_bound) return {kEnrollmentCallIdentify, kUserIndexNone};
++  const bool fallback = !id.asked && id.first_seen_ms >= 0 &&
++                        now_ms - id.first_seen_ms >= kGhostAskWithinMs;
++  if (id.answered || fallback) return {kGuestEnrollment, kUserIndexNone};
++  return {kEnrollmentCallIdentify, kUserIndexNone};
++}
++
++}  // namespace xbox360ps5::kinect_ghost
+diff --git a/include/xbox360ps5/virtual_skeleton.hpp b/include/xbox360ps5/virtual_skeleton.hpp
+--- a/include/xbox360ps5/virtual_skeleton.hpp
++++ b/include/xbox360ps5/virtual_skeleton.hpp
+@@ -83,6 +83,25 @@ inline void SkeletonSpace(const Joint& joint, float& x, float& y, float& z) {
+   y = joint.y + kHipHeight - kSensorHeight;
+   z = std::clamp(kBodyDistance - joint.z, 0.8f, 4.0f);
+ }
++// A body's position and joints (fix 183: one writer for every slot).
++inline void WriteSkeletonJoints(uint8_t* body, const Frame& pose) {
++  float x, y, z;
++  // The library reports the centre of the body; the spine joint stands for it.
++  SkeletonSpace(pose.joints[1], x, y, z);
++  StoreVector(body + 0x10, x, y, z, 1);
++  for (uint32_t n = 0; n < kJointCount; ++n) {
++    // Absent joints keep the zeroed position (including W) and NOT_TRACKED
++    // state. Do not transform missing input into a plausible sensor point.
++    if (pose.joints[n].confidence == 0.0f) continue;
++    SkeletonSpace(pose.joints[n], x, y, z);
++    StoreVector(body + 0x20 + n * 16, x, y, z, 1);
++    // A joint the camera does not see well stays in the skeleton as inferred,
++    // as the sensor does for a hidden limb.
++    StoreU32(body + 0x160 + n * 4,
++             pose.joints[n].confidence >= 0.5f ? kJointTracked : kJointInferred);
++  }
++}
++
+ // Fills one frame. `tracking_id` names the body for as long as it is followed;
+ // 0 writes a frame without a body.
+ inline void WriteSkeletonFrame(uint8_t* frame, const Frame& pose,
+@@ -110,21 +129,26 @@ inline void WriteSkeletonFrame(uint8_t* frame, const Frame& pose,
+     StoreU32(body + 0x08, enrollment);
+     StoreU32(body + 0x0C, user_index);
+   }
+-  float x, y, z;
+-  // The library reports the centre of the body; the spine joint stands for it.
+-  SkeletonSpace(pose.joints[1], x, y, z);
+-  StoreVector(body + 0x10, x, y, z, 1);
+-  for (uint32_t n = 0; n < kJointCount; ++n) {
+-    // Absent joints keep the zeroed position (including W) and NOT_TRACKED
+-    // state. Do not transform missing input into a plausible sensor point.
+-    if (pose.joints[n].confidence == 0.0f) continue;
+-    SkeletonSpace(pose.joints[n], x, y, z);
+-    StoreVector(body + 0x20 + n * 16, x, y, z, 1);
+-    // A joint the camera does not see well stays in the skeleton as inferred,
+-    // as the sensor does for a hidden limb.
+-    StoreU32(body + 0x160 + n * 4,
+-             pose.joints[n].confidence >= 0.5f ? kJointTracked : kJointInferred);
++  WriteSkeletonJoints(body, pose);
++}
++
++// Fix 183 (kinect_ghost.hpp): a second tracked body in `slot` of a frame WriteSkeletonFrame wrote,
++// with the enrollment and user index as given (the ghost's guest pair -2/FE included).
++inline void WriteSkeletonBody(uint8_t* frame, uint32_t slot, const Frame& pose,
++                              uint32_t tracking_id, uint32_t enrollment, uint32_t user_index) {
++  if (slot >= kSkeletonCount) return;
++  uint8_t* body = frame + kSkeletonDataOffset + slot * kSkeletonDataBytes;
++  std::memset(body, 0, kSkeletonDataBytes);
++  StoreU32(body + 0x08, enrollment);
++  StoreU32(body + 0x0C, user_index);
++  if (!pose.tracked || !tracking_id) {
++    StoreU32(body + 0x08, kEnrollmentUnknown);
++    StoreU32(body + 0x0C, kUserIndexNone);
++    return;
+   }
++  StoreU32(body + 0x00, kSkeletonTracked);
++  StoreU32(body + 0x04, tracking_id);
++  WriteSkeletonJoints(body, pose);
+ }
+ 
+ // Finds NuiSkeletonGetNextFrame in a title's code by what only that function
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -177,9 +177,11 @@ inline std::vector<Request> pending;
+ // NuiIdentityIdentify(tracking_id, flags, callback, context) for the virtual player, whose body
+ // is live_tracking_id (0: none). The same checks as the library, in its order; a queued (or
+ // already queued) request answers E_PENDING.
++// Fix 183: `counts_as_asked` false for the ghost (kinect_ghost.hpp), whose requests leave the
++// player's 156t state alone.
+ inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback,
+                          uint32_t context, uint32_t live_tracking_id,
+-                         uint32_t allowed_flags = 0) {
++                         uint32_t allowed_flags = 0, bool counts_as_asked = true) {
+   if (flags & ~allowed_flags) return kInvalidArgument;
+   if (!tracking_id || tracking_id != live_tracking_id) return kBodyNotTracked;
+   if (!callback) return kInvalidArgument;
+@@ -189,7 +191,7 @@ inline uint32_t Identify(uint32_t tracking_id, uint32_t flags, uint32_t callback
+       return kPending;  // already on its way
+   if (pending.size() >= kMaxPending) pending.erase(pending.begin());
+   pending.push_back({tracking_id, callback, context});
+-  ever_asked = true;  // fix 156t
++  if (counts_as_asked) ever_asked = true;  // fix 156t
+   return kPending;
+ }
+ // Called once per skeleton frame the title gets: the requests whose delay has run out.
+diff --git a/include/xbox360ps5/kinect_diag.hpp b/include/xbox360ps5/kinect_diag.hpp
+--- a/include/xbox360ps5/kinect_diag.hpp
++++ b/include/xbox360ps5/kinect_diag.hpp
+@@ -41,6 +41,22 @@ inline bool Watched(const char* name) {
+   return false;
+ }
+ 
++// Fix 183 (kinect_ghost.hpp): with the ghost on, every call (kEveryCallLines in all) of the
++// exports a second player goes through: sign-in and Kinect UIs, the NUI user and engagement
++// calls, identity. Their arguments carry the tracking IDs the title uses.
++inline std::atomic<bool> every_call{false};
++inline std::atomic<uint32_t> every_call_lines{0};
++constexpr uint32_t kEveryCallLines = 64;
++inline bool EveryCall(const char* name) {
++  if (!name || !every_call.load()) return false;
++  static constexpr const char* kPrefixes[] = {"XamShowSignin", "XamShowNui", "XamUserNui",
++                                              "XamNuiHud", "XamNuiIdentity", "XamUserGetSignin"};
++  for (const char* prefix : kPrefixes)
++    if (std::strncmp(name, prefix, std::strlen(prefix)) == 0)
++      return every_call_lines.fetch_add(1) < kEveryCallLines;
++  return false;
++}
++
+ // True the first time `name` is seen (at most kMaxNames names).
+ class FirstCalls {
+  public:
+diff --git a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+--- a/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
++++ b/.deps/xenia-canary/src/xenia/kernel/util/shim_utils.h
+@@ -533,6 +533,13 @@ inline void KinectDiagCall(const char* name, PPCContext* context) {
+            name, kd::Chain(callers, n), uint32_t(context->r[3]), uint32_t(context->r[4]),
+            uint32_t(context->r[5]), uint32_t(context->r[6]), context->thread_id);
+   }
++  if (kd::EveryCall(name)) {  // fix 183: with the ghost on
++    uint32_t callers[3];
++    const int n = kd::BackChain(uint32_t(context->lr), uint32_t(context->r[1]), KinectDiagRead, callers, 3);
++    XELOGW("Kinect diag: {} from {} (r3 {:08X} r4 {:08X} r5 {:08X} r6 {:08X}), thread {} (fix 183)",
++           name, kd::Chain(callers, n), uint32_t(context->r[3]), uint32_t(context->r[4]),
++           uint32_t(context->r[5]), uint32_t(context->r[6]), context->thread_id);
++  }
+   thread_local int64_t last_snapshot = 0;
+   const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now().time_since_epoch())
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -47,6 +47,7 @@
+ #include "xbox360ps5/page_watch.hpp"  // fix 156h
+ #include "xbox360ps5/nui_identity.hpp"  // fix 156l
+ #include "xbox360ps5/nui_choice.hpp"  // fix 156s
++#include "xbox360ps5/kinect_ghost.hpp"  // fix 183
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/kernel/user_module.h"
+@@ -1092,6 +1093,15 @@ uint32_t VirtualPlayerSlot(KernelState* kernel_state) {
+   return xbox360ps5::nui_identity::ProfileSlot(bound, SignedInMask(kernel_state));
+ }
+ 
++// Fix 183 (xbox360ps5/kinect_ghost.hpp): the ghost player probe, off without its switch file.
++xbox360ps5::kinect_ghost::Config g_ghost{};       // read at binding, before any frame
++std::atomic<bool> g_ghost_on{false};
++std::atomic<bool> g_ghost_live{false};           // the ghost is in this frame
++std::mutex g_ghost_mutex;                        // the buffer and the identity below
++xbox360ps5::kinect_ghost::DelayBuffer g_ghost_delay;
++xbox360ps5::kinect_ghost::Identity g_ghost_identity;
++xbox360ps5::motion::LogBudget<xbox360ps5::motion::kIdentifyLogLines> g_ghost_lines;
++
+ // NuiIdentityIdentify(tracking_id, flags, callback, context), bound in place of the title's.
+ void IdentityIdentifyHandler(cpu::ppc::PPCContext* ppc_context, KernelState* kernel_state) {
+   const uint32_t tracking_id = uint32_t(ppc_context->r[3]);
+@@ -1105,6 +1115,24 @@ void IdentityIdentifyHandler(cpu::ppc::PPCContext* ppc_context, KernelState* ker
+   }
+   const auto layout =
+       xbox360ps5::nui_identity::Layout(xbox360ps5::nui_identity::bound_layout.load());
++  // Fix 183: the ghost is identified as a guest, on its own state.
++  const bool ghost = g_ghost_on.load() && g_ghost_live.load() &&
++                     tracking_id == xbox360ps5::kinect_ghost::kGhostTrackingId;
++  if (ghost) {
++    const uint32_t result = xbox360ps5::nui_identity::Identify(
++        tracking_id, flags, callback, context,
++        xbox360ps5::motion::enabled.load() ? tracking_id : 0,
++        xbox360ps5::nui_identity::AllowedFlags(layout), false);  // not the player's request
++    ppc_context->r[3] = result;
++    {
++      std::lock_guard lock(g_ghost_mutex);
++      g_ghost_identity.asked = true;
++    }
++    if (g_ghost_lines.fetch_add(1) < 16)
++      XELOGW("Virtual Kinect: the title identifies the ghost {:08X} (flags {:X}, callback {:08X}) "
++             "-> {:08X} (fix 183)", tracking_id, flags, callback, result);
++    return;
++  }
+   const uint32_t result = xbox360ps5::nui_identity::Identify(
+       tracking_id, flags, callback, context, xbox360ps5::motion::enabled.load() ? live : 0,
+       xbox360ps5::nui_identity::AllowedFlags(layout));  // fix 156q
+@@ -1135,6 +1163,34 @@ void IdentityEnrollmentHandler(cpu::ppc::PPCContext* ppc_context, KernelState* k
+            index, info.user_index, info.flags, info.result);
+ }
+ 
++// Fix 183: the ghost has no profile; its answer is a guest's (result 0, kGuestEnrollment, profile
++// not matched), on its own state. False for any other body.
++bool GhostAnswered(const xbox360ps5::nui_identity::Request& r, uint32_t message) {
++  if (!g_ghost_on.load() || r.tracking_id != xbox360ps5::kinect_ghost::kGhostTrackingId)
++    return false;
++  KernelState* ks = kernel_state();
++  auto* thread = cpu::ThreadState::Get();
++  const auto layout =
++      xbox360ps5::nui_identity::Layout(xbox360ps5::nui_identity::bound_layout.load());
++  uint8_t* m = ks->memory()->TranslateVirtual<uint8_t*>(message);
++  uint64_t args[] = {r.context, message};
++  xbox360ps5::nui_identity::Answer guest;
++  guest.enrollment = xbox360ps5::kinect_ghost::kGuestEnrollment;
++  guest.matched = false;
++  xbox360ps5::nui_identity::WriteFrameProcessed(m, r.tracking_id, layout);
++  ks->processor()->Execute(thread, r.callback, args, 2);
++  xbox360ps5::nui_identity::WriteComplete(m, r.tracking_id, guest, layout);
++  ks->processor()->Execute(thread, r.callback, args, 2);
++  {
++    std::lock_guard lock(g_ghost_mutex);
++    g_ghost_identity.answered = true;
++  }
++  if (g_ghost_lines.fetch_add(1) < 16)
++    XELOGW("Virtual Kinect: the ghost {:08X} identified as a guest: result {:08X}, enrollment "
++           "{:X}, profile matched false (fix 183)", r.tracking_id, guest.result, guest.enrollment);
++  return true;
++}
++
+ // The answers to the title's identify requests, on its own thread (the skeleton frame's
+ // caller): "frame processed", then "complete" with the signed-in profile's enrollment. Fix 156n:
+ // kAnswerDelayFrames skeleton frames after the request (nui_identity.hpp).
+@@ -1161,7 +1217,7 @@ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+       xbox360ps5::nui_identity::Layout(xbox360ps5::nui_identity::bound_layout.load());  // 156q
+   static xbox360ps5::motion::LogBudget<xbox360ps5::motion::kIdentifyLogLines> shown;  // fix 169: 64 (8 before)
+   for (const auto& r : requests) {
+-    if (!IsGuestRangeMapped(memory, r.callback, 4, false)) continue;
++    if (!IsGuestRangeMapped(memory, r.callback, 4, false) || GhostAnswered(r, message)) continue;
+     uint8_t* m = memory->TranslateVirtual<uint8_t*>(message);
+     uint64_t args[] = {r.context, message};
+     xbox360ps5::nui_identity::WriteFrameProcessed(m, r.tracking_id, layout);
+@@ -1177,6 +1233,34 @@ void DeliverIdentityAnswers(KernelState* kernel_state, uint32_t user_index) {
+   memory->SystemHeapFree(message);
+ }
+ 
++// Fix 183: the ghost in slot 1, the player's pose from g_ghost.delay_s earlier, g_ghost.offset_m
++// to the side, its own tracking ID and guest identity.
++void WriteGhost(uint8_t* frame, const xbox360ps5::motion::Frame& pose, bool identify_bound) {
++  namespace kg = xbox360ps5::kinect_ghost;
++  const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
++                             std::chrono::steady_clock::now().time_since_epoch())
++                             .count();
++  xbox360ps5::motion::Frame ghost;
++  kg::FramePair pair{};
++  {
++    std::lock_guard lock(g_ghost_mutex);
++    g_ghost_delay.Push(pose, now_ms);
++    ghost = kg::Shifted(g_ghost_delay.Delayed(now_ms, int64_t(g_ghost.delay_s * 1000.0f)),
++                        g_ghost.offset_m);
++    if (ghost.tracked && g_ghost_identity.first_seen_ms < 0) g_ghost_identity.first_seen_ms = now_ms;
++    pair = kg::ForFrame(identify_bound, g_ghost_identity, now_ms);
++  }
++  const bool was_live = g_ghost_live.exchange(ghost.tracked);
++  xbox360ps5::motion::WriteSkeletonBody(frame, kg::kGhostSlot, ghost, kg::kGhostTrackingId,
++                                        pair.enrollment, pair.user_index);
++  static uint32_t last_enrollment = 0;
++  if (ghost.tracked && (!was_live || pair.enrollment != last_enrollment) &&
++      g_ghost_lines.fetch_add(1) < 16)
++    XELOGW("Virtual Kinect: the ghost {:08X} is in slot {} as enrollment {:X}, user {:X} "
++           "(fix 183)", kg::kGhostTrackingId, kg::kGhostSlot, pair.enrollment, pair.user_index);
++  if (ghost.tracked) last_enrollment = pair.enrollment;
++}
++
+ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+                                uint32_t frame_ptr) {
+   using clock = std::chrono::steady_clock;
+@@ -1348,6 +1432,7 @@ X_HRESULT SkeletonGetNextFrame(KernelState* kernel_state, uint32_t wait_ms,
+       memory->TranslateVirtual(frame_ptr), pose, frame_number,
+       uint64_t(frame_number) * kSkeletonPeriodMs,
+       tracking_id, identity.enrollment, identity.user_index);
++  if (g_ghost_on.load()) WriteGhost(memory->TranslateVirtual(frame_ptr), pose, bound_identify);
+   ++xbox360ps5::motion::guest_skeleton_frames;
+   if (pose.tracked) {
+     ++xbox360ps5::motion::guest_skeleton_bodies;
+@@ -1438,6 +1523,16 @@ void LogPlayerChoice(cpu::ppc::PPCContext* ppc_context, KernelState* kernel_stat
+     std::lock_guard lock(xbox360ps5::motion::nui_mutex);
+     body = xbox360ps5::motion::nui_binding.tracking_id;
+   }
++  if (g_ghost_on.load()) {  // fix 183: our two bodies
++    XELOGW("Virtual Kinect: player choice: the title {} (mode {}, IDs {:08X} {:08X}); the "
++           "library {} (ready {}, tracking {}, system path {}, tracked {:08X} {:08X}); our bodies "
++           "{:08X} {:08X} (fix 156s, 183)",
++           has_consumer ? "picks" : "(no consumer in r31)", mode, pick0, pick1,
++           has_library ? "keeps" : "(not found)", ready, enabled, system,
++           nc::TrackingId(id0, base), nc::TrackingId(id1, base), body,
++           g_ghost_live.load() ? xbox360ps5::kinect_ghost::kGhostTrackingId : 0);
++    return;
++  }
+   XELOGW("Virtual Kinect: player choice: the title {} (mode {}, IDs {:08X} {:08X}); the "
+          "library {} (ready {}, tracking {}, system path {}, tracked {:08X} {:08X}); our body "
+          "{:08X} (fix 156s)",
+@@ -1700,6 +1795,24 @@ void BindSkeletonSource(KernelState* kernel_state) {
+   xbox360ps5::motion::guest_skeleton_bound = true;
+   BindEstimatedHands(kernel_state, xex);
+   BindIdentity(kernel_state, xex, base, size);  // fix 156l
++  {
++    // Fix 183: the ghost player probe, only with its switch file.
++    g_ghost = xbox360ps5::kinect_ghost::Load();
++    {
++      std::lock_guard lock(g_ghost_mutex);
++      g_ghost_delay.Clear();
++      g_ghost_identity = {};
++    }
++    g_ghost_live = false;
++    g_ghost_on = g_ghost.on;
++    xbox360ps5::kinect_diag::every_call = g_ghost.on;
++    xbox360ps5::kinect_diag::every_call_lines = 0;
++    if (g_ghost.on)
++      XELOGW("Virtual Kinect: ghost player on ({}): slot {}, tracking id {:08X}, {:.2f} m to the "
++             "side, {:.1f} s behind the player; a guest (fix 183)",
++             xbox360ps5::kinect_ghost::kSwitchPath, xbox360ps5::kinect_ghost::kGhostSlot,
++             xbox360ps5::kinect_ghost::kGhostTrackingId, g_ghost.offset_m, g_ghost.delay_s);
++  }
+   {
+     // Fix 156s: where the title's player choice is kept, for the line above.
+     const xbox360ps5::motion::CodeView view{memory->TranslateVirtual<const uint8_t*>(base), size,
+@@ -1761,6 +1874,12 @@ void ShutdownCameraDevice() {
+   xbox360ps5::kinect_diag::enabled = false;  // fix 108
+   xbox360ps5::kinect_diag::first_calls.Reset();
+   xbox360ps5::kinect_diag::dumps_taken = 0;  // fix 156r
++  {
++    std::lock_guard lock(g_ghost_mutex);  // fix 183
++    g_ghost_delay.Clear();
++    g_ghost_identity = {};
++  }
++  g_ghost_live = false;
+   {
+     std::lock_guard lock(g_choice_mutex);  // fix 156s: the next title gets its own lines
+     g_choice_limit = {};

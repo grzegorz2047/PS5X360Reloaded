@@ -224,6 +224,7 @@ on:
       - 'tools/make-skin-icons.py'
       - 'tools/check-player-choice.cpp'
       - 'tools/check-nui-identity-retrack.cpp'
+      - 'tools/check-kinect-ghost.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
