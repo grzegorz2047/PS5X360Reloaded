@@ -829,7 +829,7 @@ void PulseDoesNotSleep() {
 }
 
 void PulseSwitch() {
-  std::printf("fix 180: the switch (event-pulse.txt, the setting)\n");
+  std::printf("fix 180: the switch (event-pulse.txt, the setting; 180b: atomic by default)\n");
   namespace ep = xbox360ps5::event_pulse;
   CHECK(ep::ParseSwitch("atomic") == ep::kAtomic, "atomic");
   CHECK(ep::ParseSwitch("\xEF\xBB\xBF  Atomic\r\n") == ep::kAtomic, "BOM, blanks, case");
@@ -844,11 +844,24 @@ void PulseSwitch() {
   ::close(fd);
   ::unlink(path);
   ep::path_override.store(path);
+  // Fix 180b: atomic by default (180's first build: old).
+#ifdef CHECK_NO_FIX180B
+  constexpr int kDefault = ep::kOld;
+#else
+  constexpr int kDefault = ep::kAtomic;
+  static_assert(ep::kDefaultMode == ep::kAtomic, "fix 180b: atomic by default");
+#endif
+  constexpr int kOther = kDefault == ep::kAtomic ? ep::kOld : ep::kAtomic;
   auto r = ep::Refresh(-1, true);
-  CHECK(r.changed && r.mode == ep::kOld && r.source == ep::kDefault, "no file: old (default)");
-  CHECK(!ep::Atomic(), "old");
-  r = ep::Refresh(ep::kAtomic, true);
-  CHECK(r.changed && r.mode == ep::kAtomic && r.source == ep::kSetting, "the setting: atomic");
+  CHECK(r.changed && r.mode == kDefault && r.source == ep::kDefault, "no file: %s (the default)",
+        ep::ModeName(kDefault));
+  CHECK(ep::Atomic() == (kDefault == ep::kAtomic), "the default mode");
+  r = ep::Refresh(kOther, true);
+  CHECK(r.changed && r.mode == kOther && r.source == ep::kSetting, "the setting: %s",
+        ep::ModeName(kOther));
+  r = ep::Refresh(kDefault, true);
+  CHECK(r.changed && r.mode == kDefault && r.source == ep::kDefault,
+        "the setting at the default value");
   std::ofstream(path) << "old\n";
   r = ep::Refresh(ep::kAtomic, true);
   CHECK(r.changed && r.mode == ep::kOld && r.source == ep::kFile, "the file overrides the setting");
@@ -861,7 +874,11 @@ void PulseSwitch() {
   CHECK(!r.changed, "unchanged");
   std::ofstream(path) << "something\n";
   r = ep::Refresh(-1, true);
-  CHECK(r.changed && r.mode == ep::kOld && r.source == ep::kDefault, "unknown word: the default");
+  CHECK(r.changed && r.mode == kDefault && r.source == ep::kDefault, "unknown word: the default");
+  // The way back (fix 180b): "old" in the file, or the setting (a game's config, fix 166).
+  ::unlink(path);
+  r = ep::Refresh(ep::kOld, true);
+  CHECK(r.mode == ep::kOld && !ep::Atomic(), "the setting old");
   ::unlink(path);
   ep::path_override.store(nullptr);
 }

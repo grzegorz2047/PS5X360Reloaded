@@ -516,6 +516,8 @@ for variant in "${wait_variants[@]}"; do
   read -r -a flags <<< "${variant#*|}"
   # Fix 180's cases (the atomic pulse) only when the build has fix 180.
   if [[ " $skipped_fixes " == *" 180 "* ]]; then flags+=(-DCHECK_NO_FIX180); fi
+  # Fix 180b (atomic by default): its default only when the build has it.
+  if [[ " $skipped_fixes " == *" 180b "* ]]; then flags+=(-DCHECK_NO_FIX180B); fi
   exe="$tree/build/fix-checks/check-wait-wakeups-$label"
   run=("$exe")
   if [[ $label == tsan || $label == asan ]]; then run=(setarch "$(uname -m)" -R "$exe"); fi
