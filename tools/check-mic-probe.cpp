@@ -208,6 +208,9 @@ static void CheckTree() {
   CHECK(Has(probe, "\"sceSysmoduleLoadModuleInternal\"") && Has(probe, "(kAudioInModule)"));
   CHECK(Has(probe, "\"/system/common/lib/libSceAudioIn.sprx\""));
   CHECK(Has(probe, "\"libSceAudioOut.sprx\", \"libSceAudioSystem.sprx\""));
+  CHECK(Has(probe, "sceKernelLoadStartModule(name, 0, nullptr, 0, nullptr, &started)"));
+  CHECK(Has(probe, "\"sceAudioInInit\"") &&
+        probe.find("sceAudioInInit() ->") < probe.find("sceUserServiceGetInitialUser(&user)"));
 #endif
 }
 

@@ -92,7 +92,16 @@ diff --git a/include/xbox360ps5/mic_probe.hpp b/include/xbox360ps5/mic_probe.hpp
 diff --git a/include/xbox360ps5/mic_probe_ps5.hpp b/include/xbox360ps5/mic_probe_ps5.hpp
 --- a/include/xbox360ps5/mic_probe_ps5.hpp
 +++ b/include/xbox360ps5/mic_probe_ps5.hpp
-@@ -56,36 +56,68 @@ inline uint64_t NowNs() {
+@@ -40,6 +40,8 @@ struct Library {
+   InputFn input = nullptr;
+   CloseFn close = nullptr;
+   SilentStateFn silent_state = nullptr;
++  int handle = -1;  // fix 179b: where the functions were found (for sceAudioInInit)
++  bool by_nid = false;
+ };
+ 
+ struct State {
+@@ -56,36 +58,72 @@ inline uint64_t NowNs() {
                        .count());
  }
  
@@ -121,13 +130,17 @@ diff --git a/include/xbox360ps5/mic_probe_ps5.hpp b/include/xbox360ps5/mic_probe
 +  lib->input = reinterpret_cast<InputFn>(found[2]);
 +  lib->close = reinterpret_cast<CloseFn>(found[3]);
 +  lib->silent_state = reinterpret_cast<SilentStateFn>(found[4]);
++  lib->handle = handle;
++  lib->by_nid = by_nid;
 +  XELOGW("Microphone probe (fix 179b): the functions resolve through {} by {}", route,
 +         by_nid ? "NID" : "name");
 +  return true;
 +}
 +inline int LoadModule(const char* name) {
-+  const int handle = sceKernelLoadStartModule(name, 0, nullptr, 0, nullptr, nullptr);
-+  XELOGW("Microphone probe (fix 179b): loading {} gave {:08X}", name, unsigned(handle));
++  int started = 0;  // the module's own start routine's answer
++  const int handle = sceKernelLoadStartModule(name, 0, nullptr, 0, nullptr, &started);
++  XELOGW("Microphone probe (fix 179b): loading {} gave {:08X} (its start routine said {:08X})",
++         name, unsigned(handle), unsigned(started));
 +  return handle;
 +}
 +inline bool TryHandle(int handle, const char* route, Library* lib) {
@@ -189,3 +202,23 @@ diff --git a/include/xbox360ps5/mic_probe_ps5.hpp b/include/xbox360ps5/mic_probe
  }
  
  inline void Run(std::shared_ptr<State> self, std::filesystem::path raw_path) {
+@@ -95,6 +133,19 @@ inline void Run(std::shared_ptr<State> self, std::filesystem::path raw_path) {
+     self->finished.store(true);
+     return;
+   }
++  // Fix 179b: the console's libSceAudioIn exports sceAudioInInit (the PS4-era list had none);
++  // call it first when it is there.
++  {
++    using InitFn = int32_t (*)();
++    void* address = nullptr;
++    const std::string symbol = lib.by_nid ? Nid("sceAudioInInit") : "sceAudioInInit";
++    const int found = sceKernelDlsym(lib.handle, symbol.c_str(), &address);
++    if (found >= 0 && address)
++      XELOGW("Microphone probe (fix 179b): sceAudioInInit() -> {:08X}",
++             uint32_t(reinterpret_cast<InitFn>(address)()));
++    else
++      XELOGW("Microphone probe (fix 179b): sceAudioInInit lookup gave {:08X}", unsigned(found));
++  }
+   int32_t user = -1;
+   const int user_result = sceUserServiceGetInitialUser(&user);
+   XELOGW("Microphone probe (fix 179): initial user {:08X} (result {:08X})", uint32_t(user),
