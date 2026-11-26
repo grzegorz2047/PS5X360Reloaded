@@ -12,7 +12,8 @@
 //      succeeding + euid 0 -> elevated (lapy-elfldr); the client failing -> not elevated, app carries
 //      on; the per-process cap; the mirrored data_mount fields;
 //  (d) the tree: the MIT header calls the LGPL client (lapy_elevation_request) through the vendor
-//      header, uses AttemptEarly + fsync'd progress + umask(0)/0666, has NO etaHEN/9028/hijack code;
+//      header, uses AttemptEarly + a std::ofstream progress file and std file I/O (fix 186f: raw
+//      ::umask/::open were null imports on the console firmware), has NO etaHEN/9028/hijack code;
 //      the LGPL module is SPDX LGPL-2.1-or-later and speaks ELV1 over 9021 with seteuid(geteuid());
 //      canary_game_main.cpp calls AttemptEarly before InstallCrashReport; launcher.cpp makes no
 //      request; CMakeLists builds the client.
@@ -130,10 +131,18 @@ void Tree() {
              h.find("lapy_elevation_request(") != std::string::npos,
          "(d) the MIT header calls the LGPL client through the vendor interface");
   Expect(h.find("inline Result AttemptEarly(") != std::string::npos &&
-             h.find("::fsync(") != std::string::npos && h.find("elevate-probe-progress.txt") != std::string::npos,
-         "(d) AttemptEarly writes an fsync'd progress file");
-  Expect(h.find("umask(0)") != std::string::npos && h.find("O_CREAT | O_TRUNC, 0666") != std::string::npos,
-         "(d) umask(0)+0666 data probe");
+             h.find("std::ofstream prog(") != std::string::npos &&
+             h.find("elevate-probe-progress.txt") != std::string::npos,
+         "(d) AttemptEarly writes a std::ofstream progress file");
+  // 186f: the probe uses ONLY std:: file I/O. 186e's raw ::umask/::open were unresolved (null)
+  // imports on the console firmware, so the call jumped to address 0 (SIGSEGV, RIP=0) before any
+  // step could log. These assertions keep the crash-prone raw-POSIX forms out for good.
+  Expect(h.find("std::ofstream f(path") != std::string::npos &&
+             h.find("std::filesystem::remove(path") != std::string::npos,
+         "(d) data probe writes via std::ofstream + std::filesystem::remove");
+  Expect(h.find("::umask(") == std::string::npos && h.find("O_CREAT") == std::string::npos &&
+             h.find("::fsync(") == std::string::npos,
+         "(d) no raw ::umask/::open(O_CREAT)/::fsync (null imports on PS5; fix 186f)");
   Expect(h.find("AttemptCounter().fetch_add(1)") != std::string::npos && h.find("Outcome::kCapped") != std::string::npos,
          "(d) per-process attempt cap");
   Expect(h.find("HijackerCommand") == std::string::npos && h.find("0xDEADBEEF") == std::string::npos &&
