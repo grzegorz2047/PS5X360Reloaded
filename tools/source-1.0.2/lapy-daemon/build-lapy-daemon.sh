@@ -19,7 +19,7 @@ sdk=${1:?ps5-payload-sdk dir}
 out=${2:?output dir}
 
 REPO_URL="https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon"
-PIN=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["upstream"]["commit"])' "$here/manifest.json")
+PIN=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["upstream"]["lapy_helper"]["commit"])' "$here/manifest.json")
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
