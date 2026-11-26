@@ -34,6 +34,13 @@
 // Windows host.
 #if __has_include(<netinet/in.h>)
 #define HAVE_CAMERA 1
+// The core's log, as check-kinect-usb.cpp replaces it (the USB Kinect path logs).
+#define XBOX360PS5_KINECT_USB_HOST_LOG
+#include <string_view>
+template <typename... Args>
+void XELOGW(std::string_view, const Args&...) {}
+template <typename... Args>
+void XELOGI(std::string_view, const Args&...) {}
 #include "xbox360ps5/virtual_depth_camera.hpp"
 #else
 #define HAVE_CAMERA 0
