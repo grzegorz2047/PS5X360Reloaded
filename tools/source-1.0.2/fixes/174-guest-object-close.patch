@@ -1,0 +1,206 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_ob.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_ob.h"
++#include <atomic>  // fix 174
+ #include "xenia/base/logging.h"
+ #include "xenia/cpu/processor.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -16,6 +17,7 @@
+ #include "xenia/kernel/xthread.h"
+ #include "xenia/xbox.h"
+ #include "xbox360ps5/enum_trace.hpp"  // fix 81
++#include "xbox360ps5/guest_object_close.hpp"  // fix 174
+ 
+ namespace xe {
+ namespace kernel {
+@@ -220,6 +222,9 @@ dword_result_t ObOpenObjectByPointer_entry(lpvoid_t object_ptr,
+ 
+   // Retain the handle. Will be released in NtClose.
+   object->RetainHandle();
++  // Fix 174: a handle to an object of a title's own type is counted for its close procedure.
++  namespace goc = xbox360ps5::guest_object_close;
++  goc::registry().Opened(object->guest_object());
+   *out_handle_ptr = object->handle();
+   return X_STATUS_SUCCESS;
+ }
+@@ -437,7 +442,43 @@ uint32_t NtClose(uint32_t handle) {
+   return kernel_state()->object_table()->ReleaseHandle(handle);
+ }
+ 
+-dword_result_t NtClose_entry(dword_t handle) { return NtClose(handle); }
++// Xbox360PS5 fix 174 (xbox360ps5/guest_object_close.hpp): the console's object manager calls an
++// object type's close procedure from NtClose with the handle count before the close. For an
++// object the title made with a type of its own (ObCreateObject) and opened by pointer, run that
++// procedure on this guest thread before the handle goes. The NUI library frees an image
++// stream's channel there; without it Harry Potter's second open of its camera stream got
++// "already open" (0x83010003) and the title stopped on its own check (827E0F78, issue 76).
++dword_result_t NtClose_entry(dword_t handle, const ppc_context_t& ctx) {
++  namespace goc = xbox360ps5::guest_object_close;
++  uint32_t close_proc = 0, guest_object = 0, type = 0, handle_count = 0;
++  if (auto object = kernel_state()->object_table()->LookupObject<XObject>(handle)) {
++    guest_object = object->guest_object();
++    if (guest_object >= goc::kObjectHeaderSize) {
++      const uint32_t header_type = xe::load_and_swap<uint32_t>(kernel_memory()->TranslateVirtual(
++          guest_object - goc::kObjectHeaderSize + 8));
++      const auto close = goc::registry().Closing(object->guest_object(), header_type);
++      if (close.type) {
++        type = close.type;
++        handle_count = close.handle_count;
++        close_proc = xe::load_and_swap<uint32_t>(
++            kernel_memory()->TranslateVirtual(close.type + goc::kCloseProc));
++      }
++    }
++  }
++  if (close_proc) {
++    static std::atomic<uint32_t> shown{0};
++    if (shown.fetch_add(1) < 16)
++      XELOGW("Kernel: NtClose({:08X}) runs the title's close procedure {:08X} for object "
++             "{:08X} (type {:08X}, tag {:08X}, handles {}) (fix 174)",
++             uint32_t(handle), close_proc, guest_object, type,
++             xe::load_and_swap<uint32_t>(
++                 kernel_memory()->TranslateVirtual(type + goc::kPoolTag)),
++             handle_count);
++    uint64_t args[] = {guest_object, handle_count};
++    ctx->processor->Execute(ctx->thread_state, close_proc, args, 2);
++  }
++  return NtClose(handle);
++}
+ DECLARE_XBOXKRNL_EXPORT1(NtClose, kNone, kImplemented);
+ 
+ dword_result_t ObCreateObject_entry(
+@@ -451,6 +492,14 @@ dword_result_t ObCreateObject_entry(
+       xeObCreateObject(object_factory, optional_attributes,
+                        object_size_sans_headers, &out_object_tmp, context);
+   *out_object = out_object_tmp;
++  // Fix 174: an object of a type the title defined (not one of the kernel's own types, in its
++  // globals block) is noted, so NtClose can run that type's close procedure.
++  namespace goc = xbox360ps5::guest_object_close;
++  const uint32_t kernel_types = kernel_state()->GetKernelGuestGlobals();
++  if (XSUCCEEDED(result) && out_object_tmp &&
++      goc::TitleType(object_factory.guest_address(), kernel_types,
++                     kernel_types + uint32_t(sizeof(KernelGuestGlobals))))
++    goc::registry().Created(out_object_tmp, object_factory.guest_address());
+   return result;
+ }
+ DECLARE_XBOXKRNL_EXPORT1(ObCreateObject, kNone, kImplemented);
+diff --git a/include/xbox360ps5/guest_object_close.hpp b/include/xbox360ps5/guest_object_close.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/guest_object_close.hpp
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: MIT
++// Fix 174 (Harry Potter Kinect 57520826, issue 76): closing a handle runs the close procedure of
++// the object's type when the title defined that type itself.
++//
++// The Xbox 360 kernel's object manager calls an object type's CloseProcedure(Object,
++// HandleCount) from NtClose, with the object's handle count before the close (1 for the last
++// handle). The emulator's NtClose only released its own table entry, so a type the title
++// defines for ObCreateObject never heard that its handle went away.
++//
++// The titles' statically linked NUI library is such a title: its image streams are objects of
++// its own type (pool tag 'Nuio'; Harry Potter's type at 82D18CF8: allocate 82A4BD38, free
++// 82A4BD40, close 82A4C858). NuiImageStreamOpen (82A4CAD8) creates the stream (ObCreateObject,
++// 82A4CA20), keeps it in the stream table's slot for its channel (+0x2968 + 4 * channel of the
++// library's globals, 82E4F6F8) and hands out a handle (ObOpenObjectByPointer). It refuses a
++// channel whose slot is taken with 0x83010003 ("stream already open"). The close procedure, for
++// the title's last handle (a title thread, handle count 1), stops the stream, clears the slot
++// and the channel's state, and drops the creation reference (ObDereferenceObject). Harry
++// Potter's camera thread function (827E0F28) opens stream type 2, reads frames, and at its end
++// closes the handle (CloseHandle -> NtClose); the next run of the same function (a new thread,
++// at about 68 s on 1.0.7-work-integration2) got "already open" and stopped on the title's own
++// check (827E0F78: stb r27,0(0), a write to guest address 0, the crash dump's "write at
++// 0x0000001000000000").
++//
++// So: ObCreateObject notes each object created with a title type (not one of the kernel's own
++// types, whose procedures are the emulator's trampolines), ObOpenObjectByPointer counts the
++// handles it gives for such an object, and NtClose, before it releases the handle, calls the
++// type's close procedure on the calling guest thread with the count before the close. An
++// address reused for another object, or a header whose type changed, is forgotten instead.
++#pragma once
++#include <cstdint>
++#include <iterator>
++#include <mutex>
++#include <unordered_map>
++
++namespace xbox360ps5::guest_object_close {
++
++// The X_OBJECT_TYPE words (object_type_ptr in an object's header points at one).
++constexpr uint32_t kAllocateProc = 0x0;
++constexpr uint32_t kFreeProc = 0x4;
++constexpr uint32_t kCloseProc = 0x8;
++constexpr uint32_t kDeleteProc = 0xC;
++constexpr uint32_t kPoolTag = 0x18;
++constexpr uint32_t kObjectHeaderSize = 0x10;  // the type pointer is at object - 0x08
++
++// A type the title defined: not inside the kernel's own globals block, which holds the types the
++// emulator fills in (events, files, threads...).
++inline bool TitleType(uint32_t type, uint32_t kernel_types_begin, uint32_t kernel_types_end) {
++  return type && !(type >= kernel_types_begin && type < kernel_types_end);
++}
++
++class Registry {
++ public:
++  // ObCreateObject made `object` with title type `type` (an address reused starts over).
++  void Created(uint32_t object, uint32_t type) {
++    std::lock_guard lock(mutex_);
++    if (!object || !type) return;
++    if (objects_.size() >= kMaxObjects && !objects_.count(object)) {
++      // Full: forget the objects with no handle open (closed, or never opened).
++      for (auto it = objects_.begin(); it != objects_.end();)
++        it = it->second.handles ? std::next(it) : objects_.erase(it);
++      if (objects_.size() >= kMaxObjects) return;
++    }
++    objects_[object] = Entry{type, 0};
++  }
++  // ObOpenObjectByPointer gave a handle to `object`. False when it is not a noted object.
++  bool Opened(uint32_t object) {
++    std::lock_guard lock(mutex_);
++    auto it = objects_.find(object);
++    if (it == objects_.end()) return false;
++    ++it->second.handles;
++    return true;
++  }
++  struct Close {
++    uint32_t type = 0;          // the type whose close procedure runs; 0: nothing to run
++    uint32_t handle_count = 0;  // the count before this close (1: the last handle)
++  };
++  // NtClose of a handle to `object`, whose header now names `header_type`.
++  Close Closing(uint32_t object, uint32_t header_type) {
++    std::lock_guard lock(mutex_);
++    auto it = objects_.find(object);
++    if (it == objects_.end()) return {};
++    if (it->second.type != header_type) {  // the memory holds another object now
++      objects_.erase(it);
++      return {};
++    }
++    if (it->second.handles == 0) return {};  // a handle this registry never gave
++    // Kept after its last handle: the title may open the same object by pointer again.
++    Close close{it->second.type, it->second.handles};
++    --it->second.handles;
++    return close;
++  }
++  size_t size() {
++    std::lock_guard lock(mutex_);
++    return objects_.size();
++  }
++  static constexpr size_t kMaxObjects = 4096;
++
++ private:
++  struct Entry {
++    uint32_t type;
++    uint32_t handles;
++  };
++  std::mutex mutex_;
++  std::unordered_map<uint32_t, Entry> objects_;
++};
++
++inline Registry& registry() {
++  static Registry instance;
++  return instance;
++}
++
++}  // namespace xbox360ps5::guest_object_close

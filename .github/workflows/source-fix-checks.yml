@@ -223,6 +223,8 @@ on:
       - 'tools/check-diag-stuck-dump.cpp'
       - 'tools/check-avatar-assets-success.cpp'
       - 'tools/check-nui-speech.cpp'
+      - 'tools/check-guest-object-close.cpp'
+      - 'tools/check-virtual-mic.cpp'
       - 'assets/skin/**'
       - 'assets/skin-dark/**'
       - 'assets/skin-src/**'
