@@ -26,45 +26,54 @@ diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_p
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/elevate_probe.hpp
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,477 @@
 +// SPDX-License-Identifier: MIT
-+// Fix 186: an optional, off-by-default probe that asks the user's PS5-Lapy-JB-Daemon to elevate this
-+// process to UID 0 before the fix 148i/148j write benchmark, so the bench's throughput past the
-+// ~1.5-1.7 GB per-process write budget (issue #80) can be measured as root and compared to the UID 1
-+// runs. Diagnostics only: it changes nothing unless the user opts in and runs the daemon, and it
-+// implements no kernel write of its own -- it only sends the daemon's own cooperative request and
-+// reports, honestly, whether elevation took.
++// Fix 186 / 186b: an optional, off-by-default probe that asks the console's on-demand jailbreak
++// backend to elevate this process to UID 0 before the fix 148i/148j write benchmark, so the bench's
++// throughput past the ~1.5-1.7 GB per-process write budget (issue #80) can be measured as root and
++// compared to the UID 1 runs. Diagnostics only: it changes nothing unless the user opts in, it never
++// closes the app, and it implements no kernel write of its own -- it only sends a backend's own
++// on-demand jailbreak request and reports, honestly, whether elevation took.
 +//
-+// The cooperative request protocol is the Lapy daemon's own MIT-documented interface
-+// (github.com/mpereiraesaa/PS5-Lapy-JB-Daemon, README.md + examples/cooperative_elevation.c):
-+//   1. in this process, call seteuid(geteuid()) so the kernel gives it a private credential;
-+//   2. write {"PID":<getpid()>}\n to /download0/.elevate_proc.<pid> and rename() it to the request
-+//      marker /download0/elevate_proc (atomic: the daemon only ever sees a complete request);
-+//   3. the daemon consumes (deletes) the marker; poll access(marker)==ENOENT up to a timeout;
-+//   4. the marker vanishing is not proof -- verify a real root write to /data (a path outside this
-+//      title's sandbox that UID 1 cannot create) before trusting elevation.
-+// This header reimplements that interface independently from Lapy's MIT example; no code from the
-+// user's TrinityXSX (GPL-2.0) app was copied. The before/after result shape (uid/euid and a /data
-+// root write before and after, helper_completed, waited_ms, settled_ms) mirrors, as a generic
-+// diagnostic, the "PW_WINE64 data_mount ..." line TrinityXSX logs, so the two consoles' numbers are
-+// comparable. Credit: the Lapy daemon (the protocol and helper) and TrinityXSX (the integration idea).
++// Primary backend -- etaHEN's native non-whitelist jailbreak (MIT-clean, in the MIT eboot):
++// etaHEN (the HEN the user runs) exposes a command server on TCP 127.0.0.1:9028. Its README
++// documents a "non-whitelist method": send a HijackerCommand asking it to jailbreak a PID, and it
++// grants that process a full jailbreak (root ucred + root vnode) regardless of the title. etaHEN's
++// file-marker path (/download0/etahen_jailbreak) is NOT used because it only accepts a hardcoded
++// title whitelist that excludes this app. This header reimplements etaHEN's documented 9028 wire
++// protocol independently in plain POSIX sockets; etaHEN is GPL-3.0 and no etaHEN code is copied (the
++// struct and constants are a factual wire interface). The protocol: connect 127.0.0.1:9028; send a
++// HijackerCommand{ magic=0xDEADBEEF, cmd=JAILBREAK_CMD(5), PID=getpid(), ret=-1337, msg1[0x500],
++// msg2[0x500] } (2576 bytes); read it back; success iff ret==0 (jailbroken now) or ret==-1337
++// (already). etaHEN then does a full Hijacker jailbreak of this PID.
++//
++// Secondary backend -- a resident Lapy daemon marker (also MIT): if the 9028 jailbreak does not take,
++// the probe also writes Lapy's cooperative marker (seteuid(geteuid()) first, then {"PID":<pid>} to
++// /download0/.elevate_proc.<pid> renamed to /download0/elevate_proc), for a console that runs a
++// standalone PS5-Lapy-JB-Daemon instead of etaHEN. A bundled Lapy helper is a separate LGPL binary
++// (never in this MIT eboot); the elfldr:9021 + ELV1 one-shot path (LGPL) is intentionally NOT done
++// here.
++//
++// The result line mirrors TrinityXSX's "PW_WINE64 data_mount ..." field names and semantics
++// (data_before, elevated_before, helper_completed, helper_errno, data_after, elevated_after,
++// waited_ms, settled_ms) so the two consoles' numbers compare directly. elevated_* is euid==0;
++// data_* is a real write in this app's own data folder.
 +//
 +// Safeguards:
 +//  * switch file <data>/elevate-probe.txt must say "on"; without it the probe is a no-op and the
 +//    bench runs exactly as before, at UID 1;
-+//  * a hard per-process cap on elevation requests (kMaxAttempts), given that the daemon's legacy
-+//    backend was associated with a kernel panic after many elevations per boot (the owned-root fork
-+//    is safer but unproven by a dump); a self-restart is a new process and resets the count;
++//  * a hard per-process cap on elevation requests (attempts=, default 3), given that a jailbreak
++//    changes kernel credentials and legacy backends were linked to panics after many per boot;
 +//  * a SIGSYS handler around the request, so a syscall the sandbox refuses is logged, not a silent
-+//    process kill (as the PS5 sandbox lacks statfs; fix 148k);
-+//  * the probe's own test file is created with umask(0) and mode 0666 and removed again, so a file
-+//    made while elevated stays readable and writable if the user later runs at UID 1 (issue #80);
-+//  * any failure (no daemon, a refusal, a timeout, seteuid failing, SIGSYS) is logged and the
-+//    process carries on at UID 1 -- the app is never closed and nothing else is changed.
++//    process kill (the PS5 sandbox lacks some syscalls; fix 148k);
++//  * the probe's own test file is created with umask(0) and mode 0666/0777 and removed again, so a
++//    file made while elevated stays readable and writable if the user later runs at UID 1 (issue #80);
++//  * any failure (no backend, a refusal, a timeout, SIGSYS) is logged and the process carries on at
++//    UID 1 -- the app is never closed and nothing else is changed.
 +#pragma once
-+// The real syscalls (SystemOps, Attempt) are POSIX; the PS5 (__PROSPERO__) and the CI host build
-+// them. The templated core (Run) is portable, so the host check builds it on any platform; on a
-+// non-POSIX host (a local Windows zig build of the check) SystemOps is left out automatically.
++// The real syscalls/sockets (SystemOps, Attempt) are POSIX; the PS5 (__PROSPERO__) and the CI host
++// build them. The templated core (Run) is portable, so the host check builds it on any platform; on
++// a non-POSIX host (a local Windows zig build of the check) SystemOps is left out automatically.
 +#if !defined(XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM) && defined(_WIN32)
 +#define XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM 1
 +#endif
@@ -83,9 +92,12 @@ new file mode 100644
 +#include <string>
 +
 +#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++#include <arpa/inet.h>
 +#include <fcntl.h>
++#include <netinet/in.h>
 +#include <setjmp.h>
 +#include <signal.h>
++#include <sys/socket.h>
 +#include <sys/stat.h>
 +#include <sys/types.h>
 +#include <unistd.h>
@@ -93,28 +105,42 @@ new file mode 100644
 +
 +namespace xbox360ps5::elevate_probe {
 +
-+// The Lapy request marker lives in /download0 (the title needs downloadDataSize > 0; PPSA83600 has
-+// it). The root-write proof goes outside this title's sandbox, where UID 1 cannot create a file.
++// etaHEN's command server (README: the non-whitelist jailbreak method).
++constexpr const char* kEtahenHost = "127.0.0.1";
++constexpr int kEtahenPort = 9028;
++constexpr uint32_t kHijackerMagic = 0xDEADBEEF;
++constexpr int32_t kJailbreakCmd = 5;        // Commands: INVALID=-1,ACTIVE=0,LAUNCH,PROCLIST,KILL,KILL_APP,JAILBREAK
++constexpr int32_t kRetSentinel = -1337;     // "already jailbroken", and the request's initial ret
++constexpr size_t kHijackerMsg = 0x500;
++
++// Lapy's cooperative marker (secondary backend).
 +constexpr const char* kDownloadRoot = "/download0";
-+constexpr const char* kRequestMarker = "/download0/elevate_proc";
-+constexpr const char* kRootProbeDir = "/data";
++constexpr const char* kLapyMarker = "/download0/elevate_proc";
 +constexpr int kMaxAttemptsDefault = 3;
 +constexpr int kMaxAttemptsCeiling = 8;
 +constexpr int kTimeoutMsDefault = 4000;
 +constexpr int kTimeoutMsCeiling = 20000;
 +constexpr int kPollStepMs = 50;
++constexpr int kSocketTimeoutMs = 3000;
 +
-+enum class Outcome { kOff, kCapped, kSeteuidFailed, kRequestFailed, kSigsys, kNotElevated, kElevated };
++enum class Outcome { kOff, kCapped, kNotElevated, kElevated };
++enum class Backend { kNone, kEtahen, kLapy, kAlready };
 +
 +inline const char* OutcomeName(Outcome o) {
 +  switch (o) {
 +    case Outcome::kOff: return "off";
 +    case Outcome::kCapped: return "capped";
-+    case Outcome::kSeteuidFailed: return "seteuid-failed";
-+    case Outcome::kRequestFailed: return "request-failed";
-+    case Outcome::kSigsys: return "sigsys";
 +    case Outcome::kNotElevated: return "not-elevated";
 +    case Outcome::kElevated: return "elevated";
++  }
++  return "?";
++}
++inline const char* BackendName(Backend b) {
++  switch (b) {
++    case Backend::kNone: return "none";
++    case Backend::kEtahen: return "etahen-9028";
++    case Backend::kLapy: return "lapy-marker";
++    case Backend::kAlready: return "already-root";
 +  }
 +  return "?";
 +}
@@ -134,9 +160,6 @@ new file mode 100644
 +  return s.substr(a, b - a);
 +}
 +
-+// elevate-probe.txt: first non-blank token "on" turns it on; optional "attempts=N" and "timeout_ms=N"
-+// lines bound the request count and the poll wait. Anything else (including "off" or an empty file)
-+// leaves it off.
 +inline Config Parse(const std::string& text) {
 +  Config c;
 +  std::istringstream in(text);
@@ -147,7 +170,7 @@ new file mode 100644
 +    if (t.empty() || t[0] == '#') continue;
 +    if (first) {
 +      first = false;
-+      if (t == "on" || t == "on\r") c.on = true;
++      if (t == "on") c.on = true;
 +    }
 +    const size_t eq = t.find('=');
 +    if (eq != std::string::npos) {
@@ -160,57 +183,64 @@ new file mode 100644
 +  return c;
 +}
 +
-+inline std::string RequestTemp(long pid) {
++inline std::string LapyTemp(long pid) {
 +  return std::string(kDownloadRoot) + "/.elevate_proc." + std::to_string(pid);
 +}
-+inline std::string RequestBody(long pid) { return "{\"PID\":" + std::to_string(pid) + "}\n"; }
-+inline std::string RootProbeFile(long pid) {
-+  return std::string(kRootProbeDir) + "/trinityx360_elev_probe_" + std::to_string(pid);
++inline std::string LapyBody(long pid) { return "{\"PID\":" + std::to_string(pid) + "}\n"; }
++// A write probe in this app's own data folder (writable at UID 1; mirrors TrinityXSX's data_* check).
++inline std::string DataProbeFile(const std::string& data_root, long pid) {
++  return data_root + "/.elevate-probe-write." + std::to_string(pid);
 +}
 +
-+// What one run observed, for the log line (fields mirror TrinityXSX's PW_WINE64 data_mount line).
++struct EtahenResult {
++  bool attempted = false;  // a jailbreak request was sent
++  bool ok = false;         // etaHEN accepted (ret 0 or -1337)
++  int ret = 0;
++  int err = 0;
++};
++
++// What one run observed; fields mirror TrinityXSX's PW_WINE64 data_mount line.
 +struct Result {
 +  Outcome outcome = Outcome::kOff;
++  Backend backend = Backend::kNone;
 +  Config config;
 +  long pid = 0;
 +  unsigned uid_before = 0, euid_before = 0, uid_after = 0, euid_after = 0;
 +  bool elevated_before = false, elevated_after = false;
-+  bool data_before = false, data_after = false;  // a real root write to /data worked
-+  int seteuid_rc = 0, seteuid_errno = 0;
-+  bool request_written = false;
-+  int request_errno = 0;
-+  bool helper_completed = false;  // the daemon consumed the marker within the timeout
++  bool data_before = false, data_after = false;
++  bool etahen_attempted = false;
++  int etahen_ret = 0;
++  bool helper_completed = false;  // a backend accepted the jailbreak request
 +  int helper_errno = 0;
++  bool lapy_requested = false;
 +  int attempts = 0;
 +  int waited_ms = 0, settled_ms = 0;
 +
 +  std::string Line() const {
-+    char buf[512];
++    char buf[640];
 +    std::snprintf(
 +        buf, sizeof(buf),
-+        "Elevate probe (fix 186): result=%s attempts=%d uid_before=%u euid_before=%u "
-+        "data_before=%d elevated_before=%d seteuid=%d seteuid_errno=%d request_written=%d "
-+        "request_errno=%d helper_completed=%d helper_errno=%d waited_ms=%d uid_after=%u euid_after=%u "
-+        "data_after=%d elevated_after=%d settled_ms=%d",
-+        OutcomeName(outcome), attempts, uid_before, euid_before, (int)data_before,
-+        (int)elevated_before, seteuid_rc, seteuid_errno, (int)request_written, request_errno,
-+        (int)helper_completed, helper_errno, waited_ms, uid_after, euid_after, (int)data_after,
-+        (int)elevated_after, settled_ms);
++        "Elevate probe (fix 186): result=%s backend=%s attempts=%d uid_before=%u euid_before=%u "
++        "data_before=%d elevated_before=%d etahen_attempted=%d etahen_ret=%d helper_completed=%d "
++        "helper_errno=%d lapy_requested=%d waited_ms=%d uid_after=%u euid_after=%u data_after=%d "
++        "elevated_after=%d settled_ms=%d",
++        OutcomeName(outcome), BackendName(backend), attempts, uid_before, euid_before,
++        (int)data_before, (int)elevated_before, (int)etahen_attempted, etahen_ret,
++        (int)helper_completed, helper_errno, (int)lapy_requested, waited_ms, uid_after, euid_after,
++        (int)data_after, (int)elevated_after, settled_ms);
 +    return buf;
 +  }
 +};
 +
-+// The per-process request counter (a self-restart resets it: a new sandbox needs re-elevation).
 +inline std::atomic<int>& AttemptCounter() {
 +  static std::atomic<int> counter{0};
 +  return counter;
 +}
 +
-+// The core, driven through Ops so the host check can run it with no daemon and no console. Ops must
-+// provide: read_text(path)->string; getuid()/geteuid()->unsigned; seteuid(uid)->int (+errno in
-+// last_errno); root_write(path)->bool (umask(0), create 0666, write, read back, unlink; sets
-+// last_errno); write_request(temp, marker, body)->bool (+last_errno); poll_consumed(marker,
-+// timeout_ms, &waited_ms)->bool (true when the marker is gone); last_errno()->int; now_ms()->long long.
++// The core, driven through Ops so the host check runs it with no console and no network. Ops provides:
++//   read_text(path)->string; getuid()/geteuid()->unsigned; seteuid(uid)->int; data_write(path)->bool;
++//   etahen_jailbreak(pid)->EtahenResult; write_lapy_marker(temp,marker,body)->bool;
++//   wait_for_root(timeout_ms,&waited_ms)->bool (true once geteuid()==0); last_errno()->int; now_ms().
 +template <class Ops>
 +Result Run(Ops& ops, const std::string& data_root, long pid) {
 +  Result r;
@@ -228,41 +258,56 @@ new file mode 100644
 +  r.uid_before = ops.getuid();
 +  r.euid_before = ops.geteuid();
 +  r.elevated_before = r.euid_before == 0;
-+  r.data_before = ops.root_write(RootProbeFile(pid));
++  r.data_before = ops.data_write(DataProbeFile(data_root, pid));
 +
-+  // A private credential for this process, as the daemon requires of its target.
-+  r.seteuid_rc = ops.seteuid(r.euid_before);
-+  r.seteuid_errno = ops.last_errno();
-+  if (r.seteuid_rc != 0) {
-+    r.outcome = Outcome::kSeteuidFailed;
++  if (r.elevated_before) {
++    // Already root (e.g. etaHEN auto-jailbreak at launch): nothing to request.
++    r.backend = Backend::kAlready;
++    r.uid_after = r.uid_before;
++    r.euid_after = r.euid_before;
++    r.elevated_after = true;
++    r.data_after = ops.data_write(DataProbeFile(data_root, pid));
++    r.outcome = Outcome::kElevated;
 +    return r;
 +  }
 +
-+  r.request_written = ops.write_request(RequestTemp(pid), kRequestMarker, RequestBody(pid));
-+  r.request_errno = ops.last_errno();
-+  if (!r.request_written) {
-+    r.outcome = Outcome::kRequestFailed;
-+    return r;
++  // Private credential (harmless for etaHEN; a Lapy daemon requires it).
++  ops.seteuid(r.euid_before);
++
++  // Primary: etaHEN's native non-whitelist jailbreak over 127.0.0.1:9028.
++  const EtahenResult jb = ops.etahen_jailbreak(pid);
++  r.etahen_attempted = jb.attempted;
++  r.etahen_ret = jb.ret;
++  r.helper_completed = jb.ok;
++  r.helper_errno = jb.err;
++
++  // Secondary: write the Lapy marker for a console that runs a resident Lapy daemon instead.
++  if (ops.geteuid() != 0) {
++    r.lapy_requested = ops.write_lapy_marker(LapyTemp(pid), kLapyMarker, LapyBody(pid));
 +  }
 +
-+  r.helper_completed = ops.poll_consumed(kRequestMarker, r.config.timeout_ms, &r.waited_ms);
-+  r.helper_errno = ops.last_errno();
++  // Wait until this process is root, or the timeout.
++  const bool became_root = ops.wait_for_root(r.config.timeout_ms, &r.waited_ms);
 +
 +  const long long settle0 = ops.now_ms();
 +  r.uid_after = ops.getuid();
 +  r.euid_after = ops.geteuid();
 +  r.elevated_after = r.euid_after == 0;
-+  r.data_after = ops.root_write(RootProbeFile(pid));
++  r.data_after = ops.data_write(DataProbeFile(data_root, pid));
 +  r.settled_ms = (int)(ops.now_ms() - settle0);
 +
-+  const bool gained_root = r.data_after && !r.data_before;
-+  r.outcome = (r.elevated_after || gained_root) ? Outcome::kElevated : Outcome::kNotElevated;
++  if (r.elevated_after) {
++    r.backend = jb.ok ? Backend::kEtahen : (r.lapy_requested ? Backend::kLapy : Backend::kEtahen);
++    r.outcome = Outcome::kElevated;
++  } else {
++    (void)became_root;
++    r.backend = Backend::kNone;
++    r.outcome = Outcome::kNotElevated;
++  }
 +  return r;
 +}
 +
 +#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
-+// SIGSYS lands here: the sandbox refused a syscall. Scoped to the request; the old handler is
-+// restored afterwards.
 +inline sigjmp_buf& SigsysJump() {
 +  static thread_local sigjmp_buf buffer;
 +  return buffer;
@@ -276,7 +321,18 @@ new file mode 100644
 +  siglongjmp(SigsysJump(), 1);
 +}
 +
-+// The real syscalls behind Ops.
++// etaHEN's 9028 jailbreak command, byte-for-byte on the wire (2576 bytes). Reimplemented from
++// etaHEN's documented protocol; no etaHEN (GPL-3.0) code is copied.
++struct HijackerCommand {
++  int32_t magic;
++  int32_t cmd;
++  int32_t pid;
++  int32_t ret;
++  char msg1[kHijackerMsg];
++  char msg2[kHijackerMsg];
++};
++static_assert(sizeof(HijackerCommand) == 16 + 2 * kHijackerMsg, "HijackerCommand wire size");
++
 +struct SystemOps {
 +  int saved_errno = 0;
 +  int last_errno() const { return saved_errno; }
@@ -294,33 +350,65 @@ new file mode 100644
 +    saved_errno = errno;
 +    return rc;
 +  }
-+  // umask(0) + create 0666, write, read back, unlink; a world-writable file left by UID 0 stays
-+  // usable at UID 1. Returns true only on a full create/write/read/unlink round trip.
-+  bool root_write(const std::string& path) {
++  // A write in the app's own data folder, with umask(0) + 0666, removed again (issue #80: a file made
++  // while elevated stays usable at UID 1).
++  bool data_write(const std::string& path) {
 +    const mode_t old_umask = ::umask(0);
 +    errno = 0;
 +    bool ok = false;
 +    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
 +    if (fd >= 0) {
 +      const char token[] = "TRINITYX360\n";
-+      const bool wrote = ::write(fd, token, sizeof(token) - 1) == (ssize_t)(sizeof(token) - 1);
++      ok = ::write(fd, token, sizeof(token) - 1) == (ssize_t)(sizeof(token) - 1);
 +      ::close(fd);
-+      if (wrote) {
-+        const int rfd = ::open(path.c_str(), O_RDONLY);
-+        if (rfd >= 0) {
-+          char check[sizeof(token)] = {};
-+          ok = ::read(rfd, check, sizeof(token) - 1) == (ssize_t)(sizeof(token) - 1) &&
-+               std::memcmp(check, token, sizeof(token) - 1) == 0;
-+          ::close(rfd);
-+        }
-+      }
 +      ::unlink(path.c_str());
 +    }
 +    saved_errno = errno;
 +    ::umask(old_umask);
 +    return ok;
 +  }
-+  bool write_request(const std::string& temp, const std::string& marker, const std::string& body) {
++  // Send etaHEN the non-whitelist jailbreak request for our PID and read its verdict.
++  EtahenResult etahen_jailbreak(long pid) {
++    EtahenResult r;
++    errno = 0;
++    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
++    if (fd < 0) {
++      r.err = errno;
++      saved_errno = errno;
++      return r;
++    }
++    timeval tv{};
++    tv.tv_sec = kSocketTimeoutMs / 1000;
++    tv.tv_usec = (kSocketTimeoutMs % 1000) * 1000;
++    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
++    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
++    sockaddr_in addr{};
++    addr.sin_family = AF_INET;
++    addr.sin_port = htons((uint16_t)kEtahenPort);
++    ::inet_pton(AF_INET, kEtahenHost, &addr.sin_addr);
++    if (::connect(fd, (sockaddr*)&addr, sizeof(addr)) != 0) {
++      r.err = errno;  // no etaHEN command server listening
++      saved_errno = errno;
++      ::close(fd);
++      return r;
++    }
++    HijackerCommand cmd{};
++    cmd.magic = (int32_t)kHijackerMagic;
++    cmd.cmd = kJailbreakCmd;
++    cmd.pid = (int32_t)pid;
++    cmd.ret = kRetSentinel;
++    r.attempted = SendAll(fd, &cmd, sizeof(cmd));
++    if (r.attempted && RecvAll(fd, &cmd, sizeof(cmd))) {
++      r.ret = cmd.ret;
++      r.ok = cmd.ret == 0 || cmd.ret == kRetSentinel;
++    } else {
++      r.err = errno;
++    }
++    saved_errno = errno;
++    ::close(fd);
++    return r;
++  }
++  bool write_lapy_marker(const std::string& temp, const std::string& marker, const std::string& body) {
 +    errno = 0;
 +    const int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
 +    if (fd < 0) {
@@ -329,12 +417,7 @@ new file mode 100644
 +    }
 +    const bool wrote = ::write(fd, body.data(), body.size()) == (ssize_t)body.size();
 +    const int close_rc = ::close(fd);
-+    if (!wrote || close_rc != 0) {
-+      saved_errno = errno;
-+      ::unlink(temp.c_str());
-+      return false;
-+    }
-+    if (::rename(temp.c_str(), marker.c_str()) != 0) {
++    if (!wrote || close_rc != 0 || ::rename(temp.c_str(), marker.c_str()) != 0) {
 +      saved_errno = errno;
 +      ::unlink(temp.c_str());
 +      return false;
@@ -342,23 +425,15 @@ new file mode 100644
 +    saved_errno = 0;
 +    return true;
 +  }
-+  bool poll_consumed(const std::string& marker, int timeout_ms, int* waited_ms) {
++  bool wait_for_root(int timeout_ms, int* waited_ms) {
 +    const auto start = std::chrono::steady_clock::now();
 +    for (;;) {
-+      errno = 0;
-+      if (::access(marker.c_str(), F_OK) != 0 && errno == ENOENT) {
-+        saved_errno = errno;
-+        *waited_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
-+                         std::chrono::steady_clock::now() - start)
-+                         .count();
++      if (::geteuid() == 0) {
++        *waited_ms = Elapsed(start);
 +        return true;
 +      }
-+      const int elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
-+                              std::chrono::steady_clock::now() - start)
-+                              .count();
-+      if (elapsed >= timeout_ms) {
-+        saved_errno = errno;
-+        *waited_ms = elapsed;
++      if (Elapsed(start) >= timeout_ms) {
++        *waited_ms = Elapsed(start);
 +        return false;
 +      }
 +      ::usleep((useconds_t)kPollStepMs * 1000);
@@ -368,6 +443,33 @@ new file mode 100644
 +    return (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
 +               std::chrono::steady_clock::now().time_since_epoch())
 +        .count();
++  }
++
++ private:
++  static int Elapsed(std::chrono::steady_clock::time_point start) {
++    return (int)std::chrono::duration_cast<std::chrono::milliseconds>(
++               std::chrono::steady_clock::now() - start)
++        .count();
++  }
++  static bool SendAll(int fd, const void* data, size_t len) {
++    const char* p = (const char*)data;
++    size_t done = 0;
++    while (done < len) {
++      const ssize_t n = ::send(fd, p + done, len - done, 0);
++      if (n <= 0) return false;
++      done += (size_t)n;
++    }
++    return true;
++  }
++  static bool RecvAll(int fd, void* data, size_t len) {
++    char* p = (char*)data;
++    size_t done = 0;
++    while (done < len) {
++      const ssize_t n = ::recv(fd, p + done, len - done, 0);
++      if (n <= 0) return false;
++      done += (size_t)n;
++    }
++    return true;
 +  }
 +};
 +
@@ -389,7 +491,8 @@ new file mode 100644
 +  if (installed && sigsetjmp(SigsysJump(), 1) != 0) {
 +    r.pid = pid;
 +    r.config.on = true;
-+    r.outcome = Outcome::kSigsys;
++    r.outcome = Outcome::kNotElevated;
++    r.helper_errno = -1;  // a refused syscall (SIGSYS) during the request
 +  } else {
 +    r = Run(ops, data_root, pid);
 +  }
