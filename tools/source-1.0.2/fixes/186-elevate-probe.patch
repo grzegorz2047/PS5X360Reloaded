@@ -1,0 +1,403 @@
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -42,6 +42,7 @@
+ #include <unistd.h>  // fix 148h
+ #include "xbox360ps5/install_notice.hpp"  // fix 148h
+ #include "xbox360ps5/write_bench.hpp"  // fix 148i
++#include "xbox360ps5/elevate_probe.hpp"  // fix 186
+ #include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "xbox360ps5/recent_list.hpp"  // fix 181
+ #include <thread>  // fix 148i
+@@ -3538,6 +3539,12 @@ void Launcher::Draw(ImGuiIO& io) {
+   if (!g_write_bench_started) {
+     g_write_bench_started = true;
+     std::thread([] {
++      // Fix 186: when <data>/elevate-probe.txt says "on", ask the user's PS5-Lapy-JB-Daemon to
++      // elevate this process to UID 0 first (issue #80), so the 148i/148j bench below runs as root
++      // and its throughput past the ~1.5 GB write budget can be compared to the UID 1 runs. A no-op
++      // without the switch file or the daemon; it logs whether elevation took and never closes the
++      // app. A credential change is process-wide, so the bench on this same thread inherits it.
++      xbox360ps5::elevate_probe::Attempt(XBOX360PS5_DATA_ROOT, [](const std::string& line) { XELOGW("{}", line); });
+       xbox360ps5::write_bench::Launch(XBOX360PS5_DATA_ROOT, [](const std::string& line) { XELOGW("{}", line); });
+     }).detach();
+   }
+diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_probe.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/elevate_probe.hpp
+@@ -0,0 +1,374 @@
++// SPDX-License-Identifier: MIT
++// Fix 186: an optional, off-by-default probe that asks the user's PS5-Lapy-JB-Daemon to elevate this
++// process to UID 0 before the fix 148i/148j write benchmark, so the bench's throughput past the
++// ~1.5-1.7 GB per-process write budget (issue #80) can be measured as root and compared to the UID 1
++// runs. Diagnostics only: it changes nothing unless the user opts in and runs the daemon, and it
++// implements no kernel write of its own -- it only sends the daemon's own cooperative request and
++// reports, honestly, whether elevation took.
++//
++// The cooperative request protocol is the Lapy daemon's own MIT-documented interface
++// (github.com/mpereiraesaa/PS5-Lapy-JB-Daemon, README.md + examples/cooperative_elevation.c):
++//   1. in this process, call seteuid(geteuid()) so the kernel gives it a private credential;
++//   2. write {"PID":<getpid()>}\n to /download0/.elevate_proc.<pid> and rename() it to the request
++//      marker /download0/elevate_proc (atomic: the daemon only ever sees a complete request);
++//   3. the daemon consumes (deletes) the marker; poll access(marker)==ENOENT up to a timeout;
++//   4. the marker vanishing is not proof -- verify a real root write to /data (a path outside this
++//      title's sandbox that UID 1 cannot create) before trusting elevation.
++// This header reimplements that interface independently from Lapy's MIT example; no code from the
++// user's TrinityXSX (GPL-2.0) app was copied. The before/after result shape (uid/euid and a /data
++// root write before and after, helper_completed, waited_ms, settled_ms) mirrors, as a generic
++// diagnostic, the "PW_WINE64 data_mount ..." line TrinityXSX logs, so the two consoles' numbers are
++// comparable. Credit: the Lapy daemon (the protocol and helper) and TrinityXSX (the integration idea).
++//
++// Safeguards:
++//  * switch file <data>/elevate-probe.txt must say "on"; without it the probe is a no-op and the
++//    bench runs exactly as before, at UID 1;
++//  * a hard per-process cap on elevation requests (kMaxAttempts), given that the daemon's legacy
++//    backend was associated with a kernel panic after many elevations per boot (the owned-root fork
++//    is safer but unproven by a dump); a self-restart is a new process and resets the count;
++//  * a SIGSYS handler around the request, so a syscall the sandbox refuses is logged, not a silent
++//    process kill (as the PS5 sandbox lacks statfs; fix 148k);
++//  * the probe's own test file is created with umask(0) and mode 0666 and removed again, so a file
++//    made while elevated stays readable and writable if the user later runs at UID 1 (issue #80);
++//  * any failure (no daemon, a refusal, a timeout, seteuid failing, SIGSYS) is logged and the
++//    process carries on at UID 1 -- the app is never closed and nothing else is changed.
++#pragma once
++// The real syscalls (SystemOps, Attempt) are POSIX; the PS5 (__PROSPERO__) and the CI host build
++// them. The templated core (Run) is portable, so the host check builds it on any platform; on a
++// non-POSIX host (a local Windows zig build of the check) SystemOps is left out automatically.
++#if !defined(XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM) && defined(_WIN32)
++#define XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM 1
++#endif
++
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <csignal>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <fstream>
++#include <functional>
++#include <sstream>
++#include <string>
++
++#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++#include <fcntl.h>
++#include <setjmp.h>
++#include <signal.h>
++#include <sys/stat.h>
++#include <sys/types.h>
++#include <unistd.h>
++#endif
++
++namespace xbox360ps5::elevate_probe {
++
++// The Lapy request marker lives in /download0 (the title needs downloadDataSize > 0; PPSA83600 has
++// it). The root-write proof goes outside this title's sandbox, where UID 1 cannot create a file.
++constexpr const char* kDownloadRoot = "/download0";
++constexpr const char* kRequestMarker = "/download0/elevate_proc";
++constexpr const char* kRootProbeDir = "/data";
++constexpr int kMaxAttemptsDefault = 3;
++constexpr int kMaxAttemptsCeiling = 8;
++constexpr int kTimeoutMsDefault = 4000;
++constexpr int kTimeoutMsCeiling = 20000;
++constexpr int kPollStepMs = 50;
++
++enum class Outcome { kOff, kCapped, kSeteuidFailed, kRequestFailed, kSigsys, kNotElevated, kElevated };
++
++inline const char* OutcomeName(Outcome o) {
++  switch (o) {
++    case Outcome::kOff: return "off";
++    case Outcome::kCapped: return "capped";
++    case Outcome::kSeteuidFailed: return "seteuid-failed";
++    case Outcome::kRequestFailed: return "request-failed";
++    case Outcome::kSigsys: return "sigsys";
++    case Outcome::kNotElevated: return "not-elevated";
++    case Outcome::kElevated: return "elevated";
++  }
++  return "?";
++}
++
++struct Config {
++  bool on = false;
++  int max_attempts = kMaxAttemptsDefault;
++  int timeout_ms = kTimeoutMsDefault;
++};
++
++inline std::string SwitchFile(const std::string& data_root) { return data_root + "/elevate-probe.txt"; }
++
++inline std::string Trim(const std::string& s) {
++  size_t a = 0, b = s.size();
++  while (a < b && (unsigned char)s[a] <= ' ') ++a;
++  while (b > a && (unsigned char)s[b - 1] <= ' ') --b;
++  return s.substr(a, b - a);
++}
++
++// elevate-probe.txt: first non-blank token "on" turns it on; optional "attempts=N" and "timeout_ms=N"
++// lines bound the request count and the poll wait. Anything else (including "off" or an empty file)
++// leaves it off.
++inline Config Parse(const std::string& text) {
++  Config c;
++  std::istringstream in(text);
++  std::string line;
++  bool first = true;
++  while (std::getline(in, line)) {
++    const std::string t = Trim(line);
++    if (t.empty() || t[0] == '#') continue;
++    if (first) {
++      first = false;
++      if (t == "on" || t == "on\r") c.on = true;
++    }
++    const size_t eq = t.find('=');
++    if (eq != std::string::npos) {
++      const std::string key = Trim(t.substr(0, eq));
++      const long value = std::strtol(Trim(t.substr(eq + 1)).c_str(), nullptr, 10);
++      if (key == "attempts" && value >= 1 && value <= kMaxAttemptsCeiling) c.max_attempts = (int)value;
++      if (key == "timeout_ms" && value >= 0 && value <= kTimeoutMsCeiling) c.timeout_ms = (int)value;
++    }
++  }
++  return c;
++}
++
++inline std::string RequestTemp(long pid) {
++  return std::string(kDownloadRoot) + "/.elevate_proc." + std::to_string(pid);
++}
++inline std::string RequestBody(long pid) { return "{\"PID\":" + std::to_string(pid) + "}\n"; }
++inline std::string RootProbeFile(long pid) {
++  return std::string(kRootProbeDir) + "/trinityx360_elev_probe_" + std::to_string(pid);
++}
++
++// What one run observed, for the log line (fields mirror TrinityXSX's PW_WINE64 data_mount line).
++struct Result {
++  Outcome outcome = Outcome::kOff;
++  Config config;
++  long pid = 0;
++  unsigned uid_before = 0, euid_before = 0, uid_after = 0, euid_after = 0;
++  bool elevated_before = false, elevated_after = false;
++  bool data_before = false, data_after = false;  // a real root write to /data worked
++  int seteuid_rc = 0, seteuid_errno = 0;
++  bool request_written = false;
++  int request_errno = 0;
++  bool helper_completed = false;  // the daemon consumed the marker within the timeout
++  int helper_errno = 0;
++  int attempts = 0;
++  int waited_ms = 0, settled_ms = 0;
++
++  std::string Line() const {
++    char buf[512];
++    std::snprintf(
++        buf, sizeof(buf),
++        "Elevate probe (fix 186): result=%s attempts=%d uid_before=%u euid_before=%u "
++        "data_before=%d elevated_before=%d seteuid=%d seteuid_errno=%d request_written=%d "
++        "request_errno=%d helper_completed=%d helper_errno=%d waited_ms=%d uid_after=%u euid_after=%u "
++        "data_after=%d elevated_after=%d settled_ms=%d",
++        OutcomeName(outcome), attempts, uid_before, euid_before, (int)data_before,
++        (int)elevated_before, seteuid_rc, seteuid_errno, (int)request_written, request_errno,
++        (int)helper_completed, helper_errno, waited_ms, uid_after, euid_after, (int)data_after,
++        (int)elevated_after, settled_ms);
++    return buf;
++  }
++};
++
++// The per-process request counter (a self-restart resets it: a new sandbox needs re-elevation).
++inline std::atomic<int>& AttemptCounter() {
++  static std::atomic<int> counter{0};
++  return counter;
++}
++
++// The core, driven through Ops so the host check can run it with no daemon and no console. Ops must
++// provide: read_text(path)->string; getuid()/geteuid()->unsigned; seteuid(uid)->int (+errno in
++// last_errno); root_write(path)->bool (umask(0), create 0666, write, read back, unlink; sets
++// last_errno); write_request(temp, marker, body)->bool (+last_errno); poll_consumed(marker,
++// timeout_ms, &waited_ms)->bool (true when the marker is gone); last_errno()->int; now_ms()->long long.
++template <class Ops>
++Result Run(Ops& ops, const std::string& data_root, long pid) {
++  Result r;
++  r.pid = pid;
++  r.config = Parse(ops.read_text(SwitchFile(data_root)));
++  if (!r.config.on) {
++    r.outcome = Outcome::kOff;
++    return r;
++  }
++  r.attempts = AttemptCounter().fetch_add(1) + 1;
++  if (r.attempts > r.config.max_attempts) {
++    r.outcome = Outcome::kCapped;
++    return r;
++  }
++  r.uid_before = ops.getuid();
++  r.euid_before = ops.geteuid();
++  r.elevated_before = r.euid_before == 0;
++  r.data_before = ops.root_write(RootProbeFile(pid));
++
++  // A private credential for this process, as the daemon requires of its target.
++  r.seteuid_rc = ops.seteuid(r.euid_before);
++  r.seteuid_errno = ops.last_errno();
++  if (r.seteuid_rc != 0) {
++    r.outcome = Outcome::kSeteuidFailed;
++    return r;
++  }
++
++  r.request_written = ops.write_request(RequestTemp(pid), kRequestMarker, RequestBody(pid));
++  r.request_errno = ops.last_errno();
++  if (!r.request_written) {
++    r.outcome = Outcome::kRequestFailed;
++    return r;
++  }
++
++  r.helper_completed = ops.poll_consumed(kRequestMarker, r.config.timeout_ms, &r.waited_ms);
++  r.helper_errno = ops.last_errno();
++
++  const long long settle0 = ops.now_ms();
++  r.uid_after = ops.getuid();
++  r.euid_after = ops.geteuid();
++  r.elevated_after = r.euid_after == 0;
++  r.data_after = ops.root_write(RootProbeFile(pid));
++  r.settled_ms = (int)(ops.now_ms() - settle0);
++
++  const bool gained_root = r.data_after && !r.data_before;
++  r.outcome = (r.elevated_after || gained_root) ? Outcome::kElevated : Outcome::kNotElevated;
++  return r;
++}
++
++#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++// SIGSYS lands here: the sandbox refused a syscall. Scoped to the request; the old handler is
++// restored afterwards.
++inline sigjmp_buf& SigsysJump() {
++  static thread_local sigjmp_buf buffer;
++  return buffer;
++}
++inline volatile sig_atomic_t& SigsysSeen() {
++  static thread_local volatile sig_atomic_t seen = 0;
++  return seen;
++}
++inline void SigsysHandler(int) {
++  SigsysSeen() = 1;
++  siglongjmp(SigsysJump(), 1);
++}
++
++// The real syscalls behind Ops.
++struct SystemOps {
++  int saved_errno = 0;
++  int last_errno() const { return saved_errno; }
++  std::string read_text(const std::string& path) {
++    std::ifstream f(path, std::ios::binary);
++    std::ostringstream s;
++    s << f.rdbuf();
++    return s.str();
++  }
++  unsigned getuid() { return (unsigned)::getuid(); }
++  unsigned geteuid() { return (unsigned)::geteuid(); }
++  int seteuid(unsigned uid) {
++    errno = 0;
++    const int rc = ::seteuid((uid_t)uid);
++    saved_errno = errno;
++    return rc;
++  }
++  // umask(0) + create 0666, write, read back, unlink; a world-writable file left by UID 0 stays
++  // usable at UID 1. Returns true only on a full create/write/read/unlink round trip.
++  bool root_write(const std::string& path) {
++    const mode_t old_umask = ::umask(0);
++    errno = 0;
++    bool ok = false;
++    const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
++    if (fd >= 0) {
++      const char token[] = "TRINITYX360\n";
++      const bool wrote = ::write(fd, token, sizeof(token) - 1) == (ssize_t)(sizeof(token) - 1);
++      ::close(fd);
++      if (wrote) {
++        const int rfd = ::open(path.c_str(), O_RDONLY);
++        if (rfd >= 0) {
++          char check[sizeof(token)] = {};
++          ok = ::read(rfd, check, sizeof(token) - 1) == (ssize_t)(sizeof(token) - 1) &&
++               std::memcmp(check, token, sizeof(token) - 1) == 0;
++          ::close(rfd);
++        }
++      }
++      ::unlink(path.c_str());
++    }
++    saved_errno = errno;
++    ::umask(old_umask);
++    return ok;
++  }
++  bool write_request(const std::string& temp, const std::string& marker, const std::string& body) {
++    errno = 0;
++    const int fd = ::open(temp.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0644);
++    if (fd < 0) {
++      saved_errno = errno;
++      return false;
++    }
++    const bool wrote = ::write(fd, body.data(), body.size()) == (ssize_t)body.size();
++    const int close_rc = ::close(fd);
++    if (!wrote || close_rc != 0) {
++      saved_errno = errno;
++      ::unlink(temp.c_str());
++      return false;
++    }
++    if (::rename(temp.c_str(), marker.c_str()) != 0) {
++      saved_errno = errno;
++      ::unlink(temp.c_str());
++      return false;
++    }
++    saved_errno = 0;
++    return true;
++  }
++  bool poll_consumed(const std::string& marker, int timeout_ms, int* waited_ms) {
++    const auto start = std::chrono::steady_clock::now();
++    for (;;) {
++      errno = 0;
++      if (::access(marker.c_str(), F_OK) != 0 && errno == ENOENT) {
++        saved_errno = errno;
++        *waited_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
++                         std::chrono::steady_clock::now() - start)
++                         .count();
++        return true;
++      }
++      const int elapsed = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
++                              std::chrono::steady_clock::now() - start)
++                              .count();
++      if (elapsed >= timeout_ms) {
++        saved_errno = errno;
++        *waited_ms = elapsed;
++        return false;
++      }
++      ::usleep((useconds_t)kPollStepMs * 1000);
++    }
++  }
++  long long now_ms() {
++    return (long long)std::chrono::duration_cast<std::chrono::milliseconds>(
++               std::chrono::steady_clock::now().time_since_epoch())
++        .count();
++  }
++};
++
++// Public entry: run the probe once, with a SIGSYS guard, and log one line. A no-op unless the switch
++// file says "on". Never throws; never closes the app; leaves the process at UID 1 on any failure.
++inline Result Attempt(const std::string& data_root, const std::function<void(const std::string&)>& log) {
++  SystemOps ops;
++  const long pid = (long)::getpid();
++
++  struct sigaction previous {};
++  struct sigaction action {};
++  action.sa_handler = &SigsysHandler;
++  sigemptyset(&action.sa_mask);
++  action.sa_flags = 0;
++  const bool installed = ::sigaction(SIGSYS, &action, &previous) == 0;
++
++  SigsysSeen() = 0;
++  Result r;
++  if (installed && sigsetjmp(SigsysJump(), 1) != 0) {
++    r.pid = pid;
++    r.config.on = true;
++    r.outcome = Outcome::kSigsys;
++  } else {
++    r = Run(ops, data_root, pid);
++  }
++
++  if (installed) ::sigaction(SIGSYS, &previous, nullptr);
++  if (r.outcome != Outcome::kOff) log(r.Line());
++  return r;
++}
++#endif  // XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++
++}  // namespace xbox360ps5::elevate_probe

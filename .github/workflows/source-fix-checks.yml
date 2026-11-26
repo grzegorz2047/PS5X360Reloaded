@@ -209,6 +209,7 @@ on:
       - 'tools/check-cache-churn.cpp'
       - 'tools/check-recent-list.cpp'
       - 'tools/check-disc-swap-content.cpp'
+      - 'tools/check-elevate-probe.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
