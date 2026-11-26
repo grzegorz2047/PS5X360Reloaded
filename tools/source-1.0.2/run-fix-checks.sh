@@ -533,6 +533,7 @@ fi
 # fix 31 under ThreadSanitizer, and with the real 4 ms bound under Address- and
 # UndefinedBehaviorSanitizer. Sanitized runs go without address randomization (setarch -R):
 # TSan in clang 18 does not start under the runners' 32-bit mmap randomization.
+# Fix 180 adds the atomic pulse's cases, left out (-DCHECK_NO_FIX180) when a build leaves fix 180 out.
 cp "$repo/tools/check-wait-wakeups.cpp" "$tree/tools/check-wait-wakeups.cpp"
 wait_variants=(
   "fix31|-O1 -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
@@ -543,6 +544,10 @@ wait_variants=(
 for variant in "${wait_variants[@]}"; do
   label=${variant%%|*}
   read -r -a flags <<< "${variant#*|}"
+  # Fix 180's cases (the atomic pulse) only when the build has fix 180.
+  if [[ " $skipped_fixes " == *" 180 "* ]]; then flags+=(-DCHECK_NO_FIX180); fi
+  # Fix 180b (atomic by default): its default only when the build has it.
+  if [[ " $skipped_fixes " == *" 180b "* ]]; then flags+=(-DCHECK_NO_FIX180B); fi
   exe="$tree/build/fix-checks/check-wait-wakeups-$label"
   run=("$exe")
   if [[ $label == tsan || $label == asan ]]; then run=(setarch "$(uname -m)" -R "$exe"); fi

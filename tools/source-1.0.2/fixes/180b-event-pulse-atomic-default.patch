@@ -1,0 +1,81 @@
+diff --git a/include/xbox360ps5/event_pulse.hpp b/include/xbox360ps5/event_pulse.hpp
+--- a/include/xbox360ps5/event_pulse.hpp
++++ b/include/xbox360ps5/event_pulse.hpp
+@@ -10,7 +10,9 @@
+ //
+ // The mode: the first word of event-pulse.txt in the data folder ("atomic" or "old"), re-read about
+ // twice a second while the game pulses, so that a console test can switch it live; without the file
+-// (or with another word in it), the setting `event_pulse` (default "old" in this first build).
++// (or with another word in it), the setting `event_pulse` (default "atomic" since fix 180b; "old" in
++// fix 180's first build). "old" in the file, the setting or a game's config (fix 166:
++// <TITLE ID>.config.toml, [Kernel] event_pulse = "old") gives back 1.0.6's pulse.
+ // Header-only, no Xenia headers: the core (xevent.cc, threading_posix.cc, wait_stats.h) and the
+ // host check use it.
+ #pragma once
+@@ -36,6 +38,10 @@ namespace event_pulse {
+ 
+ enum Mode : int { kOld = 0, kAtomic = 1 };
+ enum Source : int { kDefault = 0, kSetting = 1, kFile = 2 };
++// Fix 180b: the console A/B (Tekken Tag Tournament 2: 114-138 us a pulse old, 10 us atomic;
++// Virtua Tennis 3: 120-130 us old, 3.4-4.4 us atomic; no change in frame rate, no hang) made
++// atomic the default.
++inline constexpr int kDefaultMode = kAtomic;
+ 
+ // The first word of `text`: "atomic" -> kAtomic, "old" -> kOld, anything else -> -1.
+ inline int ParseSwitch(std::string_view text) {
+@@ -77,7 +83,7 @@ inline const char* SourceText(int source) {
+   }
+ }
+ 
+-inline std::atomic<int> mode{kOld};
++inline std::atomic<int> mode{kDefaultMode};
+ inline std::atomic<int> source{kDefault};
+ inline std::atomic<bool> known{false};  // a refresh has run
+ inline std::atomic<uint64_t> last_check{0};
+@@ -117,7 +123,7 @@ inline int ReadFile() {
+ 
+ struct Refreshed {
+   bool changed = false;  // the mode or where it comes from differs from before (or the first look)
+-  int mode = kOld;
++  int mode = kDefaultMode;
+   int source = kDefault;
+ };
+ 
+@@ -140,13 +146,13 @@ inline Refreshed Refresh(int setting, bool force = false) {
+   }
+   last_check.store(now, std::memory_order_relaxed);
+   const int from_file = ReadFile();
+-  int new_mode = kOld, new_source = kDefault;
++  int new_mode = kDefaultMode, new_source = kDefault;
+   if (from_file >= 0) {
+     new_mode = from_file;
+     new_source = kFile;
+   } else if (setting >= 0) {
+     new_mode = setting;
+-    new_source = setting == kOld ? kDefault : kSetting;
++    new_source = setting == kDefaultMode ? kDefault : kSetting;
+   }
+   const bool was_known = known.load(std::memory_order_relaxed);
+   result.changed = !was_known || new_mode != mode.load(std::memory_order_relaxed) ||
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xevent.cc b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xevent.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
+@@ -15,12 +15,13 @@
+ #include "xbox360ps5/event_pulse.hpp"  // fix 180
+ 
+ // Xbox360PS5 fix 180 (see xbox360ps5/event_pulse.hpp). event-pulse.txt in the
+-// data folder ("atomic" or "old") overrides it while the game runs.
+-DEFINE_string(event_pulse, "old",
++// data folder ("atomic" or "old") overrides it while the game runs. Fix 180b:
++// "atomic" by default; "old" here or in a game's config is the way back.
++DEFINE_string(event_pulse, "atomic",
+               "How NtPulseEvent and KePulseEvent release the threads waiting on "
+-              "an event: \"old\" sets it, sleeps 10 us and resets it (1.0.6); "
+-              "\"atomic\" releases the threads waiting at once, as the console "
+-              "does (fix 180).",
++              "an event: \"atomic\" releases the threads waiting at once, as "
++              "the console does (fix 180, the default since fix 180b); \"old\" "
++              "sets it, sleeps 10 us and resets it (1.0.6).",
+               "Kernel");
+ 
+ namespace xe {
