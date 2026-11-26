@@ -170,9 +170,20 @@ void Tree() {
          "(d) the build compiles the LGPL client");
   const std::string canary = Read("src/canary_game_main.cpp");
   const size_t cmain = canary.find("int main(");
-  Expect(cmain != std::string::npos &&
-             After(canary, "elevate_probe::AttemptEarly(", cmain) < After(canary, "InstallCrashReport(", cmain),
-         "(d) AttemptEarly runs before InstallCrashReport in main()");
+  const size_t aUse = After(canary, "user_storage::Use(", cmain);
+  const size_t aInit = After(canary, "InitializeLogging(", cmain);
+  const size_t aAttempt = After(canary, "elevate_probe::AttemptEarly(", aInit);
+  const size_t aWeb = After(canary, "StartWebSettings(", cmain);
+  // 186e: elevate AFTER /data is writable (user_storage::Use) and the logger is up
+  // (InitializeLogging), but BEFORE the web-settings server/window/launcher/threads.
+  Expect(cmain != std::string::npos && aUse != std::string::npos && aInit != std::string::npos &&
+             aAttempt != std::string::npos && aUse < aAttempt && aInit < aAttempt && aAttempt < aWeb,
+         "(d) AttemptEarly runs after /data+logging init and before the web-settings server");
+  Expect(canary.find("AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog)") != std::string::npos &&
+             canary.find("xe::FlushLog()") != std::string::npos,
+         "(d) the probe is given the boot.log + flushed-game-log fallback sink");
+  Expect(h.find("void (*&LogCb())") != std::string::npos && h.find("if (LogCb()) LogCb()(text)") != std::string::npos,
+         "(d) ProgLine emits each step to the fallback sink too (survives a /data open failure)");
   const std::string launcher = Read("src/launcher.cpp");
   Expect(launcher.find("elevate_probe::Attempt") == std::string::npos,
          "(d) launcher.cpp makes no elevation request");

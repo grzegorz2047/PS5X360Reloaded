@@ -9,21 +9,37 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "third_party/imgui/imgui.h"
  #include <algorithm>
  #include <atomic>
-@@ -2642,6 +2643,14 @@ static void KinectNeededNotice() {
+@@ -2641,6 +2642,14 @@ static void KinectNeededNotice() {
+                       Tr("This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again."),
                        "", false});
  }
++// Fix 186e (issue #80): the elevation probe's step sink -- boot.log (synchronous, survives a crash)
++// AND the game log flushed at once (the async logger would lose buffered lines on a death).
++extern "C" void Xbox360PS5ElevateProbeLog(const char* step) {
++  xbox360ps5::Stage(step);
++  XELOGW("Elevate probe: {}", step);
++  xe::FlushLog();
++}
++
  int main(int argc, char** argv) {
-+  // Fix 186c (issue #80): the FIRST thing in main(), before InstallCrashReport, before any worker
-+  // thread or signal handler, while the process is single-threaded -- optionally ask the console's
-+  // on-demand jailbreak backend (etaHEN 9028, else a Lapy marker) to elevate this process to UID 0,
-+  // so the 148i/148j write bench later runs as root. A strict no-op unless
-+  // /data/homebrew/<title>/elevate-probe.txt says "on"; every step is fsync'd to
-+  // elevate-probe-progress.txt in that folder, so if etaHEN's ptrace hijack kills the process we see
-+  // exactly how far it got. It installs no signal handler and never closes the app.
-+  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT);
    config::config_folder = "/app0/assets";
    xbox360ps5::motion::kinect_needed = &KinectNeededNotice;
-   // A window each time a game asks where to save (the core chose the hard drive without one),
+@@ -2872,6 +2881,15 @@ int main(int argc, char** argv) {
+   xe::InitializeLogging(XBOX360PS5_PRODUCT_NAME);
+   xe::AddLogSink(std::move(owned_game_log));
+   xe::AddLogSink(std::make_unique<ConsoleLogSink>());
++  // Fix 186e (issue #80): elevate to UID 0 HERE -- after /data is writable (user_storage::Use
++  // above), after the network (StartNetLog) and the logger are up, but before the web-settings
++  // server, the window, the launcher and the emulator's worker threads. 186c/186d ran it as the
++  // first statement of main(), before /data/the runtime existed, so the probe faulted and wrote no
++  // progress file at all. It is still a strict no-op unless <data>/elevate-probe.txt says "on";
++  // every step goes to <data>/elevate-probe-progress.txt and, as a crash-proof fallback, to
++  // boot.log + the flushed game log. On any failure it logs and carries on at UID 1 -- the app is
++  // never closed. The actual elevation is the isolated LGPL ELV1/elfldr client.
++  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog);
+   if (log_ready) XELOGW("Logs: {}", game_log->session.Path().string());
+   if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone) {
+     // What it did, why a folder could not be checked (the error and errno) and why no marker.
 diff --git a/src/launcher.cpp b/src/launcher.cpp
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
@@ -52,7 +68,7 @@ diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_p
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/elevate_probe.hpp
-@@ -0,0 +1,294 @@
+@@ -0,0 +1,303 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 186d: an optional, off-by-default probe that elevates this process to UID 0 before the fix
 +// 148i/148j write benchmark, so the bench's throughput past the ~1.5-1.7 GB per-process write budget
@@ -239,11 +255,19 @@ new file mode 100644
 +}
 +
 +#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++// 186e: a fallback sink the caller sets (boot.log + the game log), so every step is captured even
++// when the /data progress file cannot be opened (e.g. this runs before /data is writable).
++inline void (*&LogCb())(const char*) {
++  static void (*cb)(const char*) = nullptr;
++  return cb;
++}
 +inline void ProgLine(int fd, const char* text) {
-+  if (fd < 0) return;
-+  (void)!::write(fd, text, std::strlen(text));
-+  (void)!::write(fd, "\n", 1);
-+  ::fsync(fd);
++  if (fd >= 0) {
++    (void)!::write(fd, text, std::strlen(text));
++    (void)!::write(fd, "\n", 1);
++    ::fsync(fd);
++  }
++  if (LogCb()) LogCb()(text);  // durable fallback, independent of /data
 +}
 +
 +// The progress file fd for the LGPL client's step callback (one-shot, main-thread only).
@@ -273,7 +297,8 @@ new file mode 100644
 +// The real entry: run the probe ONCE at the earliest, single-threaded point in main(), writing every
 +// step fsync'd to <data>/elevate-probe-progress.txt. A strict no-op unless the switch says "on"; no
 +// signal handler; never closes the app. The actual elevation is the isolated LGPL ELV1/elfldr client.
-+inline Result AttemptEarly(const std::string& data_root) {
++inline Result AttemptEarly(const std::string& data_root, void (*log)(const char*) = nullptr) {
++  LogCb() = log;  // capture every step to boot.log / the game log too, even if /data write fails
 +  Result r;
 +  const long pid = (long)::getpid();
 +  r.pid = pid;
