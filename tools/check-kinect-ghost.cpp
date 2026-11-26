@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Fix 183 (tools/source-1.0.2/fixes/183-kinect-ghost.patch; two-player Kinect probe,
 // research/design-v108/kinect-2-players.md step 1): the "ghost player". With the switch file
-// /data/homebrew/PPSA83600/kinect-ghost.txt on, slot 1 of every skeleton frame carries a copy of
+// kinect-ghost.txt in the data root on, slot 1 of every skeleton frame carries a copy of
 // the player's pose from delay-s earlier, offset-m to the side, under its own tracking ID, as a
 // guest. Without the file nothing changes.
 //
@@ -90,7 +90,7 @@ static void CheckSwitch() {
   c = kg::Load("build-kinect-ghost-test.txt");
   CHECK(c.on && c.offset_m == 1.25f && c.delay_s == kg::kDefaultDelay);
   std::remove("build-kinect-ghost-test.txt");
-  CHECK(std::string(kg::kSwitchPath) == "/data/homebrew/PPSA83600/kinect-ghost.txt");
+  CHECK(std::string(kg::kSwitchPath) == XBOX360PS5_DATA_ROOT "/kinect-ghost.txt");
 }
 
 static void CheckDelay() {

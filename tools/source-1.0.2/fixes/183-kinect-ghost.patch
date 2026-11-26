@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/kinect_ghost.hpp b/include/xbox360ps5/kinect_gho
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/kinect_ghost.hpp
-@@ -0,0 +1,138 @@
+@@ -0,0 +1,139 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 183 (two-player Kinect, research/design-v108/kinect-2-players.md step 1): the "ghost
 +// player" probe. Do the games take a second skeleton at all, and what do they do with a guest
@@ -19,7 +19,7 @@ new file mode 100644
 +//  - In any other title: enrollment -1 and no user, as a body without a profile has today.
 +// Off by default: without the switch file nothing here runs and the frames are as before.
 +//
-+// The switch file (/data/homebrew/PPSA83600/kinect-ghost.txt), one setting a line:
++// The switch file (kinect-ghost.txt in the data root, XBOX360PS5_DATA_ROOT), one setting a line:
 +//   on                 the ghost is shown (without it the file does nothing)
 +//   offset-m 1.1       metres to the side (0.3 - 3.0)
 +//   delay-s 3          seconds behind the player (0 - 10)
@@ -31,11 +31,12 @@ new file mode 100644
 +#include <string>
 +#include <vector>
 +
++#include "xbox360ps5/app_identity.hpp"
 +#include "xbox360ps5/motion_input.hpp"
 +
 +namespace xbox360ps5::kinect_ghost {
 +
-+constexpr const char* kSwitchPath = "/data/homebrew/PPSA83600/kinect-ghost.txt";
++constexpr const char* kSwitchPath = XBOX360PS5_DATA_ROOT "/kinect-ghost.txt";
 +constexpr uint32_t kGhostSlot = 1;
 +constexpr uint32_t kGhostTrackingId = 0x00000F01;  // stable; the player's IDs count up from 1
 +constexpr uint32_t kGuestEnrollment = 0xFFFFFFFE;
