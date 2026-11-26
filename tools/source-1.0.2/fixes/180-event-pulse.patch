@@ -2,7 +2,7 @@ diff --git a/include/xbox360ps5/event_pulse.hpp b/include/xbox360ps5/event_pulse
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/event_pulse.hpp
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,167 @@
 +// Xbox360PS5 fix 180: how NtPulseEvent and KePulseEvent release the threads waiting on an event.
 +//
 +// Spider-Man: Web of Shadows (41560815, issue #78) pulses events about 1,300-2,000 times a frame in
@@ -28,12 +28,7 @@ new file mode 100644
 +#include <cstdint>
 +#include <string_view>
 +
-+#if __has_include("xbox360ps5/app_identity.hpp")
-+#include "xbox360ps5/app_identity.hpp"
-+#endif
-+#ifndef XBOX360PS5_DATA_ROOT
-+#define XBOX360PS5_DATA_ROOT "/data/homebrew/PPSA83600"
-+#endif
++#include "xbox360ps5/app_identity.hpp"  // XBOX360PS5_DATA_ROOT
 +
 +#if defined(__x86_64__) || defined(_M_X64)
 +#include <x86intrin.h>
