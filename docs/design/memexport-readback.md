@@ -194,3 +194,93 @@ Stop after:
   across that session would confirm or rule this out at no cost.
 - **Kinect Sports' boxing** (about 870 memexport waits a second) was not measured on the 1.0.6
   line. M0 can include it if a session is easy.
+
+## 8. Result: fix 177 (D1) parked for Battlefield 3
+
+D1 was built as fix 177:
+- branch `fix/memexport-deliver`, not merged;
+- label `1.0.6-work-fix177`;
+- build run 45720482616, host checks run 45719733624.
+
+It was behind `memexport-deliver.txt` (`on`, `verify`, `off`; off by default). Its `verify` mode
+kept today's immediate wait and merge, and counted at the next sync point the stored dwords that
+guest memory no longer held.
+
+### The console step: Battlefield 3, `verify`
+
+- **Session:** a campaign level, about 3-4 minutes of play (2026-11-26).
+- **The count:** 56-74% of the stored dwords had changed before the next sync point, against a
+  pass mark of about 1 in 10,000. The steady windows read 67-74%, for example 40,444,489 of
+  54,784,943 in 30 s.
+- **The scene:** it ran at the game's 30 swaps/s cap (29.6-30.0, minimum 21).
+  - Memexport readback waits: 97-123 ms/s, at 289-303 readbacks/s.
+  - The fix 160 session had 532-566 ms/s, at another level and scene.
+  - Readback source: 288.8 exporting draws/s, all read back by the option.
+
+### Why that count says little: GPU-over-GPU overwrites
+
+`verify` kept one record per dword stored by each draw, and compared them all with guest memory at
+the next sync point. When a later draw in the same period exported into the same dword, the earlier
+draw's record no longer matched, and it was counted as "changed by the CPU" although the GPU had
+changed it.
+
+Battlefield 3 has 6-8 read-back draws per period, all exporting into the same 384 KiB job area. If
+each draw rewrites the same dwords, that alone gives up to (k-1)/k, 83-88%. So the count is an upper
+bound on the CPU's share, not the share.
+
+- **Not a cause:** the CPU clearing a slot before the GPU fills it. For a fix 30 readback, the
+  "before" copy is taken after the ranges are reloaded from guest memory, so a CPU write made
+  before the draw is already in it.
+- **`on` itself is unaffected.** It merges the draws in order, each against its own "before".
+- **A correct `verify`** keeps only the last stored value per address, and counts GPU-over-GPU
+  overwrites separately.
+
+### The deeper problem: forced deliveries
+
+Even with a correct count, `on` would wait at nearly every Battlefield 3 draw, for two reasons.
+
+- **The fix 30 reload.** Each draw read back by the option or a small export reloads its ranges
+  from guest memory before the draw (`RefreshRanges`). A merge still queued for an overlapping
+  range is not in guest memory yet, so the queue has to be emptied first, with a wait (fix 177's
+  "refreshes" point). Every Battlefield 3 export goes into the same area, so almost every draw
+  overlaps the one before it.
+- **Uploads over a queued range.** The workers write the area all the time. A page they wrote is
+  uploaded before the next draw that uses it, and an upload over a queued range has to empty the
+  queue first (fix 177's "uploads over a queued range" point).
+
+Fix 133's w/p counts the waits between sync points, not these forced deliveries. So M0's go
+criterion (w/p of 2 or more) overstated what D1 could save in Battlefield 3. A future M0 for any
+game has to count how often a read-back draw's ranges overlap a draw queued earlier in the same
+period, and how often an upload lands on one.
+
+The same applies to Modern Warfare 2: its small exports go through the fix 30 reload too.
+
+### What is left
+
+| Variant | Verdict |
+|---|---|
+| Batch only the draws whose ranges the CPU does not touch | Nothing qualifies in Battlefield 3: the CPU touches the whole area. |
+| D2, only for the area | Does not help. The CPU's own writes to the area go through the read watch too (fix 91i), so the workers would wait for their own writes, and the reload and upload waits stay. |
+| **GPU-side merge** | The only variant left. |
+
+The GPU-side merge works like this:
+- after a reload or an upload over a queued range, a small compute pass re-applies that draw's
+  changed dwords (where before differs from after) to the GPU's copy;
+- the queue then only has to be emptied where the CPU could learn that the GPU went on;
+- estimate: about 1-2 weeks, on top of a corrected `verify`, which has to show first that the
+  CPU rarely writes the dwords the GPU exports;
+- only worth it in heavy scenes like fix 160's, not in scenes already at the 30 fps cap.
+
+### Decisions (2026-11-26)
+
+- D1 is parked for Battlefield 3, with no revision of fix 177 for now.
+- `fix/memexport-deliver` stays unmerged.
+- Modern Warfare 2's `verify` run is skipped. It will run only if D1 is taken up again: the count
+  can only overstate, so a low result there would be a valid pass even with today's error.
+- Battlefield 3's `Memexport:` line in that session showed no losses ("0 units of exported data
+  lost to uploads (0 uploads), 0 units newly learned"). The build has no fix 30 "differed" count to
+  read.
+- Modern Warfare 2's preset keeps memexport=1. In its A/B (1.0.6-work-fix173c), fix 30's small
+  exports and fix 48's learned ones read back every exporting draw with the option off as well.
+  The waits were the same (146-153 ms/s), and there was no coloured noise or wrong textures in
+  the menu, a mission start, gameplay with smoke, fire and explosions, or a cutscene.
