@@ -1,0 +1,455 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -165,6 +165,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/forward.hpp"
+ #include "xbox360ps5/achievement_hook.hpp"
+ #include "xbox360ps5/notify.hpp"
++#include "xbox360ps5/mic_probe_ps5.hpp"  // fix 179
+ #include "xbox360ps5/web_settings.hpp"
+ #include "xbox360ps5/qr_code.hpp"         // fix 63: the camera QR code in the motion panel
+ #include "xbox360ps5/phone_qr_panel.hpp"  // fix 63
+@@ -2886,6 +2887,8 @@ int main(int argc, char** argv) {
+   // screen only: it does not go to the logs, which are shared.
+   if (global.web_page && log_ready)
+     XELOGW("Web settings: {}", xbox360ps5::StartWebSettings(log_root) ? "page server started" : "the page server could not start");
++  // Fix 179 (diagnostic): the DualSense microphone probe, only with mic-probe.txt saying "on".
++  XELOGW("Microphone probe (fix 179): {}", xbox360ps5::mic_probe::Start(XBOX360PS5_DATA_ROOT));
+   if (log_ready && log_root == storage / "LOGS")
+     XELOGW("Installation folder is not writable; desktop log downloader exports sessions to " XBOX360PS5_DATA_ROOT "/logs");
+   std::filesystem::path game;
+@@ -4814,6 +4817,7 @@ int main(int argc, char** argv) {
+       xbox360ps5::leaving_notice::Remember(storage / "leaving-notice.txt", xbox360ps5::leaving_notice::Current(),
+                                            xbox360ps5::leaving_notice::NowMs());
+       Stage("BOOT restarting the title");
++      xbox360ps5::mic_probe::Stop();  // fix 179: the probe closes its input while the log is up
+       {
+         // Fix 93i: the log's writer is given 3 s to write what it holds, then the title restarts
+         // anyway (GTA IV's leave waited minutes here: thousands of lines behind a busy drive).
+@@ -4834,6 +4838,7 @@ int main(int argc, char** argv) {
+     }
+   }
+   XELOGI("ENGINE EXIT {}", result);
++  xbox360ps5::mic_probe::Stop();  // fix 179
+   xe::ui::controller_keyboard::SetAvailable(false);
+   xe::ShutdownLogging();
+   return result;
+diff --git a/include/xbox360ps5/mic_probe.hpp b/include/xbox360ps5/mic_probe.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/mic_probe.hpp
+@@ -0,0 +1,180 @@
++// SPDX-License-Identifier: MIT
++// Fix 179 (diagnostic; Kinect voice, issue 76): can the emulator hear the player's DualSense
++// microphone? Fix 178 gives Kinect titles a virtual microphone array that hears silence; a real
++// voice needs a PS5 audio input the emulator may open. This probe answers that on the console,
++// without feeding anything to a game.
++//
++// Off unless <data root>/mic-probe.txt says "on" (read once at start; xbox360ps5/mic_probe_ps5.hpp).
++// When on, a thread of its own loads the system's audio input library (libSceAudioIn.sprx, at run
++// time, as notify.cpp loads libSceNotification), opens a voice input for the initial user
++// (16 kHz, 16-bit mono, 256-sample blocks: the Kinect's 16 ms block), trying the plausible type,
++// index, user and rate values in turn, and logs every result code. While it reads, it logs every
++// 2 s: RMS and peak (dBFS), the share of blocks that are all zero, blocks a second and the time
++// between blocks (mean, largest, spread), and the mute state when the library answers it. The
++// first 10 s are written to <data root>/logs/mic-probe.raw (raw 16-bit little-endian mono, 16 kHz)
++// to listen to on a computer.
++//
++// This header is the part a host can check: the switch file, the open attempts, the statistics.
++#pragma once
++#include <cmath>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace xbox360ps5::mic_probe {
++
++constexpr uint32_t kRate = 16000;
++constexpr uint32_t kGrain = 256;  // samples per block: 16 ms
++constexpr uint64_t kWindowNs = 2000000000ull;
++constexpr uint32_t kRawSeconds = 10;
++constexpr uint32_t kRawBytes = kRate * 2 * kRawSeconds;  // 16-bit mono
++constexpr uint32_t kFrequentLines = 150;  // every 2 s for 5 min, then every 30 s
++constexpr uint64_t kSlowWindowNs = 30000000000ull;
++
++// The switch file: its first word is "on" (any case; spaces, a byte-order mark and line ends
++// around it are fine). Anything else, or no file, is off.
++inline bool SwitchOn(std::string_view text) {
++  if (text.size() >= 3 && uint8_t(text[0]) == 0xEF && uint8_t(text[1]) == 0xBB &&
++      uint8_t(text[2]) == 0xBF)
++    text.remove_prefix(3);
++  size_t at = 0;
++  while (at < text.size() && (text[at] == ' ' || text[at] == '\t' || text[at] == '\r' ||
++                              text[at] == '\n'))
++    ++at;
++  if (text.size() - at < 2) return false;
++  const char a = char(text[at] | 0x20), b = char(text[at + 1] | 0x20);
++  if (a != 'o' || b != 'n') return false;
++  if (text.size() - at == 2) return true;
++  const char next = text[at + 2];
++  return next == ' ' || next == '\t' || next == '\r' || next == '\n';
++}
++
++// One way to open the input. type/index/param follow the PS4-era libSceAudioIn (not confirmed on PS5: the
++// probe tries them in turn): type 0 voice, 1 general, 2 a third kind; param 0 = 16-bit mono; user 0xFF the system.
++struct OpenAttempt {
++  int32_t user;
++  uint32_t type, index, grain, rate, param;
++  bool high_quality;  // sceAudioInHqOpen instead of sceAudioInOpen
++  const char* label;
++};
++
++inline std::vector<OpenAttempt> Attempts(int32_t initial_user) {
++  return {
++      {initial_user, 0, 0, kGrain, kRate, 0, false, "initial user, voice, 16 kHz mono"},
++      {initial_user, 2, 0, kGrain, kRate, 0, false, "initial user, voice recognition"},
++      {initial_user, 1, 0, kGrain, kRate, 0, false, "initial user, general"},
++      {initial_user, 0, 1, kGrain, kRate, 0, false, "initial user, voice, index 1"},
++      {0xFF, 0, 0, kGrain, kRate, 0, false, "system user, voice"},
++      {0xFF, 1, 0, kGrain, kRate, 0, false, "system user, general"},
++      {initial_user, 0, 0, kGrain, 48000, 0, true, "initial user, high quality 48 kHz"},
++  };
++}
++
++inline std::string Describe(const OpenAttempt& a) {
++  char text[160];
++  std::snprintf(text, sizeof(text), "%s (user %08X, type %u, index %u, %u samples at %u Hz, param %u%s)",
++                a.label, uint32_t(a.user), a.type, a.index, a.grain, a.rate, a.param,
++                a.high_quality ? ", HqOpen" : "");
++  return text;
++}
++
++struct Summary {
++  uint32_t blocks = 0, zero_blocks = 0;
++  double window_ms = 0, blocks_per_second = 0;
++  double rms_dbfs = -120, peak_dbfs = -120;
++  int32_t peak = 0;
++  double interval_mean_ms = 0, interval_max_ms = 0, interval_spread_ms = 0;
++};
++
++inline double Dbfs(double level) { return level <= 0 ? -120.0 : 20.0 * std::log10(level / 32768.0); }
++
++// The blocks of one 2 s window.
++class Window {
++ public:
++  void Reset(uint64_t now_ns) {
++    *this = Window();
++    start_ns_ = now_ns;
++  }
++  // A block that arrived at `now_ns` (steady clock).
++  void Add(const int16_t* samples, size_t count, uint64_t now_ns) {
++    bool zero = true;
++    for (size_t i = 0; i < count; ++i) {
++      const int32_t s = samples[i];
++      if (s) zero = false;
++      const int32_t magnitude = s < 0 ? -s : s;
++      if (magnitude > peak_) peak_ = magnitude;
++      squares_ += double(s) * double(s);
++    }
++    samples_ += count;
++    ++blocks_;
++    if (zero) ++zero_blocks_;
++    if (last_ns_) {
++      const double interval = double(now_ns - last_ns_) / 1e6;
++      intervals_ += 1;
++      interval_sum_ += interval;
++      interval_squares_ += interval * interval;
++      if (interval > interval_max_) interval_max_ = interval;
++    }
++    last_ns_ = now_ns;
++  }
++  bool Due(uint64_t now_ns, uint64_t window_ns = kWindowNs) const {
++    return now_ns - start_ns_ >= window_ns;
++  }
++  Summary Summarize(uint64_t now_ns) const {
++    Summary out;
++    out.blocks = blocks_;
++    out.zero_blocks = zero_blocks_;
++    out.window_ms = double(now_ns - start_ns_) / 1e6;
++    out.blocks_per_second = out.window_ms > 0 ? blocks_ * 1000.0 / out.window_ms : 0;
++    out.peak = peak_;
++    out.peak_dbfs = Dbfs(peak_);
++    out.rms_dbfs = samples_ ? Dbfs(std::sqrt(squares_ / double(samples_))) : -120;
++    if (intervals_) {
++      out.interval_mean_ms = interval_sum_ / intervals_;
++      out.interval_max_ms = interval_max_;
++      const double variance = interval_squares_ / intervals_ - out.interval_mean_ms * out.interval_mean_ms;
++      out.interval_spread_ms = variance > 0 ? std::sqrt(variance) : 0;
++    }
++    return out;
++  }
++  // The next window keeps the last block's time, so its first interval is measured too.
++  void Next(uint64_t now_ns) {
++    const uint64_t last = last_ns_;
++    Reset(now_ns);
++    last_ns_ = last;
++  }
++
++ private:
++  uint64_t start_ns_ = 0, last_ns_ = 0;
++  uint32_t blocks_ = 0, zero_blocks_ = 0;
++  uint64_t samples_ = 0;
++  int32_t peak_ = 0;
++  double squares_ = 0, interval_sum_ = 0, interval_squares_ = 0, interval_max_ = 0;
++  uint32_t intervals_ = 0;
++};
++
++inline std::string Line(const Summary& s, int mute_state, bool mute_known) {
++  char text[320];
++  std::snprintf(text, sizeof(text),
++                "%.1f s: %u blocks (%.1f/s, %u all zero = %.0f%%), RMS %.1f dBFS, peak %d (%.1f dBFS), "
++                "between blocks mean %.2f ms, largest %.2f ms, spread %.2f ms, mute %s",
++                s.window_ms / 1000.0, s.blocks, s.blocks_per_second, s.zero_blocks,
++                s.blocks ? 100.0 * s.zero_blocks / s.blocks : 0.0, s.rms_dbfs, s.peak, s.peak_dbfs,
++                s.interval_mean_ms, s.interval_max_ms, s.interval_spread_ms,
++                mute_known ? (mute_state ? "on" : "off") : "unknown");
++  std::string out = text;
++  if (mute_known && mute_state) {
++    std::snprintf(text, sizeof(text), " (state %08X)", uint32_t(mute_state));
++    out += text;
++  }
++  return out;
++}
++
++// After the first kFrequentLines lines, one line per 30 s window.
++inline uint64_t WindowFor(uint32_t lines_written) {
++  return lines_written < kFrequentLines ? kWindowNs : kSlowWindowNs;
++}
++
++}  // namespace xbox360ps5::mic_probe
+diff --git a/include/xbox360ps5/mic_probe_ps5.hpp b/include/xbox360ps5/mic_probe_ps5.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/mic_probe_ps5.hpp
+@@ -0,0 +1,229 @@
++// SPDX-License-Identifier: MIT
++// Fix 179 (diagnostic): the DualSense microphone probe on the console (see xbox360ps5/mic_probe.hpp).
++// Included by src/canary_game_main.cpp only: Start() after the log is up (the launcher and every
++// game run through it), Stop() before the log shuts down. Nothing happens without the switch file.
++#pragma once
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cstdio>
++#include <filesystem>
++#include <fstream>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <system_error>
++#include <thread>
++#include <vector>
++
++#include "xbox360ps5/mic_probe.hpp"
++#include "xenia/base/logging.h"
++
++extern "C" {
++int sceKernelLoadStartModule(const char* name, size_t args, const void* argp, uint32_t flags,
++                             void* option, int* result);
++int sceKernelDlsym(int handle, const char* symbol, void** address);
++int sceUserServiceGetInitialUser(int32_t*);
++}
++
++namespace xbox360ps5::mic_probe {
++namespace detail {
++
++using OpenFn = int32_t (*)(int32_t user, uint32_t type, uint32_t index, uint32_t grain,
++                           uint32_t rate, uint32_t param);
++using InputFn = int32_t (*)(int32_t handle, void* destination);
++using CloseFn = int32_t (*)(int32_t handle);
++using SilentStateFn = int32_t (*)(int32_t handle);
++
++struct Library {
++  OpenFn open = nullptr, open_hq = nullptr;
++  InputFn input = nullptr;
++  CloseFn close = nullptr;
++  SilentStateFn silent_state = nullptr;
++};
++
++struct State {
++  std::atomic<bool> stop{false};
++  std::atomic<bool> finished{false};
++  std::thread thread;
++};
++inline std::mutex state_mutex;
++inline std::shared_ptr<State> state;
++
++inline uint64_t NowNs() {
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++}
++
++inline bool LoadLibrary(Library* lib) {
++  int handle = -1;
++  for (const char* name : {"libSceAudioIn.sprx", "/system/common/lib/libSceAudioIn.sprx"}) {
++    handle = sceKernelLoadStartModule(name, 0, nullptr, 0, nullptr, nullptr);
++    XELOGW("Microphone probe (fix 179): loading {} gave {:08X}", name, unsigned(handle));
++    if (handle >= 0) break;
++  }
++  if (handle < 0) return false;
++  const auto find = [handle](const char* symbol, void** out) {
++    const int found = sceKernelDlsym(handle, symbol, out);
++    XELOGW("Microphone probe (fix 179): {} lookup gave {:08X}{}", symbol, unsigned(found),
++           (found >= 0 && *out) ? "" : " (not found)");
++    if (found < 0) *out = nullptr;
++  };
++  void* address = nullptr;
++  find("sceAudioInOpen", &address);
++  lib->open = reinterpret_cast<OpenFn>(address);
++  address = nullptr;
++  find("sceAudioInHqOpen", &address);
++  lib->open_hq = reinterpret_cast<OpenFn>(address);
++  address = nullptr;
++  find("sceAudioInInput", &address);
++  lib->input = reinterpret_cast<InputFn>(address);
++  address = nullptr;
++  find("sceAudioInClose", &address);
++  lib->close = reinterpret_cast<CloseFn>(address);
++  address = nullptr;
++  find("sceAudioInGetSilentState", &address);
++  lib->silent_state = reinterpret_cast<SilentStateFn>(address);
++  return lib->open && lib->input && lib->close;
++}
++
++inline void Run(std::shared_ptr<State> self, std::filesystem::path raw_path) {
++  Library lib;
++  if (!LoadLibrary(&lib)) {
++    XELOGW("Microphone probe (fix 179): the audio input library is not usable here; probe ends");
++    self->finished.store(true);
++    return;
++  }
++  int32_t user = -1;
++  const int user_result = sceUserServiceGetInitialUser(&user);
++  XELOGW("Microphone probe (fix 179): initial user {:08X} (result {:08X})", uint32_t(user),
++         unsigned(user_result));
++  int32_t handle = -1;
++  OpenAttempt opened{};
++  for (const OpenAttempt& attempt : Attempts(user)) {
++    if (self->stop.load()) break;
++    const OpenFn fn = attempt.high_quality ? lib.open_hq : lib.open;
++    if (!fn) {
++      XELOGW("Microphone probe (fix 179): {}: no such function", Describe(attempt));
++      continue;
++    }
++    const int32_t result =
++        fn(attempt.user, attempt.type, attempt.index, attempt.grain, attempt.rate, attempt.param);
++    XELOGW("Microphone probe (fix 179): open {} -> {:08X}", Describe(attempt), uint32_t(result));
++    if (result >= 0) {
++      handle = result;
++      opened = attempt;
++      break;
++    }
++  }
++  if (handle < 0) {
++    XELOGW("Microphone probe (fix 179): no input could be opened; probe ends");
++    self->finished.store(true);
++    return;
++  }
++  const uint32_t grain = opened.grain;
++  const uint32_t rate = opened.rate;
++  XELOGW("Microphone probe (fix 179): reading {} samples a block at {} Hz from handle {:08X}; "
++         "the first {} s go to {}", grain, rate, uint32_t(handle), kRawSeconds, raw_path.string());
++  std::vector<int16_t> block(grain);
++  std::ofstream raw;
++  uint64_t raw_left = uint64_t(rate) * 2 * kRawSeconds;
++  {
++    std::error_code ec;
++    std::filesystem::create_directories(raw_path.parent_path(), ec);
++    raw.open(raw_path, std::ios::binary | std::ios::trunc);
++    if (!raw) XELOGW("Microphone probe (fix 179): {} could not be written", raw_path.string());
++  }
++  Window window;
++  window.Reset(NowNs());
++  uint32_t lines = 0, read_errors = 0;
++  int last_mute = -1;
++  while (!self->stop.load()) {
++    const int32_t result = lib.input(handle, block.data());
++    const uint64_t now = NowNs();
++    if (result < 0) {
++      if (++read_errors <= 8)
++        XELOGW("Microphone probe (fix 179): sceAudioInInput -> {:08X}", uint32_t(result));
++      if (read_errors > 100) {
++        XELOGW("Microphone probe (fix 179): 100 read errors; probe ends");
++        break;
++      }
++      std::this_thread::sleep_for(std::chrono::milliseconds(16));
++      continue;
++    }
++    window.Add(block.data(), block.size(), now);
++    if (raw && raw_left) {
++      const uint64_t bytes = std::min<uint64_t>(raw_left, block.size() * 2);
++      raw.write(reinterpret_cast<const char*>(block.data()), std::streamsize(bytes));
++      raw_left -= bytes;
++      if (!raw_left) {
++        raw.close();
++        XELOGW("Microphone probe (fix 179): {} s written to {}", kRawSeconds, raw_path.string());
++      }
++    }
++    if (window.Due(now, WindowFor(lines))) {
++      int mute = 0;
++      const bool mute_known = lib.silent_state != nullptr;
++      if (mute_known) mute = lib.silent_state(handle);
++      if (mute_known && mute != last_mute) {
++        XELOGW("Microphone probe (fix 179): silent state {:08X}", uint32_t(mute));
++        last_mute = mute;
++      }
++      XELOGW("Microphone probe (fix 179): {}", Line(window.Summarize(now), mute, mute_known));
++      ++lines;
++      window.Next(now);
++    }
++  }
++  const bool asked_to_stop = self->stop.load();
++  const int32_t closed = lib.close(handle);
++  // After Stop() the log may be shutting down: only Stop() itself reports then.
++  if (!asked_to_stop)
++    XELOGW("Microphone probe (fix 179): sceAudioInClose -> {:08X}", uint32_t(closed));
++  self->finished.store(true);
++}
++
++}  // namespace detail
++
++// Reads <data_root>/mic-probe.txt and starts the probe when it says "on". Returns what it did.
++inline std::string Start(const std::filesystem::path& data_root) {
++  std::string text;
++  {
++    std::ifstream in(data_root / "mic-probe.txt", std::ios::binary);
++    if (!in) return "off (no mic-probe.txt)";
++    char buffer[64] = {};
++    in.read(buffer, sizeof(buffer) - 1);
++    text.assign(buffer, size_t(in.gcount()));
++  }
++  if (!SwitchOn(text)) return "off (mic-probe.txt does not say on)";
++  std::lock_guard lock(detail::state_mutex);
++  if (detail::state) return "already running";
++  auto self = std::make_shared<detail::State>();
++  self->thread = std::thread(detail::Run, self, data_root / "logs" / "mic-probe.raw");
++  detail::state = self;
++  return "on: reading the DualSense microphone on its own thread (nothing goes to the game)";
++}
++
++// Ends the probe: its read returns within one block, then it closes the input. Waits at most
++// 300 ms, then leaves the thread to finish on its own.
++inline void Stop() {
++  std::shared_ptr<detail::State> self;
++  {
++    std::lock_guard lock(detail::state_mutex);
++    self = std::move(detail::state);
++  }
++  if (!self) return;
++  self->stop.store(true);
++  const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
++  while (!self->finished.load() && std::chrono::steady_clock::now() < until)
++    std::this_thread::sleep_for(std::chrono::milliseconds(5));
++  if (self->finished.load()) {
++    if (self->thread.joinable()) self->thread.join();
++    XELOGW("Microphone probe (fix 179): stopped, input closed");
++  } else {
++    if (self->thread.joinable()) self->thread.detach();
++    XELOGW("Microphone probe (fix 179): still in a read after 300 ms; left to end on its own");
++  }
++}
++
++}  // namespace xbox360ps5::mic_probe

@@ -219,6 +219,7 @@ on:
       - 'tools/check-nui-speech.cpp'
       - 'tools/check-guest-object-close.cpp'
       - 'tools/check-virtual-mic.cpp'
+      - 'tools/check-mic-probe.cpp'
       - 'assets/skin/**'
       - 'assets/skin-dark/**'
       - 'assets/skin-src/**'
