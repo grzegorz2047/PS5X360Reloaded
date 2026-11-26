@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# Fix 186 (issue #80): verify the bundled Lapy elevation helper is packaged with full LGPL-2.1
-# compliance and the agreed safeguards, WITHOUT building it (no prospero-clang needed). Checks:
-#  - manifest.json pins an exact upstream commit + repo URL, and is labelled LGPL-2.1-or-later (NOT
-#    MIT), user-loaded, not linked into eboot, not auto-launched;
-#  - licenses/LAPY-LGPL-2.1.txt is the LGPL-2.1 text;
-#  - NOTICE.md states LGPL (not MIT), the pinned commit, relink/corresponding-source steps, and the
-#    experimental / user-risk note;
-#  - the ps5log.h stub is our own MIT no-op;
-#  - build-lapy-daemon.sh builds the resident service title-agnostic (--service --title '*'), verifies
-#    the pinned commit, and ships the licence + manifest + notice beside the ELF;
-#  - the CI step is wired and non-fatal; docs/CREDITS.md names it as LGPL-2.1.
-# Run from anywhere: paths are resolved from this file's location.
+# Fix 186d (issue #80): verify the bundled Lapy elevation parts are packaged with full LGPL-2.1
+# compliance, WITHOUT building them. Two LGPL parts: the owned one-shot helper lapy.elf (built in CI
+# from PS5-Lapy-JB-Daemon, --elf-helper --title PPSA83600) and the ELV1/elfldr client module
+# (port/vendor/lapy, adapted from prospero-win; its own SPDX/attribution is checked by
+# check-elevate-probe.cpp). Here we check the manifest, licence, NOTICE, build script, stub and
+# CREDITS. Run from anywhere.
 import json
 import re
 import sys
@@ -19,7 +13,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 LAPY = REPO / "tools/source-1.0.2/lapy-daemon"
-PIN_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA40 = re.compile(r"^[0-9a-f]{40}$")
 failures = []
 
 
@@ -37,26 +31,30 @@ def read(path):
 
 # manifest.json
 try:
-    manifest = json.loads((LAPY / "manifest.json").read_text(encoding="utf-8"))
+    m = json.loads((LAPY / "manifest.json").read_text(encoding="utf-8"))
 except Exception as exc:  # noqa: BLE001
-    manifest = {}
+    m = {}
     failures.append(f"manifest.json unreadable: {exc}")
-up = manifest.get("upstream", {})
-lic = manifest.get("license", {})
-dep = manifest.get("deployment", {})
-expect(PIN_RE.match(up.get("commit", "")) is not None, "manifest pins a 40-hex upstream commit")
-expect("mpereiraesaa/PS5-Lapy-JB-Daemon" in up.get("repo", ""), "manifest records the upstream repo URL")
+up = m.get("upstream", {})
+lic = m.get("license", {})
+dep = m.get("deployment", {})
+expect(SHA40.match(up.get("lapy_helper", {}).get("commit", "")) is not None,
+       "manifest pins the Lapy helper commit")
+expect(up.get("prospero_win_client", {}).get("commit", "") == "404cac6ebbb236d2486d2796fd28b9bd39f2caa6",
+       "manifest pins the prospero-win client rev 404cac6")
+expect("mpereiraesaa/prospero-win" in up.get("prospero_win_client", {}).get("repo", ""),
+       "manifest records the prospero-win repo")
 expect(lic.get("spdx") == "LGPL-2.1-or-later", "manifest license spdx is LGPL-2.1-or-later")
-expect("NOT MIT" in lic.get("note", "").upper().replace("-", " ") or "not mit" in lic.get("note", "").lower(),
-       "manifest says NOT MIT")
+expect("not mit" in lic.get("note", "").lower(), "manifest says NOT MIT")
+expect("mit" in lic.get("note", "").lower() and "eboot" in lic.get("note", "").lower(),
+       "manifest says the eboot stays MIT")
 expect("LAPY-LGPL-2.1.txt" in lic.get("license_text", ""), "manifest points at the LGPL text")
+expect("relink" in lic.get("relink", "").lower() or "separable" in lic.get("relink", "").lower(),
+       "manifest explains relinkability")
+expect("--elf-helper --title PPSA83600" in json.dumps(m), "manifest records the owned-helper build")
 model = dep.get("model", "").lower()
-expect("user" in model and "loaded" in model, "manifest marks the helper user-loaded")
-expect(("not" in model or "never" in model) and ("auto" in model or "launch" in model or "loader" in model),
-       "manifest says not auto-launched / not sent to a loader")
-expect("experimental" in dep.get("status", "").lower() and "12.02" in dep.get("status", ""),
-       "manifest marks it experimental (FW 12.02 validated)")
-PIN = up.get("commit", "")
+expect("elfldr" in model and "9021" in model, "manifest deployment notes the elfldr stream")
+expect("off by default" in model or "elevate-probe.txt" in model, "manifest notes off-by-default")
 
 # LGPL text
 lgpl = read("licenses/LAPY-LGPL-2.1.txt")
@@ -65,38 +63,33 @@ expect("GNU LESSER GENERAL PUBLIC LICENSE" in lgpl and "Version 2.1" in lgpl,
 
 # NOTICE.md
 notice = (LAPY / "NOTICE.md").read_text(encoding="utf-8", errors="replace") if (LAPY / "NOTICE.md").exists() else ""
-notice_plain = notice.replace("*", "").replace("`", "")
+plain = notice.replace("*", "").replace("`", "")
 expect("LGPL-2.1-or-later" in notice and "not MIT" in notice.lower() or "NOT MIT" in notice,
-       "NOTICE states LGPL-2.1, not MIT")
-expect(PIN and PIN in notice, "NOTICE records the pinned commit")
-expect("build_owned_daemon.py" in notice and "--service" in notice,
-       "NOTICE documents the relink / corresponding-source build")
-expect("experimental" in notice.lower() and "risk" in notice.lower(),
-       "NOTICE carries the experimental / user-risk note")
-expect("not linked into" in notice_plain.lower() and "eboot" in notice_plain.lower(),
-       "NOTICE says the helper is not linked into eboot")
+       "NOTICE states LGPL, not MIT")
+expect("404cac6ebbb236d2486d2796fd28b9bd39f2caa6" in notice and "prospero-win" in notice,
+       "NOTICE credits prospero-win at the pinned rev")
+expect("b48b7d7236eca25c7b9dfd6c040c763ae05dde80" in notice, "NOTICE pins the Lapy helper commit")
+expect("elfldr" in notice.lower() and "ELV1" in notice, "NOTICE describes the elfldr/ELV1 path")
+expect("relink" in notice.lower() and "separable" in notice.lower(),
+       "NOTICE documents relink / separable unit")
+expect("experimental" in notice.lower() and "risk" in notice.lower(), "NOTICE has the risk note")
+expect("not" in plain.lower() and "fused" in plain.lower(), "NOTICE says not fused into MIT source")
 
-# ps5log stub (ours, MIT, no-op)
+# ps5log stub (ours, MIT)
 stub = (LAPY / "ps5log-stub/ps5log.h").read_text(encoding="utf-8", errors="replace") if (LAPY / "ps5log-stub/ps5log.h").exists() else ""
-expect("SPDX-License-Identifier: MIT" in stub, "the ps5log stub is MIT (ours)")
-expect("ps5log_init_default" in stub and "ps5log_printf" in stub and "ps5log_close" in stub,
-       "the ps5log stub declares the symbols the daemon uses")
-expect("PS5LOG_IMPLEMENTATION" in stub, "the ps5log stub provides the single-header implementation")
+expect("SPDX-License-Identifier: MIT" in stub and "ps5log_printf" in stub,
+       "the ps5log stub is our MIT no-op")
 
 # build script
 build = (LAPY / "build-lapy-daemon.sh").read_text(encoding="utf-8", errors="replace") if (LAPY / "build-lapy-daemon.sh").exists() else ""
-expect("--service --title '*'" in build, "the build uses the resident, title-agnostic service mode")
+expect("--elf-helper --title PPSA83600" in build, "the build makes the owned one-shot helper for PPSA83600")
+expect('"$out/lapy.elf"' in build, "the build outputs lapy.elf to the artifact root (/app0)")
 expect('rev-parse HEAD' in build and 'mismatch' in build, "the build verifies the pinned commit")
-expect("LAPY-LGPL-2.1.txt" in build and "manifest.json" in build and "NOTICE.md" in build,
-       "the build ships the licence, manifest and notice beside the ELF")
-expect("x7fELF" in build or "\\x7fELF" in build, "the build verifies the output is an ELF")
 
-# CI wiring: non-fatal step
-ci = read(".github/workflows/build-source-1.0.2.yml")
-step = ci[ci.find("Build the Lapy elevation helper"):] if "Build the Lapy elevation helper" in ci else ""
-expect(step != "", "the CI build step for the helper exists")
-expect("continue-on-error: true" in step[:400], "the helper CI step is non-fatal (continue-on-error)")
-expect("build-lapy-daemon.sh" in step[:600], "the CI step runs build-lapy-daemon.sh")
+# stage copies lapy.elf to /app0
+stage = read("tools/stage-reloaded-candidate.py")
+expect("lapy.elf" in stage and "app / 'lapy.elf'" in stage,
+       "stage-reloaded-candidate.py bundles lapy.elf at /app0")
 
 # docs
 credits = read("docs/CREDITS.md")
