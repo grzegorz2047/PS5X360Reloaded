@@ -197,6 +197,7 @@ on:
       - 'tools/check-user-storage.cpp'
       - 'tools/check-game-configs.cpp'
       - 'tools/check-resolve-trace.cpp'
+      - 'tools/check-disc-swap-content.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
