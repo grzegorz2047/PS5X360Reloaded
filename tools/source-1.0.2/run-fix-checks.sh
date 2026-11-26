@@ -210,6 +210,7 @@ checks=(
   check-phone-link.cpp             # fix 169
   check-nui-speech.cpp             # fix 170
   check-xbox-fitness.cpp           # fix 171
+  check-camera-figure.cpp          # fix 185
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -405,6 +406,7 @@ declare -A fix_of=(
   [check-phone-link.cpp]=169
   [check-nui-speech.cpp]=170
   [check-xbox-fitness.cpp]=171
+  [check-camera-figure.cpp]=185
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

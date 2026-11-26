@@ -201,6 +201,7 @@ on:
       - 'tools/check-phone-pose-steady.mjs'
       - 'tools/check-kinect-camera-picture.mjs'
       - 'tools/check-xbox-fitness.cpp'
+      - 'tools/check-camera-figure.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
