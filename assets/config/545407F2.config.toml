@@ -1,0 +1,8 @@
+# 545407F2 - Grand Theft Auto IV
+# Fix 168b: at resolution scale 2x the D3D9 half-pixel offset in host pixels (fix 168), so no
+# one-pixel bright lines along the minimap frame and the column near the left edge of the scene
+# (1.0.6-work-fix173 on the console: both gone, no new lines). Does nothing at 1x. A player's own
+# <data>/game-configs/545407F2.config.toml (fix 166) is read after this file and may set it false.
+
+[GPU]
+resolution_scale_half_pixel_host = true

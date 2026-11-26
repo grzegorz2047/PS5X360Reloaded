@@ -1,0 +1,153 @@
+diff --git a/include/xbox360ps5/pipeline_cache_skip.hpp b/include/xbox360ps5/pipeline_cache_skip.hpp
+--- a/include/xbox360ps5/pipeline_cache_skip.hpp
++++ b/include/xbox360ps5/pipeline_cache_skip.hpp
+@@ -7,10 +7,20 @@
+ // drive (the data loaded at start once its header is accepted, then each snapshot written); a
+ // snapshot of the same size and hash is not written. Only a successful write updates them, so a
+ // failed one is tried again at the next snapshot.
++// Fix 173c: on 1.0.6-work-fix173b the same GTA IV session (15951112 bytes loaded, 15951112 in the
++// snapshot, no new pipeline) was written again and timed out: the driver serializes its pipeline
++// cache in another order each time, so the bytes differ though the content does not. A snapshot of
++// the size on the drive is also not written when no pipeline was made this session since the file
++// was last noted (the cache counts the pipelines it creates outside the start's stored ones); a new
++// pipeline adds an entry and the size grows, so either rule alone would not do. A write cut off by
++// the next start (LoadExec) leaves <name>.pending-N beside the file (the rename keeps the file
++// whole); the next load removes those.
+ #pragma once
++#define XBOX360PS5_PIPELINE_CACHE_SKIP_PIPELINES 1  // fix 173c (the host checks look for it)
+ #include <cstddef>
+ #include <cstdint>
+ #include <cstring>
++#include <filesystem>
+ #include <mutex>
+ #include <string>
+ #include <unordered_map>
+@@ -41,40 +51,70 @@ inline uint64_t Hash(const uint8_t* bytes, size_t size) {
+   return h;
+ }
+ 
+-// What is on the drive at each cache path.
++// What is on the drive at each cache path, and the pipelines made since it was noted.
++enum class Verdict { kWrite, kSameBytes, kSameSizeNoNewPipeline };
+ class Store {
+  public:
+   void Note(const std::string& path, const uint8_t* bytes, size_t size) {
+     const uint64_t hash = Hash(bytes, size);
+     std::lock_guard<std::mutex> lock(mutex_);
+-    files_[path] = {size, hash};
++    files_[path] = {size, hash, created_};
+   }
+   void Forget(const std::string& path) {
+     std::lock_guard<std::mutex> lock(mutex_);
+     files_.erase(path);
+   }
++  // Fix 173c: a pipeline made this session (not one of the start's stored ones).
++  void NotePipelineCreated() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    ++created_;
++  }
++  // Fix 173b: the same bytes as on the drive.
+   bool Unchanged(const std::string& path, const uint8_t* bytes, size_t size) {
++    return Check(path, bytes, size) == Verdict::kSameBytes;
++  }
++  // Fix 173c: the same bytes, or the same size with no pipeline made since the file was noted.
++  Verdict Check(const std::string& path, const uint8_t* bytes, size_t size) {
++    File file;
++    uint64_t created = 0;
+     {
+       std::lock_guard<std::mutex> lock(mutex_);
+       const auto it = files_.find(path);
+-      if (it == files_.end() || it->second.size != size) return false;
++      if (it == files_.end() || it->second.size != size) return Verdict::kWrite;
++      file = it->second;
++      created = created_;
+     }
+-    const uint64_t hash = Hash(bytes, size);
+-    std::lock_guard<std::mutex> lock(mutex_);
+-    const auto it = files_.find(path);
+-    return it != files_.end() && it->second.size == size && it->second.hash == hash;
++    if (Hash(bytes, size) == file.hash) return Verdict::kSameBytes;
++    return created == file.created_at_note ? Verdict::kSameSizeNoNewPipeline : Verdict::kWrite;
+   }
+ 
+  private:
+   struct File {
+-    uint64_t size = 0, hash = 0;
++    uint64_t size = 0, hash = 0, created_at_note = 0;
+   };
+   std::mutex mutex_;
+   std::unordered_map<std::string, File> files_;
++  uint64_t created_ = 0;
+ };
+ inline Store& Global() {
+   static Store* store = new Store();
+   return *store;
+ }
+ 
++// Fix 173c: the <file>.pending-N left by a write cut off (the rename never happened); returns how
++// many were removed.
++inline int RemoveStalePending(const std::filesystem::path& file) {
++  std::error_code error;
++  const std::string prefix = file.filename().string() + ".pending-";
++  int removed = 0;
++  for (std::filesystem::directory_iterator it(file.parent_path(), error), end; !error && it != end;
++       it.increment(error)) {
++    const std::string name = it->path().filename().string();
++    if (name.rfind(prefix, 0) != 0) continue;
++    std::error_code remove_error;
++    if (std::filesystem::remove(it->path(), remove_error)) ++removed;
++  }
++  return removed;
++}
++
+ }  // namespace xbox360ps5::pipeline_cache_skip
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+@@ -773,6 +773,9 @@ bool VulkanPipelineCache::ConfigurePipeline(
+ 
+   auto& pipeline_pair =
+       *pipelines_.emplace(description, Pipeline(pipeline_layout)).first;
++  // Fix 173c: a pipeline made this session (the start's stored ones are made
++  // elsewhere): the pipeline cache's snapshot then has to be written.
++  xbox360ps5::pipeline_cache_skip::Global().NotePipelineCreated();
+ 
+   if (storage_writer_.is_active()) {
+     VulkanShader& vs = static_cast<VulkanShader&>(vertex_shader->shader());
+@@ -3611,6 +3614,13 @@ void VulkanPipelineCache::InitializeShaderStorage(
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
+   const VkDevice device = vulkan_device->device();
+ 
++  // Fix 173c: the temporary files of a write cut off by the last exit.
++  if (const int stale = xbox360ps5::pipeline_cache_skip::RemoveStalePending(
++          vk_pipeline_cache_path_)) {
++    XELOGW("Vulkan cache: removed {} unfinished snapshot file(s) beside {} "
++           "(fix 173c)",
++           stale, vk_pipeline_cache_path_.string());
++  }
+   // Try to load existing VkPipelineCache data.
+   std::vector<uint8_t> pipeline_cache_data;
+   if (FILE* cache_file =
+@@ -3975,12 +3985,18 @@ bool VulkanPipelineCache::SavePipelineCacheSnapshot() noexcept try {
+           xbox360ps5::exit_cache_timing::NowNs(), written);
+       // Fix 173b: the same size and hash as the file on the drive: nothing to
+       // write (GTA IV's exit waited 12.3 s for an unchanged 16 MB file).
++      // Fix 173c: or the same size with no pipeline made since the file was
++      // noted (the driver orders its cache differently each time).
+       auto& on_drive = xbox360ps5::pipeline_cache_skip::Global();
+-      if (on_drive.Unchanged(vk_pipeline_cache_path_.string(), data.data(),
+-                             written)) {
++      const auto verdict = on_drive.Check(vk_pipeline_cache_path_.string(),
++                                          data.data(), written);
++      if (verdict != xbox360ps5::pipeline_cache_skip::Verdict::kWrite) {
+         XELOGW("Vulkan cache: title {:08X} snapshot {} bytes unchanged, not "
+-               "written (fix 173b)",
+-               shader_storage_title_id_, written);
++               "written (fix 173c: {})",
++               shader_storage_title_id_, written,
++               verdict == xbox360ps5::pipeline_cache_skip::Verdict::kSameBytes
++                   ? "the same bytes"
++                   : "the same size, no new pipeline this session");
+         return true;
+       }
+       const bool saved = xbox360ps5::WriteCacheAtomically(
