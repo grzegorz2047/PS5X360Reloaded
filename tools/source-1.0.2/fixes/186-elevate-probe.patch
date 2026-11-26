@@ -68,7 +68,7 @@ diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_p
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/elevate_probe.hpp
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,302 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 186d: an optional, off-by-default probe that elevates this process to UID 0 before the fix
 +// 148i/148j write benchmark, so the bench's throughput past the ~1.5-1.7 GB per-process write budget
@@ -108,9 +108,9 @@ new file mode 100644
 +#include <string>
 +
 +#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
-+#include <fcntl.h>
-+#include <sys/stat.h>
-+#include <unistd.h>
++#include <unistd.h>      // 186f: getpid, geteuid only (toolchain-resolved; umask/open/getuid were not)
++#include <filesystem>
++#include <thread>
 +#include "vendor/lapy/lapy_elevation_client.h"  // isolated LGPL-2.1 module (clean interface)
 +#endif
 +
@@ -255,48 +255,51 @@ new file mode 100644
 +}
 +
 +#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
-+// 186e: a fallback sink the caller sets (boot.log + the game log), so every step is captured even
-+// when the /data progress file cannot be opened (e.g. this runs before /data is writable).
++// 186f: the step sink. A durable fallback the caller sets (boot.log + the game log) plus a plain
++// std::ofstream progress file. 186e used raw POSIX ::umask/::open/::write/::fsync here; on this PS5
++// firmware ::umask (and raw ::open) is an UNRESOLVED dynamic import, so calling it jumped to a null
++// address and the process died (SIGSEGV, RIP=0) before a single step could be logged. We now use
++// ONLY std:: file I/O (proven to work in this app) and getpid()/geteuid() (toolchain-resolved and
++// used by TrinityXSX): no umask, no raw open/write/fsync, no getuid, no usleep.
 +inline void (*&LogCb())(const char*) {
 +  static void (*cb)(const char*) = nullptr;
 +  return cb;
 +}
-+inline void ProgLine(int fd, const char* text) {
-+  if (fd >= 0) {
-+    (void)!::write(fd, text, std::strlen(text));
-+    (void)!::write(fd, "\n", 1);
-+    ::fsync(fd);
++
++// The progress stream for the LGPL client's step callback (one-shot, main-thread only).
++inline std::ofstream*& ProgStream() {
++  static std::ofstream* s = nullptr;
++  return s;
++}
++inline void ProgLine(const char* text) {
++  if (std::ofstream* s = ProgStream()) {
++    if (s->is_open()) { (*s) << text << '\n'; s->flush(); }
 +  }
 +  if (LogCb()) LogCb()(text);  // durable fallback, independent of /data
 +}
++extern "C" inline void ProgressTrampoline(const char* step) { ProgLine(step); }
 +
-+// The progress file fd for the LGPL client's step callback (one-shot, main-thread only).
-+inline int& ProgFd() {
-+  static int fd = -1;
-+  return fd;
-+}
-+extern "C" inline void ProgressTrampoline(const char* step) { ProgLine(ProgFd(), step); }
-+
-+// umask(0) + 0666 write in the app's own data folder, removed again (issue #80: a file made while
-+// elevated stays usable at UID 1).
++// A real 0666 write in the app's own data folder, removed again (issue #80: a file made while
++// elevated stays usable at UID 1). std::ofstream + std::filesystem only -- no raw POSIX, no umask.
 +inline bool DataWrite(const std::string& path) {
-+  const mode_t old_umask = ::umask(0);
-+  errno = 0;
 +  bool ok = false;
-+  const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
-+  if (fd >= 0) {
-+    const char token[] = "TRINITYX360\n";
-+    ok = ::write(fd, token, sizeof(token) - 1) == (ssize_t)(sizeof(token) - 1);
-+    ::close(fd);
-+    ::unlink(path.c_str());
++  {
++    std::ofstream f(path, std::ios::binary | std::ios::trunc);
++    if (f.is_open()) {
++      f << "TRINITYX360\n";
++      f.flush();
++      ok = f.good();
++    }
 +  }
-+  ::umask(old_umask);
++  std::error_code ec;
++  std::filesystem::remove(path, ec);
 +  return ok;
 +}
 +
-+// The real entry: run the probe ONCE at the earliest, single-threaded point in main(), writing every
-+// step fsync'd to <data>/elevate-probe-progress.txt. A strict no-op unless the switch says "on"; no
-+// signal handler; never closes the app. The actual elevation is the isolated LGPL ELV1/elfldr client.
++// The real entry: run the probe ONCE at the single-threaded point in main() just after /data and the
++// logger are up, writing every step to <data>/elevate-probe-progress.txt and, as a crash-proof
++// fallback, to boot.log + the flushed game log. A strict no-op unless the switch says "on"; no signal
++// handler; never closes the app. The actual elevation is the isolated LGPL ELV1/elfldr client.
 +inline Result AttemptEarly(const std::string& data_root, void (*log)(const char*) = nullptr) {
 +  LogCb() = log;  // capture every step to boot.log / the game log too, even if /data write fails
 +  Result r;
@@ -311,62 +314,58 @@ new file mode 100644
 +  if (!r.config.on) { r.outcome = Outcome::kOff; return r; }  // strict default no-op
 +  if (AttemptCounter().fetch_add(1) + 1 > r.config.max_attempts) { r.outcome = Outcome::kCapped; return r; }
 +
-+  const std::string progress = data_root + "/elevate-probe-progress.txt";
-+  ::umask(0);
-+  const int prog = ::open(progress.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
++  std::ofstream prog(data_root + "/elevate-probe-progress.txt", std::ios::binary | std::ios::trunc);
++  ProgStream() = &prog;
 +  char line[192];
 +
-+  r.uid_before = (unsigned)::getuid();
++  // 186f: euid is what matters for issue #80; getuid() was not probed by the toolchain, so skip it.
 +  r.euid_before = (unsigned)::geteuid();
++  r.uid_before = r.euid_before;
 +  r.elevated_before = r.euid_before == 0;
-+  std::snprintf(line, sizeof(line), "186d start pid=%ld uid=%u euid=%u (switch on)", pid,
-+                r.uid_before, r.euid_before);
-+  ProgLine(prog, line);
++  std::snprintf(line, sizeof(line), "186f start pid=%ld euid=%u (switch on)", pid, r.euid_before);
++  ProgLine(line);
 +
 +  if (r.elevated_before) {
-+    ProgLine(prog, "already-root: euid 0 at launch, no request made");
++    ProgLine("already-root: euid 0 at launch, no request made");
 +    r.backend = Backend::kAlready;
-+    r.uid_after = r.uid_before;
-+    r.euid_after = r.euid_before;
++    r.uid_after = r.euid_after = r.euid_before;
 +    r.elevated_after = true;
 +    r.outcome = Outcome::kElevated;
-+    ProgLine(prog, "done result=elevated backend=already-root");
-+    if (prog >= 0) ::close(prog);
++    ProgLine("done result=elevated backend=already-root");
++    ProgStream() = nullptr;
 +    return r;
 +  }
 +
 +  r.data_before = DataWrite(DataProbeFile(data_root, pid));
-+  ProgLine(prog, r.data_before ? "data_before: wrote own data folder" : "data_before: FAILED");
++  ProgLine(r.data_before ? "data_before: wrote own data folder" : "data_before: FAILED");
 +
-+  ProgFd() = prog;
-+  ProgLine(prog, "lapy: calling isolated LGPL ELV1/elfldr client (helper /app0/lapy.elf)");
++  ProgLine("lapy: calling isolated LGPL ELV1/elfldr client (helper /app0/lapy.elf)");
 +  errno = 0;
 +  const int rc = lapy_elevation_request((int32_t)pid, kHelperPath, &ProgressTrampoline);
 +  r.helper_completed = rc == 0;
 +  r.helper_errno = rc == 0 ? 0 : (errno ? errno : EIO);
 +  std::snprintf(line, sizeof(line), "lapy: client returned rc=%d errno=%d", rc, r.helper_errno);
-+  ProgLine(prog, line);
++  ProgLine(line);
 +
 +  int waited = 0;
 +  while ((unsigned)::geteuid() != 0 && waited < r.config.timeout_ms) {
-+    ::usleep((useconds_t)kPollStepMs * 1000);
++    std::this_thread::sleep_for(std::chrono::milliseconds(kPollStepMs));
 +    waited += kPollStepMs;
 +  }
 +  r.waited_ms = waited;
-+  r.uid_after = (unsigned)::getuid();
 +  r.euid_after = (unsigned)::geteuid();
++  r.uid_after = r.euid_after;
 +  r.elevated_after = r.euid_after == 0;
 +  r.data_after = DataWrite(DataProbeFile(data_root, pid));
 +  r.backend = r.elevated_after ? Backend::kLapyElfldr : Backend::kNone;
 +  r.outcome = r.elevated_after ? Outcome::kElevated : Outcome::kNotElevated;
-+  std::snprintf(line, sizeof(line),
-+                "after uid=%u euid=%u data_after=%d elevated_after=%d waited_ms=%d", r.uid_after,
++  std::snprintf(line, sizeof(line), "after euid=%u data_after=%d elevated_after=%d waited_ms=%d",
 +                r.euid_after, (int)r.data_after, (int)r.elevated_after, waited);
-+  ProgLine(prog, line);
++  ProgLine(line);
 +  std::snprintf(line, sizeof(line), "done result=%s backend=%s", OutcomeName(r.outcome),
 +                BackendName(r.backend));
-+  ProgLine(prog, line);
-+  if (prog >= 0) ::close(prog);
++  ProgLine(line);
++  ProgStream() = nullptr;
 +  return r;
 +}
 +#endif  // XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
