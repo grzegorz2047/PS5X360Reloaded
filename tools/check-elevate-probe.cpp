@@ -225,16 +225,31 @@ void Tree() {
   Expect(h.find("no etaHEN") != std::string::npos && h.find("GPL-3.0") != std::string::npos &&
              h.find("no etaHEN code is copied") != std::string::npos,
          "(d) it credits etaHEN's protocol and states no GPL code is copied");
+  // 186c: fsync'd step logging + the early entry, and NO signal handler.
+  Expect(h.find("EtahenJailbreakLogged") != std::string::npos &&
+             h.find("hijack runs now") != std::string::npos,
+         "(d) the etaHEN steps are logged, incl. the pre-recv 'hijack runs now' line");
+  Expect(h.find("::fsync(") != std::string::npos && h.find("elevate-probe-progress.txt") != std::string::npos,
+         "(d) each step is fsync'd to elevate-probe-progress.txt");
+  Expect(h.find("inline Result AttemptEarly(") != std::string::npos,
+         "(d) AttemptEarly is the early entry");
+  Expect(h.find("sigaction(SIGSYS") == std::string::npos && h.find("SigsysHandler") == std::string::npos,
+         "(d) NO signal handler is installed around the request (186c)");
+  Expect(h.find("download0: write") != std::string::npos,
+         "(d) it logs the /download0 (etaHEN sandbox) write sanity");
   // Lapy secondary + safeguards
   Expect(h.find("write_lapy_marker") != std::string::npos && h.find("/download0/elevate_proc") != std::string::npos,
          "(d) the Lapy marker is a secondary backend");
   Expect(h.find("umask(0)") != std::string::npos && h.find("O_CREAT | O_TRUNC, 0666") != std::string::npos,
          "(d) the data probe uses umask(0) and 0666");
-  Expect(h.find("sigaction(SIGSYS") != std::string::npos && h.find("siglongjmp(") != std::string::npos,
-         "(d) a SIGSYS handler guards the request");
   Expect(h.find("AttemptCounter().fetch_add(1)") != std::string::npos &&
              h.find("Outcome::kCapped") != std::string::npos,
          "(d) a per-process attempt cap");
+  // The strict default no-op must come before any request.
+  const size_t early = h.find("inline Result AttemptEarly(");
+  Expect(early != std::string::npos && After(h, "if (!r.config.on)", early) < After(h, "Outcome::kOff", early) &&
+             After(h, "Outcome::kOff", early) < After(h, "EtahenJailbreakLogged(pid, prog)", early),
+         "(d) AttemptEarly is a strict no-op (returns kOff) before any jailbreak request");
   // data_mount field names (comparable to TrinityXSX)
   for (const char* f : {"data_before", "elevated_before", "helper_completed", "helper_errno",
                         "data_after", "elevated_after", "waited_ms", "settled_ms"}) {
@@ -242,13 +257,19 @@ void Tree() {
            std::string("(d) the log mirrors the data_mount field ") + f);
   }
 
+  // 186c: the request runs at the earliest point in main() (canary_game_main.cpp), before
+  // InstallCrashReport; launcher.cpp no longer makes it.
+  const std::string canary = Read("src/canary_game_main.cpp");
+  const size_t cmain = canary.find("int main(");
+  const size_t cattempt = After(canary, "elevate_probe::AttemptEarly(", cmain);
+  const size_t ccrash = After(canary, "InstallCrashReport(", cmain);
+  Expect(cmain != std::string::npos && cattempt != std::string::npos && cattempt < ccrash,
+         "(d) AttemptEarly runs at the top of main(), before InstallCrashReport");
   const std::string launcher = Read("src/launcher.cpp");
-  Expect(launcher.find("xbox360ps5/elevate_probe.hpp") != std::string::npos,
-         "(d) launcher.cpp includes the probe header");
-  const size_t attempt = launcher.find("elevate_probe::Attempt(");
-  const size_t bench = After(launcher, "write_bench::Launch(", attempt);
-  Expect(attempt != std::string::npos && bench != std::string::npos && attempt < bench,
-         "(d) Attempt runs before write_bench::Launch, on the same thread");
+  Expect(launcher.find("elevate_probe::Attempt") == std::string::npos,
+         "(d) launcher.cpp no longer makes the elevation request (moved early)");
+  Expect(launcher.find("write_bench::Launch(") != std::string::npos,
+         "(d) launcher.cpp still runs the write bench");
 }
 
 }  // namespace

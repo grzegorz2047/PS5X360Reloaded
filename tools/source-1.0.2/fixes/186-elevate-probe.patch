@@ -1,24 +1,39 @@
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -202,6 +202,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/guide_quick.hpp"  // fix 115: the guide's quick actions
+ #include "xbox360ps5/tab_bar.hpp"  // fix 115c: the guide's tab bar and its pad
+ #include "xbox360ps5/option_groups.hpp"  // fix 149: the Emulation (advanced) page's notice
++#include "xbox360ps5/elevate_probe.hpp"  // fix 186c: optional UID-0 elevation probe (issue #80)
+ #include "third_party/imgui/imgui.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -2642,6 +2643,14 @@ static void KinectNeededNotice() {
+                       "", false});
+ }
+ int main(int argc, char** argv) {
++  // Fix 186c (issue #80): the FIRST thing in main(), before InstallCrashReport, before any worker
++  // thread or signal handler, while the process is single-threaded -- optionally ask the console's
++  // on-demand jailbreak backend (etaHEN 9028, else a Lapy marker) to elevate this process to UID 0,
++  // so the 148i/148j write bench later runs as root. A strict no-op unless
++  // /data/homebrew/<title>/elevate-probe.txt says "on"; every step is fsync'd to
++  // elevate-probe-progress.txt in that folder, so if etaHEN's ptrace hijack kills the process we see
++  // exactly how far it got. It installs no signal handler and never closes the app.
++  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT);
+   config::config_folder = "/app0/assets";
+   xbox360ps5::motion::kinect_needed = &KinectNeededNotice;
+   // A window each time a game asks where to save (the core chose the hard drive without one),
 diff --git a/src/launcher.cpp b/src/launcher.cpp
 --- a/src/launcher.cpp
 +++ b/src/launcher.cpp
-@@ -42,6 +42,7 @@
- #include <unistd.h>  // fix 148h
- #include "xbox360ps5/install_notice.hpp"  // fix 148h
- #include "xbox360ps5/write_bench.hpp"  // fix 148i
-+#include "xbox360ps5/elevate_probe.hpp"  // fix 186
- #include "xbox360ps5/user_storage.hpp"  // fix 165
- #include "xbox360ps5/recent_list.hpp"  // fix 181
- #include <thread>  // fix 148i
-@@ -3538,6 +3539,12 @@ void Launcher::Draw(ImGuiIO& io) {
+@@ -3538,6 +3538,9 @@ void Launcher::Draw(ImGuiIO& io) {
    if (!g_write_bench_started) {
      g_write_bench_started = true;
      std::thread([] {
-+      // Fix 186: when <data>/elevate-probe.txt says "on", ask the user's PS5-Lapy-JB-Daemon to
-+      // elevate this process to UID 0 first (issue #80), so the 148i/148j bench below runs as root
-+      // and its throughput past the ~1.5 GB write budget can be compared to the UID 1 runs. A no-op
-+      // without the switch file or the daemon; it logs whether elevation took and never closes the
-+      // app. A credential change is process-wide, so the bench on this same thread inherits it.
-+      xbox360ps5::elevate_probe::Attempt(XBOX360PS5_DATA_ROOT, [](const std::string& line) { XELOGW("{}", line); });
++      // Fix 186c: the elevation request moved to the earliest point in main()
++      // (canary_game_main.cpp), before any thread, so it runs single-threaded; a credential change
++      // is process-wide, so this bench runs as root if elevation took.
        xbox360ps5::write_bench::Launch(XBOX360PS5_DATA_ROOT, [](const std::string& line) { XELOGW("{}", line); });
      }).detach();
    }
@@ -26,7 +41,7 @@ diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_p
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/elevate_probe.hpp
-@@ -0,0 +1,477 @@
+@@ -0,0 +1,567 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 186 / 186b: an optional, off-by-default probe that asks the console's on-demand jailbreak
 +// backend to elevate this process to UID 0 before the fix 148i/148j write benchmark, so the bench's
@@ -308,18 +323,10 @@ new file mode 100644
 +}
 +
 +#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
-+inline sigjmp_buf& SigsysJump() {
-+  static thread_local sigjmp_buf buffer;
-+  return buffer;
-+}
-+inline volatile sig_atomic_t& SigsysSeen() {
-+  static thread_local volatile sig_atomic_t seen = 0;
-+  return seen;
-+}
-+inline void SigsysHandler(int) {
-+  SigsysSeen() = 1;
-+  siglongjmp(SigsysJump(), 1);
-+}
++// 186c: NO signal handler is installed around the request. The earlier SIGSYS guard was removed
++// because etaHEN jailbreaks the target by an external ptrace hijack, and our own handlers were a
++// prime suspect for the process being killed mid-hijack. Instead every step is written to a progress
++// file and fsync'd, so if the process dies we see exactly how far it got.
 +
 +// etaHEN's 9028 jailbreak command, byte-for-byte on the wire (2576 bytes). Reimplemented from
 +// etaHEN's documented protocol; no etaHEN (GPL-3.0) code is copied.
@@ -332,6 +339,87 @@ new file mode 100644
 +  char msg2[kHijackerMsg];
 +};
 +static_assert(sizeof(HijackerCommand) == 16 + 2 * kHijackerMsg, "HijackerCommand wire size");
++
++// One fsync'd progress line (fd < 0 = no progress file). Durable across a death mid-request.
++inline void ProgLine(int fd, const char* text) {
++  if (fd < 0) return;
++  (void)!::write(fd, text, std::strlen(text));
++  (void)!::write(fd, "\n", 1);
++  ::fsync(fd);
++}
++inline bool SendAllS(int fd, const void* data, size_t len) {
++  const char* p = (const char*)data;
++  for (size_t done = 0; done < len;) {
++    const ssize_t n = ::send(fd, p + done, len - done, 0);
++    if (n <= 0) return false;
++    done += (size_t)n;
++  }
++  return true;
++}
++inline bool RecvAllS(int fd, void* data, size_t len) {
++  char* p = (char*)data;
++  for (size_t done = 0; done < len;) {
++    const ssize_t n = ::recv(fd, p + done, len - done, 0);
++    if (n <= 0) return false;
++    done += (size_t)n;
++  }
++  return true;
++}
++// etaHEN's non-whitelist jailbreak over 127.0.0.1:9028, logging each socket step to `prog` (fsync'd)
++// so the exact point of a death is visible. prog < 0 silences the logging (used by the host path).
++inline EtahenResult EtahenJailbreakLogged(long pid, int prog) {
++  EtahenResult r;
++  ProgLine(prog, "etahen: socket()");
++  errno = 0;
++  const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
++  if (fd < 0) {
++    r.err = errno;
++    ProgLine(prog, "etahen: socket() FAILED");
++    return r;
++  }
++  timeval tv{};
++  tv.tv_sec = kSocketTimeoutMs / 1000;
++  tv.tv_usec = (kSocketTimeoutMs % 1000) * 1000;
++  ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
++  ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
++  sockaddr_in addr{};
++  addr.sin_family = AF_INET;
++  addr.sin_port = htons((uint16_t)kEtahenPort);
++  ::inet_pton(AF_INET, kEtahenHost, &addr.sin_addr);
++  ProgLine(prog, "etahen: connect 127.0.0.1:9028");
++  if (::connect(fd, (sockaddr*)&addr, sizeof(addr)) != 0) {
++    r.err = errno;  // no etaHEN command server listening
++    ProgLine(prog, "etahen: connect FAILED (no 9028 server?)");
++    ::close(fd);
++    return r;
++  }
++  ProgLine(prog, "etahen: connected");
++  HijackerCommand cmd{};
++  cmd.magic = (int32_t)kHijackerMagic;
++  cmd.cmd = kJailbreakCmd;
++  cmd.pid = (int32_t)pid;
++  cmd.ret = kRetSentinel;
++  ProgLine(prog, "etahen: send JAILBREAK");
++  r.attempted = SendAllS(fd, &cmd, sizeof(cmd));
++  if (!r.attempted) {
++    r.err = errno;
++    ProgLine(prog, "etahen: send FAILED");
++    ::close(fd);
++    return r;
++  }
++  // The hijack (ptrace) happens while the daemon handles this request; a death appears here.
++  ProgLine(prog, "etahen: sent, awaiting reply (hijack runs now)");
++  if (RecvAllS(fd, &cmd, sizeof(cmd))) {
++    r.ret = cmd.ret;
++    r.ok = cmd.ret == 0 || cmd.ret == kRetSentinel;
++    ProgLine(prog, r.ok ? "etahen: reply OK (jailbroken)" : "etahen: reply NOT-OK");
++  } else {
++    r.err = errno;
++    ProgLine(prog, "etahen: recv FAILED/incomplete");
++  }
++  ::close(fd);
++  return r;
++}
 +
 +struct SystemOps {
 +  int saved_errno = 0;
@@ -367,45 +455,10 @@ new file mode 100644
 +    ::umask(old_umask);
 +    return ok;
 +  }
-+  // Send etaHEN the non-whitelist jailbreak request for our PID and read its verdict.
++  // Send etaHEN the non-whitelist jailbreak request for our PID and read its verdict (unlogged path).
 +  EtahenResult etahen_jailbreak(long pid) {
-+    EtahenResult r;
-+    errno = 0;
-+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-+    if (fd < 0) {
-+      r.err = errno;
-+      saved_errno = errno;
-+      return r;
-+    }
-+    timeval tv{};
-+    tv.tv_sec = kSocketTimeoutMs / 1000;
-+    tv.tv_usec = (kSocketTimeoutMs % 1000) * 1000;
-+    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-+    sockaddr_in addr{};
-+    addr.sin_family = AF_INET;
-+    addr.sin_port = htons((uint16_t)kEtahenPort);
-+    ::inet_pton(AF_INET, kEtahenHost, &addr.sin_addr);
-+    if (::connect(fd, (sockaddr*)&addr, sizeof(addr)) != 0) {
-+      r.err = errno;  // no etaHEN command server listening
-+      saved_errno = errno;
-+      ::close(fd);
-+      return r;
-+    }
-+    HijackerCommand cmd{};
-+    cmd.magic = (int32_t)kHijackerMagic;
-+    cmd.cmd = kJailbreakCmd;
-+    cmd.pid = (int32_t)pid;
-+    cmd.ret = kRetSentinel;
-+    r.attempted = SendAll(fd, &cmd, sizeof(cmd));
-+    if (r.attempted && RecvAll(fd, &cmd, sizeof(cmd))) {
-+      r.ret = cmd.ret;
-+      r.ok = cmd.ret == 0 || cmd.ret == kRetSentinel;
-+    } else {
-+      r.err = errno;
-+    }
-+    saved_errno = errno;
-+    ::close(fd);
++    const EtahenResult r = EtahenJailbreakLogged(pid, -1);
++    saved_errno = r.err;
 +    return r;
 +  }
 +  bool write_lapy_marker(const std::string& temp, const std::string& marker, const std::string& body) {
@@ -451,54 +504,106 @@ new file mode 100644
 +               std::chrono::steady_clock::now() - start)
 +        .count();
 +  }
-+  static bool SendAll(int fd, const void* data, size_t len) {
-+    const char* p = (const char*)data;
-+    size_t done = 0;
-+    while (done < len) {
-+      const ssize_t n = ::send(fd, p + done, len - done, 0);
-+      if (n <= 0) return false;
-+      done += (size_t)n;
-+    }
-+    return true;
-+  }
-+  static bool RecvAll(int fd, void* data, size_t len) {
-+    char* p = (char*)data;
-+    size_t done = 0;
-+    while (done < len) {
-+      const ssize_t n = ::recv(fd, p + done, len - done, 0);
-+      if (n <= 0) return false;
-+      done += (size_t)n;
-+    }
-+    return true;
-+  }
 +};
 +
-+// Public entry: run the probe once, with a SIGSYS guard, and log one line. A no-op unless the switch
-+// file says "on". Never throws; never closes the app; leaves the process at UID 1 on any failure.
-+inline Result Attempt(const std::string& data_root, const std::function<void(const std::string&)>& log) {
-+  SystemOps ops;
-+  const long pid = (long)::getpid();
-+
-+  struct sigaction previous {};
-+  struct sigaction action {};
-+  action.sa_handler = &SigsysHandler;
-+  sigemptyset(&action.sa_mask);
-+  action.sa_flags = 0;
-+  const bool installed = ::sigaction(SIGSYS, &action, &previous) == 0;
-+
-+  SigsysSeen() = 0;
++// 186c public entry: run the probe ONCE at the earliest, single-threaded point in main() (before
++// InstallCrashReport and any worker thread or signal handler), writing every step to
++// <data>/elevate-probe-progress.txt and fsync'ing each line, so a death during etaHEN's ptrace
++// hijack leaves a durable trail of exactly how far it got. A strict no-op unless the switch file
++// says "on"; no signal handler is installed; the app is never closed by this code. Returns the
++// Result (the caller may also log it once the core logger is up, but the progress file is the
++// authoritative, flush-safe record).
++inline Result AttemptEarly(const std::string& data_root) {
 +  Result r;
-+  if (installed && sigsetjmp(SigsysJump(), 1) != 0) {
-+    r.pid = pid;
-+    r.config.on = true;
-+    r.outcome = Outcome::kNotElevated;
-+    r.helper_errno = -1;  // a refused syscall (SIGSYS) during the request
-+  } else {
-+    r = Run(ops, data_root, pid);
++  const long pid = (long)::getpid();
++  r.pid = pid;
++  SystemOps ops;
++  r.config = Parse(ops.read_text(SwitchFile(data_root)));
++  if (!r.config.on) {
++    r.outcome = Outcome::kOff;
++    return r;  // strict default no-op: the app runs exactly as without the probe
++  }
++  if (AttemptCounter().fetch_add(1) + 1 > r.config.max_attempts) {
++    r.outcome = Outcome::kCapped;
++    return r;
 +  }
 +
-+  if (installed) ::sigaction(SIGSYS, &previous, nullptr);
-+  if (r.outcome != Outcome::kOff) log(r.Line());
++  const std::string progress = data_root + "/elevate-probe-progress.txt";
++  ::umask(0);
++  const int prog = ::open(progress.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
++  char line[192];
++
++  r.uid_before = ops.getuid();
++  r.euid_before = ops.geteuid();
++  r.elevated_before = r.euid_before == 0;
++  std::snprintf(line, sizeof(line), "186c start pid=%ld uid=%u euid=%u (switch on)", pid,
++                r.uid_before, r.euid_before);
++  ProgLine(prog, line);
++
++  if (r.elevated_before) {
++    ProgLine(prog, "already-root: euid 0 at launch, no request made");
++    r.backend = Backend::kAlready;
++    r.uid_after = r.uid_before;
++    r.euid_after = r.euid_before;
++    r.elevated_after = true;
++    r.data_after = ops.data_write(DataProbeFile(data_root, pid));
++    r.outcome = Outcome::kElevated;
++    ProgLine(prog, "done result=elevated backend=already-root");
++    if (prog >= 0) ::close(prog);
++    return r;
++  }
++
++  r.data_before = ops.data_write(DataProbeFile(data_root, pid));
++  ProgLine(prog, r.data_before ? "data_before: wrote own data folder" : "data_before: FAILED");
++
++  // etaHEN presence sanity: can we write /download0 at all (sandbox) before the request?
++  {
++    const std::string probe = std::string(kDownloadRoot) + "/.elevate-probe-test." + std::to_string(pid);
++    errno = 0;
++    const int t = ::open(probe.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
++    if (t >= 0) {
++      (void)!::write(t, "x", 1);
++      ::close(t);
++      ::unlink(probe.c_str());
++      ProgLine(prog, "download0: write ok");
++    } else {
++      std::snprintf(line, sizeof(line), "download0: write FAILED errno=%d", errno);
++      ProgLine(prog, line);
++    }
++  }
++
++  ops.seteuid(r.euid_before);
++  ProgLine(prog, "seteuid(geteuid()) done");
++
++  const EtahenResult jb = EtahenJailbreakLogged(pid, prog);
++  r.etahen_attempted = jb.attempted;
++  r.etahen_ret = jb.ret;
++  r.helper_completed = jb.ok;
++  r.helper_errno = jb.err;
++
++  if (ops.geteuid() != 0) {
++    r.lapy_requested = ops.write_lapy_marker(LapyTemp(pid), kLapyMarker, LapyBody(pid));
++    ProgLine(prog, r.lapy_requested ? "lapy: marker written (secondary)" : "lapy: marker FAILED");
++  }
++
++  int waited = 0;
++  ops.wait_for_root(r.config.timeout_ms, &waited);
++  r.waited_ms = waited;
++  r.uid_after = ops.getuid();
++  r.euid_after = ops.geteuid();
++  r.elevated_after = r.euid_after == 0;
++  r.data_after = ops.data_write(DataProbeFile(data_root, pid));
++  r.backend = r.elevated_after ? (jb.ok ? Backend::kEtahen : (r.lapy_requested ? Backend::kLapy : Backend::kEtahen))
++                               : Backend::kNone;
++  r.outcome = r.elevated_after ? Outcome::kElevated : Outcome::kNotElevated;
++  std::snprintf(line, sizeof(line),
++                "after uid=%u euid=%u data_after=%d elevated_after=%d waited_ms=%d", r.uid_after,
++                r.euid_after, (int)r.data_after, (int)r.elevated_after, waited);
++  ProgLine(prog, line);
++  std::snprintf(line, sizeof(line), "done result=%s backend=%s", OutcomeName(r.outcome),
++                BackendName(r.backend));
++  ProgLine(prog, line);
++  if (prog >= 0) ::close(prog);
 +  return r;
 +}
 +#endif  // XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
