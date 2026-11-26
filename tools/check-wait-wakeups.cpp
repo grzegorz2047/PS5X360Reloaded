@@ -10,6 +10,13 @@
 //     wake-up hangs the check (its watchdog fails it) instead of costing 4 ms;
 //   - fix 31 under ThreadSanitizer, and with the real 4 ms bound under
 //     AddressSanitizer and UndefinedBehaviorSanitizer.
+// Fix 180 (Spider-Man: Web of Shadows at 9-17 FPS, issue #78): the atomic
+// pulse (PosixCondition<Event>::PulseAtomic): the threads waiting at the pulse
+// are released (one for an auto-reset event, all for a manual-reset one), a
+// released thread that runs late still gets it, a thread that starts waiting
+// afterwards does not, nothing is left set, no wake-up is lost, and it does
+// not sleep; the switch (xbox360ps5/event_pulse.hpp) and the per-thread line
+// of the report.
 // Exit status 0 when every case passes.
 
 #include <pthread.h>
@@ -21,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <random>
 #include <string>
@@ -41,6 +49,9 @@ class SuspensionDeferred {
 #include "xenia/base/posix_conditions.h"
 #include "xenia/base/wait_stats.h"
 #include "xenia/kernel/util/critical_section.h"
+#ifndef CHECK_NO_FIX180  // run-fix-checks.sh: a build that leaves fix 180 out
+#include "xbox360ps5/event_pulse.hpp"
+#endif
 
 xe::threading::SuspensionDeferred::SuspensionDeferred() {
   xe::wait_stats::Add(xe::wait_stats::kSuspendMask);
@@ -634,6 +645,273 @@ void ReportText() {
   CHECK(lines.size() == 1, "%zu lines when idle", lines.size());
 }
 
+
+#ifndef CHECK_NO_FIX180
+// --- Fix 180: the atomic pulse -----------------------------------------------
+
+// Waits until `count` threads are blocked on `event`.
+bool Blocked(Event& event, uint32_t count) {
+  return Eventually([&] { return event.Waiting() == count; });
+}
+
+void PulseNobodyWaiting() {
+  std::printf("fix 180: a pulse with nobody waiting leaves the event reset\n");
+  Event manual(true, false), automatic(false, false);
+  CHECK(manual.PulseAtomic() == 0 && automatic.PulseAtomic() == 0, "released none");
+  CHECK(manual.Wait(0ms) == WaitResult::kTimeout, "manual not set");
+  CHECK(automatic.Wait(0ms) == WaitResult::kTimeout, "auto not set");
+  manual.Signal();
+  CHECK(manual.PulseAtomic() == 0, "released none");
+  CHECK(manual.Wait(0ms) == WaitResult::kTimeout, "a pulse resets a set event");
+  CHECK(manual.Query().state == 0, "Query: reset");
+}
+
+void PulseReleasesWaiters() {
+  std::printf("fix 180: auto-reset releases one waiter, manual-reset all\n");
+  {
+    Event automatic(false, false);
+    std::atomic<int> woke{0};
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < 2; ++i) {
+      waiters.emplace_back([&] {
+        if (automatic.Wait(std::chrono::milliseconds::max()) == WaitResult::kSuccess) ++woke;
+      });
+    }
+    CHECK(Blocked(automatic, 2), "two waiters blocked");
+    CHECK(automatic.PulseAtomic() == 1, "auto-reset: one released");
+    CHECK(Eventually([&] { return woke.load() == 1; }), "one woke (%d)", woke.load());
+    std::this_thread::sleep_for(50ms);
+    CHECK(woke == 1, "exactly one woke (%d)", woke.load());
+    CHECK(automatic.Waiting() == 1, "the other still waits");
+    CHECK(automatic.Query().state == 0, "not left set");
+    automatic.Signal();  // the other one
+    for (auto& t : waiters) t.join();
+    CHECK(woke == 2, "both done");
+    CHECK(automatic.Wait(0ms) == WaitResult::kTimeout, "nothing left");
+  }
+  {
+    Event manual(true, false);
+    std::atomic<int> woke{0};
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < 3; ++i) {
+      waiters.emplace_back([&] {
+        if (manual.Wait(std::chrono::milliseconds::max()) == WaitResult::kSuccess) ++woke;
+      });
+    }
+    CHECK(Blocked(manual, 3), "three waiters blocked");
+    CHECK(manual.PulseAtomic() == 3, "manual-reset: all released");
+    for (auto& t : waiters) t.join();
+    CHECK(woke == 3, "all three woke (%d)", woke.load());
+    CHECK(manual.Wait(0ms) == WaitResult::kTimeout, "reset after them");
+  }
+}
+
+// A released waiter that cannot run for a while (here: the check holds the
+// event's mutex for 50 ms after the pulse) still gets the pulse; a thread that
+// starts waiting after the pulse does not. 1.0.6 reset the event 10 us after
+// setting it, and a waiter that ran later missed it.
+void PulseLateWaiter() {
+  std::printf("fix 180: a late waiter keeps the pulse, a later one never sees it\n");
+  for (bool manual_reset : {false, true}) {
+    HeldEvent event(manual_reset, false);
+    std::atomic<int> early{-1}, later{-1};
+    std::thread first([&] { early = int(event.Wait(std::chrono::milliseconds::max())); });
+    CHECK(Blocked(event, 1), "first waiter blocked");
+    std::thread second;
+    {
+      CHECK(event.PulseAtomic() == 1, "one released");
+      std::lock_guard<std::mutex> hold(event.mutex());
+      // Starts waiting after the pulse; it must get the mutex first.
+      second = std::thread([&] { later = int(event.Wait(100ms)); });
+      std::this_thread::sleep_for(50ms);
+    }
+    first.join();
+    second.join();
+    CHECK(early == int(WaitResult::kSuccess), "%s: the waiter that ran late got it (%d)",
+          manual_reset ? "manual" : "auto", early.load());
+    CHECK(later == int(WaitResult::kTimeout), "%s: the later waiter saw it (%d)",
+          manual_reset ? "manual" : "auto", later.load());
+    CHECK(event.Wait(0ms) == WaitResult::kTimeout, "%s: nothing left set",
+          manual_reset ? "manual" : "auto");
+  }
+}
+
+void PulseMultiObject() {
+  std::printf("fix 180: a multi-object waiter gets the pulse; one that takes another object leaves it reset\n");
+  {
+    Event idle(false, false), pulsed(false, false);
+    std::atomic<int> index{-1};
+    std::thread waiter([&] { index = int(WaitAny({&idle, &pulsed}).second); });
+    CHECK(Blocked(pulsed, 1), "registered");
+    CHECK(pulsed.PulseAtomic() == 1, "one released");
+    waiter.join();
+    CHECK(index == 1, "took the pulsed event (%d)", index.load());
+    CHECK(pulsed.Wait(0ms) == WaitResult::kTimeout, "nothing left set");
+  }
+  {
+    Event first(false, false), pulsed(true, false);
+    HeldEvent gate(false, false);
+    std::atomic<int> index{-1};
+    std::thread waiter([&] { index = int(WaitAny({&first, &pulsed, &gate}).second); });
+    CHECK(Blocked(pulsed, 1), "registered");
+    {
+      std::lock_guard<std::mutex> hold(gate.mutex());
+      first.Signal();
+      CHECK(pulsed.PulseAtomic() == 1, "one released");
+    }
+    waiter.join();
+    CHECK(index == 0, "took the first object (%d)", index.load());
+    CHECK(pulsed.Waiting() == 0, "nobody waits");
+    CHECK(pulsed.Wait(0ms) == WaitResult::kTimeout, "the pulse is not left set");
+  }
+}
+
+// Each round the producer pulses once the consumer is blocked; the consumer
+// must be released exactly once a round. With the 60 s bound, a lost wake-up
+// stops the rounds (the watchdog then fails the check).
+void PulseNoLostWakeups() {
+  const int rounds = 4000 / kScale;
+  std::printf("fix 180: %d pulse rounds, each waiter released once\n", rounds);
+  for (bool multi : {false, true}) {
+    Event event(false, false), idle(false, false);
+    std::atomic<int> got{0};
+    std::thread consumer([&] {
+      for (int i = 0; i < rounds; ++i) {
+        const bool ok = multi ? WaitAny({&idle, &event}).second == 1
+                              : event.Wait(std::chrono::milliseconds::max()) ==
+                                    WaitResult::kSuccess;
+        if (ok) ++got;
+      }
+    });
+    int released = 0;
+    for (int i = 0; i < rounds; ++i) {
+      while (event.Waiting() != 1 || got.load() != i) std::this_thread::yield();
+      released += int(event.PulseAtomic());
+    }
+    consumer.join();
+    CHECK(got == rounds && released == rounds, "%s: %d woke, %d released of %d",
+          multi ? "multi" : "single", got.load(), released, rounds);
+    CHECK(event.Wait(0ms) == WaitResult::kTimeout, "nothing left");
+  }
+}
+
+void PulseDoesNotSleep() {
+  std::printf("fix 180: a pulse does not sleep\n");
+  Event event(false, false);
+  const int n = 2000;
+  const auto start = Clock::now();
+  for (int i = 0; i < n; ++i) event.PulseAtomic();
+  const double idle_us = Ms(Clock::now() - start) * 1000.0 / n;
+  std::atomic<bool> stop{false};
+  std::thread waiter([&] {
+    while (!stop) event.Wait(5ms);
+  });
+  CHECK(Blocked(event, 1), "waiter blocked");
+  double busy_us = 0;
+  int pulses = 0;
+  while (pulses < 200) {
+    if (event.Waiting() == 1) {
+      const auto one = Clock::now();
+      event.PulseAtomic();
+      busy_us += Ms(Clock::now() - one) * 1000.0;
+      ++pulses;
+    }
+    std::this_thread::yield();
+  }
+  stop = true;
+  event.Signal();
+  waiter.join();
+  busy_us /= pulses;
+  const double limit = CHECK_SANITIZED ? 500.0 : 50.0;
+  std::printf("  %.2f us a pulse with nobody waiting, %.2f us with a waiter\n", idle_us, busy_us);
+  CHECK(idle_us < limit, "%.1f us a pulse (1.0.6 yielded and slept 10 us)", idle_us);
+  CHECK(busy_us < limit * 4, "%.1f us a pulse with a waiter", busy_us);
+}
+
+void PulseSwitch() {
+  std::printf("fix 180: the switch (event-pulse.txt, the setting)\n");
+  namespace ep = xbox360ps5::event_pulse;
+  CHECK(ep::ParseSwitch("atomic") == ep::kAtomic, "atomic");
+  CHECK(ep::ParseSwitch("\xEF\xBB\xBF  Atomic\r\n") == ep::kAtomic, "BOM, blanks, case");
+  CHECK(ep::ParseSwitch("old\n") == ep::kOld, "old");
+  CHECK(ep::ParseSwitch("") == -1 && ep::ParseSwitch("atomically") == -1 &&
+            ep::ParseSwitch("fast") == -1,
+        "other words");
+  char path[] = "/tmp/check-event-pulse-XXXXXX";
+  const int fd = mkstemp(path);
+  CHECK(fd >= 0, "temporary file");
+  if (fd < 0) return;
+  ::close(fd);
+  ::unlink(path);
+  ep::path_override.store(path);
+  auto r = ep::Refresh(-1, true);
+  CHECK(r.changed && r.mode == ep::kOld && r.source == ep::kDefault, "no file: old (default)");
+  CHECK(!ep::Atomic(), "old");
+  r = ep::Refresh(ep::kAtomic, true);
+  CHECK(r.changed && r.mode == ep::kAtomic && r.source == ep::kSetting, "the setting: atomic");
+  std::ofstream(path) << "old\n";
+  r = ep::Refresh(ep::kAtomic, true);
+  CHECK(r.changed && r.mode == ep::kOld && r.source == ep::kFile, "the file overrides the setting");
+  std::ofstream(path) << "atomic\n";
+  r = ep::Refresh(-1, false);  // within kCheckTicks: not read again
+  CHECK(!r.changed && r.mode == ep::kOld, "not re-read at once");
+  r = ep::Refresh(-1, true);
+  CHECK(r.changed && r.mode == ep::kAtomic && r.source == ep::kFile && ep::Atomic(), "file: atomic");
+  r = ep::Refresh(-1, true);
+  CHECK(!r.changed, "unchanged");
+  std::ofstream(path) << "something\n";
+  r = ep::Refresh(-1, true);
+  CHECK(r.changed && r.mode == ep::kOld && r.source == ep::kDefault, "unknown word: the default");
+  ::unlink(path);
+  ep::path_override.store(nullptr);
+}
+
+void PulseReportLine() {
+  std::printf("fix 180: the per-thread line of the report\n");
+  xe::wait_stats::Reporter reporter;
+  const auto t0 = Clock::now();
+  const uint64_t ticks0 = 5000000000ull;
+  xe::wait_stats::Report(reporter, 0, t0, ticks0);
+  std::thread pulser([] {
+    xe::wait_stats::RememberName(pthread_self(), "Game Master (F8000008)");
+    xe::wait_stats::SetGuest(0xF8000008);
+    for (int i = 0; i < 100; ++i) xe::wait_stats::AddPulse(30, 1);
+    xe::wait_stats::AddPulse(500, 2);
+    for (int i = 0; i < 40; ++i) xe::wait_stats::Add(xe::wait_stats::kDelayZero);
+    for (int i = 0; i < 20; ++i) xe::wait_stats::Add(xe::wait_stats::kPoll);
+    for (int i = 0; i < 10; ++i) xe::wait_stats::Add(xe::wait_stats::kPollMiss);
+  });
+  pulser.join();
+  std::thread spinner([] {
+    xe::wait_stats::RememberName(pthread_self(), "JQ worker 0 (CPU 2) (F8000014)");
+    xe::wait_stats::SetGuest(0xF8000014);
+    for (int i = 0; i < 3000; ++i) xe::wait_stats::Add(xe::wait_stats::kDelayShort);
+    for (int i = 0; i < 10; ++i) xe::wait_stats::Add(xe::wait_stats::kDelayLong);
+  });
+  spinner.join();
+  // 10 s and 10^7 ticks: one tick is a microsecond.
+  auto lines = xe::wait_stats::Report(reporter, 100, t0 + 10s, ticks0 + 10000000ull);
+  std::string line;
+  for (auto& l : lines) {
+    if (l.find("Waits: kernel calls by thread (fix 180") == 0) line = l;
+  }
+  std::printf("  %s\n", line.c_str());
+  CHECK(!line.empty(), "the line is there");
+  CHECK(line.find(" F8000008 'Game Master (F8000008)' pulses 10/s (1.01 blocked waiters each, "
+                  "35 us each, longest 500 us), delays 4/s (0: 4, under 1 ms: 0, 1 ms or more: "
+                  "0), polls 2/s (1 found nothing);") != std::string::npos,
+        "the pulser first");
+  CHECK(line.find("; F8000014 'JQ worker 0 (CPU 2) (F8' pulses 0/s (0.00 blocked waiters each, "
+                  "0.0 us each, longest 0.0 us), delays 301/s (0: 0, under 1 ms: 300, 1 ms or "
+                  "more: 1)") != std::string::npos,
+        "the spinner second, with its guest handle");
+  lines = xe::wait_stats::Report(reporter, 100, t0 + 20s, ticks0 + 20000000ull);
+  for (auto& l : lines) {
+    CHECK(l.find("kernel calls by thread") == std::string::npos, "no line when idle");
+  }
+}
+#endif  // CHECK_NO_FIX180
+
 }  // namespace
 
 int main() {
@@ -665,6 +943,16 @@ int main() {
   CriticalSections();
   CriticalSectionLongHold();
   CriticalSectionShortHold();
+#ifndef CHECK_NO_FIX180
+  PulseSwitch();
+  PulseReportLine();
+  PulseNobodyWaiting();
+  PulseReleasesWaiters();
+  PulseLateWaiter();
+  PulseMultiObject();
+  PulseNoLostWakeups();
+  PulseDoesNotSleep();
+#endif
 
   finished = true;
   if (failures) {
