@@ -218,6 +218,7 @@ checks=(
   check-guest-object-close.cpp     # fix 174
   check-virtual-mic.cpp            # fix 178
   check-recent-list.cpp            # fix 181
+  check-disc-swap-content.cpp      # fix 182
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -422,6 +423,7 @@ declare -A fix_of=(
   [check-guest-object-close.cpp]=174
   [check-virtual-mic.cpp]=178
   [check-recent-list.cpp]=181
+  [check-disc-swap-content.cpp]=182
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

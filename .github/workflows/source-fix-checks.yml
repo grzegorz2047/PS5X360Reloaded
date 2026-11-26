@@ -208,6 +208,7 @@ on:
       - 'tools/check-pipeline-cache-skip.cpp'
       - 'tools/check-cache-churn.cpp'
       - 'tools/check-recent-list.cpp'
+      - 'tools/check-disc-swap-content.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
