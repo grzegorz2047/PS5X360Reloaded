@@ -1,0 +1,38 @@
+{
+  "component": "lapy-root-daemon.elf",
+  "purpose": "Optional, user-loaded PS5 elevation daemon (issue #80 / TrinityX360 fix 186). Shipped as a standalone etaHEN helper, NOT linked into eboot.bin and NOT auto-launched. When the user loads it, TrinityX360's fix-186 probe (elevate-probe.txt=on) cooperates with it via the /download0/elevate_proc marker to run the write bench as UID 0.",
+  "upstream": {
+    "name": "PS5-Lapy-JB-Daemon (owned-root fork)",
+    "repo": "https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon",
+    "commit": "b48b7d7236eca25c7b9dfd6c040c763ae05dde80",
+    "commit_date": "2026-10-06"
+  },
+  "license": {
+    "spdx": "LGPL-2.1-or-later",
+    "note": "NOT MIT. The repository is NOASSERTION (mixed): its LICENSE file is MIT (Arksama / Team PHU), but the daemon source owned_root_daemon.c #includes source/lapy_elevation_protocol.h, which is SPDX-License-Identifier: LGPL-2.1-or-later, and actively uses its struct lapy_elevation_message, LAPY_ELEVATION_MAGIC and related definitions (owned_root_daemon.c lines ~870-900). The built lapy-root-daemon.elf therefore incorporates LGPL-2.1-or-later code and is distributed under LGPL-2.1-or-later. This was re-verified against the pinned commit on 2026-11-26.",
+    "per_file_spdx_at_pin": {
+      "source/owned_root_daemon.c": "no SPDX header -> repo MIT",
+      "source/donor_transaction.c": "no SPDX header -> repo MIT",
+      "source/donor_transaction.h": "no SPDX header -> repo MIT",
+      "source/vnode_ref_probe.c": "no SPDX header -> repo MIT",
+      "source/vnode_ref_probe.h": "no SPDX header -> repo MIT",
+      "source/lapy_elevation_protocol.h": "SPDX-License-Identifier: LGPL-2.1-or-later (used by owned_root_daemon.c)",
+      "LICENSE": "MIT (covers the files with no per-file SPDX)",
+      "aggregate_binary": "LGPL-2.1-or-later (MIT files + one used LGPL-2.1-or-later header)"
+    },
+    "license_text": "licenses/LAPY-LGPL-2.1.txt",
+    "corresponding_source": "The exact source matching the shipped binary is the upstream repo at the pinned commit above; see tools/source-1.0.2/lapy-daemon/NOTICE.md for how to obtain it and relink.",
+    "trinityx360_eboot": "TrinityX360's own eboot.bin stays MIT: the LGPL applies only to this separate helper ELF; no LGPL headers are pulled into TrinityX360 sources, and the fix-186 marker probe is pure MIT."
+  },
+  "build": {
+    "toolchain": "ps5-payload-sdk prospero-clang (same SDK CI builds kinect-fake-relay.elf with)",
+    "command": "python3 tools/build_owned_daemon.py --sdk <SDK> --logging-client <ps5log-stub> --service --title '*'",
+    "logging_client": "tools/source-1.0.2/lapy-daemon/ps5log-stub (TrinityX360's own MIT no-op ps5log.h stub; the real ps5log telemetry is not used)",
+    "mode": "resident service, title-agnostic (--service --title '*')",
+    "output": "lapy-root-daemon.elf"
+  },
+  "deployment": {
+    "model": "USER-LOADED etaHEN helper (like PS5X360-Helper.elf). The user loads it themselves; TrinityX360 never writes it to the console, sends it to a loader, or launches it.",
+    "status": "EXPERIMENTAL on the user's firmware. Upstream validated the owned-root backend on PS5 FW 12.02 only; the dev console here is FW 13.60. The daemon's own runtime layout check may refuse an unvalidated firmware (then elevation simply does not happen). The elevation stability risk (legacy backends were linked to panics after many elevations per boot) is the user's to accept."
+  }
+}

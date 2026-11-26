@@ -518,6 +518,15 @@ else
   echo "FAIL check-game-patch-files.py"
   status=1
 fi
+# Fix 186 (issue #80): the optional, user-loaded Lapy elevation helper is packaged with full LGPL-2.1
+# compliance (pinned commit, licence, NOTICE, MIT stub, non-fatal CI step) -- no build needed here.
+echo "=== check-lapy-daemon-package.py"
+if "$python" -I "$repo/tools/check-lapy-daemon-package.py"; then
+  echo "pass check-lapy-daemon-package.py"
+else
+  echo "FAIL check-lapy-daemon-package.py"
+  status=1
+fi
 # Fix 164: the home screen's icons (assets/skin, assets/skin-dark) and their SVG sources.
 echo "=== check-skin-icons.py"
 if "$python" -I "$repo/tools/check-skin-icons.py"; then

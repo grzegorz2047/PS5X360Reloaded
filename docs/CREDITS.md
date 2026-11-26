@@ -13,6 +13,7 @@ PS5X360 brings together an emulator core and native PS5 platform work. Upstream 
 | Covers | XboxUnity, the cover service also used by Aurora |
 | Noto Sans | [Noto fonts](https://github.com/notofonts/noto-fonts), regular and semibold interface fonts; SIL Open Font License |
 | FFmpeg | XMA audio decoding; see the bundled FFmpeg license notices |
+| PS5-Lapy-JB-Daemon | Optional, user-loaded UID-0 elevation helper (`lapy-root-daemon.elf`) for the write-throttle workaround (issue #80, fix 186). [mpereiraesaa/PS5-Lapy-JB-Daemon](https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon), pinned at `b48b7d7236eca25c7b9dfd6c040c763ae05dde80`. **LGPL-2.1-or-later, not MIT** (its `lapy_elevation_protocol.h`); a separate helper ELF, not linked into `eboot.bin` and not auto-launched. Licence `licenses/LAPY-LGPL-2.1.txt`; build/relink and corresponding source in `tools/source-1.0.2/lapy-daemon/NOTICE.md`. Experimental (upstream validated on FW 12.02). |
 | Dear ImGui, Mesa/RADV, Vulkan dependencies and other libraries | See individual notices in `licenses/` |
 
 Reference projects consulted during the port include [ProsperoEden](https://github.com/blackbearreloaded/ProsperoEden), [PS5CEMU](https://github.com/premohq/PS5CEMU), [PS5SX2](https://github.com/Swordpdf/PS5SX2) and [XPSemu](https://github.com/ZiZc3/XPSemu). The launcher uses its own presentation inspired by the Xbox 360 dashboard and Aurora.
