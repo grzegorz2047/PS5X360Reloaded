@@ -249,6 +249,9 @@ checks=(
   check-emergency-pad-source.cpp   # fix 196
   check-emergency-hold-hint.cpp    # fix 196b
   check-osk-odd-buffer.cpp         # fix 198
+  check-readback-deliver.cpp       # fix 142i
+  check-reader-wait.cpp            # fix 157
+  check-readback-deliver-preset.cpp  # fix 184
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -466,6 +469,9 @@ declare -A fix_of=(
   [check-emergency-pad-source.cpp]=196
   [check-emergency-hold-hint.cpp]=196b
   [check-osk-odd-buffer.cpp]="114 198"
+  [check-readback-deliver.cpp]=142i
+  [check-reader-wait.cpp]=157
+  [check-readback-deliver-preset.cpp]=184
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

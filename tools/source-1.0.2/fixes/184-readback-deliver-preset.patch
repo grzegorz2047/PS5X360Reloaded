@@ -1,0 +1,125 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_deliver_preset.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_deliver_preset.h
+new file mode 100644
+index 0000000..d6cf99f
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/readback_deliver_preset.h
+@@ -0,0 +1,70 @@
++// Xbox360PS5, fix 184: the games that get fix 142i's delivery of fast readback copies and fix
++// 157's reader wait while both are off in the settings (their defaults) and readback-deliver.txt
++// does not say otherwise.
++//
++// The Sims 3 (454108E2), 1.0.6-work-fix157, live mode, readback Fast and memory_boost from its
++// preset (fixes 122, 123), switched live every 90 s between "old" and these values:
++// - GPU-thread resolve readback waits: 156 ms/s (154-159) under old, 0 with the preset values;
++// - swaps: 19.7 a second under old, 27.9 (27.8-29.0) with them, at the same or heavier scenes;
++// - reader waits: 2.5-5.0 ms on average, 13.3 ms at most in steady windows, no timeouts;
++// - no black faces at a distance, no empty household portrait, no stutter.
++// Tekken Tag Tournament 2 gained nothing (about 1 ms/s of waits to begin with) and is not listed.
++// Every other game: no preset, as before.
++
++#ifndef XENIA_GPU_VULKAN_READBACK_DELIVER_PRESET_H_
++#define XENIA_GPU_VULKAN_READBACK_DELIVER_PRESET_H_
++
++#include <cstdint>
++
++namespace xbox360ps5 {
++namespace readback_deliver_preset {
++
++// The values of readback-deliver.txt's words: "on"/"off", "wait-below <KiB>",
++// "wait-after-early on|off", "reader-wait on|off", "reader-wait-ms <n>".
++struct Values {
++  bool on = false;
++  uint32_t wait_below_kib = 64;
++  bool wait_after_early = true;
++  bool reader_wait = false;
++  uint32_t reader_wait_ms = 20;
++};
++
++// The game's preset, if it has one.
++inline bool For(uint32_t title_id, Values* out) {
++  switch (title_id) {
++    case 0x454108E2:  // The Sims 3
++      out->on = true;
++      out->wait_below_kib = 0;
++      out->wait_after_early = false;
++      out->reader_wait = true;
++      out->reader_wait_ms = 20;
++      return true;
++    default:
++      return false;
++  }
++}
++
++// Whether the preset takes the place of the settings' values: only while fix 142i's
++// (readback_deliver_when_done) and fix 157's (readback_reader_wait) switches are both off in the
++// settings, so a player who set either keeps all of the settings' values. readback-deliver.txt's
++// words are read after this and win over both.
++inline bool Applies(uint32_t title_id, bool settings_on, bool settings_reader_wait,
++                    Values* out) {
++  if (settings_on || settings_reader_wait) return false;
++  return For(title_id, out);
++}
++
++// The settings line's "from".
++inline const char* From(uint32_t title_id) {
++  switch (title_id) {
++    case 0x454108E2:
++      return "the preset for The Sims 3, 454108E2 (fix 184)";
++    default:
++      return "the settings";
++  }
++}
++
++}  // namespace readback_deliver_preset
++}  // namespace xbox360ps5
++
++#endif  // XENIA_GPU_VULKAN_READBACK_DELIVER_PRESET_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index ca935d4..0f3afa7 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -56,6 +56,7 @@
+ #include "third_party/smaa/SearchTex.h"
+ #include "xenia/gpu/vulkan/vulkan_shared_memory.h"
+ #include "xenia/gpu/vulkan/reader_wait.h"  // Xbox360PS5 (fix 157)
++#include "xenia/gpu/vulkan/readback_deliver_preset.h"  // Xbox360PS5 (fix 184)
+ #include <thread>
+ #include "xenia/gpu/xenos.h"
+ #include "xenia/gpu/xenos_zpd_report.h"
+@@ -135,6 +136,7 @@ struct Pending {
+ std::vector<Pending> pending;
+ std::unordered_map<uint64_t, uint64_t> delivered;  // key: the newest submission put in memory
+ bool enabled = false, logged = false, reader_logged = false;
++uint32_t title_id = 0;  // fix 184: the running title, set before each Refresh
+ std::chrono::steady_clock::time_point checked{}, line_at{};
+ uint64_t deferred_wait = 0, deferred_late = 0, delivered_count = 0, superseded = 0,
+          early_reads = 0, left_out = 0, delay_frames = 0, delivered_bytes = 0;
+@@ -229,6 +231,20 @@ void Refresh() {
+   bool next_reader = cvars::readback_reader_wait;  // fix 157
+   uint32_t next_reader_ms = std::clamp<uint32_t>(cvars::readback_reader_wait_ms, 1, 1000);
+   const char* from = "the settings";
++  {
++    // Fix 184: the game's preset while both switches are off in the settings; the file's words
++    // below win over it.
++    namespace rp = xbox360ps5::readback_deliver_preset;
++    rp::Values preset;
++    if (rp::Applies(title_id, next, next_reader, &preset)) {
++      next = preset.on;
++      next_below = preset.wait_below_kib * 1024;
++      next_after_early = preset.wait_after_early;
++      next_reader = preset.reader_wait;
++      next_reader_ms = std::clamp<uint32_t>(preset.reader_wait_ms, 1, 1000);
++      from = rp::From(title_id);
++    }
++  }
+   const char* const path = XBOX360PS5_DATA_ROOT "/readback-deliver.txt";
+   if (FILE* file = std::fopen(path, "rb")) {
+     char text[512] = {};
+@@ -8377,6 +8393,7 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
++  fix142i::title_id = kernel_state_ ? kernel_state_->title_id() : 0;  // fix 184: its preset
+   fix142i::Refresh();  // fix 142i: the switch and the line
+   Fix142iDeliver();    // fix 142i: the copies the GPU has made since
+ #endif
