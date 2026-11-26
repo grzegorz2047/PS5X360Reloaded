@@ -1,0 +1,509 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+index 597f10f..b446b1a 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.cc
+@@ -431,6 +431,7 @@ void CommandProcessor::WorkerThreadMain() {
+         }
+ #if XE_PLATFORM_PS5
+         xbox360ps5::hang_watch::gpu_thread.Mark(xbox360ps5::hang_watch::kGpuIdle);
++        GuestWaitPoll();  // fix 157
+ #endif
+         loop_count++;
+         write_ptr_index = write_ptr_index_.load();
+diff --git a/.deps/xenia-canary/src/xenia/gpu/command_processor.h b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+index c124526..97c38bf 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/command_processor.h
+@@ -311,6 +311,11 @@ class CommandProcessor {
+   virtual void MakeCoherent();
+   virtual void PrepareForWait();
+   virtual void ReturnFromWait();
++#if XE_PLATFORM_PS5
++  // Xbox360PS5, fix 157: each round of the idle wait for new commands (a reading thread may be
++  // waiting for a readback copy only this thread puts in guest memory).
++  virtual void GuestWaitPoll() {}
++#endif
+ 
+   virtual void PollCompletedSubmission() {}
+ 
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/reader_wait.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/reader_wait.h
+new file mode 100644
+index 0000000..0255613
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/reader_wait.h
+@@ -0,0 +1,182 @@
++// Xbox360PS5, fix 157: a CPU read of a resolve copy that fix 142i has queued waits on the reading
++// thread for that copy, instead of the GPU thread waiting for the GPU at the resolve.
++//
++// The GPU thread puts each queued copy on a board (Publish) and takes it off once the copy is in
++// guest memory or dropped (Retire). A read the read watch reports (fix 91, in the fault handler)
++// looks for queued copies on the pages it touches; if there are any, the reading thread lets the
++// global lock go (the GPU thread needs it to go on) and waits until they are off the board, or
++// until the timeout, then takes the lock back. While a reader waits, the GPU thread checks the
++// board at each draw and while it waits for the guest (idle, WAIT_REG_MEM), so a reader is never
++// left waiting on a GPU thread that waits for it longer than the timeout.
++//
++// Lock-free (the reader runs in a signal handler): each slot is a sequence-locked
++// (id, address, length); ids are unique and never 0.
++
++#ifndef XENIA_GPU_VULKAN_READER_WAIT_H_
++#define XENIA_GPU_VULKAN_READER_WAIT_H_
++
++#include <algorithm>
++#include <atomic>
++#include <cstdint>
++
++namespace xe {
++namespace gpu {
++namespace vulkan {
++namespace reader_wait {
++
++constexpr uint32_t kSlots = 256;
++constexpr uint32_t kMaxWatched = 16;  // queued copies one read waits for, at most
++
++struct Board {
++  std::atomic<uint64_t> ids[kSlots] = {};
++  std::atomic<uint32_t> addresses[kSlots] = {};
++  std::atomic<uint32_t> lengths[kSlots] = {};
++  uint32_t next = 0;  // the GPU thread's next slot to try
++
++  // Settings, from the GPU thread.
++  std::atomic<bool> enabled{false};
++  std::atomic<uint64_t> timeout_ns{20000000};
++
++  // Between the readers and the GPU thread.
++  std::atomic<uint32_t> readers{0};            // reading threads waiting now
++  std::atomic<uint64_t> gpu_polls{0};          // the GPU thread's looks at the board for them
++  std::atomic<uint64_t> gpu_guest_wait_ns{0};  // when the GPU thread last waited for the guest
++
++  // For the 30 s line (taken with exchange(0)).
++  std::atomic<uint64_t> nothing_queued{0};       // reads with no queued copy on their pages
++  std::atomic<uint64_t> delivered{0};            // reads that waited until their copy was there
++  std::atomic<uint64_t> waited_ns{0};            // their time
++  std::atomic<uint64_t> waited_max_ns{0};
++  std::atomic<uint64_t> timeouts{0};             // reads that went on with stale data
++  std::atomic<uint64_t> timeouts_guest_wait{0};  // ... while the GPU thread waited for the guest
++  std::atomic<uint64_t> timeouts_silent{0};      // ... with no look at the board from the GPU thread
++  std::atomic<uint64_t> gpu_thread_reads{0};     // reads on the GPU thread itself, never waited
++  std::atomic<uint64_t> not_on_board{0};         // copies queued with the board full
++  std::atomic<uint64_t> gpu_serves{0};           // GPU-thread deliveries for a waiting reader
++  std::atomic<uint64_t> submissions_ended{0};    // submissions ended for a waiting reader
++};
++
++inline bool Overlaps(uint32_t a, uint32_t a_length, uint32_t b, uint32_t b_length) {
++  return uint64_t(a) < uint64_t(b) + b_length && uint64_t(b) < uint64_t(a) + a_length;
++}
++
++// GPU thread: a queued copy, on the board. The slot, or -1 with the board full (counted).
++inline int Publish(Board& board, uint64_t id, uint32_t address, uint32_t length) {
++  for (uint32_t n = 0; n < kSlots; ++n) {
++    const uint32_t i = (board.next + n) % kSlots;
++    if (board.ids[i].load(std::memory_order_relaxed)) continue;
++    std::atomic_thread_fence(std::memory_order_release);
++    board.addresses[i].store(address, std::memory_order_relaxed);
++    board.lengths[i].store(length, std::memory_order_relaxed);
++    board.ids[i].store(id, std::memory_order_release);
++    board.next = (i + 1) % kSlots;
++    return int(i);
++  }
++  board.not_on_board.fetch_add(1, std::memory_order_relaxed);
++  return -1;
++}
++
++// GPU thread: the copy is in guest memory (or dropped). The full fence orders the copy's stores,
++// streaming ones included, before the reader can see the slot change.
++inline void Retire(Board& board, int slot, uint64_t id) {
++  if (slot < 0 || uint32_t(slot) >= kSlots) return;
++  std::atomic_thread_fence(std::memory_order_seq_cst);
++  if (board.ids[slot].load(std::memory_order_relaxed) == id) {
++    board.ids[slot].store(0, std::memory_order_release);
++  }
++}
++
++// GPU thread: whether a reader waits now (one relaxed load, at each draw).
++inline bool ReaderWaiting(const Board& board) {
++  return board.readers.load(std::memory_order_relaxed) != 0;
++}
++
++enum class Outcome { kNothingQueued, kDelivered, kTimeout };
++
++struct Result {
++  Outcome outcome = Outcome::kNothingQueued;
++  uint64_t waited_ns = 0;
++  bool gpu_answered = true;     // the GPU thread looked at the board during the wait
++  bool gpu_guest_wait = false;  // the GPU thread waited for the guest during the wait
++};
++
++// Reading thread: waits for the queued copies on [address, address + length). now() gives
++// nanoseconds; pause() waits a little; unlock() and relock() let the global lock go and take it
++// back (only around a wait).
++template <typename Now, typename Pause, typename Unlock, typename Relock>
++Result Wait(Board& board, uint32_t address, uint32_t length, Now now, Pause pause, Unlock unlock,
++            Relock relock) {
++  uint32_t slots[kMaxWatched];
++  uint64_t ids[kMaxWatched];
++  uint32_t count = 0;
++  for (uint32_t i = 0; i < kSlots && count < kMaxWatched; ++i) {
++    const uint64_t id = board.ids[i].load(std::memory_order_acquire);
++    if (!id) continue;
++    const uint32_t slot_address = board.addresses[i].load(std::memory_order_relaxed);
++    const uint32_t slot_length = board.lengths[i].load(std::memory_order_relaxed);
++    std::atomic_thread_fence(std::memory_order_acquire);
++    if (board.ids[i].load(std::memory_order_relaxed) != id) continue;
++    if (!Overlaps(slot_address, slot_length, address, length)) continue;
++    slots[count] = i;
++    ids[count] = id;
++    ++count;
++  }
++  Result result;
++  if (!count) return result;
++  const uint64_t timeout = board.timeout_ns.load(std::memory_order_relaxed);
++  const uint64_t polls = board.gpu_polls.load(std::memory_order_relaxed);
++  const uint64_t start = now();
++  board.readers.fetch_add(1, std::memory_order_acq_rel);
++  unlock();
++  uint64_t at = start;
++  result.outcome = Outcome::kTimeout;
++  for (;;) {
++    bool queued = false;
++    for (uint32_t j = 0; j < count && !queued; ++j) {
++      queued = board.ids[slots[j]].load(std::memory_order_acquire) == ids[j];
++    }
++    at = now();
++    if (!queued) {
++      result.outcome = Outcome::kDelivered;
++      break;
++    }
++    if (at - start >= timeout) break;
++    pause();
++  }
++  board.readers.fetch_sub(1, std::memory_order_acq_rel);
++  relock();
++  result.waited_ns = at - start;
++  result.gpu_answered = board.gpu_polls.load(std::memory_order_relaxed) != polls;
++  result.gpu_guest_wait = board.gpu_guest_wait_ns.load(std::memory_order_relaxed) >= start;
++  return result;
++}
++
++// Reading thread: a read's outcome, counted for the 30 s line.
++inline void Count(Board& board, const Result& result) {
++  switch (result.outcome) {
++    case Outcome::kNothingQueued:
++      board.nothing_queued.fetch_add(1, std::memory_order_relaxed);
++      return;
++    case Outcome::kDelivered:
++      board.delivered.fetch_add(1, std::memory_order_relaxed);
++      break;
++    case Outcome::kTimeout:
++      board.timeouts.fetch_add(1, std::memory_order_relaxed);
++      board.timeouts_guest_wait.fetch_add(result.gpu_guest_wait, std::memory_order_relaxed);
++      board.timeouts_silent.fetch_add(!result.gpu_answered, std::memory_order_relaxed);
++      break;
++  }
++  board.waited_ns.fetch_add(result.waited_ns, std::memory_order_relaxed);
++  uint64_t max = board.waited_max_ns.load(std::memory_order_relaxed);
++  while (result.waited_ns > max &&
++         !board.waited_max_ns.compare_exchange_weak(max, result.waited_ns,
++                                                    std::memory_order_relaxed)) {
++  }
++}
++
++}  // namespace reader_wait
++}  // namespace vulkan
++}  // namespace gpu
++}  // namespace xe
++
++#endif  // XENIA_GPU_VULKAN_READER_WAIT_H_
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 4923e67..76c8cfa 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -55,6 +55,8 @@
+ #include "third_party/smaa/AreaTex.h"
+ #include "third_party/smaa/SearchTex.h"
+ #include "xenia/gpu/vulkan/vulkan_shared_memory.h"
++#include "xenia/gpu/vulkan/reader_wait.h"  // Xbox360PS5 (fix 157)
++#include <thread>
+ #include "xenia/gpu/xenos.h"
+ #include "xenia/gpu/xenos_zpd_report.h"
+ #include "xenia/kernel/kernel_state.h"
+@@ -92,11 +94,29 @@ DEFINE_bool(readback_deliver_wait_after_early, true,
+             "Fix 142i: a key the CPU read before its copy was put in memory keeps the wait from "
+             "then on.",
+             "GPU");
++// Xbox360PS5, fix 157 (reader_wait.h): a CPU read of a copy fix 142i has queued waits on the
++// reading thread until the copy is in guest memory, up to readback_reader_wait_ms. Off by
++// default; "reader-wait on|off" and "reader-wait-ms <n>" in readback-deliver.txt.
++DEFINE_bool(readback_reader_wait, false,
++            "Fix 157: a CPU read of a queued fast readback copy waits for the copy on the reading "
++            "thread.",
++            "GPU");
++DEFINE_uint32(readback_reader_wait_ms, 20,
++              "Fix 157: the longest such wait, in milliseconds (1-1000); the read then goes on "
++              "with the older data.",
++              "GPU");
+ DEFINE_string(readback_deliver_wait_keys, "",
+               "Fix 142i: the guest addresses (hex, separated by commas or blanks) of keys that "
+               "always keep the wait.",
+               "GPU");
+ #if XE_PLATFORM_PS5
++namespace fix157 {
++xe::gpu::vulkan::reader_wait::Board board;
++uint64_t next_id = 1;           // GPU thread
++uint64_t last_serve_ns = 0;     // GPU thread
++thread_local bool gpu_thread = false;
++}  // namespace fix157
++
+ namespace fix142i {
+ struct Pending {
+   uint64_t key;
+@@ -105,10 +125,12 @@ struct Pending {
+   uint32_t address, length;
+   uint64_t frame;
+   bool instead_of_wait;
++  int32_t board_slot = -1;  // fix 157
++  uint64_t board_id = 0;
+ };
+ std::vector<Pending> pending;
+ std::unordered_map<uint64_t, uint64_t> delivered;  // key: the newest submission put in memory
+-bool enabled = false, logged = false;
++bool enabled = false, logged = false, reader_logged = false;
+ std::chrono::steady_clock::time_point checked{}, line_at{};
+ uint64_t deferred_wait = 0, deferred_late = 0, delivered_count = 0, superseded = 0,
+          early_reads = 0, left_out = 0, delay_frames = 0, delivered_bytes = 0;
+@@ -200,6 +222,8 @@ void Refresh() {
+     }
+   }
+   bool file_listed = false;
++  bool next_reader = cvars::readback_reader_wait;  // fix 157
++  uint32_t next_reader_ms = std::clamp<uint32_t>(cvars::readback_reader_wait_ms, 1, 1000);
+   const char* from = "the settings";
+   const char* const path = XBOX360PS5_DATA_ROOT "/readback-deliver.txt";
+   if (FILE* file = std::fopen(path, "rb")) {
+@@ -246,6 +270,16 @@ void Refresh() {
+           ++i;
+         }
+         from = path;
++      } else if (w == "reader-wait" && (value == "on" || value == "off")) {  // fix 157
++        next_reader = value == "on";
++        from = path;
++        ++i;
++      } else if (w == "reader-wait-ms" && !value.empty() &&
++                 value.find_first_not_of("0123456789") == std::string::npos && value.size() < 5) {
++        next_reader_ms =
++            std::clamp<uint32_t>(uint32_t(std::strtoul(value.c_str(), nullptr, 10)), 1, 1000);
++        from = path;
++        ++i;
+       }
+     }
+   }
+@@ -263,6 +297,17 @@ void Refresh() {
+     listed = next_listed;
+     logged = true;
+   }
++  // Fix 157: its switch (the GPU thread is the one that runs this).
++  fix157::gpu_thread = true;
++  const uint64_t next_reader_ns = uint64_t(next_reader_ms) * 1000000;
++  if (!reader_logged || next_reader != fix157::board.enabled.load(std::memory_order_relaxed) ||
++      next_reader_ns != fix157::board.timeout_ns.load(std::memory_order_relaxed)) {
++    XELOGW("Reader wait (fix 157): {}, at most {} ms; from {}", next_reader ? "on" : "off",
++           next_reader_ms, from);
++    fix157::board.timeout_ns.store(next_reader_ns, std::memory_order_relaxed);
++    fix157::board.enabled.store(next_reader, std::memory_order_relaxed);
++    reader_logged = true;
++  }
+   if (line_at == std::chrono::steady_clock::time_point()) line_at = now;
+   if (now - line_at >= std::chrono::seconds(30)) {
+     if (enabled || deferred_wait || deferred_late || delivered_count) {
+@@ -281,6 +326,36 @@ void Refresh() {
+              enabled ? "on" : "off", kept_small, wait_below / 1024, kept_early, late_small,
+              late_early, read_early.size(), EarlyKeys());
+     }
++    {
++      // Fix 157.
++      xe::gpu::vulkan::reader_wait::Board& b = fix157::board;
++      const uint64_t nothing = b.nothing_queued.exchange(0, std::memory_order_relaxed);
++      const uint64_t got = b.delivered.exchange(0, std::memory_order_relaxed);
++      const uint64_t waited_ns = b.waited_ns.exchange(0, std::memory_order_relaxed);
++      const uint64_t max_ns = b.waited_max_ns.exchange(0, std::memory_order_relaxed);
++      const uint64_t timeouts = b.timeouts.exchange(0, std::memory_order_relaxed);
++      const uint64_t guest_wait = b.timeouts_guest_wait.exchange(0, std::memory_order_relaxed);
++      const uint64_t silent = b.timeouts_silent.exchange(0, std::memory_order_relaxed);
++      const uint64_t gpu_reads = b.gpu_thread_reads.exchange(0, std::memory_order_relaxed);
++      const uint64_t serves = b.gpu_serves.exchange(0, std::memory_order_relaxed);
++      const uint64_t ended = b.submissions_ended.exchange(0, std::memory_order_relaxed);
++      const uint64_t not_on_board = b.not_on_board.exchange(0, std::memory_order_relaxed);
++      const bool reader_on = b.enabled.load(std::memory_order_relaxed);
++      if (reader_on || nothing || got || timeouts) {
++        const uint64_t waits = got + timeouts;
++        XELOGW("Reader wait, last 30 s (fix 157, {}, at most {} ms): {} reads found their copy "
++               "already in memory; {} reads waited, {:.2f} ms on average, {:.2f} ms at most: {} "
++               "until their copy was in memory, {} until the timeout (each went on with stale "
++               "data; {} while the GPU thread waited for the guest, {} with no look at the board "
++               "from the GPU thread); {} reads on the GPU thread, not waited; the GPU thread put "
++               "copies in memory {} times for a waiting reader and ended {} submissions for one; "
++               "{} copies not on the board (full); early reads by key: {}",
++               reader_on ? "on" : "off", b.timeout_ns.load(std::memory_order_relaxed) / 1000000,
++               nothing, waits, waits ? double(waited_ns) / double(waits) / 1e6 : 0.0,
++               double(max_ns) / 1e6, got, timeouts, guest_wait, silent, gpu_reads, serves, ended,
++               not_on_board, EarlyKeys());
++      }
++    }
+     deferred_wait = deferred_late = delivered_count = superseded = early_reads = left_out =
+         delay_frames = delivered_bytes = 0;
+     kept_small = kept_early = late_small = late_early = 0;
+@@ -289,6 +364,15 @@ void Refresh() {
+   }
+ }
+ }  // namespace fix142i
++
++namespace fix157 {
++// A copy fix 142i has just queued, on the board while the reader wait is on.
++void Publish(fix142i::Pending& p) {
++  if (!board.enabled.load(std::memory_order_relaxed)) return;
++  p.board_id = next_id++;
++  p.board_slot = xe::gpu::vulkan::reader_wait::Publish(board, p.board_id, p.address, p.length);
++}
++}  // namespace fix157
+ #endif
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+@@ -515,6 +599,32 @@ void VulkanCommandProcessor::ReadbackReadCallback(void* context, uint32_t physic
+                                                   uint32_t length) {
+   // Fix 91: in the fault handler, under the global critical region: only noted.
+   auto* self = static_cast<VulkanCommandProcessor*>(context);
++#if XE_PLATFORM_PS5
++  // Fix 157: a read of a copy fix 142i has queued waits for it here, with the global lock let go
++  // (the GPU thread puts the copy in guest memory and needs the lock to get there), at most
++  // readback_reader_wait_ms. The read is noted for fix 91 and fix 142i only after the wait, so a
++  // read that got its copy is not an early one.
++  if (fix157::board.enabled.load(std::memory_order_relaxed)) {
++    if (fix157::gpu_thread) {
++      fix157::board.gpu_thread_reads.fetch_add(1, std::memory_order_relaxed);
++    } else {
++      uint32_t rounds = 0;
++      const reader_wait::Result result = reader_wait::Wait(
++          fix157::board, physical_address, length,
++          [] { return xbox360ps5::frame_cost::NowNs(); },
++          [&rounds] {
++            if (++rounds < 64) {
++              std::this_thread::yield();
++            } else {
++              std::this_thread::sleep_for(std::chrono::microseconds(50));
++            }
++          },
++          [] { xe::global_critical_region::mutex().unlock(); },
++          [] { xe::global_critical_region::mutex().lock(); });
++      reader_wait::Count(fix157::board, result);
++    }
++  }
++#endif
+   self->readback_read_fires_.fetch_add(1, std::memory_order_relaxed);
+   if (!self->readback_reads_.Push(physical_address, length)) {
+     self->readback_read_drops_.fetch_add(1, std::memory_order_relaxed);
+@@ -4135,6 +4245,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type,
+                                        IndexBufferInfo* index_buffer_info,
+                                        bool major_mode_explicit) {
+ #if XE_PLATFORM_PS5
++  if (reader_wait::ReaderWaiting(fix157::board)) Fix157Serve(true);  // fix 157
+   // Fix 134: once the recorded commands reach the chunk size, the submission ends before this
+   // draw (handed to the worker in mode 1, submitted here in mode 2).
+   if (submission_open_ &&
+@@ -6209,6 +6320,7 @@ bool VulkanCommandProcessor::IssueCopy() {
+         // early before, wait below as without fix 142i.
+         fix142i::pending.push_back({resolve_key, write_index, rb.submissions[write_index],
+                                     written_address, readback_length, frame_current_, true});
++        fix157::Publish(fix142i::pending.back());  // fix 157
+         ++fix142i::deferred_wait;
+         memory_->EnablePhysicalMemoryAccessCallbacks(
+             written_address, readback_length, false, true);  // fix 142i
+@@ -6252,6 +6364,12 @@ bool VulkanCommandProcessor::IssueCopy() {
+           fix142i::pending.push_back({resolve_key, read_index, read_submission, written_address,
+                                       readback_length, frame_current_, false});
+           ++fix142i::deferred_late;
++          if (fix157::board.enabled.load(std::memory_order_relaxed)) {
++            // Fix 157: a read of this copy waits for it too.
++            fix157::Publish(fix142i::pending.back());
++            memory_->EnablePhysicalMemoryAccessCallbacks(
++                written_address, readback_length, false, true);  // fix 157
++          }
+         }
+ #endif
+         return true;
+@@ -6415,6 +6533,11 @@ void VulkanCommandProcessor::Fix142iDeliver() {
+       fix142i::pending[kept++] = p;
+       continue;
+     }
++    // Fix 157: off the board when this round ends, put in memory or dropped.
++    struct OffTheBoard {
++      const fix142i::Pending& p;
++      ~OffTheBoard() { reader_wait::Retire(fix157::board, p.board_slot, p.board_id); }
++    } off_the_board{p};
+     auto it = readback_buffers_.find(p.key);
+     uint64_t& newest = fix142i::delivered[p.key];
+     if (it == readback_buffers_.end() || it->second.submissions[p.slot] != p.submission ||
+@@ -6444,6 +6567,45 @@ void VulkanCommandProcessor::Fix142iDeliver() {
+   }
+   fix142i::pending.resize(kept);
+ }
++
++// Fix 157: a reading thread waits for a queued copy. At most every 100 us: the submission still
++// holding one is ended (as fix 134 does at a draw), and the copies the GPU has made go to guest
++// memory.
++void VulkanCommandProcessor::Fix157Serve(bool may_end_submission) {
++  fix157::gpu_thread = true;
++  fix157::board.gpu_polls.fetch_add(1, std::memory_order_relaxed);
++  const uint64_t now = xbox360ps5::frame_cost::NowNs();
++  if (now - fix157::last_serve_ns < 100000) return;
++  fix157::last_serve_ns = now;
++  if (may_end_submission && submission_open_) {
++    const uint64_t current = GetCurrentSubmission();
++    bool open = false;
++    for (const fix142i::Pending& p : fix142i::pending) {
++      open |= p.board_slot >= 0 && p.submission >= current;
++    }
++    if (open && CanEndSubmissionImmediately()) {
++      fix157::board.submissions_ended.fetch_add(1, std::memory_order_relaxed);
++      EndSubmission(false);
++    }
++  }
++  fix157::board.gpu_serves.fetch_add(1, std::memory_order_relaxed);
++  Fix142iDeliver();
++}
++
++// Fix 157: the GPU thread waits for the guest (WAIT_REG_MEM, the start of the idle wait).
++void VulkanCommandProcessor::PrepareForWait() {
++  CommandProcessor::PrepareForWait();
++  fix157::board.gpu_guest_wait_ns.store(xbox360ps5::frame_cost::NowNs(),
++                                        std::memory_order_relaxed);
++  if (reader_wait::ReaderWaiting(fix157::board)) Fix157Serve(true);
++}
++
++// Fix 157: each round of the idle wait for new commands.
++void VulkanCommandProcessor::GuestWaitPoll() {
++  fix157::board.gpu_guest_wait_ns.store(xbox360ps5::frame_cost::NowNs(),
++                                        std::memory_order_relaxed);
++  if (reader_wait::ReaderWaiting(fix157::board)) Fix157Serve(true);
++}
+ #endif
+ 
+ bool VulkanCommandProcessor::MapReadbackMemory(VkDeviceMemory memory,
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 5e2867f..1169043 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -550,6 +550,14 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // the GPU has made them (instead of a wait for the GPU at the resolve).
+   void Fix142iDeliver();
+   bool Fix142iEarlyRead(uint32_t read_address, uint32_t read_length);
++#if XE_PLATFORM_PS5
++  // Xbox360PS5, fix 157 (reader_wait.h): while a reading thread waits for a queued copy, the
++  // copies the GPU has made go to guest memory at each draw and each wait for the guest, and a
++  // submission still holding one is ended.
++  void Fix157Serve(bool may_end_submission);
++  void PrepareForWait() override;
++  void GuestWaitPoll() override;
++#endif
+ 
+   void ClearTransientDescriptorPools();
+ 
