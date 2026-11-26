@@ -219,12 +219,14 @@ checks=(
   check-virtual-mic.cpp            # fix 178
   check-recent-list.cpp            # fix 181
   check-disc-swap-content.cpp      # fix 182
+  check-hp-voice-skip.cpp          # fix 187 (assets/patches)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
   [check-gta4-core-config.cpp]="$repo"
   [check-gta5-audio-patch.cpp]="$repo"
+  [check-hp-voice-skip.cpp]="$repo"
   [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-two-x-unfit.cpp]="$repo/tools/source-1.0.2/english/lang"
