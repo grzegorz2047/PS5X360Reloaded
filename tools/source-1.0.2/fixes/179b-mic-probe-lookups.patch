@@ -1,0 +1,191 @@
+diff --git a/include/xbox360ps5/mic_probe.hpp b/include/xbox360ps5/mic_probe.hpp
+--- a/include/xbox360ps5/mic_probe.hpp
++++ b/include/xbox360ps5/mic_probe.hpp
+@@ -15,6 +15,16 @@
+ // to listen to on a computer.
+ //
+ // This header is the part a host can check: the switch file, the open attempts, the statistics.
++//
++// Fix 179b: on 1.0.6-work-fix179 the library loaded (handle 0000006D) but sceKernelDlsym found none
++// of its functions by name (80020003). The payload SDK (crt/rtld_sprx.c) never loads a system
++// library by its path alone: it first asks the system module service for it
++// (sceSysmoduleLoadModuleInternal, 0x80000002 for libSceAudioIn) and finds functions by their
++// NID, the 11-character name the system's symbol tables use (SHA-1 of the name and a salt, the
++// first 8 bytes reversed, base64 with "+-"). The probe now tries, in order and logged one by one:
++// the names and the NIDs on the path-loaded handle; the system module service, then both again;
++// the full system path; and the audio output and audio system libraries, in case the functions
++// moved.
+ #pragma once
+ #include <cmath>
+ #include <cstdint>
+@@ -25,6 +35,70 @@
+ 
+ namespace xbox360ps5::mic_probe {
+ 
++#define XBOX360PS5_MIC_PROBE_NID 1  // fix 179b
++// ---- Fix 179b: a symbol's NID (as the payload SDK's crt/nid.c computes it) ----
++namespace sha1 {
++inline uint32_t Rotate(uint32_t x, int n) { return (x << n) | (x >> (32 - n)); }
++inline void Digest(const uint8_t* data, size_t size, uint8_t out[20]) {
++  uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
++  std::vector<uint8_t> m(data, data + size);
++  const uint64_t bits = uint64_t(size) * 8;
++  m.push_back(0x80);
++  while (m.size() % 64 != 56) m.push_back(0);
++  for (int i = 7; i >= 0; --i) m.push_back(uint8_t(bits >> (8 * i)));
++  for (size_t chunk = 0; chunk < m.size(); chunk += 64) {
++    uint32_t w[80];
++    for (int i = 0; i < 16; ++i)
++      w[i] = uint32_t(m[chunk + 4 * i]) << 24 | uint32_t(m[chunk + 4 * i + 1]) << 16 |
++             uint32_t(m[chunk + 4 * i + 2]) << 8 | uint32_t(m[chunk + 4 * i + 3]);
++    for (int i = 16; i < 80; ++i) w[i] = Rotate(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
++    uint32_t a = h[0], b = h[1], c = h[2], e4 = h[3], e = h[4];
++    for (int i = 0; i < 80; ++i) {
++      uint32_t f, k;
++      if (i < 20) { f = (b & c) | (~b & e4); k = 0x5A827999; }
++      else if (i < 40) { f = b ^ c ^ e4; k = 0x6ED9EBA1; }
++      else if (i < 60) { f = (b & c) | (b & e4) | (c & e4); k = 0x8F1BBCDC; }
++      else { f = b ^ c ^ e4; k = 0xCA62C1D6; }
++      const uint32_t t = Rotate(a, 5) + f + e + k + w[i];
++      e = e4; e4 = c; c = Rotate(b, 30); b = a; a = t;
++    }
++    h[0] += a; h[1] += b; h[2] += c; h[3] += e4; h[4] += e;
++  }
++  for (int i = 0; i < 5; ++i)
++    for (int j = 0; j < 4; ++j) out[4 * i + j] = uint8_t(h[i] >> (24 - 8 * j));
++}
++}  // namespace sha1
++
++inline std::string Nid(std::string_view symbol) {
++  static constexpr uint8_t kSalt[16] = {0x51, 0x8d, 0x64, 0xa6, 0x35, 0xde, 0xd8, 0xc1,
++                                        0xe6, 0xb0, 0x39, 0xb1, 0xc3, 0xe5, 0x52, 0x30};
++  static constexpr char kChars[] =
++      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-";
++  std::vector<uint8_t> input(symbol.begin(), symbol.end());
++  input.insert(input.end(), kSalt, kSalt + 16);
++  uint8_t digest[20];
++  sha1::Digest(input.data(), input.size(), digest);
++  uint8_t bytes[12] = {};
++  for (int i = 0; i < 8; ++i) bytes[i] = digest[7 - i];  // the first 8 bytes, reversed
++  std::string out;
++  for (int i = 0; out.size() < 11; i += 3) {
++    const uint32_t abc = uint32_t(bytes[i]) << 16 | uint32_t(bytes[i + 1]) << 8 | bytes[i + 2];
++    for (int shift : {18, 12, 6, 0})
++      if (out.size() < 11) out += kChars[(abc >> shift) & 0x3F];
++  }
++  return out;
++}
++
++// The audio input library's module ID for the system module service (the SDK's sysmodtab).
++constexpr uint32_t kAudioInModule = 0x80000002;
++// The functions the probe needs, and the libraries it looks in.
++inline const std::vector<const char*>& Functions() {
++  static const std::vector<const char*> list = {"sceAudioInOpen", "sceAudioInHqOpen",
++                                                "sceAudioInInput", "sceAudioInClose",
++                                                "sceAudioInGetSilentState"};
++  return list;
++}
++
+ constexpr uint32_t kRate = 16000;
+ constexpr uint32_t kGrain = 256;  // samples per block: 16 ms
+ constexpr uint64_t kWindowNs = 2000000000ull;
+diff --git a/include/xbox360ps5/mic_probe_ps5.hpp b/include/xbox360ps5/mic_probe_ps5.hpp
+--- a/include/xbox360ps5/mic_probe_ps5.hpp
++++ b/include/xbox360ps5/mic_probe_ps5.hpp
+@@ -56,36 +56,68 @@ inline uint64_t NowNs() {
+                       .count());
+ }
+ 
+-inline bool LoadLibrary(Library* lib) {
+-  int handle = -1;
+-  for (const char* name : {"libSceAudioIn.sprx", "/system/common/lib/libSceAudioIn.sprx"}) {
+-    handle = sceKernelLoadStartModule(name, 0, nullptr, 0, nullptr, nullptr);
+-    XELOGW("Microphone probe (fix 179): loading {} gave {:08X}", name, unsigned(handle));
+-    if (handle >= 0) break;
++// Fix 179b: look the five functions up on `handle`, by name or by NID, each result logged.
++inline bool Resolve(int handle, bool by_nid, const char* route, Library* lib) {
++  void* found[5] = {};
++  const auto& names = Functions();
++  for (size_t i = 0; i < names.size(); ++i) {
++    const std::string symbol = by_nid ? Nid(names[i]) : std::string(names[i]);
++    void* address = nullptr;
++    const int result = sceKernelDlsym(handle, symbol.c_str(), &address);
++    XELOGW("Microphone probe (fix 179b): {}: {} {} on handle {:08X} gave {:08X}{}", route,
++           by_nid ? "NID" : "name", by_nid ? symbol + " (" + names[i] + ")" : symbol,
++           unsigned(handle), unsigned(result), (result >= 0 && address) ? "" : " (not found)");
++    if (result >= 0) found[i] = address;
+   }
++  if (!found[0] || !found[2] || !found[3]) return false;
++  lib->open = reinterpret_cast<OpenFn>(found[0]);
++  lib->open_hq = reinterpret_cast<OpenFn>(found[1]);
++  lib->input = reinterpret_cast<InputFn>(found[2]);
++  lib->close = reinterpret_cast<CloseFn>(found[3]);
++  lib->silent_state = reinterpret_cast<SilentStateFn>(found[4]);
++  XELOGW("Microphone probe (fix 179b): the functions resolve through {} by {}", route,
++         by_nid ? "NID" : "name");
++  return true;
++}
++inline int LoadModule(const char* name) {
++  const int handle = sceKernelLoadStartModule(name, 0, nullptr, 0, nullptr, nullptr);
++  XELOGW("Microphone probe (fix 179b): loading {} gave {:08X}", name, unsigned(handle));
++  return handle;
++}
++inline bool TryHandle(int handle, const char* route, Library* lib) {
+   if (handle < 0) return false;
+-  const auto find = [handle](const char* symbol, void** out) {
+-    const int found = sceKernelDlsym(handle, symbol, out);
+-    XELOGW("Microphone probe (fix 179): {} lookup gave {:08X}{}", symbol, unsigned(found),
+-           (found >= 0 && *out) ? "" : " (not found)");
+-    if (found < 0) *out = nullptr;
+-  };
+-  void* address = nullptr;
+-  find("sceAudioInOpen", &address);
+-  lib->open = reinterpret_cast<OpenFn>(address);
+-  address = nullptr;
+-  find("sceAudioInHqOpen", &address);
+-  lib->open_hq = reinterpret_cast<OpenFn>(address);
+-  address = nullptr;
+-  find("sceAudioInInput", &address);
+-  lib->input = reinterpret_cast<InputFn>(address);
+-  address = nullptr;
+-  find("sceAudioInClose", &address);
+-  lib->close = reinterpret_cast<CloseFn>(address);
+-  address = nullptr;
+-  find("sceAudioInGetSilentState", &address);
+-  lib->silent_state = reinterpret_cast<SilentStateFn>(address);
+-  return lib->open && lib->input && lib->close;
++  return Resolve(handle, false, route, lib) || Resolve(handle, true, route, lib);
++}
++
++inline bool LoadLibrary(Library* lib) {
++  // 1. The library by its name, as fix 179 did.
++  if (TryHandle(LoadModule("libSceAudioIn.sprx"), "loaded by name", lib)) return true;
++  // 2. Through the system module service, as the payload SDK loads system libraries.
++  using LoadInternalFn = int32_t (*)(uint32_t);
++  const int sysmodule = LoadModule("libSceSysmodule.sprx");
++  if (sysmodule >= 0) {
++    for (const bool by_nid : {false, true}) {
++      const std::string symbol =
++          by_nid ? Nid("sceSysmoduleLoadModuleInternal") : "sceSysmoduleLoadModuleInternal";
++      void* address = nullptr;
++      const int found = sceKernelDlsym(sysmodule, symbol.c_str(), &address);
++      XELOGW("Microphone probe (fix 179b): {} lookup gave {:08X}", symbol, unsigned(found));
++      if (found < 0 || !address) continue;
++      const int32_t loaded = reinterpret_cast<LoadInternalFn>(address)(kAudioInModule);
++      XELOGW("Microphone probe (fix 179b): sceSysmoduleLoadModuleInternal({:08X}) -> {:08X}",
++             kAudioInModule, uint32_t(loaded));
++      if (TryHandle(LoadModule("libSceAudioIn.sprx"), "after the system module service", lib))
++        return true;
++      break;
++    }
++  }
++  // 3. The full system path.
++  if (TryHandle(LoadModule("/system/common/lib/libSceAudioIn.sprx"), "loaded by path", lib))
++    return true;
++  // 4. Other audio libraries, in case the functions live there on this system.
++  for (const char* other : {"libSceAudioOut.sprx", "libSceAudioSystem.sprx"})
++    if (TryHandle(LoadModule(other), other, lib)) return true;
++  return false;
+ }
+ 
+ inline void Run(std::shared_ptr<State> self, std::filesystem::path raw_path) {

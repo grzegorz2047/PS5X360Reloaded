@@ -15,7 +15,9 @@
 //  4. the tree: the game's main starts the probe after the log is up and stops it before both
 //     log shutdowns (exit and title restart); the probe reads mic-probe.txt in the data root,
 //     loads libSceAudioIn.sprx at run time and looks its functions up, writes the first 10 s to
-//     logs/mic-probe.raw and hands nothing to the virtual Kinect.
+//     logs/mic-probe.raw and hands nothing to the virtual Kinect;
+//  5. fix 179b: NIDs as the payload SDK computes them, and the lookup routes (by name and NID, the
+//     system module service, the full path, the other audio libraries).
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -141,6 +143,22 @@ static void CheckStats() {
   CHECK(mp::kRawBytes == 320000);
 }
 
+// Fix 179b: NIDs as the payload SDK computes them (known pairs from the system's own libraries).
+static void CheckNid() {
+#ifdef XBOX360PS5_MIC_PROBE_NID
+  CHECK(mp::Nid("sceKernelDlsym") == "LwG8g3niqwA");
+  CHECK(mp::Nid("sceKernelLoadStartModule") == "wzvqT4UqKX8");
+  CHECK(mp::Nid("sceAudioOutOpen") == "ekNvsT22rsY");
+  CHECK(mp::Nid("sceAudioOutOutput") == "QOQtbeDqsT4");
+  CHECK(mp::Nid("sceAudioInOpen") == "5NE8Sjc7VC8");
+  CHECK(mp::Nid("sceAudioInInput") == "LozEOU8+anM");
+  CHECK(mp::Nid("sceAudioInHqOpen") == "nya-R5gDYhM");  // the "-" of the system's alphabet
+  CHECK(mp::Nid("sceSysmoduleLoadModuleInternal") == "39iV5E1HoCk");
+  CHECK(mp::Nid("").size() == 11);
+  CHECK(mp::kAudioInModule == 0x80000002 && mp::Functions().size() == 5);
+#endif
+}
+
 static std::string ReadText(const char* path) {
   std::ifstream in(path, std::ios::binary);
   std::stringstream s;
@@ -157,6 +175,7 @@ static bool Has(const std::string& text, const char* what) {
 static void CheckTree() {
   const std::string main_cpp = ReadText("src/canary_game_main.cpp");
   const std::string probe = ReadText("include/xbox360ps5/mic_probe_ps5.hpp");
+  const std::string pure = ReadText("include/xbox360ps5/mic_probe.hpp");
   if (main_cpp.empty() || probe.empty()) {
     std::printf("FAIL: no assembled tree here (src/canary_game_main.cpp, mic_probe_ps5.hpp)\n");
     ++failures;
@@ -180,15 +199,23 @@ static void CheckTree() {
   CHECK(Has(probe, "\"libSceAudioIn.sprx\""));
   for (const char* name : {"\"sceAudioInOpen\"", "\"sceAudioInInput\"", "\"sceAudioInClose\"",
                            "\"sceAudioInGetSilentState\"", "\"sceAudioInHqOpen\""})
-    CHECK(Has(probe, name));
+    CHECK(Has(probe, name) || Has(pure, name));  // fix 179b lists them in mic_probe.hpp
   CHECK(Has(probe, "data_root / \"logs\" / \"mic-probe.raw\""));
   CHECK(!Has(probe, "VirtualMicSubmit") && !Has(probe, "virtual_mic"));
+#ifdef XBOX360PS5_MIC_PROBE_NID
+  // Fix 179b: by name, then by NID; the system module service; the path; other audio libraries.
+  CHECK(Has(probe, "Resolve(handle, false, route, lib) || Resolve(handle, true, route, lib)"));
+  CHECK(Has(probe, "\"sceSysmoduleLoadModuleInternal\"") && Has(probe, "(kAudioInModule)"));
+  CHECK(Has(probe, "\"/system/common/lib/libSceAudioIn.sprx\""));
+  CHECK(Has(probe, "\"libSceAudioOut.sprx\", \"libSceAudioSystem.sprx\""));
+#endif
 }
 
 int main() {
   CheckSwitch();
   CheckAttempts();
   CheckStats();
+  CheckNid();
   CheckTree();
   if (failures) {
     std::printf("check-mic-probe: %d failure(s)\n", failures);
