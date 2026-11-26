@@ -1,7 +1,8 @@
 # Memory export readback without the GPU thread's wait: design note
 
-Status: **design only**. No code, no build. Fix numbers come from the coordinator when a build is
-needed; the steps below are M0 to M3.
+Status: **D1 parked for Battlefield 3** (2026-11-26). D1 was built as fix 177
+(`fix/memexport-deliver`, not merged) and stopped at its first console step; see section 8. The
+steps below are M0 to M3 as first planned.
 
 Sources:
 - fixes 30, 48 and 133 (`tools/source-1.0.2/fixes/README.md`);
