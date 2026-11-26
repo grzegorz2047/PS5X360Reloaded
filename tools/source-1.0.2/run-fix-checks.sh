@@ -212,6 +212,7 @@ checks=(
   check-phone-link.cpp             # fix 169
   check-nui-speech.cpp             # fix 170
   check-xbox-fitness.cpp           # fix 171
+  check-cache-churn.cpp            # fix 172
   check-exit-cache-timing.cpp      # fix 173
   check-pipeline-cache-skip.cpp    # fixes 173b and 173c
 )
@@ -412,6 +413,7 @@ declare -A fix_of=(
   [check-phone-link.cpp]=169
   [check-nui-speech.cpp]=170
   [check-xbox-fitness.cpp]=171
+  [check-cache-churn.cpp]=172
   [check-exit-cache-timing.cpp]=173
   [check-pipeline-cache-skip.cpp]=173b
 )

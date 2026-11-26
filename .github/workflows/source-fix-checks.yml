@@ -206,6 +206,7 @@ on:
       - 'assets/config/**'
       - 'tools/check-exit-cache-timing.cpp'
       - 'tools/check-pipeline-cache-skip.cpp'
+      - 'tools/check-cache-churn.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'

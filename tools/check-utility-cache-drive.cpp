@@ -258,8 +258,9 @@ void InMemory() {
   // The call with or without fix 150f's scale argument.
   const size_t decide = has("utility_cache_drive::CacheInMemory(settings_title, cache_drive_switch");
   const size_t names = has("memory_caches = {\"cache1\", \"cache\"}");
-  const size_t mount = has("MountUtilityCache(*emulator.file_system(), cache_drive.base, cache_in_memory ? memory_caches : no_memory_caches)");
-  const size_t fallback = has("MountUtilityCache(*emulator.file_system(), bulk, cache_in_memory ? memory_caches : no_memory_caches)");
+  // Without the closing parenthesis: fix 172 passes its churn watch after the names.
+  const size_t mount = has("MountUtilityCache(*emulator.file_system(), cache_drive.base, cache_in_memory ? memory_caches : no_memory_caches");
+  const size_t fallback = has("MountUtilityCache(*emulator.file_system(), bulk, cache_in_memory ? memory_caches : no_memory_caches");
   Expect(decide != std::string::npos && names != std::string::npos && mount != std::string::npos &&
              decide < mount && mount < fallback && fallback != std::string::npos,
          "fix 150d: the title decides by its title ID and the switch, and mounts cache1: and cache: in memory "
