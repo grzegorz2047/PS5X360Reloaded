@@ -1,0 +1,225 @@
+diff --git a/include/xbox360ps5/recent_list.hpp b/include/xbox360ps5/recent_list.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/recent_list.hpp
+@@ -0,0 +1,163 @@
++// SPDX-License-Identifier: MIT
++// Fix 181 (tools/source-1.0.2/fixes/181-recent-list-restart.patch): the recently played list
++// (<data>/recent.txt, fix 165: one game path a line, most recent first, at most kLimit) keeps its
++// other games when a game starts without the library.
++//
++// The launcher read recent.txt only in Launcher::Scan. A start that goes straight into a game
++// (launch-once.txt: a game with start options of its own restarting the app into itself, the
++// guide's "Restart game", the dashboard's games; a forwarder without its library entry) has no
++// scan, so Launcher::RecordLaunch put the game in front of an empty list and wrote recent.txt with
++// that one path: the other recent games were gone, and a multi-disc game's remembered disc (fix 89:
++// the set's disc found first in the list) could change with them. Now RecordLaunch, when no scan
++// read the list, reads recent.txt first (Load) and puts the game in front of what it holds (Front),
++// as it does with the scanned list. The order is all the per-disc and per-group rules use (fix 89's
++// DefaultDisc, fix 112's group recency: the first line naming one of their games), so putting the
++// started disc first is the same rule as before.
++//
++//   * Load: a missing file is an empty list; lines are taken as Scan takes them (empty ones left
++//     out, a carriage return at the end removed), a path that comes again is kept once (its first
++//     place). A file that cannot be a list of paths (larger than kMaxBytes, a line longer than
++//     kMaxLine, a control character in a line) is not used: the list is then the started game
++//     alone, as before this fix, and the log says why.
++//   * Front: the started path first, then the others in their order without it, kLimit in all.
++//   * Save: written to recent.txt.new, then renamed over recent.txt, so a start that stops while
++//     writing leaves the old list.
++// Header only and free of the rest of the title, so tools/check-recent-list.cpp drives it.
++#pragma once
++#include <algorithm>
++#include <cstdio>
++#include <filesystem>
++#include <fstream>
++#include <iterator>
++#include <set>
++#include <string>
++#include <system_error>
++#include <vector>
++
++namespace xbox360ps5::recent_list {
++namespace fs = std::filesystem;
++
++// Games in the list, the started one included (unchanged from before fix 181).
++inline constexpr size_t kLimit = 12;
++// Larger than any list of kLimit real paths: more is not a recent list.
++inline constexpr size_t kMaxBytes = 64 * 1024;
++inline constexpr size_t kMaxLine = 4096;
++
++struct Loaded {
++  std::vector<std::string> paths;  // most recent first, each once
++  bool usable = true;              // false: the file is no list of paths (why says what)
++  std::string why;
++};
++
++// The lines of recent.txt's text.
++inline Loaded Parse(const std::string& text) {
++  Loaded loaded;
++  if (text.size() > kMaxBytes) {
++    loaded.usable = false;
++    loaded.why = "recent.txt is " + std::to_string(text.size()) + " bytes";
++    return loaded;
++  }
++  std::set<std::string> seen;
++  size_t start = 0, number = 0;
++  while (start < text.size()) {
++    size_t end = text.find('\n', start);
++    if (end == std::string::npos) end = text.size();
++    std::string line = text.substr(start, end - start);
++    start = end + 1;
++    ++number;
++    if (!line.empty() && line.back() == '\r') line.pop_back();
++    if (line.empty()) continue;
++    if (line.size() > kMaxLine) {
++      loaded = Loaded();
++      loaded.usable = false;
++      loaded.why = "recent.txt line " + std::to_string(number) + " is " + std::to_string(line.size()) + " bytes";
++      return loaded;
++    }
++    for (const unsigned char c : line) {
++      if (c < 0x20 || c == 0x7F) {
++        loaded = Loaded();
++        loaded.usable = false;
++        loaded.why = "recent.txt line " + std::to_string(number) + " holds a control character";
++        return loaded;
++      }
++    }
++    if (seen.insert(line).second) loaded.paths.push_back(line);
++  }
++  return loaded;
++}
++
++// recent.txt as it is on disk (missing: an empty list).
++inline Loaded Load(const fs::path& file) {
++  std::error_code error;
++  if (!fs::exists(file, error)) {
++    Loaded none;
++    if (error) {
++      none.usable = false;
++      none.why = "recent.txt could not be looked at: " + error.message();
++    }
++    return none;
++  }
++  const auto size = fs::file_size(file, error);
++  if (!error && size > kMaxBytes) {
++    Loaded big;
++    big.usable = false;
++    big.why = "recent.txt is " + std::to_string(size) + " bytes";
++    return big;
++  }
++  std::ifstream in(file, std::ios::binary);
++  if (!in) {
++    Loaded unread;
++    unread.usable = false;
++    unread.why = "recent.txt could not be opened";
++    return unread;
++  }
++  std::string text;
++  char buffer[4096];
++  while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0) {
++    text.append(buffer, size_t(in.gcount()));
++    if (text.size() > kMaxBytes) break;
++  }
++  return Parse(text);
++}
++
++// The started path first, then the others without it, at most `limit` in all.
++inline std::vector<std::string> Front(const std::string& path, const std::vector<std::string>& before,
++                                      size_t limit = kLimit) {
++  std::vector<std::string> paths{path};
++  for (const auto& other : before)
++    if (other != path && paths.size() < limit && std::find(paths.begin(), paths.end(), other) == paths.end())
++      paths.push_back(other);
++  return paths;
++}
++
++inline std::string Format(const std::vector<std::string>& paths) {
++  std::string text;
++  for (const auto& line : paths) text += line + "\n";
++  return text;
++}
++
++// Writes the list through recent.txt.new and a rename. False: the old file is left as it was.
++inline bool Save(const fs::path& file, const std::vector<std::string>& paths) {
++  const fs::path temporary = file.string() + ".new";
++  {
++    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
++    if (!out) return false;
++    out << Format(paths);
++    out.close();
++    if (!out) {
++      std::error_code ignored;
++      fs::remove(temporary, ignored);
++      return false;
++    }
++  }
++  std::error_code error;
++  fs::rename(temporary, file, error);
++  if (error) {
++    std::error_code ignored;
++    fs::remove(temporary, ignored);
++    return false;
++  }
++  return true;
++}
++
++}  // namespace xbox360ps5::recent_list
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -43,6 +43,7 @@
+ #include "xbox360ps5/install_notice.hpp"  // fix 148h
+ #include "xbox360ps5/write_bench.hpp"  // fix 148i
+ #include "xbox360ps5/user_storage.hpp"  // fix 165
++#include "xbox360ps5/recent_list.hpp"  // fix 181
+ #include <thread>  // fix 148i
+ #include <chrono>
+ #include <functional>
+@@ -1340,6 +1341,7 @@ void Launcher::Scan() {
+   recents_.clear();
+   std::ifstream input(UserData() / "recent.txt");
+   for (std::string line; std::getline(input, line);) if (!line.empty()) recents_.push_back(line);
++  recents_loaded_ = true;  // fix 181
+   // Fix 159: what each disc's header said when fix 89 read it (by path), for the log of discs of one
+   // game that fix 89 left as entries of their own.
+   std::map<std::string, std::string> disc_headers;
+@@ -1786,11 +1788,21 @@ void Launcher::RecordLaunch(const GameEntry& game, uint32_t title_id, const std:
+     std::ofstream output(cache.string() + ".png", std::ios::trunc | std::ios::binary);
+     output.write(reinterpret_cast<const char*>(icon.data()), std::streamsize(icon.size()));
+   }
+-  std::vector<std::string> recents{path};
+-  for (const auto& other : recents_) if (other != path && recents.size() < 12) recents.push_back(other);
+-  recents_ = recents;
+-  std::ofstream output(UserData() / "recent.txt", std::ios::trunc);
+-  for (const auto& line : recents_) output << line << "\n";
++  // Fix 181 (recent_list.hpp): a start without a library scan (launch-once.txt: a game restarting
++  // the app into itself) has no list yet; the one on disk is read first, so its other games stay.
++  const fs::path recent_file = UserData() / "recent.txt";
++  if (!recents_loaded_) {
++    const auto loaded = recent_list::Load(recent_file);
++    if (loaded.usable) {
++      recents_ = loaded.paths;
++    } else {
++      recents_.clear();
++      XELOGW("Recent games: {}; the list starts again with this game", loaded.why);
++    }
++    recents_loaded_ = true;
++  }
++  recents_ = recent_list::Front(path, recents_);
++  if (!recent_list::Save(recent_file, recents_)) XELOGW("Recent games: {} could not be written", recent_file.string());
+ }
+ 
+ void Launcher::ChangeOption(const Option& option, int step) {
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -343,6 +343,7 @@ class Launcher {
+   int filter_ = 0;
+   std::vector<GameEntry> games_;      // Recently played first, then by name.
+   std::vector<std::string> recents_;  // Paths, most recent first.
++  bool recents_loaded_ = false;       // Fix 181: Scan read recent.txt into recents_.
+   Mode mode_ = Mode::shelf;
+   float time_ = 0.0f, scroll_ = 0.0f, sheet_ = 0.0f, intro_ = 0.0f;
+   int selected_ = 0, patch_row_ = 0, settings_row_ = 0;
