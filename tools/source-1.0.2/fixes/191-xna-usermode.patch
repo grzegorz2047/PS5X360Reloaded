@@ -2,7 +2,7 @@ diff --git a/.deps/xenia-canary/src/xenia/base/threading_fiber_posix.cc b/.deps/
 new file mode 100644
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/base/threading_fiber_posix.cc
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,236 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -11,6 +11,7 @@ new file mode 100644
 + * Released under the BSD license - see LICENSE in the root for more details. *
 + ******************************************************************************
 + */
++// Adapted from Xenia Edge / XeniOS (https://github.com/has207/xenia-edge, https://github.com/xenios-jp/XeniOS), user-mode work by Herman S. (has207), BSD-3-Clause.
 +
 +#include "xenia/base/threading.h"
 +
@@ -242,7 +243,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_usermode.cc b
 new file mode 100644
 --- /dev/null
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_usermode.cc
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,486 @@
 +/**
 + ******************************************************************************
 + * Xenia : Xbox 360 Emulator Research Project                                 *
@@ -251,6 +252,7 @@ new file mode 100644
 + * Released under the BSD license - see LICENSE in the root for more details. *
 + ******************************************************************************
 + */
++// Adapted from Xenia Edge / XeniOS (https://github.com/has207/xenia-edge, https://github.com/xenios-jp/XeniOS), user-mode work by Herman S. (has207), BSD-3-Clause.
 +
 +#include <algorithm>
 +#include <atomic>
