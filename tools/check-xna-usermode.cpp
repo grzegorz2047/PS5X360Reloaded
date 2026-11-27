@@ -565,6 +565,8 @@ void CheckAssembledTree() {
   ExpectHas(um_cc, "KeLeaveUserMode_entry", "xboxkrnl_usermode.cc");
   ExpectHas(um_cc, "KeContextFromKframes_entry", "xboxkrnl_usermode.cc");
   ExpectHas(um_cc, "KeContextToKframes_entry", "xboxkrnl_usermode.cc");
+  ExpectHas(um_cc, "p + kContextCtr", "xboxkrnl_usermode.cc");
+  ExpectNotHas(um_cc, "p + kKframesCtr", "xboxkrnl_usermode.cc");
   ExpectHas(um_cc, "KeFlushUserModeCurrentTb_entry", "xboxkrnl_usermode.cc");
   ExpectHas(um_cc, "KeFlushUserModeTb_entry", "xboxkrnl_usermode.cc");
   ExpectHas(kmem_cc, "GetPageSectionType(address, &section_type)",

@@ -697,7 +697,7 @@ new file mode 100644
 +    xe::store_and_swap<uint32_t>(k + kKframesLr,
 +                                 xe::load_and_swap<uint32_t>(p + kContextLr));
 +    xe::store_and_swap<uint64_t>(k + kKframesCtr,
-+                                 xe::load_and_swap<uint64_t>(p + kKframesCtr));
++                                 xe::load_and_swap<uint64_t>(p + kContextCtr));
 +  }
 +  if (flags & kContextInteger) {
 +    std::memcpy(k + kKframesGpr, p + kContextGpr, 32 * 8);
@@ -2473,12 +2473,10 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.h b/.deps/xenia-canary/
  namespace kernel {
  
  constexpr fourcc_t kThreadSaveSignature = make_fourcc("THRD");
-@@ -514,6 +517,63 @@ class XThread : public XObject, public cpu::Thread {
- #endif
+@@ -515,6 +518,62 @@ class XThread : public XObject, public cpu::Thread {
  
    xe::threading::Thread* thread() { return thread_.get(); }
-+  uint32_t stack_limit() const { return stack_limit_; }
-+
+ 
 +  // Guest user mode state, created by the first KeEnterUserMode.
 +  struct UserMode {
 +    // A host stack that user code runs on. The kernel services a trap by
@@ -2534,10 +2532,11 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.h b/.deps/xenia-canary/
 +  void set_user_mode(std::unique_ptr<UserMode> user_mode) {
 +    user_mode_ = std::move(user_mode);
 +  }
- 
++
    virtual bool Save(ByteStream* stream) override;
    static object_ref<XThread> Restore(KernelState* kernel_state,
-@@ -584,6 +644,8 @@ class XThread : public XObject, public cpu::Thread {
+                                      ByteStream* stream);
+@@ -584,6 +643,8 @@ class XThread : public XObject, public cpu::Thread {
    uint32_t reentry_address_ = 0;
    uint32_t reentry_mxcsr_ = 0;
  
