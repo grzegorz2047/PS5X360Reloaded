@@ -36,11 +36,11 @@ fi
 logging="$here/ps5log-stub"
 test -f "$logging/ps5log.h" || { echo "lapy-daemon: FAIL missing ps5log stub" >&2; exit 1; }
 
-# Fix 186i (issue #80): relax the single-thread credential gate so the cooperative APPLY accepts our
-# OWN multi-threaded target (every credential ref belongs to our own threads), while still refusing a
-# credential shared with another process. owned_root_daemon.c is MIT; this modification is MIT too and
-# its corresponding source is this script + relax-single-thread.py (public). See the script's header.
-echo "lapy-daemon: fix 186i -- relaxing single-thread credential gate (self-owned multi-threaded target)"
+# Fix 186i/186j (issue #80): adapt the MIT owned_root_daemon.c -- (186i) accept our own multi-threaded
+# target in the APPLY preflight, and (186j) make the elevation credential-only (UID 0, skip the sandbox
+# escape) so the throttle lifts without changing the process's filesystem view. These modifications are
+# MIT; their corresponding source is this script + relax-single-thread.py (public). See that header.
+echo "lapy-daemon: fix 186i/186j -- relax single-thread gate + credential-only elevation (no escape)"
 python3 -I "$here/relax-single-thread.py" "$work/lapy/source/owned_root_daemon.c"
 
 echo "lapy-daemon: building owned one-shot helper (--elf-helper --title PPSA83600)"

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# TrinityX360 fix 186i (issue #80): patch the upstream Lapy owned-root daemon
-# (PS5-Lapy-JB-Daemon source/owned_root_daemon.c, which is MIT) so its cooperative
-# root APPLY accepts OUR OWN multi-threaded target process, while still refusing a
-# credential shared with ANOTHER process.
+# TrinityX360 fix 186i/186j (issue #80): patch the upstream Lapy owned-root daemon
+# (PS5-Lapy-JB-Daemon source/owned_root_daemon.c, which is MIT) with two adaptations:
+#   186i: the cooperative root APPLY accepts OUR OWN multi-threaded target process,
+#         while still refusing a credential shared with ANOTHER process.
+#   186j: CREDENTIAL-ONLY elevation -- set UID 0 but SKIP the sandbox escape (the
+#         root/jail donor transaction). The PS5 write throttle is UID-gated (UID 1
+#         throttled, UID 0 not), so UID 0 alone lifts it; keeping the process's
+#         root/jail refs leaves its filesystem view (its /app0 mount, app skins and
+#         game data) intact, which the full escape otherwise broke (default theme).
 #
 # Why this is safe (see docs/CREDITS.md / the fix-186 notes):
 #   - The daemon elevates by editing the target's EXISTING ucred IN PLACE
@@ -36,6 +41,17 @@ edits = [
     # await_target_stop: first.cred_refs == 2  ->  first.cred_refs == first.count + 1
     (r"first\.cred_refs\s*==\s*2",
      "first.cred_refs == first.count + 1"),
+    # 186j: after the credential set succeeds, skip the donor/root-move block and jump to the
+    # detach+resume path (done:). cred_changed is 1 here, so this always skips the escape; the guard
+    # keeps the (now dead) donor code reachable to the compiler. done: cleanly detaches the stopped
+    # target and resumes it as UID 0; first.pid/second.pid stay -1 so cleanup_child is a no-op, and
+    # run_one returns 0 -> RESPONSE status OK. moved=0 -> request_result logs roots_moved=0.
+    (r'stage = "first_donor";',
+     '/* fix 186j: credential-only -- UID 0 lifts the UID-gated write throttle without the sandbox\n'
+     '       escape, so the process keeps its filesystem view (/app0 mount, skins, game data). Skip\n'
+     '       the donor/root-move; detach and resume as UID 0 through done:. */\n'
+     '    if (cred_changed) { stopped_target = 1; stage = "complete"; goto done; }\n'
+     '    stage = "first_donor";'),
 ]
 
 for pattern, replacement in edits:
@@ -47,4 +63,5 @@ for pattern, replacement in edits:
         sys.exit(1)
 
 open(path, "w", encoding="utf-8", newline="").write(src)
-print("relax-single-thread: applied 2 edits (self-owned multi-threaded target allowed)")
+print("relax-single-thread: applied %d edits (multi-threaded target + credential-only, no sandbox escape)"
+      % len(edits))
