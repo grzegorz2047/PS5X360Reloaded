@@ -2770,9 +2770,9 @@ diff --git a/platform/ps5/memory_ps5.cpp b/platform/ps5/memory_ps5.cpp
    }
    auto i = views.find(at);
 -  if (type != DeallocationType::kRelease || length != 0 || i == views.end() || !i->second.owns_object) return false;
-+  if (type != DeallocationType::kRelease ||
++  if (type != DeallocationType::kRelease || i == views.end() ||
 +      (length != 0 && RoundUp(length, kPage) != i->second.size) ||
-+      i == views.end() || !i->second.owns_object) return false;
++      !i->second.owns_object) return false;
    if (sceKernelMunmap(address, i->second.size)) return false;
    const auto object = objects.find(i->second.handle);
    if (object != objects.end()) {

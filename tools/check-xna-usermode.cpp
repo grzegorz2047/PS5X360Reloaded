@@ -489,6 +489,14 @@ void CheckAssembledTree() {
             "platform/ps5/memory_ps5.cpp");
   ExpectHas(mem_ps5, "RoundUp(length, kPage) != i->second.size",
             "platform/ps5/memory_ps5.cpp");
+  // DeallocFixed looks the view up with views.find(): a release with a length
+  // for an address that is not a view (code caches, the x64 backend and emitter
+  // at shutdown) must return false on i == views.end() before i->second.size is
+  // read. Before 191 `length != 0` returned first; reading end() is undefined.
+  ExpectHas(mem_ps5, "type != DeallocationType::kRelease || i == views.end() ||",
+            "platform/ps5/memory_ps5.cpp (end() tested before the size)");
+  ExpectNotHas(mem_ps5, "i == views.end() || !i->second.owns_object",
+               "platform/ps5/memory_ps5.cpp (size read before end())");
 
   // 2. SysV AMD64 fiber implementation uses AllocFixed (never raw anonymous mmap
   //    on PS5's 448 MiB flexible budget).
