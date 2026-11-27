@@ -27,6 +27,18 @@ repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
 cxx=${CXX_HOST:-clang++-18}
 python=${PYTHON_HOST:-python3}
+jobs=${JOBS:-$(nproc)}
+launcher=()
+if command -v ccache > /dev/null && [[ ${PS5X360_NO_CCACHE:-0} != 1 ]]; then
+  launcher=(ccache)
+  export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros}"
+fi
+ldflag=()
+probe_bin=$(mktemp)
+if "$cxx" -fuse-ld=lld -x c++ - -o "$probe_bin" <<< 'int main() { return 0; }' 2>/dev/null; then
+  ldflag=(-fuse-ld=lld)
+fi
+rm -f "$probe_bin"
 checks=(
   check-stale-dispatch-header.cpp  # fix 20
   check-forward.cpp                # fix 21
@@ -434,26 +446,71 @@ declare -A fix_of=(
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 print(" ".join(os.path.basename(p).split("-", 1)[0] for p in report.get("fixes_skipped", [])))' "$tree/SOURCES.json")
-mkdir -p "$tree/tools" "$tree/build/fix-checks"
+mkdir -p "$tree/tools" "$tree/build/fix-checks" "$tree/build/fix-checks/build-logs"
 status=0
+
+# Stage sources and compile/link all active C++ checks in parallel (-c for ccache + fast lld link),
+# then run the compiled binaries in deterministic order without background compiler contention.
+compile_script="$tree/build/fix-checks/compile-one.sh"
+cat > "$compile_script" <<'COMPILE_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+name=$1
+exe="$FIX_CHECKS_TREE/build/fix-checks/${name%.cpp}"
+log="$FIX_CHECKS_TREE/build/fix-checks/build-logs/${name%.cpp}.log"
+rc_file="$FIX_CHECKS_TREE/build/fix-checks/build-logs/${name%.cpp}.rc"
+read -r -a launcher_arr <<< "${FIX_CHECKS_LAUNCHER:-}"
+read -r -a ldflag_arr <<< "${FIX_CHECKS_LDFLAG:-}"
+if (cd "$FIX_CHECKS_TREE" &&
+    ${launcher_arr[@]+"${launcher_arr[@]}"} "$FIX_CHECKS_CXX" -std=c++20 -O1 -g -pthread -march=znver2 \
+      -Wall -Wno-unused-function -Iinclude -Ireconstructed \
+      -I.deps/xenia-canary/src -I.deps/xenia-canary \
+      -c "tools/$name" -o "$exe.o" &&
+    "$FIX_CHECKS_CXX" -O1 -g -pthread ${ldflag_arr[@]+"${ldflag_arr[@]}"} "$exe.o" -o "$exe" &&
+    rm -f "$exe.o") > "$log" 2>&1; then
+  echo 0 > "$rc_file"
+else
+  echo 1 > "$rc_file"
+fi
+COMPILE_EOF
+chmod +x "$compile_script"
+
+compile_queue="$tree/build/fix-checks/build-logs/queue.txt"
+: > "$compile_queue"
+declare -A left_out_map=()
 for name in "${checks[@]}"; do
   left_out=
   for fix in ${fix_of[$name]:-}; do
     if [[ " $skipped_fixes " == *" $fix "* ]]; then left_out=$fix; fi
   done
   if [[ -n $left_out ]]; then
-    echo "=== $name"
-    echo "skip $name (fix $left_out left out of this build)"
+    left_out_map[$name]=$left_out
     continue
   fi
   cp "$repo/tools/$name" "$tree/tools/$name"
+  printf '%s\n' "$name" >> "$compile_queue"
+done
+
+if [[ -s $compile_queue ]]; then
+  FIX_CHECKS_TREE="$tree" FIX_CHECKS_CXX="$cxx" \
+    FIX_CHECKS_LAUNCHER="${launcher[*]}" FIX_CHECKS_LDFLAG="${ldflag[*]}" \
+    xargs -P "$jobs" -n 1 bash "$compile_script" < "$compile_queue"
+fi
+
+for name in "${checks[@]}"; do
+  if [[ -n ${left_out_map[$name]:-} ]]; then
+    echo "=== $name"
+    echo "skip $name (fix ${left_out_map[$name]} left out of this build)"
+    continue
+  fi
   exe="$tree/build/fix-checks/${name%.cpp}"
+  build_log="$tree/build/fix-checks/build-logs/${name%.cpp}.log"
+  rc_file="$tree/build/fix-checks/build-logs/${name%.cpp}.rc"
   args=()
   if [[ -n "${arguments[$name]:-}" ]]; then args=("${arguments[$name]}"); fi
   echo "=== $name"
-  if (cd "$tree" && "$cxx" -std=c++20 -O1 -g -pthread -march=znver2 -Wall -Wno-unused-function \
-        -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
-        "tools/$name" -o "$exe" && "$exe" "${args[@]}"); then
+  [[ -s $build_log ]] && cat "$build_log"
+  if [[ -f $rc_file && $(<"$rc_file") == 0 ]] && (cd "$tree" && "$exe" "${args[@]}"); then
     echo "pass $name"
   else
     echo "FAIL $name"
@@ -560,6 +617,7 @@ wait_variants=(
   "tsan|-O1 -fsanitize=thread -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
   "asan|-O1 -fsanitize=address,undefined -fno-sanitize-recover=all"
 )
+wait_pids=()
 for variant in "${wait_variants[@]}"; do
   label=${variant%%|*}
   read -r -a flags <<< "${variant#*|}"
@@ -568,12 +626,34 @@ for variant in "${wait_variants[@]}"; do
   # Fix 180b (atomic by default): its default only when the build has it.
   if [[ " $skipped_fixes " == *" 180b "* ]]; then flags+=(-DCHECK_NO_FIX180B); fi
   exe="$tree/build/fix-checks/check-wait-wakeups-$label"
+  wlog="$tree/build/fix-checks/build-logs/wait-$label.log"
+  wrc="$tree/build/fix-checks/build-logs/wait-$label.rc"
+  (
+    if (cd "$tree" &&
+        ${launcher[@]+"${launcher[@]}"} "$cxx" -std=c++20 -g -pthread -march=znver2 -Wall -Wno-unused-function \
+          "${flags[@]}" -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
+          -c tools/check-wait-wakeups.cpp -o "$exe.o" &&
+        "$cxx" -g -pthread "${flags[@]}" "$exe.o" -o "$exe" &&
+        rm -f "$exe.o") > "$wlog" 2>&1; then
+      echo 0 > "$wrc"
+    else
+      echo 1 > "$wrc"
+    fi
+  ) &
+  wait_pids+=($!)
+done
+for pid in "${wait_pids[@]}"; do wait "$pid" || true; done
+
+for variant in "${wait_variants[@]}"; do
+  label=${variant%%|*}
+  exe="$tree/build/fix-checks/check-wait-wakeups-$label"
+  wlog="$tree/build/fix-checks/build-logs/wait-$label.log"
+  wrc="$tree/build/fix-checks/build-logs/wait-$label.rc"
   run=("$exe")
   if [[ $label == tsan || $label == asan ]]; then run=(setarch "$(uname -m)" -R "$exe"); fi
   echo "=== check-wait-wakeups.cpp ($label)"
-  if (cd "$tree" && "$cxx" -std=c++20 -g -pthread -march=znver2 -Wall -Wno-unused-function \
-        "${flags[@]}" -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
-        tools/check-wait-wakeups.cpp -o "$exe" && "${run[@]}"); then
+  [[ -s $wlog ]] && cat "$wlog"
+  if [[ -f $wrc && $(<"$wrc") == 0 ]] && (cd "$tree" && "${run[@]}"); then
     echo "pass check-wait-wakeups.cpp ($label)"
   else
     echo "FAIL check-wait-wakeups.cpp ($label)"

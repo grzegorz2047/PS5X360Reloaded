@@ -25,6 +25,16 @@ else
   echo "== AddressSanitizer not available: the use of a freed entry may go unnoticed"
 fi
 
+jobs=${JOBS:-$(nproc)}
+launcher=""
+if command -v ccache >/dev/null 2>&1 && [ "${PS5X360_NO_CCACHE:-0}" != "1" ]; then
+  launcher="ccache"
+fi
+ldflag=""
+if echo 'int main() { return 0; }' | "$CXX" -fuse-ld=lld -x c++ - -o "$out/lld-probe" 2>/dev/null; then
+  ldflag="-fuse-ld=lld"
+fi
+
 flags="-std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY $sanitize -I$core/src -I$tree/include
   -I$tree/reconstructed -I$tree/port -I$core -I$core/third_party/fmt/include -I$core/third_party/utfcpp/source
   -I$core/third_party"
@@ -33,18 +43,26 @@ base=$(ls "$core"/src/xenia/base/*.cc |
   grep -vE '_(win|android|mac|arm64|gnulinux_x11|test[a-z_]*)\.cc$|/main_|/testing' |
   xargs grep -L -e stbi_ -e GetConsoleAppEntryInfo)
 mkdir -p "$out/base"
-export CXX flags
-# shellcheck disable=SC2016
-printf '%s\n' $base | xargs -P "$(nproc)" -n 1 sh -c 'exec $CXX $flags -c "$1" -o "$0/$(basename "$1" .cc).o"' "$out/base"
+export CXX launcher flags
+# shellcheck disable=SC2016,SC2086
+printf '%s\n' $base | xargs -P "$jobs" -n 1 sh -c 'exec $launcher "$CXX" $flags -c "$1" -o "$0/$(basename "$1" .cc).o"' "$out/base"
 
 build() {
   local src=$1 exe=$2
+  local objdir="$exe.objs"
+  rm -rf "$objdir"
+  mkdir -p "$objdir"
   local vfs="$src/src/xenia/vfs/device.cc $src/src/xenia/vfs/entry.cc $src/src/xenia/vfs/virtual_file_system.cc
        $src/src/xenia/vfs/devices/host_path_device.cc $src/src/xenia/vfs/devices/host_path_entry.cc
        $src/src/xenia/vfs/devices/host_path_file.cc $src/src/xenia/vfs/devices/null_device.cc
        $src/src/xenia/vfs/devices/null_entry.cc $src/src/xenia/vfs/devices/null_file.cc"
+  local vfs_flags="-I$src/src $flags"
+  export CXX launcher vfs_flags
+  # shellcheck disable=SC2016,SC2086
+  printf '%s\n' "$repo/tools/check-vfs-entry-lifetime.cpp" $vfs |
+    xargs -P "$jobs" -n 1 sh -c 'exec $launcher "$CXX" $vfs_flags -c "$1" -o "$0/$(basename "$1").o"' "$objdir"
   # shellcheck disable=SC2086
-  "$CXX" -I"$src/src" $flags "$repo/tools/check-vfs-entry-lifetime.cpp" $vfs "$out"/base/*.o -ldl -o "$exe"
+  "$CXX" -O1 -g -pthread $sanitize $ldflag "$objdir"/*.o "$out"/base/*.o -ldl -o "$exe"
 }
 
 echo "== fixed tree"

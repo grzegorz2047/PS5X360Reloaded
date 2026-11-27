@@ -20,6 +20,7 @@ mkdir -p "$build/obj" "$build/host" "$build/stubs"
 launcher=()
 if command -v ccache > /dev/null; then
   launcher=(-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache)
+  export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros}"
 fi
 log() { printf '\n=== %s\n' "$*"; }
 # PS5X360_LTO=thin: ThinLTO for the core and the title (GitHub issue 2): bitcode objects, archives

@@ -29,10 +29,22 @@ if ! echo 'int main() { return 0; }' |
   sanitize=""
 fi
 
+jobs=${JOBS:-$(nproc)}
+launcher=""
+if command -v ccache >/dev/null 2>&1 && [ "${PS5X360_NO_CCACHE:-0}" != "1" ]; then
+  launcher="ccache"
+fi
+ldflag=""
+if echo 'int main() { return 0; }' | "$CXX" -fuse-ld=lld -x c++ - -o "$out/lld-probe" 2>/dev/null; then
+  ldflag="-fuse-ld=lld"
+fi
+
 # $1: a directory holding src/xenia/{base,vfs} (the tree's core, or the reversed copy).
 build() {
   local src=$1 exe=$2 extra=${3:-}
-  local base vfs
+  local base vfs objdir="$exe.objs"
+  rm -rf "$objdir"
+  mkdir -p "$objdir"
   base=$(ls "$src"/src/xenia/base/*.cc |
     grep -vE '_(win|android|mac|arm64|gnulinux_x11|test[a-z_]*)\.cc$|/main_|/testing' |
     xargs grep -L -e stbi_ -e GetConsoleAppEntryInfo)
@@ -40,12 +52,15 @@ build() {
        $src/src/xenia/vfs/devices/disc_image_device.cc
        $src/src/xenia/vfs/devices/disc_image_entry.cc
        $src/src/xenia/vfs/devices/disc_image_file.cc"
+  local cflags="-std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY $extra $sanitize
+    -I$src/src -I$tree/include -I$tree/reconstructed -I$core/src -I$core
+    -I$core/third_party/fmt/include -I$core/third_party/utfcpp/source -I$core/third_party"
+  export CXX launcher cflags
+  # shellcheck disable=SC2016,SC2086
+  printf '%s\n' "$repo/tools/check-gdfx-names.cpp" $base $vfs |
+    xargs -P "$jobs" -n 1 sh -c 'exec $launcher "$CXX" $cflags -c "$1" -o "$0/$(basename "$1").o"' "$objdir"
   # shellcheck disable=SC2086
-  "$CXX" -std=c++20 -O1 -g -pthread -march=znver2 -DFMT_HEADER_ONLY $extra \
-    $sanitize \
-    -I"$src/src" -I"$tree/include" -I"$tree/reconstructed" -I"$core/src" -I"$core" \
-    -I"$core/third_party/fmt/include" -I"$core/third_party/utfcpp/source" -I"$core/third_party" \
-    "$repo/tools/check-gdfx-names.cpp" $base $vfs -ldl -o "$exe"
+  "$CXX" -O1 -g -pthread $sanitize $ldflag "$objdir"/*.o -ldl -o "$exe"
 }
 
 echo "== fixed tree"
