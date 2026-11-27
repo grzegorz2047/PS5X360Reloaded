@@ -2239,7 +2239,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.
  #include "xenia/kernel/kernel_state.h"
  #include "xenia/kernel/util/shim_utils.h"
  #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
-@@ -826,6 +828,32 @@ dword_result_t KeGetImagePageTableEntry_entry(dword_t address,
+@@ -851,6 +853,32 @@ dword_result_t KeGetImagePageTableEntry_entry(dword_t address,
      returned_value |= 1;
    }
  
@@ -2272,7 +2272,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.
    return returned_value & 0x400FFFFF;  // this is actually the mask it applies
                                         // to the final
    // result before returning it
-@@ -886,6 +914,27 @@ dword_result_t MmIsAddressValid_entry(dword_t address,
+@@ -911,6 +939,27 @@ dword_result_t MmIsAddressValid_entry(dword_t address,
  
  DECLARE_XBOXKRNL_EXPORT1(MmIsAddressValid, kMemory, kImplemented);
  
