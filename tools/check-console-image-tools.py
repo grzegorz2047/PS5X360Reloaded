@@ -81,6 +81,10 @@ def make_stage_inputs(root, *, label=LABEL, langs=16, official_label=False, dlc_
     write(base / 'dlc/README.md', 'Put DLC in PPSA50011 here. ' * dlc_mentions if dlc_mentions else 'no id\n')
     write(base / 'AUTOLOG.md', 'official autolog guide\n')
     write(base / 'assets/skin/ball.png', b'OFFICIAL X ORB')
+    write(base / 'assets/presets.txt', '[4E4D0859]\nreadback=2\n')
+    write(base / 'assets/config/4E4D0859.config.toml', 'official config\n')
+    write(base / 'assets/config/00000001.config.toml', 'base-only config\n')
+    write(base / 'readback-auto.off', '1\n')
     art = root / 'art'
     elf = b'\x7fELF....' + f'{name} v{label}'.encode() + b'\0' + extra_elf
     if official_label:
@@ -122,6 +126,15 @@ def stage_checks():
             icons = [f for skin in ('skin', 'skin-dark') for f in sorted((REPO / 'assets' / skin).glob('*.png'))]
             check(len(icons) == 12 and all((app / f.relative_to(REPO)).read_bytes() == f.read_bytes() for f in icons),
                   "stage: the repository's home screen icons are copied into assets/skin and assets/skin-dark (fix 164)")
+            check((app / 'assets/presets.txt').read_bytes() == (REPO / 'assets/presets.txt').read_bytes(),
+                  "stage: assets/presets.txt is the repository's, not the base's (as package.py ships it)")
+            configs = sorted((REPO / 'assets/config').glob('*.toml'))
+            check(configs and all((app / 'assets/config' / f.name).is_file()
+                                  and (app / 'assets/config' / f.name).read_bytes() == f.read_bytes() for f in configs),
+                  "stage: the repository's assets/config/*.toml replace the base's files of the same name")
+            check((app / 'assets/config/00000001.config.toml').read_text() == 'base-only config\n',
+                  "stage: a base config the repository does not have stays")
+            check(not (app / 'readback-auto.off').exists(), 'stage: readback-auto.off is dropped, as in the release packages')
             param = json.loads((app / 'sce_sys/param.json').read_text())
             check(param == {'titleId': 'PPSA83600', 'contentVersion': '1.0.5'},
                   f'stage: param.json from package.py with the label\'s version ({param})')

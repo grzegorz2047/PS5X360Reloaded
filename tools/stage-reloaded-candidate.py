@@ -104,6 +104,23 @@ def main():
     for f in own_patches:
         shutil.copy2(f, app / 'assets/patches' / f.name)
     print(f'{len(own_patches)} game patch file(s) from the repository copied into assets/patches')
+    # The repository's per-game presets and core configs, as package.py and package-release.py
+    # ship them: assets/presets.txt replaces the base's (the official 1.0.2 one, which had e.g.
+    # full readback for Tekken Tag Tournament 2 where the repository has fast readback), and each
+    # assets/config/*.toml replaces the base's file of the same name. readback-auto.off goes, as
+    # in the release packages (it would switch off the copy-back of small resolves).
+    repo_assets = Path(__file__).resolve().parents[1] / 'assets'
+    presets = repo_assets / 'presets.txt'
+    if not presets.is_file():
+        sys.exit(f'{presets} not found: run the copy of this script in the tested branch\'s checkout')
+    shutil.copy2(presets, app / 'assets/presets.txt')
+    own_configs = sorted((repo_assets / 'config').glob('*.toml'))
+    (app / 'assets/config').mkdir(parents=True, exist_ok=True)
+    for f in own_configs:
+        shutil.copy2(f, app / 'assets/config' / f.name)
+    (app / 'readback-auto.off').unlink(missing_ok=True)
+    print(f'assets/presets.txt and {len(own_configs)} core config file(s) from the repository '
+          'copied into assets')
     # Fix 164: this repository's home screen icons (assets/skin and assets/skin-dark, drawn by
     # tools/make-skin-icons.py) over the base's pictures of the same names.
     own_skin = 0
