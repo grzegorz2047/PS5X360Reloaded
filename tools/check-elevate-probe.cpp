@@ -131,9 +131,14 @@ void Tree() {
              h.find("lapy_elevation_request(") != std::string::npos,
          "(d) the MIT header calls the LGPL client through the vendor interface");
   Expect(h.find("inline Result AttemptEarly(") != std::string::npos &&
-             h.find("std::ofstream prog(") != std::string::npos &&
-             h.find("elevate-probe-progress.txt") != std::string::npos,
-         "(d) AttemptEarly writes a std::ofstream progress file");
+             h.find("SettingsWantElevation(") != std::string::npos &&
+             h.find("lapy_elevation_request(") != std::string::npos,
+         "(d) AttemptEarly gates on the setting and calls the LGPL client");
+  // Fix 186 (release cleanup): the per-step progress file is gone; AttemptEarly logs one calm
+  // outcome line through the boot.log sink and runs the client silently (no progress callback).
+  Expect(h.find("elevate-probe-progress.txt") == std::string::npos &&
+             h.find("ProgStream(") == std::string::npos,
+         "(d) no verbose per-step progress file (release: one outcome line)");
   // 186f: the probe uses ONLY std:: file I/O. 186e's raw ::umask/::open were unresolved (null)
   // imports on the console firmware, so the call jumped to address 0 (SIGSEGV, RIP=0) before any
   // step could log. These assertions keep the crash-prone raw-POSIX forms out for good.

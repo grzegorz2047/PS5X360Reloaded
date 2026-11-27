@@ -210,6 +210,7 @@ on:
       - 'tools/check-recent-list.cpp'
       - 'tools/check-disc-swap-content.cpp'
       - 'tools/check-elevate-probe.cpp'
+      - 'tools/check-unlimited-write.cpp'
       - 'tools/check-lapy-daemon-package.py'
       - 'tools/source-1.0.2/lapy-daemon/**'
       - 'licenses/**'
