@@ -234,6 +234,7 @@ checks=(
   check-camera-figure.cpp          # fix 185
   check-elevate-probe.cpp          # fix 186
   check-unlimited-write.cpp        # fix 186
+  check-hp-voice-skip.cpp          # fix 187 (assets/patches)
   check-title-memory-stats.cpp     # fix 188
   check-focus-gate.cpp             # fix 190
   check-xna-usermode.cpp           # fix 191
@@ -243,6 +244,7 @@ declare -A arguments=(
   [check-harmonix-keys.cpp]="$repo"
   [check-gta4-core-config.cpp]="$repo"
   [check-gta5-audio-patch.cpp]="$repo"
+  [check-hp-voice-skip.cpp]="$repo"
   [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-two-x-unfit.cpp]="$repo/tools/source-1.0.2/english/lang"
