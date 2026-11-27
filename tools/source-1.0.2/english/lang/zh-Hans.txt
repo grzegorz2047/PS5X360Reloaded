@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = 推荐
 server\sreturned\s = 服务器返回\s
 socket\sunavailable = 套接字不可用
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = 此游戏使用\sXNA\s框架，模拟器暂时还无法运行。

@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = 권장
 server\sreturned\s = 서버\s응답:\s
 socket\sunavailable = 소켓을\s사용할\s수\s없음
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = 이\s게임은\sXNA\s프레임워크를\s사용하며,\s에뮬레이터는\s아직\s실행할\s수\s없습니다.

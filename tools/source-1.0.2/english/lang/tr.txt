@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = önerilen
 server\sreturned\s = sunucu\syanıt\sverdi:\s
 socket\sunavailable = soket\skullanılamıyor
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = bu\soyun\sXNA\sçerçevesini\skullanıyor;\semülatör\sbunu\shenüz\sçalıştıramıyor.

@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = zalecane
 server\sreturned\s = serwer\sodpowiedział\s
 socket\sunavailable = gniazdo\sniedostępne
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = ta\sgra\skorzysta\sz\sframeworka\sXNA,\sktórego\semulator\sjeszcze\snie\sobsługuje.

@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = рекомендуется
 server\sreturned\s = сервер\sответил\s
 socket\sunavailable = сокет\sнедоступен
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = эта\sигра\sиспользует\sфреймворк\sXNA,\sкоторый\sэмулятор\sпока\sне\sможет\sзапустить.

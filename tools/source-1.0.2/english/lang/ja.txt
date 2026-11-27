@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = 推奨
 server\sreturned\s = サーバーの応答：\s
 socket\sunavailable = ソケットが利用できません
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = このゲームはXNAフレームワークを使用しており、エミュレーターはまだ実行できません。

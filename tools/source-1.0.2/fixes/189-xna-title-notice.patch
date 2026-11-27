@@ -1,0 +1,104 @@
+diff --git a/include/xbox360ps5/xna_title.hpp b/include/xbox360ps5/xna_title.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/xna_title.hpp
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: MIT
++// Fix 189 (issue #82): games built on Microsoft's XNA framework (Charlie Murder, the Xbox Live
++// Indie Games) start a .NET Compact Framework runtime (RuntimeHost.xex, NetCFUserMode.dll) that
++// runs the game's managed code in the Xbox 360 kernel's user mode: a second address space made
++// by KeCreateUserMode, entered and left with KeEnterUserMode and KeLeaveUserMode, its
++// translations flushed with KeFlushUserMode*Tb. The emulator implements none of them, so the
++// runtime's thread ends (exit code FFFFFFFF), the title's launcher asks for the dashboard
++// (XamLoaderLaunchTitle with a null name) and the app went back to the menu without a word.
++//
++// The CPU backend notes each guest call to a kernel export it does not implement
++// (NoteUndefinedCall, by the export's name, so any XNA title is found the same way); when the
++// title then ends, the title switch's restart hook writes the launcher's note (NoticeLine) and
++// the menu says why the game did not start. Header-only, no Xenia headers (host-checked).
++#pragma once
++#include <atomic>
++#include <string>
++#include <string_view>
++
++namespace xbox360ps5::xna_title {
++
++// The kernel's user-mode exports the XNA runtime calls (xboxkrnl ordinals 0x58, 0x60, 0x64,
++// 0x65, 0x7E).
++inline bool IsUserModeExport(std::string_view name) {
++  return name == "KeCreateUserMode" || name == "KeEnterUserMode" || name == "KeLeaveUserMode" ||
++         name == "KeFlushUserModeCurrentTb" || name == "KeFlushUserModeTb";
++}
++
++inline std::atomic<bool> g_user_mode_called{false};
++
++// For each guest call to an unimplemented kernel export: true the first time it is one of the
++// user-mode exports (the caller logs it once).
++inline bool NoteUndefinedCall(std::string_view name) {
++  if (!IsUserModeExport(name)) return false;
++  return !g_user_mode_called.exchange(true, std::memory_order_relaxed);
++}
++
++// The title called the kernel's user mode, which the emulator does not have.
++inline bool Seen() { return g_user_mode_called.load(std::memory_order_relaxed); }
++
++// The launcher's note ("Could not launch the game: " is put before it): the game's name and the
++// translated reason, the reason alone when the title has no name.
++inline std::string NoticeLine(const std::string& game, const std::string& reason) {
++  return game.empty() ? reason : game + ": " + reason;
++}
++
++}  // namespace xbox360ps5::xna_title
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -16,6 +16,7 @@
+ #include "xbox360ps5/app_identity.hpp"  // fix 46
+ #include "xbox360ps5/user_storage.hpp"  // fix 165
+ #include "xbox360ps5/official_import.hpp"  // fix 46: the first start's copy from PS5X360
++#include "xbox360ps5/xna_title.hpp"  // fix 189: an XNA game says why it went back to the menu
+ #include "xbox360ps5/renderer.hpp"
+ #include "xbox360ps5/title_switch.hpp"  // fix 51: XamSwapDisc looks beside the launched image
+ #include "xbox360ps5/covers.hpp"  // fix 162f: GameRequiresKinect
+@@ -3533,6 +3534,13 @@ int main(int argc, char** argv) {
+             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - checkpoint_start).count()));
+         xbox360ps5::leaving_notice::ShowStep(xbox360ps5::leaving_notice::Step::writing);  // fix 93h
+         FlushWritesBeforeRestart("title switch");  // fix 93g: the game's frames still drawn meanwhile
++        // Fix 189 (issue #82): an XNA game's .NET runtime called the kernel's user mode, which is
++        // not emulated, and the title gave up; the menu says why instead of nothing.
++        if (xbox360ps5::xna_title::Seen()) {
++          std::ofstream(storage / "notice.txt", std::ios::trunc)
++              << xbox360ps5::xna_title::NoticeLine(xam->kernel_state()->emulator()->title_name(), Tr("this game uses the XNA framework, which the emulator cannot run yet.")) << "\n";
++          XELOGW("XNA: {} ended after calling the kernel's user mode; the menu says it cannot run yet", xam->kernel_state()->emulator()->title_name());
++        }
+         XELOGW("Title switch: restarting the title");
+         // Fix 93c: the next process shows the notice again.
+         xbox360ps5::leaving_notice::Remember(storage / "leaving-notice.txt", xbox360ps5::leaving_notice::Current(),
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc
+@@ -38,6 +38,7 @@
+ #include "xenia/cpu/processor.h"
+ #include "xenia/cpu/symbol.h"
+ #include "xenia/cpu/thread_state.h"
++#include "xbox360ps5/xna_title.hpp"  // fix 189
+ 
+ DEFINE_bool(debugprint_trap_log, false,
+             "Log debugprint traps to the active debugger", "CPU");
+@@ -902,6 +903,16 @@ uint64_t UndefinedCallExtern(void* raw_context, uint64_t function_ptr) {
+     XELOGE("undefined extern call to {:08X} {}", function->address(),
+            function->name());
+   }
++  // Xbox360PS5 (fix 189, issue #82): an XNA game's .NET runtime runs in the
++  // kernel's user mode, which is not emulated; the menu says so when the title
++  // ends (xna_title.hpp).
++  if (xbox360ps5::xna_title::NoteUndefinedCall(function->name())) {
++    XELOGW(
++        "XNA: the game called {}, the kernel's user mode that the XNA "
++        "framework's .NET runtime needs; it is not emulated, so this game "
++        "cannot run",
++        function->name());
++  }
+   return 0;
+ }
+ void X64Emitter::CallExtern(const hir::Instr* instr, const Function* function) {

@@ -214,6 +214,7 @@ on:
       - 'tools/check-lapy-daemon-package.py'
       - 'tools/source-1.0.2/lapy-daemon/**'
       - 'licenses/**'
+      - 'tools/check-xna-title-notice.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'

@@ -427,6 +427,8 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x enquanto o jogo man
 This game runs better at 1x: from its next start it runs at 1x. = Este jogo roda melhor em 1x: a partir da próxima vez que for iniciado, ele roda em 1x.
 Unlimited write speed (root) = Velocidade de gravação ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Remove o limite de velocidade de gravação que o console impõe ao aplicativo, então salvar dados dos jogos e o cache de shaders fica muito mais rápido. Ao iniciar, o aplicativo pede ao jailbreak para elevá-lo ao nível de sistema (root), o que altera suas credenciais de sistema durante a sessão; use por sua conta e risco. Precisa de um jailbreak compatível; sem ele, o aplicativo simplesmente funciona normalmente. Passa a valer na próxima vez que você abrir o aplicativo e não afeta seu tema, configurações ou dados dos jogos.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = este jogo usa o framework XNA, que o emulador ainda não consegue executar.
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -666,6 +668,8 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x enquanto o jogo man
 This game runs better at 1x: from its next start it runs at 1x. = Este jogo corre melhor em 1x: a partir do próximo arranque, corre em 1x.
 Unlimited write speed (root) = Velocidade de gravação ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Remove o limite de velocidade de escrita que a consola impõe à aplicação, por isso guardar dados dos jogos e a cache de shaders fica muito mais rápido. Ao iniciar, a aplicação pede ao jailbreak para a elevar ao nível de sistema (root), o que altera as suas credenciais de sistema durante a sessão; use por sua conta e risco. Precisa de um jailbreak compatível; sem ele, a aplicação funciona simplesmente como de costume. Tem efeito no próximo arranque da aplicação e não afeta o seu tema, definições ou dados dos jogos.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = este jogo usa a framework XNA, que o emulador ainda não consegue executar.
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -905,6 +909,8 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x mientras el juego m
 This game runs better at 1x: from its next start it runs at 1x. = Este juego funciona mejor a 1x: desde su próximo inicio funcionará a 1x.
 Unlimited write speed (root) = Velocidad de escritura ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Elimina el límite de velocidad de escritura que la consola impone a la aplicación, por lo que guardar los datos de los juegos y la caché de sombreadores es mucho más rápido. Al iniciarse, la aplicación pide al jailbreak que la eleve al nivel de sistema (root), lo que cambia sus credenciales de sistema durante la sesión; úsalo bajo tu propia responsabilidad. Necesita un jailbreak compatible; sin él, la aplicación simplemente funciona con normalidad. Surte efecto la próxima vez que abras la aplicación y no afecta a tu tema, ajustes ni datos de los juegos.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = este juego usa el framework XNA, que el emulador todavía no puede ejecutar.
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -1144,6 +1150,8 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x mientras el juego m
 This game runs better at 1x: from its next start it runs at 1x. = Este juego funciona mejor a 1x: desde su próximo inicio funcionará a 1x.
 Unlimited write speed (root) = Velocidad de escritura ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Elimina el límite de velocidad de escritura que la consola impone a la aplicación, por lo que guardar los datos de los juegos y el caché de sombreadores es mucho más rápido. Al iniciarse, la aplicación le pide al jailbreak que la eleve al nivel de sistema (root), lo que cambia sus credenciales de sistema durante la sesión; úsalo bajo tu propio riesgo. Necesita un jailbreak compatible; sin él, la aplicación simplemente funciona con normalidad. Tiene efecto la próxima vez que abras la aplicación y no afecta tu tema, ajustes ni datos de los juegos.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = este juego usa el framework XNA, que el emulador todavía no puede ejecutar.
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1383,6 +1391,8 @@ Automatic (2x while the game keeps 30 fps) = Automatisch (2x, solange das Spiel 
 This game runs better at 1x: from its next start it runs at 1x. = Dieses Spiel läuft mit 1x besser: Ab dem nächsten Start läuft es mit 1x.
 Unlimited write speed (root) = Unbegrenzte Schreibgeschwindigkeit (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimentell. Hebt das von der Konsole pro App auferlegte Schreibgeschwindigkeits-Limit auf, sodass Spieldaten und Shader-Caches viel schneller gespeichert werden. Beim Start bittet die App den Jailbreak, sie auf Systemebene (root) anzuheben, was ihre System-Anmeldedaten für die Sitzung ändert; Nutzung auf eigenes Risiko. Es wird ein Jailbreak benötigt, der das unterstützt; ohne ihn läuft die App einfach wie gewohnt. Die Änderung wirkt beim nächsten Start der App und beeinflusst weder dein Design noch deine Einstellungen oder Spieldaten.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = dieses Spiel nutzt das XNA-Framework, das der Emulator noch nicht ausführen kann.
 
 [added fr]
 Console storage = Stockage de la console
@@ -1622,6 +1632,8 @@ Automatic (2x while the game keeps 30 fps) = Automatique (2x tant que le jeu tie
 This game runs better at 1x: from its next start it runs at 1x. = Ce jeu tourne mieux en 1x : dès son prochain lancement, il tournera en 1x.
 Unlimited write speed (root) = Vitesse d'écriture illimitée (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Expérimental. Supprime la limite de vitesse d'écriture que la console impose à l'application, ce qui rend l'enregistrement des données de jeu et du cache de shaders bien plus rapide. Au démarrage, l'application demande au jailbreak de l'élever au niveau système (root), ce qui modifie ses identifiants système pour la session ; à utiliser à vos propres risques. Nécessite un jailbreak compatible ; sans lui, l'application fonctionne simplement normalement. L'effet s'applique au prochain lancement de l'application et n'affecte ni votre thème, ni vos réglages, ni vos données de jeu.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = ce jeu utilise le framework XNA, que l'émulateur ne peut pas encore exécuter.
 
 [added it]
 Console storage = Memoria della console
@@ -1861,6 +1873,8 @@ Automatic (2x while the game keeps 30 fps) = Automatica (2x finché il gioco man
 This game runs better at 1x: from its next start it runs at 1x. = Questo gioco funziona meglio a 1x: dal prossimo avvio funzionerà a 1x.
 Unlimited write speed (root) = Velocità di scrittura illimitata (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Sperimentale. Rimuove il limite di velocità di scrittura che la console impone all'app, così il salvataggio dei dati di gioco e della cache degli shader diventa molto più veloce. All'avvio l'app chiede al jailbreak di elevarla a livello di sistema (root), modificando le sue credenziali di sistema per la sessione; usala a tuo rischio. Richiede un jailbreak che lo supporti; senza, l'app funziona semplicemente come al solito. Ha effetto al successivo avvio dell'app e non modifica il tema, le impostazioni o i dati di gioco.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = questo gioco usa il framework XNA, che l'emulatore non può ancora eseguire.
 
 [added ja]
 Console storage = 本体ストレージ
@@ -2100,6 +2114,8 @@ Automatic (2x while the game keeps 30 fps) = 自動（30fpsを保てる間は2x�
 This game runs better at 1x: from its next start it runs at 1x. = このゲームは1xのほうが快適に動作します。次回の起動から1xで動作します。
 Unlimited write speed (root) = 書き込み速度の制限解除（root）
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 実験的な機能です。本体がアプリごとに課す書き込み速度の制限を解除し、ゲームデータやシェーダーキャッシュの保存が大幅に速くなります。起動時にアプリはjailbreakへ自身をシステム権限（root）に昇格するよう要求し、セッション中はシステム資格情報が変更されます。自己責任でご利用ください。対応するjailbreakが必要で、ない場合アプリは通常どおり動作します。次回アプリ起動時から有効になり、テーマ・設定・ゲームデータには影響しません。
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = このゲームはXNAフレームワークを使用しており、エミュレーターはまだ実行できません。
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -2339,6 +2355,8 @@ Automatic (2x while the game keeps 30 fps) = 자동 (게임이 30fps를 유지�
 This game runs better at 1x: from its next start it runs at 1x. = 이 게임은 1x에서 더 잘 실행됩니다. 다음 실행부터 1x로 실행합니다.
 Unlimited write speed (root) = 쓰기 속도 무제한 (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 실험적 기능입니다. 콘솔이 앱별로 적용하는 쓰기 속도 제한을 해제하여 게임 데이터와 셰이더 캐시 저장이 훨씬 빨라집니다. 앱은 시작할 때 jailbreak에 자신을 시스템 수준(root)으로 올려 달라고 요청하며, 이 세션 동안 앱의 시스템 자격 증명이 변경됩니다. 사용에 따른 책임은 본인에게 있습니다. 이를 지원하는 jailbreak가 필요하며, 없으면 앱은 평소대로 실행됩니다. 다음에 앱을 시작할 때 적용되며 테마, 설정, 게임 데이터에는 영향을 주지 않습니다.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = 이 게임은 XNA 프레임워크를 사용하며, 에뮬레이터는 아직 실행할 수 없습니다.
 
 [added nl]
 Console storage = Consoleopslag
@@ -2578,6 +2596,8 @@ Automatic (2x while the game keeps 30 fps) = Automatisch (2x zolang het spel 30 
 This game runs better at 1x: from its next start it runs at 1x. = Dit spel draait beter op 1x: vanaf de volgende start draait het op 1x.
 Unlimited write speed (root) = Onbeperkte schrijfsnelheid (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimenteel. Verwijdert de schrijfsnelheidslimiet die de console per app oplegt, zodat het opslaan van spelgegevens en shader-caches veel sneller gaat. Bij het starten vraagt de app de jailbreak om zichzelf naar systeemniveau (root) te verheffen, wat de systeemreferenties voor de sessie wijzigt; gebruik op eigen risico. Vereist een jailbreak die dit ondersteunt; zonder zo'n jailbreak werkt de app gewoon normaal. Het werkt vanaf de volgende keer dat je de app start en heeft geen invloed op je thema, instellingen of spelgegevens.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = deze game gebruikt het XNA-framework, dat de emulator nog niet kan uitvoeren.
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -2817,6 +2837,8 @@ Automatic (2x while the game keeps 30 fps) = Automatyczna (2x, gdy gra utrzymuje
 This game runs better at 1x: from its next start it runs at 1x. = Ta gra działa lepiej w 1x: od następnego uruchomienia będzie działać w 1x.
 Unlimited write speed (root) = Nieograniczona prędkość zapisu (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Eksperymentalne. Usuwa limit prędkości zapisu nakładany przez konsolę na aplikację, dzięki czemu dane gier i pamięć podręczna shaderów zapisują się znacznie szybciej. Przy starcie aplikacja prosi jailbreak o podniesienie jej do poziomu systemowego (root), co zmienia jej uprawnienia systemowe na czas sesji; używasz na własne ryzyko. Wymaga jailbreaka, który to obsługuje; bez niego aplikacja po prostu działa normalnie. Zmiana działa od następnego uruchomienia aplikacji i nie wpływa na motyw, ustawienia ani dane gier.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = ta gra korzysta z frameworka XNA, którego emulator jeszcze nie obsługuje.
 
 [added ru]
 Console storage = Память консоли
@@ -3056,6 +3078,8 @@ Automatic (2x while the game keeps 30 fps) = Автоматически (2x, п�
 This game runs better at 1x: from its next start it runs at 1x. = Эта игра лучше работает в 1x: со следующего запуска она будет работать в 1x.
 Unlimited write speed (root) = Неограниченная скорость записи (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Экспериментально. Снимает ограничение скорости записи, которое консоль накладывает на приложение, поэтому сохранение игровых данных и кэша шейдеров идёт намного быстрее. При запуске приложение просит jailbreak повысить его до системного уровня (root), что меняет его системные учётные данные на время сеанса; используйте на свой страх и риск. Требуется jailbreak с поддержкой этой функции; без него приложение просто работает как обычно. Изменение вступает в силу при следующем запуске приложения и не затрагивает вашу тему, настройки и игровые данные.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = эта игра использует фреймворк XNA, который эмулятор пока не может запустить.
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -3295,6 +3319,8 @@ Automatic (2x while the game keeps 30 fps) = Otomatik (oyun 30 fps'yi koruduğu 
 This game runs better at 1x: from its next start it runs at 1x. = Bu oyun 1x'te daha iyi çalışır: bir sonraki başlatmadan itibaren 1x'te çalışacak.
 Unlimited write speed (root) = Sınırsız yazma hızı (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Deneyseldir. Konsolun uygulama başına uyguladığı yazma hızı sınırını kaldırır, böylece oyun verilerinin ve gölgelendirici önbelleğinin kaydedilmesi çok daha hızlı olur. Uygulama başlarken jailbreak'ten kendisini sistem düzeyine (root) yükseltmesini ister; bu, oturum boyunca sistem kimlik bilgilerini değiştirir; kendi sorumluluğunuzda kullanın. Bunu destekleyen bir jailbreak gerekir; olmadan uygulama yalnızca normal şekilde çalışır. Uygulamayı bir sonraki açışınızda etkinleşir ve temanızı, ayarlarınızı veya oyun verilerinizi etkilemez.
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = bu oyun XNA çerçevesini kullanıyor; emülatör bunu henüz çalıştıramıyor.
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -3534,6 +3560,8 @@ Automatic (2x while the game keeps 30 fps) = 自动（游戏保持 30 fps 时使
 This game runs better at 1x: from its next start it runs at 1x. = 此游戏在 1x 下运行更好：从下次启动起将以 1x 运行。
 Unlimited write speed (root) = 无限写入速度（root）
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 实验性功能。解除主机对各应用施加的写入速度限制，让游戏数据和着色器缓存的保存快得多。应用启动时会请求 jailbreak 将自身提升到系统级别（root），这会在本次会话期间更改其系统凭据；使用风险自负。需要支持此功能的 jailbreak；没有时应用会照常运行。更改将在下次启动应用时生效，不会影响你的主题、设置或游戏数据。
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = 此游戏使用 XNA 框架，模拟器暂时还无法运行。
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -3773,3 +3801,5 @@ Automatic (2x while the game keeps 30 fps) = 自動（遊戲維持 30 fps 時使
 This game runs better at 1x: from its next start it runs at 1x. = 此遊戲在 1x 下執行得更好：從下次啟動起將以 1x 執行。
 Unlimited write speed (root) = 無限寫入速度（root）
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 實驗性功能。解除主機對各應用程式施加的寫入速度限制，讓遊戲資料和著色器快取的儲存快上許多。應用程式啟動時會要求 jailbreak 將自身提升到系統層級（root），這會在本次工作階段期間變更其系統憑證；使用風險自負。需要支援此功能的 jailbreak；沒有時應用程式會照常運作。變更會在下次啟動應用程式時生效，不會影響你的佈景主題、設定或遊戲資料。
+# Fix 189: an XNA game's note in the menu (after "Could not launch the game: <name>: ").
+this game uses the XNA framework, which the emulator cannot run yet. = 此遊戲使用 XNA 框架，模擬器暫時還無法執行。

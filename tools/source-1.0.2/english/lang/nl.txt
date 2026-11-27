@@ -711,3 +711,4 @@ or\sin\s/data/xbox360/,\sor\sin\san\sxbox360\sfolder\sat\sthe\stop\sof\sa\sUSB\s
 recommended = aanbevolen
 server\sreturned\s = de\sserver\santwoordde\s
 socket\sunavailable = socket\sniet\sbeschikbaar
+this\sgame\suses\sthe\sXNA\sframework,\swhich\sthe\semulator\scannot\srun\syet. = deze\sgame\sgebruikt\shet\sXNA-framework,\sdat\sde\semulator\snog\sniet\skan\suitvoeren.
