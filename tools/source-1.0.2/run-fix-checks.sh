@@ -219,6 +219,8 @@ checks=(
   check-virtual-mic.cpp            # fix 178
   check-recent-list.cpp            # fix 181
   check-disc-swap-content.cpp      # fix 182
+  check-elevate-probe.cpp          # fix 186
+  check-unlimited-write.cpp        # fix 186
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -424,6 +426,8 @@ declare -A fix_of=(
   [check-virtual-mic.cpp]=178
   [check-recent-list.cpp]=181
   [check-disc-swap-content.cpp]=182
+  [check-elevate-probe.cpp]=186
+  [check-unlimited-write.cpp]=186
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -514,6 +518,15 @@ if "$python" -I "$repo/tools/check-game-patch-files.py"; then
   echo "pass check-game-patch-files.py"
 else
   echo "FAIL check-game-patch-files.py"
+  status=1
+fi
+# Fix 186 (issue #80): the optional, user-loaded Lapy elevation helper is packaged with full LGPL-2.1
+# compliance (pinned commit, licence, NOTICE, MIT stub, non-fatal CI step) -- no build needed here.
+echo "=== check-lapy-daemon-package.py"
+if "$python" -I "$repo/tools/check-lapy-daemon-package.py"; then
+  echo "pass check-lapy-daemon-package.py"
+else
+  echo "FAIL check-lapy-daemon-package.py"
   status=1
 fi
 # Fix 164: the home screen's icons (assets/skin, assets/skin-dark) and their SVG sources.

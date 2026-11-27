@@ -91,6 +91,10 @@ def main():
         shutil.rmtree(a.out)
     shutil.copytree(a.base, app)
     shutil.copy2(out_dir / 'eboot.bin', app / 'eboot.bin')
+    # Fix 186d: the optional, user-loaded LGPL Lapy one-shot helper, bundled at /app0/lapy.elf.
+    lapy = out_dir / 'lapy.elf'
+    if lapy.exists():
+        shutil.copy2(lapy, app / 'lapy.elf')
     for f in langs:
         shutil.copy2(f, app / 'assets/lang' / f.name)
     # Fix 155c: this repository's own game patches (assets/patches, e.g. GTA V's audio fix) as the

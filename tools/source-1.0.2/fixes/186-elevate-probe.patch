@@ -1,0 +1,697 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -127,6 +127,11 @@ struct Settings {
+   // Fix 27: where a game saves without asking. 0 asks every time, 1 the console's storage,
+   // 2 and on one drive slot each (storage::SaveDriveDeviceId: /mnt/ext0-ext3, /mnt/usb0-usb7).
+   int save_drive = 0;
++  // Fix 186 (issue #80): raise this app to system level (root) at launch to remove the
++  // console's per-app write-speed limit. Off by default; read at startup by
++  // elevate_probe::AttemptEarly (the gate) and applied through the isolated LGPL ELV1 helper.
++  // Global-only (no per-game value); a change takes effect at the next launch (restart).
++  int unlimited_write = 0;
+   static const char* ScaleName(int scale);
+   static const char* FilterName(int filter);
+   void Load();
+diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_groups.hpp
+--- a/include/xbox360ps5/option_groups.hpp
++++ b/include/xbox360ps5/option_groups.hpp
+@@ -123,6 +123,7 @@ inline constexpr Entry kEntries[] = {
+     {"arcade_full", Group::other, nullptr, nullptr},
+     {"save_drive", Group::other, nullptr, nullptr},
+     {"detailed_logs", Group::other, nullptr, nullptr},
++    {"unlimited_write", Group::other, nullptr, nullptr},
+     {"bug_report", Group::other, nullptr, nullptr},
+ };
+ 
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -202,6 +202,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/guide_quick.hpp"  // fix 115: the guide's quick actions
+ #include "xbox360ps5/tab_bar.hpp"  // fix 115c: the guide's tab bar and its pad
+ #include "xbox360ps5/option_groups.hpp"  // fix 149: the Emulation (advanced) page's notice
++#include "xbox360ps5/elevate_probe.hpp"  // fix 186c: optional UID-0 elevation probe (issue #80)
+ #include "third_party/imgui/imgui.h"
+ #include <algorithm>
+ #include <atomic>
+@@ -2641,6 +2642,14 @@ static void KinectNeededNotice() {
+                       Tr("This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again."),
+                       "", false});
+ }
++// Fix 186g (issue #80): the elevation probe's step sink. 186g moves the probe to the earliest
++// single-threaded point in main() (the Lapy helper refuses a multi-threaded target -- APPLY_FAILED),
++// which is BEFORE the game logger is up, so the sink is boot.log only (synchronous, survives a
++// crash). The full step trail also goes to <data>/elevate-probe-progress.txt.
++extern "C" void Xbox360PS5ElevateProbeLog(const char* step) {
++  xbox360ps5::Stage(step);
++}
++
+ int main(int argc, char** argv) {
+   config::config_folder = "/app0/assets";
+   xbox360ps5::motion::kinect_needed = &KinectNeededNotice;
+@@ -2684,6 +2693,16 @@ int main(int argc, char** argv) {
+     std::snprintf(line, sizeof(line), "BOOT first thread placed: %s", place);
+     Stage(line);
+   }
++  // Fix 186n (issue #80): elevate to UID 0 HERE -- the earliest SINGLE-THREADED point, as 186i/186j
++  // (both connected to elfldr 127.0.0.1:9021 AND passed the helper APPLY here). 186m moved it after
++  // StartNetLog on a wrong "too-early connect" theory; the real 186k/l/m failure was APPLY_FAILED
++  // (client errno 13 EACCES), i.e. the helper rejected the caller at the APPLY preflight -- which the
++  // extra threads after StartNetLog only make worse. /data is writable and boot.log is up; no worker
++  // thread has started yet. Off by default: a no-op unless the "Unlimited write speed (root)" option
++  // is on in settings.txt (the player switch) or the developer override <data>/elevate-probe.txt says
++  // "on"; on failure it logs one line (client errno) and carries on at UID 1. The elevation is the
++  // isolated LGPL ELV1/elfldr client; credential-only, so the app keeps its own theme and data.
++  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog);
+   // Whether a C++ exception can be thrown and caught on this console. The
+   // emulator core relies on it in places; if the unwinder does not work every
+   // throw ends the title, and the boot log says so here.
+@@ -2872,6 +2891,8 @@ int main(int argc, char** argv) {
+   xe::InitializeLogging(XBOX360PS5_PRODUCT_NAME);
+   xe::AddLogSink(std::move(owned_game_log));
+   xe::AddLogSink(std::make_unique<ConsoleLogSink>());
++  // Fix 186g: the elevation probe moved UP to the single-threaded window (see above); it no longer
++  // runs here (after InitializeLogging), where the async logger thread made the helper reject us.
+   if (log_ready) XELOGW("Logs: {}", game_log->session.Path().string());
+   if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone) {
+     // What it did, why a folder could not be checked (the error and errno) and why no marker.
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -606,6 +606,11 @@ const std::vector<Option>& Options() {
+       {"detailed_logs", &S::detailed_logs, 4, W::live, 0, false, "Detailed logs",
+        "Log every game system call. Slows games down; enable only for troubleshooting.",
+        {"Off||plural", "On||plural"}},
++      // Fix 186 (issue #80): optional, off-by-default root elevation to lift the console's
++      // per-app write-speed limit. Global-only; read at launch by the elevation gate in main().
++      {"unlimited_write", &S::unlimited_write, 4, W::start, 0, false, "Unlimited write speed (root)",
++       "Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data.",
++       off_on},
+       // Fix 93: one game session with more detail, then a screen with the files for a bug report
+       // (bug_report.hpp). Turns itself off as that game starts (canary_game_main.cpp).
+       // Fix 93d: in no category (-1) and a game may have it: the settings sheet, a game's sheet and
+@@ -3538,6 +3543,9 @@ void Launcher::Draw(ImGuiIO& io) {
+   if (!g_write_bench_started) {
+     g_write_bench_started = true;
+     std::thread([] {
++      // Fix 186c: the elevation request moved to the earliest point in main()
++      // (canary_game_main.cpp), before any thread, so it runs single-threaded; a credential change
++      // is process-wide, so this bench runs as root if elevation took.
+       xbox360ps5::write_bench::Launch(XBOX360PS5_DATA_ROOT, [](const std::string& line) { XELOGW("{}", line); });
+     }).detach();
+   }
+diff --git a/canary/CMakeLists.txt b/canary/CMakeLists.txt
+--- a/canary/CMakeLists.txt
++++ b/canary/CMakeLists.txt
+@@ -85,6 +85,7 @@ add_library(xbox360ps5-title-objects OBJECT
+   "${ROOT}/port/ps5_resolver.cpp"
+   "${ROOT}/port/phone_camera_tls.cpp"
+   "${ROOT}/port/vendor/ps5_framegen.cpp"
++  "${ROOT}/port/vendor/lapy/lapy_elevation_client.c"
+   "${ROOT}/reconstructed/ps5x360_reconstructed.cpp")
+ target_include_directories(xbox360ps5-title-objects PRIVATE
+   "${ROOT}/port/shared" "${XENIA_CANARY}" "${XENIA_CANARY}/src" "${XENIA_CANARY}/src/xenia/vfs"
+diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_probe.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/elevate_probe.hpp
+@@ -0,0 +1,316 @@
++// SPDX-License-Identifier: MIT
++// Fix 186: the optional, off-by-default "Unlimited write speed (root)" feature (issue #80). It raises
++// this app to UID 0 (root) at launch, which removes the PS5's per-app ~1.5-1.7 GB write-speed limit,
++// so game data and shader caches save far faster. A strict, SILENT no-op unless the player turns the
++// option on (or a developer sets the override switch file); never required, never closes the app.
++//
++// Why PATH B: the console runs etaHEN, whose 9028 command jailbreaks by an external ptrace HIJACK;
++// that killed our multithreaded emulator at every timing we tried (fix 186b/186c), before it could
++// even log. The method that works on this console (proven by TrinityXSX) is cooperative: the local
++// elfldr loads a bundled one-shot helper ELF as root, and that helper elevates us through the ELV1
++// handshake (we call seteuid(geteuid()) ourselves; no disruptive hijack). Credential-only (fix 186j):
++// UID 0 without the sandbox escape, so the app keeps its own theme, /app0 and game data.
++//
++// This MIT header does the orchestration only -- the gate (the option or the switch file), the
++// before/after uid checks, the one concise outcome line, the safeguards -- and calls the ELV1/elfldr
++// client through a clean interface. That client (port/vendor/lapy) is an ISOLATED LGPL-2.1-or-later
++// module adapted from prospero-win + PS5-Lapy-JB-Daemon; it is a separable, relinkable unit and is
++// NOT fused into this MIT code (see NOTICE.md). The bundled helper ELF (/app0/lapy.elf) is likewise LGPL.
++//
++// The Result's field names (data_before, elevated_before, helper_completed, helper_errno, data_after,
++// elevated_after, waited_ms, settled_ms) mirror TrinityXSX's "PW_WINE64 data_mount ..." line. Release
++// logging is one calm outcome line to boot.log; there is no per-step progress file. Safeguards: off
++// unless opted in; a per-process attempt cap; std:: file I/O only (fix 186f: raw ::umask/::open were
++// null imports on this firmware); on any failure it logs one line and carries on at UID 1.
++#pragma once
++#if !defined(XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM) && defined(_WIN32)
++#define XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM 1
++#endif
++
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <fstream>
++#include <sstream>
++#include <string>
++
++#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++#include <unistd.h>      // 186f: getpid, geteuid only (toolchain-resolved; umask/open/getuid were not)
++#include <filesystem>
++#include <thread>
++#include "vendor/lapy/lapy_elevation_client.h"  // isolated LGPL-2.1 module (clean interface)
++#endif
++
++namespace xbox360ps5::elevate_probe {
++
++constexpr const char* kHelperPath = "/app0/lapy.elf";  // the bundled LGPL one-shot helper
++constexpr int kMaxAttemptsDefault = 3;
++constexpr int kMaxAttemptsCeiling = 8;
++constexpr int kTimeoutMsDefault = 8000;
++constexpr int kTimeoutMsCeiling = 20000;
++constexpr int kPollStepMs = 100;
++
++enum class Outcome { kOff, kCapped, kNotElevated, kElevated };
++enum class Backend { kNone, kLapyElfldr, kAlready };
++
++inline const char* OutcomeName(Outcome o) {
++  switch (o) {
++    case Outcome::kOff: return "off";
++    case Outcome::kCapped: return "capped";
++    case Outcome::kNotElevated: return "not-elevated";
++    case Outcome::kElevated: return "elevated";
++  }
++  return "?";
++}
++inline const char* BackendName(Backend b) {
++  switch (b) {
++    case Backend::kNone: return "none";
++    case Backend::kLapyElfldr: return "lapy-elfldr-9021";
++    case Backend::kAlready: return "already-root";
++  }
++  return "?";
++}
++
++struct Config {
++  bool on = false;
++  int max_attempts = kMaxAttemptsDefault;
++  int timeout_ms = kTimeoutMsDefault;
++};
++
++inline std::string SwitchFile(const std::string& data_root) { return data_root + "/elevate-probe.txt"; }
++inline std::string Trim(const std::string& s) {
++  size_t a = 0, b = s.size();
++  while (a < b && (unsigned char)s[a] <= ' ') ++a;
++  while (b > a && (unsigned char)s[b - 1] <= ' ') --b;
++  return s.substr(a, b - a);
++}
++inline Config Parse(const std::string& text) {
++  Config c;
++  std::istringstream in(text);
++  std::string line;
++  bool first = true;
++  while (std::getline(in, line)) {
++    const std::string t = Trim(line);
++    if (t.empty() || t[0] == '#') continue;
++    if (first) { first = false; if (t == "on") c.on = true; }
++    const size_t eq = t.find('=');
++    if (eq != std::string::npos) {
++      const std::string key = Trim(t.substr(0, eq));
++      const long value = std::strtol(Trim(t.substr(eq + 1)).c_str(), nullptr, 10);
++      if (key == "attempts" && value >= 1 && value <= kMaxAttemptsCeiling) c.max_attempts = (int)value;
++      if (key == "timeout_ms" && value >= 0 && value <= kTimeoutMsCeiling) c.timeout_ms = (int)value;
++    }
++  }
++  return c;
++}
++inline std::string DataProbeFile(const std::string& data_root, long pid) {
++  return data_root + "/.elevate-probe-write." + std::to_string(pid);
++}
++
++// Fix 186 (issue #80): the production gate. Besides the developer switch file above, the
++// optional "Unlimited write speed (root)" setting turns the elevation on. It is read straight
++// from the general settings file at the early single-threaded point, before Settings::Load
++// runs, so this parses the same "unlimited_write=<n>" line the launcher writes (a non-zero
++// value enables it). settings.txt lives in the app data folder (user_storage::Root(), normally
++// XBOX360PS5_DATA_ROOT); kInternalStorage is the pre-fix-165 fallback, still read in case the
++// move to the data folder has not run yet.
++constexpr const char* kInternalStorage = "/download0/xbox360ps5";
++inline std::string SettingsFile(const std::string& data_root) { return data_root + "/settings.txt"; }
++inline bool SettingsWantElevation(const std::string& settings_text) {
++  std::istringstream in(settings_text);
++  std::string line;
++  while (std::getline(in, line)) {
++    const std::string t = Trim(line);
++    const size_t eq = t.find('=');
++    if (eq == std::string::npos) continue;
++    if (Trim(t.substr(0, eq)) != "unlimited_write") continue;
++    return std::strtol(Trim(t.substr(eq + 1)).c_str(), nullptr, 10) != 0;
++  }
++  return false;
++}
++
++// What one run observed; fields mirror TrinityXSX's PW_WINE64 data_mount line.
++struct Result {
++  Outcome outcome = Outcome::kOff;
++  Backend backend = Backend::kNone;
++  Config config;
++  long pid = 0;
++  unsigned uid_before = 0, euid_before = 0, uid_after = 0, euid_after = 0;
++  bool elevated_before = false, elevated_after = false;
++  bool data_before = false, data_after = false;
++  bool helper_completed = false;  // the ELV1 client returned success
++  int helper_errno = 0;
++  int attempts = 0;
++  int waited_ms = 0, settled_ms = 0;
++
++  std::string Line() const {
++    char buf[512];
++    std::snprintf(buf, sizeof(buf),
++                  "Elevate probe (fix 186): result=%s backend=%s attempts=%d uid_before=%u "
++                  "euid_before=%u data_before=%d elevated_before=%d helper_completed=%d "
++                  "helper_errno=%d waited_ms=%d uid_after=%u euid_after=%u data_after=%d "
++                  "elevated_after=%d settled_ms=%d",
++                  OutcomeName(outcome), BackendName(backend), attempts, uid_before, euid_before,
++                  (int)data_before, (int)elevated_before, (int)helper_completed, helper_errno,
++                  waited_ms, uid_after, euid_after, (int)data_after, (int)elevated_after, settled_ms);
++    return buf;
++  }
++};
++
++inline std::atomic<int>& AttemptCounter() {
++  static std::atomic<int> counter{0};
++  return counter;
++}
++
++struct ElevateResult {
++  bool attempted = false;
++  bool ok = false;
++  int err = 0;
++};
++
++// Host-testable core. Ops: read_text, getuid/geteuid, data_write, elevate_request(pid)->ElevateResult
++// (the ELV1/elfldr client), geteuid-after via re-read; the host check drives it with fakes.
++template <class Ops>
++Result Run(Ops& ops, const std::string& data_root, long pid) {
++  Result r;
++  r.pid = pid;
++  r.config = Parse(ops.read_text(SwitchFile(data_root)));
++  if (!r.config.on) { r.outcome = Outcome::kOff; return r; }
++  r.attempts = AttemptCounter().fetch_add(1) + 1;
++  if (r.attempts > r.config.max_attempts) { r.outcome = Outcome::kCapped; return r; }
++  r.uid_before = ops.getuid();
++  r.euid_before = ops.geteuid();
++  r.elevated_before = r.euid_before == 0;
++  r.data_before = ops.data_write(DataProbeFile(data_root, pid));
++  if (r.elevated_before) {
++    r.backend = Backend::kAlready;
++    r.uid_after = r.uid_before;
++    r.euid_after = r.euid_before;
++    r.elevated_after = true;
++    r.data_after = ops.data_write(DataProbeFile(data_root, pid));
++    r.outcome = Outcome::kElevated;
++    return r;
++  }
++  const ElevateResult e = ops.elevate_request(pid);
++  r.helper_completed = e.ok;
++  r.helper_errno = e.err;
++  r.uid_after = ops.getuid();
++  r.euid_after = ops.geteuid();
++  r.elevated_after = r.euid_after == 0;
++  r.data_after = ops.data_write(DataProbeFile(data_root, pid));
++  r.backend = r.elevated_after ? Backend::kLapyElfldr : Backend::kNone;
++  r.outcome = r.elevated_after ? Outcome::kElevated : Outcome::kNotElevated;
++  return r;
++}
++
++#ifndef XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++// The one log sink the caller sets: boot.log (and the game log once it is up). AttemptEarly runs at
++// the earliest single-threaded point, so this is the only channel for its one outcome line. 186f:
++// use ONLY std:: file I/O and getpid()/geteuid() -- raw ::umask/::open were unresolved (null)
++// imports on this firmware, so calling one jumped to address 0 (SIGSEGV, RIP=0); never reintroduce
++// raw POSIX file or uid calls here.
++inline void (*&LogCb())(const char*) {
++  static void (*cb)(const char*) = nullptr;
++  return cb;
++}
++inline void Log(const char* text) { if (LogCb()) LogCb()(text); }
++
++// A real 0666 write in the app's own data folder, removed again (issue #80: a file made while
++// elevated stays usable at UID 1). std::ofstream + std::filesystem only -- no raw POSIX, no umask.
++inline bool DataWrite(const std::string& path) {
++  bool ok = false;
++  {
++    std::ofstream f(path, std::ios::binary | std::ios::trunc);
++    if (f.is_open()) {
++      f << "TRINITYX360\n";
++      f.flush();
++      ok = f.good();
++    }
++  }
++  std::error_code ec;
++  std::filesystem::remove(path, ec);
++  return ok;
++}
++
++// The real entry: run the elevation ONCE at the earliest SINGLE-THREADED point in main() -- after
++// /data is writable and boot.log is up, but before any worker thread starts. The Lapy helper's
++// cooperative APPLY refuses a multi-threaded target (one credential ref required), so this must run
++// before the logger/network threads (186g). Enabled by EITHER the optional "Unlimited write speed
++// (root)" setting (settings.txt, the player-facing switch) OR the developer override file
++// <data>/elevate-probe.txt ("on"); a strict, SILENT no-op otherwise, so a user without the setting
++// or without a jailbreak backend sees nothing. On any failure it logs one calm line and carries on
++// at UID 1 -- the app is never closed. The actual elevation is the isolated LGPL ELV1/elfldr client,
++// called with no progress callback so it stays silent in release.
++inline Result AttemptEarly(const std::string& data_root, void (*log)(const char*) = nullptr) {
++  LogCb() = log;
++  Result r;
++  const long pid = (long)::getpid();
++  r.pid = pid;
++  const auto slurp = [](const std::string& path) {
++    std::ifstream f(path, std::ios::binary);
++    std::ostringstream s;
++    s << f.rdbuf();
++    return s.str();
++  };
++  r.config = Parse(slurp(SwitchFile(data_root)));  // the developer override (also sets attempts/timeout)
++  // The gate: the setting (the player-facing toggle) or the developer switch file.
++  bool want = r.config.on;
++  if (!want) want = SettingsWantElevation(slurp(SettingsFile(data_root)));
++  if (!want) want = SettingsWantElevation(slurp(std::string(kInternalStorage) + "/settings.txt"));
++  if (!want) { r.outcome = Outcome::kOff; return r; }  // silent no-op: no setting, no switch
++  if (AttemptCounter().fetch_add(1) + 1 > r.config.max_attempts) { r.outcome = Outcome::kCapped; return r; }
++
++  // 186f: euid is what matters for issue #80; getuid() was not probed by the toolchain, so skip it.
++  r.euid_before = (unsigned)::geteuid();
++  r.uid_before = r.euid_before;
++  r.elevated_before = r.euid_before == 0;
++
++  if (r.elevated_before) {
++    r.backend = Backend::kAlready;
++    r.uid_after = r.euid_after = r.euid_before;
++    r.elevated_after = true;
++    r.outcome = Outcome::kElevated;
++    Log("Unlimited write speed (fix 186): already running as root (euid 0).");
++    return r;
++  }
++
++  r.data_before = DataWrite(DataProbeFile(data_root, pid));
++  errno = 0;
++  const int rc = lapy_elevation_request((int32_t)pid, kHelperPath, nullptr);  // silent client
++  r.helper_completed = rc == 0;
++  r.helper_errno = rc == 0 ? 0 : (errno ? errno : EIO);
++
++  int waited = 0;
++  while ((unsigned)::geteuid() != 0 && waited < r.config.timeout_ms) {
++    std::this_thread::sleep_for(std::chrono::milliseconds(kPollStepMs));
++    waited += kPollStepMs;
++  }
++  r.waited_ms = waited;
++  r.euid_after = (unsigned)::geteuid();
++  r.uid_after = r.euid_after;
++  r.elevated_after = r.euid_after == 0;
++  r.data_after = DataWrite(DataProbeFile(data_root, pid));
++  r.backend = r.elevated_after ? Backend::kLapyElfldr : Backend::kNone;
++  r.outcome = r.elevated_after ? Outcome::kElevated : Outcome::kNotElevated;
++  if (r.elevated_after) {
++    Log("Unlimited write speed (fix 186): root granted (euid 0); the per-app write limit is lifted.");
++  } else {
++    // One concise, diagnosable line: the client's errno tells the stage -- a connect refusal
++    // (ECONNREFUSED) means no root backend is listening on 127.0.0.1:9021, EACCES/EPROTO mean the
++    // handshake was reached but rejected. Still no scary multi-line trace for ordinary users.
++    char msg[192];
++    std::snprintf(msg, sizeof(msg),
++                  "Unlimited write speed (fix 186): could not elevate (client errno=%d; a connect "
++                  "refusal = no root backend on 127.0.0.1:9021); running normally at UID 1.",
++                  r.helper_errno);
++    Log(msg);
++  }
++  return r;
++}
++#endif  // XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
++
++}  // namespace xbox360ps5::elevate_probe
+diff --git a/port/vendor/lapy/lapy_elevation_protocol.h b/port/vendor/lapy/lapy_elevation_protocol.h
+new file mode 100644
+--- /dev/null
++++ b/port/vendor/lapy/lapy_elevation_protocol.h
+@@ -0,0 +1,53 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/* Vendored verbatim from PS5-Lapy-JB-Daemon (mpereiraesaa), rev
++ * b48b7d7236eca25c7b9dfd6c040c763ae05dde80, source/lapy_elevation_protocol.h.
++ * Part of the isolated LGPL-2.1-or-later elevation module bundled with (but not
++ * fused into) TrinityX360's MIT eboot. See NOTICE.md / licenses/LAPY-LGPL-2.1.txt. */
++#ifndef LAPY_ELEVATION_PROTOCOL_H
++#define LAPY_ELEVATION_PROTOCOL_H
++
++#include <stdint.h>
++
++#define LAPY_ELEVATION_MAGIC UINT32_C(0x31564c45) /* ELV1 */
++#define LAPY_ELEVATION_VERSION UINT16_C(1)
++
++enum lapy_elevation_kind {
++    LAPY_ELEVATION_REQUEST = 1,
++    LAPY_ELEVATION_PREPARE = 2,
++    LAPY_ELEVATION_PREPARED = 3,
++    LAPY_ELEVATION_RESPONSE = 4
++};
++
++enum lapy_elevation_capability {
++    LAPY_ELEVATION_FILESYSTEM = 1
++};
++
++enum lapy_elevation_status {
++    LAPY_ELEVATION_OK = 0,
++    LAPY_ELEVATION_INVALID_REQUEST = 1,
++    LAPY_ELEVATION_UNSUPPORTED_VERSION = 2,
++    LAPY_ELEVATION_UNSUPPORTED_CAPABILITY = 3,
++    LAPY_ELEVATION_TARGET_MISMATCH = 4,
++    LAPY_ELEVATION_UNAVAILABLE = 5,
++    LAPY_ELEVATION_PREPARE_FAILED = 6,
++    LAPY_ELEVATION_APPLY_FAILED = 7,
++    LAPY_ELEVATION_ROLLBACK_FAILED = 8,
++    LAPY_ELEVATION_TRANSPORT_ERROR = 9,
++    LAPY_ELEVATION_PROTOCOL_ERROR = 10
++};
++
++/* Fixed-width little-endian wire format shared with the Prospero Win client. */
++struct lapy_elevation_message {
++    uint32_t magic;
++    uint16_t version;
++    uint16_t size;
++    uint32_t kind;
++    uint32_t capability;
++    uint32_t pid;
++    uint32_t status;
++};
++
++_Static_assert(sizeof(struct lapy_elevation_message) == 24,
++               "Lapy elevation wire ABI mismatch");
++
++#endif
+diff --git a/port/vendor/lapy/lapy_elevation_client.h b/port/vendor/lapy/lapy_elevation_client.h
+new file mode 100644
+--- /dev/null
++++ b/port/vendor/lapy/lapy_elevation_client.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/* Isolated LGPL-2.1 elevation client, adapted from prospero-win (mpereiraesaa,
++ * tag v0.3.0, rev 404cac6ebbb236d2486d2796fd28b9bd39f2caa6) native/pw_lapy_elevation.c.
++ * Not fused into TrinityX360's MIT eboot; the eboot calls it through this header.
++ * See NOTICE.md / licenses/LAPY-LGPL-2.1.txt. */
++#ifndef LAPY_ELEVATION_CLIENT_H
++#define LAPY_ELEVATION_CLIENT_H
++
++#include <stdint.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* Stream the bundled one-shot ELF at helper_path to the local elfldr listener
++ * (TCP 127.0.0.1:9021) and run the versioned ELV1 handshake for this process:
++ * REQUEST -> PREPARE -> seteuid(geteuid()) -> PREPARED -> RESPONSE. Returns 0
++ * on a confirmed elevation, else -1 with errno. */
++int lapy_elevation_request(int32_t pid, const char *helper_path,
++                           void (*progress)(const char *));
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
+diff --git a/port/vendor/lapy/lapy_elevation_client.c b/port/vendor/lapy/lapy_elevation_client.c
+new file mode 100644
+--- /dev/null
++++ b/port/vendor/lapy/lapy_elevation_client.c
+@@ -0,0 +1,168 @@
++/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/* Isolated LGPL-2.1 elevation client. The ELV1 handshake and the "stream the one-shot ELF to the
++ * local elfldr, then REQUEST/PREPARE/seteuid/PREPARED/RESPONSE" sequence are adapted from
++ * prospero-win (mpereiraesaa, tag v0.3.0, rev 404cac6ebbb236d2486d2796fd28b9bd39f2caa6)
++ * native/pw_lapy_elevation.c; the ELV1 wire format is PS5-Lapy-JB-Daemon's
++ * (rev b48b7d7236eca25c7b9dfd6c040c763ae05dde80). The socket layer uses plain POSIX sockets (the
++ * same the TrinityX360 eboot already uses for its localhost settings server), not prospero-win's
++ * sceNet wrappers, so it links in this eboot. This file is LGPL-2.1-or-later, compiled as a
++ * separable, relinkable unit; TrinityX360's own code stays MIT and calls it only through
++ * lapy_elevation_client.h. See NOTICE.md. */
++#define _POSIX_C_SOURCE 200809L
++#include "lapy_elevation_client.h"
++#include "lapy_elevation_protocol.h"
++
++#include <arpa/inet.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <netinet/in.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/stat.h>
++#include <sys/time.h>
++#include <unistd.h>
++
++#define LAPY_PORT 9021
++#define LAPY_TIMEOUT_MS 5000
++#define LAPY_MAX_ELF_SIZE (4u * 1024u * 1024u)
++
++static int send_all(int socket, const void *data, size_t size) {
++    const uint8_t *bytes = (const uint8_t *)data;
++    while (size) {
++        ssize_t count = send(socket, bytes, size, 0);
++        if (count < 0) return -1;
++        if (count == 0) { errno = EPIPE; return -1; }
++        if ((size_t)count > size) { errno = EPROTO; return -1; }
++        bytes += count;
++        size -= (size_t)count;
++    }
++    return 0;
++}
++
++static int receive_all(int socket, void *data, size_t size) {
++    uint8_t *bytes = (uint8_t *)data;
++    while (size) {
++        ssize_t count = recv(socket, bytes, size, 0);
++        if (count < 0) return -1;
++        if (count == 0) { errno = ECONNRESET; return -1; }
++        if ((size_t)count > size) { errno = EPROTO; return -1; }
++        bytes += count;
++        size -= (size_t)count;
++    }
++    return 0;
++}
++
++static int message_matches(const struct lapy_elevation_message *message,
++                           const struct lapy_elevation_message *request, uint32_t kind) {
++    return message->magic == LAPY_ELEVATION_MAGIC &&
++           message->version == LAPY_ELEVATION_VERSION &&
++           message->size == sizeof(*message) && message->kind == kind &&
++           message->capability == request->capability && message->pid == request->pid;
++}
++
++static int status_errno(uint32_t status) {
++    switch (status) {
++    case LAPY_ELEVATION_TARGET_MISMATCH: return ESRCH;
++    case LAPY_ELEVATION_UNAVAILABLE: return ENOENT;
++    case LAPY_ELEVATION_PREPARE_FAILED: return EPERM;
++    case LAPY_ELEVATION_TRANSPORT_ERROR: return ETIMEDOUT;
++    case LAPY_ELEVATION_OK: return 0;
++    default: return EACCES;
++    }
++}
++
++static int exchange(int socket, struct lapy_elevation_message *request,
++                    void (*progress)(const char *)) {
++    struct lapy_elevation_message message;
++    if (send_all(socket, request, sizeof(*request)) ||
++        receive_all(socket, &message, sizeof(message))) {
++        errno = errno ? errno : EIO;
++        return -1;
++    }
++    if (message_matches(&message, request, LAPY_ELEVATION_RESPONSE)) {
++        /* A success without the PREPARE/PREPARED handshake never cloned the
++         * target credential natively; reject it. */
++        if (message.status == LAPY_ELEVATION_OK) { errno = EPROTO; return -1; }
++        errno = status_errno(message.status);
++        return -1;
++    }
++    if (!message_matches(&message, request, LAPY_ELEVATION_PREPARE)) { errno = EPROTO; return -1; }
++    if (message.status != LAPY_ELEVATION_OK) { errno = status_errno(message.status); return -1; }
++
++    /* Cooperative point: clone our credentials only after the helper validated
++     * the requested PID and title. */
++    struct lapy_elevation_message prepared = *request;
++    prepared.kind = LAPY_ELEVATION_PREPARED;
++    if (seteuid(geteuid()) != 0) prepared.status = LAPY_ELEVATION_PREPARE_FAILED;
++    if (progress) progress("lapy: PREPARE ok, sent PREPARED (seteuid done)");
++    if (send_all(socket, &prepared, sizeof(prepared)) ||
++        receive_all(socket, &message, sizeof(message))) {
++        errno = errno ? errno : EIO;
++        return -1;
++    }
++    if (!message_matches(&message, request, LAPY_ELEVATION_RESPONSE)) { errno = EPROTO; return -1; }
++    errno = status_errno(message.status);
++    return message.status == LAPY_ELEVATION_OK ? 0 : -1;
++}
++
++int lapy_elevation_request(int32_t pid, const char *helper_path,
++                           void (*progress)(const char *)) {
++    struct stat st;
++    struct sockaddr_in address;
++    struct timeval tv;
++    struct lapy_elevation_message request;
++    uint8_t buffer[4096];
++    int helper = -1, sock = -1, result = -1, saved_errno = EIO;
++
++    request.magic = LAPY_ELEVATION_MAGIC;
++    request.version = LAPY_ELEVATION_VERSION;
++    request.size = sizeof(struct lapy_elevation_message);
++    request.kind = LAPY_ELEVATION_REQUEST;
++    request.capability = LAPY_ELEVATION_FILESYSTEM;
++    request.pid = (uint32_t)pid;
++    request.status = LAPY_ELEVATION_OK;
++
++    if (pid <= 1 || !helper_path) { errno = EINVAL; return -1; }
++    helper = open(helper_path, O_RDONLY);
++    if (helper < 0) return -1;
++    if (fstat(helper, &st)) { saved_errno = errno ? errno : EIO; goto done; }
++    if (!S_ISREG(st.st_mode) || st.st_size <= 0) { saved_errno = EINVAL; goto done; }
++    if ((uint64_t)st.st_size > LAPY_MAX_ELF_SIZE) { saved_errno = EFBIG; goto done; }
++
++    if (progress) progress("lapy: socket");
++    sock = socket(AF_INET, SOCK_STREAM, 0);
++    if (sock < 0) { saved_errno = errno ? errno : EIO; goto done; }
++    tv.tv_sec = LAPY_TIMEOUT_MS / 1000;
++    tv.tv_usec = (LAPY_TIMEOUT_MS % 1000) * 1000;
++    (void)setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
++    (void)setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
++    memset(&address, 0, sizeof(address));
++    address.sin_family = AF_INET;
++    address.sin_port = htons((uint16_t)LAPY_PORT);
++    inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
++    if (progress) progress("lapy: connect 127.0.0.1:9021");
++    if (connect(sock, (const struct sockaddr *)&address, sizeof(address)) != 0) {
++        saved_errno = errno ? errno : EIO;
++        goto done;
++    }
++    if (progress) progress("lapy: connected, streaming helper ELF");
++
++    for (;;) {
++        ssize_t count = read(helper, buffer, sizeof(buffer));
++        if (count == 0) break;
++        if (count < 0) { saved_errno = errno ? errno : EIO; goto done; }
++        if (send_all(sock, buffer, (size_t)count)) { saved_errno = errno ? errno : EIO; goto done; }
++    }
++    if (progress) progress("lapy: ELF sent, ELV1 handshake (seteuid + wait for RESPONSE)");
++    if (exchange(sock, &request, progress) == 0) result = 0;
++    else saved_errno = errno ? errno : EIO;
++    if (progress) progress(result == 0 ? "lapy: RESPONSE OK (elevated)" : "lapy: handshake failed");
++
++done:
++    if (sock >= 0) (void)close(sock);
++    if (helper >= 0) (void)close(helper);
++    if (result) errno = saved_errno;
++    return result;
++}
