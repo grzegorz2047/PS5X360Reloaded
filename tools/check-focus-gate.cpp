@@ -4,7 +4,7 @@
 // NativePad::Read hands out a resting pad, and back on top no press the app did not get comes
 // through. Drives include/xbox360ps5/focus_gate.hpp with a sample of PadSample's fields, then
 // checks that src/canary_game_main.cpp of the assembled tree (run from the tree's root) wires it:
-// the weak status import, the poll in Read, the gate on Read's sample, the switch file.
+// the status call looked up at run time (no weak import), the poll in Read, the gate on Read's sample, the switch file.
 #if !__has_include("xbox360ps5/focus_gate.hpp")
 #include <cstdio>
 int main() {
@@ -305,19 +305,29 @@ void CheckTreeWiring() {
   }
   const auto has = [&](const char* text) { return main_cpp.find(text) != std::string::npos; };
   Expect(has("#include \"xbox360ps5/focus_gate.hpp\""), "canary_game_main.cpp includes the gate");
-  Expect(has("__attribute__((weak)) int sceSystemServiceGetStatus(void*);"),
-         "the status call is a weak import (a missing one is 0, not a load failure)");
-  Expect(has("if (status_call == nullptr) {"), "the import's address is checked before any call");
+  // The status call is looked up at run time (as notify.cpp does), never imported: the build turns
+  // every weak undefined symbol outside Mesa into an error, and a strong import could be missing.
+  Expect(!has("__attribute__((weak)) int sceSystemServiceGetStatus"),
+         "no weak import of the status call (the build refuses weak references outside Mesa)");
+  Expect(!has("int sceSystemServiceGetStatus("), "no import of the status call at all");
+  Expect(has("sceKernelDlsym(handle, \"sceSystemServiceGetStatus\", &address)"),
+         "the status call is looked up in the system library");
+  Expect(has("return found >= 0 && address != nullptr ? reinterpret_cast<StatusCall>(address) : nullptr;"),
+         "a failed lookup gives no call");
+  Expect(has("status_call_ = FindStatusCall();\r\n    if (status_call_ == nullptr) {\r\n      focus_gate_.Disable();") ||
+             has("status_call_ = FindStatusCall();\n    if (status_call_ == nullptr) {\n      focus_gate_.Disable();"),
+         "without the call the gate is off (the pad is read as before)");
   Expect(has("PollFocus(now);"), "Read polls the status");
-  Expect(has("if (!focus_gate_.PollDue(now_ms)) return;"), "the poll is paced (and off when disabled)");
+  Expect(has("if (!focus_gate_.PollDue(now_ms) || status_call_ == nullptr) return;"),
+         "the poll is paced, off when disabled, and never calls a null address");
   Expect(has("return focus_gate_.Apply(slot, state);"), "Read's sample goes through the gate");
   Expect(has("XBOX360PS5_DATA_ROOT \"/focus-gate.txt\""), "the switch file turns it off");
   // The status is read only behind the pace check, never before it in PollFocus.
   const size_t poll = main_cpp.find("void PollFocus(");
   const size_t due = main_cpp.find("focus_gate_.PollDue(", poll);
-  const size_t call = main_cpp.find("sceSystemServiceGetStatus(record.data())", poll);
+  const size_t call = main_cpp.find("status_call_(record.data())", poll);
   Expect(poll != std::string::npos && due != std::string::npos && call != std::string::npos && due < call,
-         "PollFocus checks PollDue before it calls sceSystemServiceGetStatus");
+         "PollFocus checks PollDue and the call before it calls the status");
   // Every sample of a read pad goes through the gate: Read returns the read sample nowhere else.
   const size_t read = main_cpp.find("xbox360ps5::PadSample Read(size_t slot = 0) {");
   const size_t read_end = main_cpp.find("\n  bool Rumble(", read);
