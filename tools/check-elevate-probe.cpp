@@ -179,18 +179,22 @@ void Tree() {
          "(d) the build compiles the LGPL client");
   const std::string canary = Read("src/canary_game_main.cpp");
   const size_t cmain = canary.find("int main(");
-  const size_t aUse = After(canary, "user_storage::Use(", cmain);
+  const size_t aCrash = After(canary, "InstallCrashReport(", cmain);
+  const size_t aAttempt = After(canary, "elevate_probe::AttemptEarly(", cmain);
+  const size_t aNet = After(canary, "StartNetLog(", cmain);
   const size_t aInit = After(canary, "InitializeLogging(", cmain);
-  const size_t aAttempt = After(canary, "elevate_probe::AttemptEarly(", aInit);
   const size_t aWeb = After(canary, "StartWebSettings(", cmain);
-  // 186e: elevate AFTER /data is writable (user_storage::Use) and the logger is up
-  // (InitializeLogging), but BEFORE the web-settings server/window/launcher/threads.
-  Expect(cmain != std::string::npos && aUse != std::string::npos && aInit != std::string::npos &&
-             aAttempt != std::string::npos && aUse < aAttempt && aInit < aAttempt && aAttempt < aWeb,
-         "(d) AttemptEarly runs after /data+logging init and before the web-settings server");
+  // 186g: elevate at the earliest SINGLE-THREADED point -- after InstallCrashReport (boot.log up and
+  // /data writable), but BEFORE StartNetLog, InitializeLogging and the web server, which start the
+  // first worker threads. The Lapy helper refuses a multi-threaded target (APPLY_FAILED), which is
+  // why 186e/186f (after InitializeLogging) failed with euid still 1.
+  Expect(cmain != std::string::npos && aCrash != std::string::npos && aAttempt != std::string::npos &&
+             aNet != std::string::npos && aInit != std::string::npos && aWeb != std::string::npos &&
+             aCrash < aAttempt && aAttempt < aNet && aAttempt < aInit && aAttempt < aWeb,
+         "(d) AttemptEarly runs single-threaded: after InstallCrashReport, before StartNetLog/logger/web");
   Expect(canary.find("AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog)") != std::string::npos &&
-             canary.find("xe::FlushLog()") != std::string::npos,
-         "(d) the probe is given the boot.log + flushed-game-log fallback sink");
+             canary.find("void Xbox360PS5ElevateProbeLog(") != std::string::npos,
+         "(d) the probe is given the boot.log step sink (Xbox360PS5ElevateProbeLog)");
   Expect(h.find("void (*&LogCb())") != std::string::npos && h.find("if (LogCb()) LogCb()(text)") != std::string::npos,
          "(d) ProgLine emits each step to the fallback sink too (survives a /data open failure)");
   const std::string launcher = Read("src/launcher.cpp");

@@ -13,30 +13,39 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
                        Tr("This game requires Kinect. Turn on Camera motion in the guide (Settings, Controls), then start the game again."),
                        "", false});
  }
-+// Fix 186e (issue #80): the elevation probe's step sink -- boot.log (synchronous, survives a crash)
-+// AND the game log flushed at once (the async logger would lose buffered lines on a death).
++// Fix 186g (issue #80): the elevation probe's step sink. 186g moves the probe to the earliest
++// single-threaded point in main() (the Lapy helper refuses a multi-threaded target -- APPLY_FAILED),
++// which is BEFORE the game logger is up, so the sink is boot.log only (synchronous, survives a
++// crash). The full step trail also goes to <data>/elevate-probe-progress.txt.
 +extern "C" void Xbox360PS5ElevateProbeLog(const char* step) {
 +  xbox360ps5::Stage(step);
-+  XELOGW("Elevate probe: {}", step);
-+  xe::FlushLog();
 +}
 +
  int main(int argc, char** argv) {
    config::config_folder = "/app0/assets";
    xbox360ps5::motion::kinect_needed = &KinectNeededNotice;
-@@ -2872,6 +2881,15 @@ int main(int argc, char** argv) {
+@@ -2684,6 +2693,15 @@ int main(int argc, char** argv) {
+     std::snprintf(line, sizeof(line), "BOOT first thread placed: %s", place);
+     Stage(line);
+   }
++  // Fix 186g (issue #80): elevate to UID 0 HERE -- the earliest SINGLE-THREADED point. /data is
++  // writable (storage created above) and boot.log is up (InstallCrashReport), but no worker thread
++  // has started yet (StartNetLog, InitializeLogging, the web server and the emulator threads all
++  // come later). The Lapy helper's cooperative APPLY needs a single-threaded target with one
++  // credential ref; running it after the async logger thread (186e/186f) failed with APPLY_FAILED.
++  // Strict no-op unless <data>/elevate-probe.txt says "on"; every step goes to
++  // <data>/elevate-probe-progress.txt and boot.log; on any failure it logs and carries on at UID 1
++  // -- the app is never closed. The actual elevation is the isolated LGPL ELV1/elfldr client.
++  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog);
+   // Whether a C++ exception can be thrown and caught on this console. The
+   // emulator core relies on it in places; if the unwinder does not work every
+   // throw ends the title, and the boot log says so here.
+@@ -2872,6 +2890,8 @@ int main(int argc, char** argv) {
    xe::InitializeLogging(XBOX360PS5_PRODUCT_NAME);
    xe::AddLogSink(std::move(owned_game_log));
    xe::AddLogSink(std::make_unique<ConsoleLogSink>());
-+  // Fix 186e (issue #80): elevate to UID 0 HERE -- after /data is writable (user_storage::Use
-+  // above), after the network (StartNetLog) and the logger are up, but before the web-settings
-+  // server, the window, the launcher and the emulator's worker threads. 186c/186d ran it as the
-+  // first statement of main(), before /data/the runtime existed, so the probe faulted and wrote no
-+  // progress file at all. It is still a strict no-op unless <data>/elevate-probe.txt says "on";
-+  // every step goes to <data>/elevate-probe-progress.txt and, as a crash-proof fallback, to
-+  // boot.log + the flushed game log. On any failure it logs and carries on at UID 1 -- the app is
-+  // never closed. The actual elevation is the isolated LGPL ELV1/elfldr client.
-+  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog);
++  // Fix 186g: the elevation probe moved UP to the single-threaded window (see above); it no longer
++  // runs here (after InitializeLogging), where the async logger thread made the helper reject us.
    if (log_ready) XELOGW("Logs: {}", game_log->session.Path().string());
    if (imported.plan.decision != xbox360ps5::official_import::Decision::kAlreadyDone) {
      // What it did, why a folder could not be checked (the error and errno) and why no marker.
@@ -68,7 +77,7 @@ diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_p
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/elevate_probe.hpp
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,304 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 186d: an optional, off-by-default probe that elevates this process to UID 0 before the fix
 +// 148i/148j write benchmark, so the bench's throughput past the ~1.5-1.7 GB per-process write budget
@@ -296,10 +305,12 @@ new file mode 100644
 +  return ok;
 +}
 +
-+// The real entry: run the probe ONCE at the single-threaded point in main() just after /data and the
-+// logger are up, writing every step to <data>/elevate-probe-progress.txt and, as a crash-proof
-+// fallback, to boot.log + the flushed game log. A strict no-op unless the switch says "on"; no signal
-+// handler; never closes the app. The actual elevation is the isolated LGPL ELV1/elfldr client.
++// The real entry: run the probe ONCE at the earliest SINGLE-THREADED point in main() -- after /data
++// is writable and boot.log is up, but before any worker thread starts. The Lapy helper's cooperative
++// APPLY refuses a multi-threaded target (one credential ref required), so this must run before the
++// logger/network threads (186g). Every step goes to <data>/elevate-probe-progress.txt and, as a
++// crash-proof fallback, to boot.log. A strict no-op unless the switch says "on"; no signal handler;
++// never closes the app. The actual elevation is the isolated LGPL ELV1/elfldr client.
 +inline Result AttemptEarly(const std::string& data_root, void (*log)(const char*) = nullptr) {
 +  LogCb() = log;  // capture every step to boot.log / the game log too, even if /data write fails
 +  Result r;
@@ -464,7 +475,7 @@ diff --git a/port/vendor/lapy/lapy_elevation_client.c b/port/vendor/lapy/lapy_el
 new file mode 100644
 --- /dev/null
 +++ b/port/vendor/lapy/lapy_elevation_client.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,182 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/* Isolated LGPL-2.1 elevation client. The ELV1 handshake and the "stream the one-shot ELF to the
 + * local elfldr, then REQUEST/PREPARE/seteuid/PREPARED/RESPONSE" sequence are adapted from
@@ -484,6 +495,7 @@ new file mode 100644
 +#include <fcntl.h>
 +#include <netinet/in.h>
 +#include <stdint.h>
++#include <stdio.h>
 +#include <string.h>
 +#include <sys/socket.h>
 +#include <sys/stat.h>
@@ -539,13 +551,27 @@ new file mode 100644
 +    }
 +}
 +
-+static int exchange(int socket, struct lapy_elevation_message *request) {
++/* 186g: surface the exact ELV1 reply (kind + raw status) to the caller's progress log. status_errno
++ * flattens six distinct statuses to EACCES, which hid the real cause (APPLY_FAILED on a multi-threaded
++ * target) during 186f. This only logs; it does not change the protocol. */
++static void log_reply(void (*progress)(const char *), const char *phase,
++                      const struct lapy_elevation_message *message) {
++    char buf[96];
++    if (!progress) return;
++    snprintf(buf, sizeof(buf), "lapy: %s reply kind=%u status=%u", phase, (unsigned)message->kind,
++             (unsigned)message->status);
++    progress(buf);
++}
++
++static int exchange(int socket, struct lapy_elevation_message *request,
++                    void (*progress)(const char *)) {
 +    struct lapy_elevation_message message;
 +    if (send_all(socket, request, sizeof(*request)) ||
 +        receive_all(socket, &message, sizeof(message))) {
 +        errno = errno ? errno : EIO;
 +        return -1;
 +    }
++    log_reply(progress, "first", &message);
 +    if (message_matches(&message, request, LAPY_ELEVATION_RESPONSE)) {
 +        /* A success without the PREPARE/PREPARED handshake never cloned the
 +         * target credential natively; reject it. */
@@ -561,11 +587,13 @@ new file mode 100644
 +    struct lapy_elevation_message prepared = *request;
 +    prepared.kind = LAPY_ELEVATION_PREPARED;
 +    if (seteuid(geteuid()) != 0) prepared.status = LAPY_ELEVATION_PREPARE_FAILED;
++    if (progress) progress("lapy: PREPARE ok, sent PREPARED (seteuid done)");
 +    if (send_all(socket, &prepared, sizeof(prepared)) ||
 +        receive_all(socket, &message, sizeof(message))) {
 +        errno = errno ? errno : EIO;
 +        return -1;
 +    }
++    log_reply(progress, "final", &message);
 +    if (!message_matches(&message, request, LAPY_ELEVATION_RESPONSE)) { errno = EPROTO; return -1; }
 +    errno = status_errno(message.status);
 +    return message.status == LAPY_ELEVATION_OK ? 0 : -1;
@@ -620,7 +648,7 @@ new file mode 100644
 +        if (send_all(sock, buffer, (size_t)count)) { saved_errno = errno ? errno : EIO; goto done; }
 +    }
 +    if (progress) progress("lapy: ELF sent, ELV1 handshake (seteuid + wait for RESPONSE)");
-+    if (exchange(sock, &request) == 0) result = 0;
++    if (exchange(sock, &request, progress) == 0) result = 0;
 +    else saved_errno = errno ? errno : EIO;
 +    if (progress) progress(result == 0 ? "lapy: RESPONSE OK (elevated)" : "lapy: handshake failed");
 +
