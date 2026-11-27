@@ -259,6 +259,13 @@ jobs:
       - name: Console image tool checks
         run: python3 -I tools/check-console-image-tools.py
 
+      - name: Ensure ccache and lld-18
+        run: |
+          if ! command -v ccache >/dev/null || ! command -v ld.lld-18 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ccache lld-18
+          fi
+
       - name: Restore the source drops
         uses: actions/cache@v4
         with:
@@ -266,10 +273,27 @@ jobs:
           key: src102-drops-${{ hashFiles('tools/source-1.0.2/assemble.py') }}
           restore-keys: src102-drops-
 
+      - name: Restore host check compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: fix-checks-ccache-${{ github.run_id }}
+          restore-keys: fix-checks-ccache-
+
       - name: Assemble the 1.0.2 source tree
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
 
       - name: Host checks of the fixes
         run: |
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE
+          export CCACHE_COMPILERCHECK=content CCACHE_SLOPPINESS=time_macros
           clang++-18 --version | head -1
           bash tools/source-1.0.2/run-fix-checks.sh build/src102
+          ccache -s || true
+
+      - name: Save host check compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: fix-checks-ccache-${{ github.run_id }}
