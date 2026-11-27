@@ -13,6 +13,17 @@ diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
    static const char* ScaleName(int scale);
    static const char* FilterName(int filter);
    void Load();
+diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_groups.hpp
+--- a/include/xbox360ps5/option_groups.hpp
++++ b/include/xbox360ps5/option_groups.hpp
+@@ -123,6 +123,7 @@ inline constexpr Entry kEntries[] = {
+     {"arcade_full", Group::other, nullptr, nullptr},
+     {"save_drive", Group::other, nullptr, nullptr},
+     {"detailed_logs", Group::other, nullptr, nullptr},
++    {"unlimited_write", Group::other, nullptr, nullptr},
+     {"bug_report", Group::other, nullptr, nullptr},
+ };
+ 
 diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 --- a/src/canary_game_main.cpp
 +++ b/src/canary_game_main.cpp
