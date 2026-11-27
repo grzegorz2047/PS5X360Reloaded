@@ -117,7 +117,7 @@ diff --git a/include/xbox360ps5/elevate_probe.hpp b/include/xbox360ps5/elevate_p
 new file mode 100644
 --- /dev/null
 +++ b/include/xbox360ps5/elevate_probe.hpp
-@@ -0,0 +1,307 @@
+@@ -0,0 +1,316 @@
 +// SPDX-License-Identifier: MIT
 +// Fix 186: the optional, off-by-default "Unlimited write speed (root)" feature (issue #80). It raises
 +// this app to UID 0 (root) at launch, which removes the PS5's per-app ~1.5-1.7 GB write-speed limit,
@@ -416,10 +416,19 @@ new file mode 100644
 +  r.data_after = DataWrite(DataProbeFile(data_root, pid));
 +  r.backend = r.elevated_after ? Backend::kLapyElfldr : Backend::kNone;
 +  r.outcome = r.elevated_after ? Outcome::kElevated : Outcome::kNotElevated;
-+  if (r.elevated_after)
++  if (r.elevated_after) {
 +    Log("Unlimited write speed (fix 186): root granted (euid 0); the per-app write limit is lifted.");
-+  else
-+    Log("Unlimited write speed (fix 186): could not elevate (no supported root backend); running normally.");
++  } else {
++    // One concise, diagnosable line: the client's errno tells the stage -- a connect refusal
++    // (ECONNREFUSED) means no root backend is listening on 127.0.0.1:9021, EACCES/EPROTO mean the
++    // handshake was reached but rejected. Still no scary multi-line trace for ordinary users.
++    char msg[192];
++    std::snprintf(msg, sizeof(msg),
++                  "Unlimited write speed (fix 186): could not elevate (client errno=%d; a connect "
++                  "refusal = no root backend on 127.0.0.1:9021); running normally at UID 1.",
++                  r.helper_errno);
++    Log(msg);
++  }
 +  return r;
 +}
 +#endif  // XBOX360PS5_ELEVATE_PROBE_NO_SYSTEM
