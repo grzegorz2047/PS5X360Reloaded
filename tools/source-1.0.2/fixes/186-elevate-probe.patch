@@ -50,27 +50,24 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  int main(int argc, char** argv) {
    config::config_folder = "/app0/assets";
    xbox360ps5::motion::kinect_needed = &KinectNeededNotice;
-@@ -2705,6 +2714,19 @@ int main(int argc, char** argv) {
-   BootTiming("platform memory reported");  // fix 93f
-   Stage(xbox360ps5::StartNetLog(9100) ? "BOOT log stream on TCP 9100" : "BOOT log stream unavailable");
-   BootTiming("log stream");  // fix 93f
-+  // Fix 186m (issue #80): elevate to UID 0 HERE -- right AFTER StartNetLog, so the PS5 network/socket
-+  // layer is up. 186g ran this at the earliest single-threaded point, but the ELV1/elfldr client
-+  // connects to 127.0.0.1:9021, and before StartNetLog the socket layer is not ready, so the connect
-+  // failed (186k/186l: "could not elevate", client ECONNREFUSED) even though elfldr was listening
-+  // (TrinityXSX connects to the same elfldr only after its runtime/network init and succeeds). Fix
-+  // 186i relaxed the helper preflight to accept a self-owned MULTI-threaded target, so elevating here
-+  // -- with only the log-stream thread up, still before InitializeLogging, the web server and the
-+  // emulator/game threads -- is allowed. Off by default: a SILENT no-op unless the "Unlimited write
-+  // speed (root)" option is on in settings.txt (the player switch) or the developer override
-+  // <data>/elevate-probe.txt says "on". On failure it logs one calm line (with the client errno) and
-+  // carries on at UID 1 -- the app is never closed. The elevation is the isolated LGPL ELV1/elfldr
-+  // client; credential-only, so the app keeps its own theme and data.
+@@ -2684,6 +2693,16 @@ int main(int argc, char** argv) {
+     std::snprintf(line, sizeof(line), "BOOT first thread placed: %s", place);
+     Stage(line);
+   }
++  // Fix 186n (issue #80): elevate to UID 0 HERE -- the earliest SINGLE-THREADED point, as 186i/186j
++  // (both connected to elfldr 127.0.0.1:9021 AND passed the helper APPLY here). 186m moved it after
++  // StartNetLog on a wrong "too-early connect" theory; the real 186k/l/m failure was APPLY_FAILED
++  // (client errno 13 EACCES), i.e. the helper rejected the caller at the APPLY preflight -- which the
++  // extra threads after StartNetLog only make worse. /data is writable and boot.log is up; no worker
++  // thread has started yet. Off by default: a no-op unless the "Unlimited write speed (root)" option
++  // is on in settings.txt (the player switch) or the developer override <data>/elevate-probe.txt says
++  // "on"; on failure it logs one line (client errno) and carries on at UID 1. The elevation is the
++  // isolated LGPL ELV1/elfldr client; credential-only, so the app keeps its own theme and data.
 +  xbox360ps5::elevate_probe::AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog);
-   // Fix 46: the first start copies the official PS5X360's saves and small settings files into
-   // this title's folder, once (official_import.hpp); its own folder is only read.
-   const auto imported = xbox360ps5::official_import::Run(xbox360ps5::app_identity::kOfficialDataRoot,
-@@ -2872,6 +2894,8 @@ int main(int argc, char** argv) {
+   // Whether a C++ exception can be thrown and caught on this console. The
+   // emulator core relies on it in places; if the unwinder does not work every
+   // throw ends the title, and the boot log says so here.
+@@ -2872,6 +2891,8 @@ int main(int argc, char** argv) {
    xe::InitializeLogging(XBOX360PS5_PRODUCT_NAME);
    xe::AddLogSink(std::move(owned_game_log));
    xe::AddLogSink(std::make_unique<ConsoleLogSink>());

@@ -189,15 +189,15 @@ void Tree() {
   const size_t aNet = After(canary, "StartNetLog(", cmain);
   const size_t aInit = After(canary, "InitializeLogging(", cmain);
   const size_t aWeb = After(canary, "StartWebSettings(", cmain);
-  // 186m: elevate AFTER StartNetLog, so the PS5 network/socket layer is up -- the ELV1/elfldr client
-  // connects to 127.0.0.1:9021, and before StartNetLog the socket layer is not ready, so the connect
-  // failed (186k/186l). It still runs after InstallCrashReport (boot.log up, /data writable) and
-  // BEFORE InitializeLogging and the web server. 186g's earliest single-threaded point is no longer
-  // needed: fix 186i relaxed the helper preflight to accept a self-owned multi-threaded target.
+  // 186n: elevate at the earliest SINGLE-THREADED point -- after InstallCrashReport (boot.log up,
+  // /data writable), but BEFORE StartNetLog, InitializeLogging and the web server. 186i/186j proved
+  // the ELV1/elfldr client connects to 127.0.0.1:9021 AND passes the helper APPLY here; 186m's
+  // after-StartNetLog placement instead hit APPLY_FAILED (client errno 13 EACCES) -- the extra threads
+  // worsen the APPLY preflight, and connect was never the problem.
   Expect(cmain != std::string::npos && aCrash != std::string::npos && aAttempt != std::string::npos &&
              aNet != std::string::npos && aInit != std::string::npos && aWeb != std::string::npos &&
-             aCrash < aNet && aNet < aAttempt && aAttempt < aInit && aAttempt < aWeb,
-         "(d) AttemptEarly runs after StartNetLog (network up), before InitializeLogging/web");
+             aCrash < aAttempt && aAttempt < aNet && aAttempt < aInit && aAttempt < aWeb,
+         "(d) AttemptEarly runs at the early single-threaded point: after InstallCrashReport, before StartNetLog/logger/web");
   Expect(canary.find("AttemptEarly(XBOX360PS5_DATA_ROOT, &Xbox360PS5ElevateProbeLog)") != std::string::npos &&
              canary.find("void Xbox360PS5ElevateProbeLog(") != std::string::npos,
          "(d) the probe is given the boot.log step sink (Xbox360PS5ElevateProbeLog)");
