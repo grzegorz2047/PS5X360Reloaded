@@ -1,0 +1,260 @@
+diff --git a/include/xbox360ps5/focus_gate.hpp b/include/xbox360ps5/focus_gate.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/focus_gate.hpp
+@@ -0,0 +1,165 @@
++// SPDX-License-Identifier: MIT
++// Fix 190 (tools/source-1.0.2/fixes/190-app-focus-input-gate.patch): the controller no longer
++// drives the app while the system's UI is on top of it.
++//
++// The app reads the DualSense itself (scePadReadState, after scePadSetProcessPrivilege(1) so the
++// Create button reaches it as Back), and nothing told it when the console's control center, quick
++// menu or home screen took the controller: the same presses that moved the system's menu also moved
++// the launcher and the game behind it. NativePad::Read now asks libSceSystemService for the app's
++// status (sceSystemServiceGetStatus) about once a frame and, while isSystemUiOverlaid or
++// isInBackgroundExecution is set, hands every consumer (the game's pads, the extra players, the
++// launcher's keys, the guide) a resting pad: no buttons, sticks centred, triggers released. The
++// pad stays connected, so no game sees a controller leave and no player is signed out.
++//
++//   * Parse: the status record is int32 eventNum, then the flags isSystemUiOverlaid (byte 4) and
++//     isInBackgroundExecution (byte 5), three more flags and reserved bytes (134 bytes). The call
++//     fills a zeroed buffer of kStatusBufferSize, larger than the record. A call that does not
++//     return 0, or a flag byte that is not 0 or 1 (a record not laid out as expected), is not a
++//     reading.
++//   * Gate::Update: a reading pauses the pad when either flag is set, and only once a reading has
++//     said the app is on top: a flag misread as always set never leaves the app without a pad.
++//     A failed reading lets the pad through; kMaxFailures failures in a row turn the gate off for
++//     good (Disable), as does a missing status call or the switch file (ParseSwitch).
++//   * Gate::Apply: the resting pad while paused. Back on top, the buttons still held at that moment
++//     (the press that closed the system's menu) stay masked until they are released, with their
++//     trigger's analog value, so the app sees no press it did not get. Sticks come back at once.
++//   * Gate::PollDue: one status reading every kPollIntervalMs, however many reads a frame makes.
++// Every doubt (no call, a failed call, an odd record, the switch) lets the pad through as before.
++// Header only and free of the rest of the title, so tools/check-focus-gate.cpp drives it.
++#pragma once
++#include <array>
++#include <cctype>
++#include <cstddef>
++#include <cstdint>
++#include <string_view>
++
++namespace xbox360ps5::focus_gate {
++
++constexpr size_t kStatusBufferSize = 256;
++constexpr size_t kOverlaidOffset = 4;
++constexpr size_t kBackgroundOffset = 5;
++constexpr uint64_t kPollIntervalMs = 16;
++constexpr int kMaxFailures = 8;
++// The trigger buttons as PadSample carries them (ScePad's layout).
++constexpr uint32_t kL2 = 0x100, kR2 = 0x200;
++
++struct Status {
++  bool valid = false;
++  bool overlaid = false;
++  bool background = false;
++};
++
++inline Status Parse(int result, const uint8_t* raw, size_t size) {
++  Status status;
++  if (result != 0 || !raw || size <= kBackgroundOffset) return status;
++  const uint8_t overlaid = raw[kOverlaidOffset], background = raw[kBackgroundOffset];
++  if (overlaid > 1 || background > 1) return status;
++  status.valid = true;
++  status.overlaid = overlaid != 0;
++  status.background = background != 0;
++  return status;
++}
++
++// The switch file's first line: "off" or "0" (any case, spaces and a line end around it) turns the
++// gate off; anything else, an empty line or no file leaves it on.
++inline bool ParseSwitch(std::string_view line) {
++  while (!line.empty() && std::isspace(static_cast<unsigned char>(line.front()))) line.remove_prefix(1);
++  while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) line.remove_suffix(1);
++  if (line == "0") return false;
++  if (line.size() != 3) return true;
++  for (size_t n = 0; n < 3; ++n)
++    if (std::tolower(static_cast<unsigned char>(line[n])) != "off"[n]) return true;
++  return false;
++}
++
++enum class Change { kNone, kPaused, kResumed, kDisabled };
++
++inline const char* ChangeName(Change change) {
++  switch (change) {
++    case Change::kPaused: return "paused";
++    case Change::kResumed: return "resumed";
++    case Change::kDisabled: return "off";
++    default: return "unchanged";
++  }
++}
++
++class Gate {
++ public:
++  static constexpr size_t kSlots = 4;
++
++  // Off for good; a pad paused at that moment comes back as on a return to the top.
++  Change Disable() {
++    if (disabled_) return Change::kNone;
++    disabled_ = true;
++    if (blocked_) {
++      blocked_ = false;
++      ++resumes_;
++    }
++    return Change::kDisabled;
++  }
++  bool Disabled() const { return disabled_; }
++  bool Blocked() const { return blocked_; }
++
++  bool PollDue(uint64_t now_ms) {
++    if (disabled_) return false;
++    if (polled_ && now_ms - last_poll_ms_ < kPollIntervalMs) return false;
++    polled_ = true;
++    last_poll_ms_ = now_ms;
++    return true;
++  }
++
++  Change Update(const Status& status) {
++    if (disabled_) return Change::kNone;
++    if (!status.valid) {
++      if (++failures_ >= kMaxFailures) return Disable();
++      return SetBlocked(false);
++    }
++    failures_ = 0;
++    const bool away = status.overlaid || status.background;
++    if (!away) seen_on_top_ = true;
++    return SetBlocked(away && seen_on_top_);
++  }
++
++  template <class Sample>
++  Sample Apply(size_t slot, const Sample& raw) {
++    if (slot >= kSlots) return raw;
++    if (blocked_) {
++      Sample resting = raw;
++      resting.buttons = 0;
++      resting.lx = resting.ly = resting.rx = resting.ry = 128;
++      resting.l2 = resting.r2 = 0;
++      return resting;
++    }
++    if (seen_resumes_[slot] != resumes_) {
++      seen_resumes_[slot] = resumes_;
++      held_[slot] = raw.buttons;
++    }
++    held_[slot] &= raw.buttons;
++    Sample out = raw;
++    out.buttons &= ~held_[slot];
++    if (held_[slot] & kL2) out.l2 = 0;
++    if (held_[slot] & kR2) out.r2 = 0;
++    return out;
++  }
++
++ private:
++  Change SetBlocked(bool blocked) {
++    if (blocked == blocked_) return Change::kNone;
++    blocked_ = blocked;
++    if (blocked) return Change::kPaused;
++    ++resumes_;
++    return Change::kResumed;
++  }
++
++  bool disabled_ = false;
++  bool blocked_ = false;
++  bool seen_on_top_ = false;
++  bool polled_ = false;
++  int failures_ = 0;
++  uint64_t last_poll_ms_ = 0;
++  uint32_t resumes_ = 0;
++  std::array<uint32_t, kSlots> seen_resumes_{};
++  std::array<uint32_t, kSlots> held_{};
++};
++
++}  // namespace xbox360ps5::focus_gate
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -155,6 +155,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/virtual_nui.hpp"  // fix 57: kinect_needed
+ #include "xbox360ps5/display_surface.hpp"
+ #include "xbox360ps5/dualsense_input.hpp"
++#include "xbox360ps5/focus_gate.hpp"  // fix 190: the pad rests while the system's UI is on top
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49: where a frame's time goes
+ #include "xbox360ps5/auto_scale.hpp"  // fix 163
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
+@@ -371,6 +372,10 @@ int32_t sceKernelAvailableDirectMemorySize(int64_t, int64_t, size_t, int64_t*, s
+ int32_t sceKernelAvailableFlexibleMemorySize(size_t*);
+ int32_t sceKernelConfiguredFlexibleMemorySize(size_t*);
+ int sceSystemServiceHideSplashScreen();
++// Fix 190: the app's status (the system's UI on top of it, the app in the background). Weak: the
++// loader leaves an unresolved weak import at 0 instead of refusing the module, and NativePad then
++// reads the pad as before rather than calling address 0.
++__attribute__((weak)) int sceSystemServiceGetStatus(void*);
+ }
+ namespace xbox360ps5 {
+ extern std::atomic<unsigned long long> protect_calls, protect_syscalls, protect_nanoseconds, fault_count;
+@@ -2348,6 +2353,21 @@ class NativePad {
+     initialized_ = scePadInit() >= 0;
+     if (initialized_) ps5x360_pad_privilege_answer = scePadSetProcessPrivilege(1);
+     owners_[0] = user;
++    // Fix 190: off without the status call, or when <data>/focus-gate.txt says "off".
++    int (*const status_call)(void*) = &sceSystemServiceGetStatus;
++    if (status_call == nullptr) {
++      focus_gate_.Disable();
++      std::printf("FOCUS GATE (fix 190): off (sceSystemServiceGetStatus not resolved): the pad is read as before\n");
++    } else if (std::FILE* file = std::fopen(XBOX360PS5_DATA_ROOT "/focus-gate.txt", "r")) {
++      char line[64] = {};
++      const bool on = !std::fgets(line, sizeof(line), file) || xbox360ps5::focus_gate::ParseSwitch(line);
++      std::fclose(file);
++      if (!on) {
++        focus_gate_.Disable();
++        std::printf("FOCUS GATE (fix 190): off (focus-gate.txt): the pad is read as before\n");
++      }
++    }
++    if (!focus_gate_.Disabled()) std::printf("FOCUS GATE (fix 190): on: the pad rests while the system's UI is on top\n");
+   }
+   ~NativePad() { for (auto handle : handles_) if (handle >= 0) scePadClose(handle); }
+   xbox360ps5::PadSample Read(size_t slot = 0) {
+@@ -2355,6 +2375,7 @@ class NativePad {
+     xbox360ps5::PadSample state;
+     if (slot >= 4 || !initialized_) return state;
+     const auto now = std::chrono::steady_clock::now();
++    PollFocus(now);  // fix 190
+     if (slot == 0 && now >= refresh_at_) {
+       refresh_at_ = now + std::chrono::milliseconds(500);
+       std::array<int32_t, 4> users{-1, -1, -1, -1};
+@@ -2387,7 +2408,7 @@ class NativePad {
+     state.buttons = uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 | uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24;
+     state.lx = bytes[4]; state.ly = bytes[5]; state.rx = bytes[6]; state.ry = bytes[7];
+     state.l2 = bytes[8]; state.r2 = bytes[9]; state.connected = bytes[76] != 0;
+-    return state;
++    return focus_gate_.Apply(slot, state);  // fix 190: a resting pad while the system's UI is on top
+   }
+   bool Rumble(size_t slot, uint16_t left, uint16_t right) {
+     std::lock_guard<std::mutex> lock(mutex_);
+@@ -2428,6 +2449,28 @@ class NativePad {
+   std::mutex mutex_;
+   bool initialized_ = false;
+   std::chrono::steady_clock::time_point refresh_at_{};
++  // Fix 190: the app's status about once a frame (under mutex_); the first reading and the first 64
++  // changes are logged with the record's first bytes, so the console's layout can be checked.
++  void PollFocus(std::chrono::steady_clock::time_point now) {
++    const uint64_t now_ms = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
++        now.time_since_epoch()).count());
++    if (!focus_gate_.PollDue(now_ms)) return;
++    alignas(16) std::array<uint8_t, xbox360ps5::focus_gate::kStatusBufferSize> record{};
++    const int result = sceSystemServiceGetStatus(record.data());
++    const auto status = xbox360ps5::focus_gate::Parse(result, record.data(), record.size());
++    const auto change = focus_gate_.Update(status);
++    if (focus_log_lines_ == 0 || (change != xbox360ps5::focus_gate::Change::kNone && focus_log_lines_ <= 64)) {
++      std::printf("FOCUS GATE (fix 190): %s result=%08x record=%02x%02x%02x%02x %02x %02x %02x %02x %02x"
++                  " valid=%d overlaid=%d background=%d\n",
++                  focus_log_lines_ == 0 ? "first reading" : xbox360ps5::focus_gate::ChangeName(change),
++                  unsigned(result), record[0], record[1], record[2], record[3], record[4], record[5],
++                  record[6], record[7], record[8], int(status.valid), int(status.overlaid),
++                  int(status.background));
++      ++focus_log_lines_;
++    }
++  }
++  xbox360ps5::focus_gate::Gate focus_gate_;
++  int focus_log_lines_ = 0;
+ };
+ struct DetachPresentation {
+   NativeWindow& window;

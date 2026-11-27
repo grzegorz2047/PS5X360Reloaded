@@ -222,6 +222,7 @@ checks=(
   check-elevate-probe.cpp          # fix 186
   check-unlimited-write.cpp        # fix 186
   check-title-memory-stats.cpp     # fix 188
+  check-focus-gate.cpp             # fix 190
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -430,6 +431,7 @@ declare -A fix_of=(
   [check-elevate-probe.cpp]=186
   [check-unlimited-write.cpp]=186
   [check-title-memory-stats.cpp]=188
+  [check-focus-gate.cpp]=190
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -215,6 +215,7 @@ on:
       - 'tools/source-1.0.2/lapy-daemon/**'
       - 'licenses/**'
       - 'tools/check-title-memory-stats.cpp'
+      - 'tools/check-focus-gate.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
