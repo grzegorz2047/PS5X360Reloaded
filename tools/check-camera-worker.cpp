@@ -98,7 +98,10 @@ static void CheckTree() {
   CHECK(Has(cam, "depth ? pst::DepthReadBytes(request->buffer_size) : 0;"));
   CHECK(Has(cam, "const bool packed = depth_bytes == pst::kDepthPackedBytes &&\n"
                  "                        frame_.size() == pst::kDepthPackedBytes;"));
-  CHECK(Has(cam, "const uint32_t copy_bytes = packed ? pst::kDepthPackedBytes : frame_bytes;"));
+  CHECK(Has(cam, "const uint32_t copy_bytes = packed ? pst::kDepthPackedBytes : frame_bytes;") ||
+        Has(cam, "const uint32_t copy_bytes = packed ? pst::kDepthPackedBytes\n"
+                 "                                : yuv  ? uint32_t(xbox360ps5::motion::kUyvyBytes)\n"
+                 "                                       : frame_bytes;"));  // fix 185: 16-bit colour reads
   CHECK(Has(cam, "if (request->buffer_size < copy_bytes ||\n        !IsGuestRange(buffer, copy_bytes)) {"));
   CHECK(Has(cam, "std::memcpy(Guest<uint8_t>(buffer), frame_.data(), pst::kDepthPackedBytes);"));
   CHECK(Has(cam, "    done.bytes = copy_bytes;\n    Complete(done);"));

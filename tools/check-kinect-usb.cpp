@@ -550,7 +550,13 @@ static void CheckDepthCamera() {
   CHECK(calibration.valid && !calibration.physical);
   std::vector<uint8_t> out;
   CHECK(camera->CopyDepthFrame(0, out) != 0 && out.size() == kinect_usb::kDepthFrameBytes);
+#if __has_include("xbox360ps5/camera_figure.hpp")
+  motion::camera_figure_wanted = false;  // fix 185: the grey of before, without the figure
+#endif
   CHECK(camera->CopyColorFrame(0, out) != 0 && out == std::vector<uint8_t>(kinect_usb::kColorFrameBytes, 128));
+#if __has_include("xbox360ps5/camera_figure.hpp")
+  motion::camera_figure_wanted = true;
+#endif
   FakeRelay relay;
   CHECK(relay.Listen());
   CHECK(relay.Accept(3000ms));

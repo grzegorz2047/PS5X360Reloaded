@@ -231,6 +231,7 @@ checks=(
   check-virtual-mic.cpp            # fix 178
   check-recent-list.cpp            # fix 181
   check-disc-swap-content.cpp      # fix 182
+  check-camera-figure.cpp          # fix 185
   check-elevate-probe.cpp          # fix 186
   check-unlimited-write.cpp        # fix 186
   check-title-memory-stats.cpp     # fix 188
@@ -441,6 +442,7 @@ declare -A fix_of=(
   [check-virtual-mic.cpp]=178
   [check-recent-list.cpp]=181
   [check-disc-swap-content.cpp]=182
+  [check-camera-figure.cpp]=185
   [check-elevate-probe.cpp]=186
   [check-unlimited-write.cpp]=186
   [check-title-memory-stats.cpp]=188
