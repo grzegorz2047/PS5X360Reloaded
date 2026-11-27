@@ -2274,7 +2274,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.
    return returned_value & 0x400FFFFF;  // this is actually the mask it applies
                                         // to the final
    // result before returning it
-@@ -911,6 +939,27 @@ dword_result_t MmIsAddressValid_entry(dword_t address,
+@@ -911,6 +939,32 @@ dword_result_t MmIsAddressValid_entry(dword_t address,
  
  DECLARE_XBOXKRNL_EXPORT1(MmIsAddressValid, kMemory, kImplemented);
  
@@ -2282,6 +2282,11 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.
 +// this is where anything already compiled from that memory has to be dropped.
 +void KeSweepIcacheRange_entry(lpvoid_t address, dword_t length,
 +                              const ppc_context_t& ctx) {
++  // Before fix 191 this export was not implemented (the guest's call did
++  // nothing): only a title that enters user mode (XNA) sweeps through here.
++  if (!kernel_state()->processor()->dynamic_code_enabled()) {
++    return;
++  }
 +  auto processor = ctx->processor;
 +  const uint32_t start = address.guest_address();
 +  processor->InvalidateCodeRange(start, length);
@@ -2316,7 +2321,15 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_module_export
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc
-@@ -93,6 +93,21 @@ dword_result_t XexGetModuleSection_entry(lpvoid_t hmodule, lpstring_t name,
+@@ -9,6 +9,7 @@
+ 
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_modules.h"
+ #include "xenia/base/logging.h"
++#include "xenia/cpu/processor.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/util/shim_utils.h"
+@@ -93,6 +94,26 @@ dword_result_t XexGetModuleSection_entry(lpvoid_t hmodule, lpstring_t name,
  }
  DECLARE_XBOXKRNL_EXPORT1(XexGetModuleSection, kModules, kImplemented);
  
@@ -2324,6 +2337,11 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc b/
 +// RtlImageDirectoryEntryToData to find .pdata) and stores its loader entry. A
 +// pc in no module returns 0 and leaves ldr_data_ptr alone.
 +dword_result_t XexPcToFileHeader_entry(dword_t pc, lpdword_t ldr_data_ptr) {
++  // Before fix 191 this export was not implemented and returned 0 (nothing
++  // stored): only a title that enters user mode (XNA) gets the image base.
++  if (!kernel_state()->processor()->dynamic_code_enabled()) {
++    return 0;
++  }
 +  auto module = kernel_state()->GetUserModuleForAddress(pc);
 +  if (!module) {
 +    return 0;
@@ -2341,7 +2359,15 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc b/
 diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
 --- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
 +++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
-@@ -861,6 +861,66 @@ void RtlGetStackLimits_entry(lpdword_t out_end, lpdword_t out_base,
+@@ -14,6 +14,7 @@
+ #include "xenia/base/atomic.h"
+ #include "xenia/base/pe_image.h"
+ #include "xenia/base/wait_stats.h"
++#include "xenia/cpu/processor.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/util/critical_section.h"
+@@ -861,6 +862,71 @@ void RtlGetStackLimits_entry(lpdword_t out_end, lpdword_t out_base,
  }
  DECLARE_XBOXKRNL_EXPORT1(RtlGetStackLimits, kNone, kImplemented);
  
@@ -2368,6 +2394,11 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc b/.dep
 +// The import thunk leaves the caller's registers in the guest context.
 +void RtlCaptureContext_entry(lpvoid_t context_record,
 +                             const ppc_context_t& ctx) {
++  // Before fix 191 this export was not implemented and wrote no context:
++  // only a title that enters user mode (XNA) gets one.
++  if (!kernel_state()->processor()->dynamic_code_enabled()) {
++    return;
++  }
 +  auto p = context_record.as<uint8_t*>();
 +  const uint32_t lr = static_cast<uint32_t>(ctx->lr);
 +  const uint32_t xer = (uint32_t(ctx->xer_so) << 31) |

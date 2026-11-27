@@ -482,6 +482,31 @@ void ExpectNotHas(const std::string& text, const char* needle,
   }
 }
 
+// The body of `entry` (from its name to the first line that is a lone "}")
+// must test the user-mode switch before `first_work`, its first real step:
+// without the switch the export behaves as before fix 191 (not implemented).
+void ExpectUserModeGateFirst(const std::string& text, const char* entry,
+                             const char* first_work, const char* where) {
+  const size_t begin = text.find(entry);
+  if (begin == std::string::npos) {
+    std::fprintf(stderr, "FAIL: missing '%s' in %s\n", entry, where);
+    std::abort();
+  }
+  size_t end = text.find("\n}\n", begin);
+  if (end == std::string::npos) end = text.size();
+  const std::string body = text.substr(begin, end - begin);
+  const size_t gate =
+      body.find("if (!kernel_state()->processor()->dynamic_code_enabled()) {");
+  const size_t work = body.find(first_work);
+  if (gate == std::string::npos || work == std::string::npos || gate > work) {
+    std::fprintf(stderr,
+                 "FAIL: %s in %s does not test dynamic_code_enabled() before "
+                 "'%s'\n",
+                 entry, where, first_work);
+    std::abort();
+  }
+}
+
 void CheckAssembledTree() {
   // 1. PS5 direct memory & fixed range reservation inside [kAnywhereStart, kAnywhereEnd].
   const std::string mem_ps5 = ReadFile("platform/ps5/memory_ps5.cpp");
@@ -497,6 +522,23 @@ void CheckAssembledTree() {
             "platform/ps5/memory_ps5.cpp (end() tested before the size)");
   ExpectNotHas(mem_ps5, "i == views.end() || !i->second.owns_object",
                "platform/ps5/memory_ps5.cpp (size read before end())");
+
+  // Exports that were not implemented before 191 (the call reached
+  // UndefinedCallExtern: nothing done, nothing written, 0) stay that way for
+  // every title that never enters user mode; only XNA titles get them.
+  const std::string krnl_memory = ReadFile(
+      ".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc");
+  const std::string krnl_rtl = ReadFile(
+      ".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc");
+  const std::string krnl_modules = ReadFile(
+      ".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc");
+  ExpectUserModeGateFirst(krnl_memory, "void KeSweepIcacheRange_entry(",
+                          "InvalidateCodeRange(", "xboxkrnl_memory.cc");
+  ExpectUserModeGateFirst(krnl_rtl, "void RtlCaptureContext_entry(",
+                          "store_and_swap", "xboxkrnl_rtl.cc");
+  ExpectUserModeGateFirst(krnl_modules,
+                          "dword_result_t XexPcToFileHeader_entry(",
+                          "GetUserModuleForAddress(", "xboxkrnl_modules.cc");
 
   // 2. SysV AMD64 fiber implementation uses AllocFixed (never raw anonymous mmap
   //    on PS5's 448 MiB flexible budget).
