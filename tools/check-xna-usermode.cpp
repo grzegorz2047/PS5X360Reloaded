@@ -83,7 +83,7 @@ bool DeallocFixed(void* base_address, size_t length,
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunknown-pragmas"
 #endif
-#include ".deps/xenia-canary/src/xenia/base/threading_fiber_posix.cc"
+#include "xenia/base/threading_fiber_posix.cc"
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
