@@ -14,6 +14,8 @@
 //      render target cache each colour or depth transfer's scales.
 //  fix 162h: Grand Theft Auto V, Battlefield 3, Tekken Tag Tournament 2 and Red Dead Redemption listed
 //      (they hit fix 117b's floor at 2x in our logs), an explicit 2x still 2x; GTA IV not listed.
+//  fix 197: Halo: Reach listed the same way (classes kept at 1x and noise at 2x on 1.0.7_candidate_1,
+//      clean at 1x).
 // Run from the assembled tree's root.
 #include <cstdio>
 #include <filesystem>
@@ -61,6 +63,20 @@ void List() {
   }
   Expect(!rs::AutomaticStartsAtOneX("545407F2") && as::Resolve(as::kAutomatic, "545407F2", false).choice == 1,
          "(a) fix 162h: GTA IV (five 2x logs, the floor never hit) stays at 2x under Automatic");
+#endif
+#ifdef XBOX360PS5_AUTO_ONE_X_HALO_REACH
+  // Fix 197: Halo: Reach (4D53085B) kept classes at 1x at 2x and filled with noise; clean at 1x.
+  for (const char* id : {"4D53085B", "4d53085b"}) {
+    const as::Start start = as::Resolve(as::kAutomatic, id, false);
+    Expect(rs::AutomaticStartsAtOneX(id) && start.choice == 0 && start.why == "Automatic: 1x (compiled-in list)" &&
+               as::Resolve(1, id, false).choice == 1 && as::Resolve(0, id, false).choice == 0,
+           std::string("(a) fix 197: Halo: Reach ") + id + " listed: Automatic 1x (" + start.why +
+               "), an explicit 2x still 2x, 1x stays 1x");
+  }
+  // Other Halo games are not listed (Halo 3 4D5307E6, Halo 4 4D530919, Halo CE Anniversary 4D5309B1).
+  for (const char* id : {"4D5307E6", "4D530919", "4D5309B1"})
+    Expect(!rs::AutomaticStartsAtOneX(id) && as::Resolve(as::kAutomatic, id, false).choice == 1,
+           std::string("(a) fix 197: ") + id + " (another Halo) still 2x under Automatic");
 #endif
   Expect(!rs::AutomaticStartsAtOneX("545407F2") && !rs::AutomaticStartsAtOneX("") && !rs::AutomaticStartsAtOneX("4D5308C"),
          "(a) GTA IV, no title, a short ID are not");
