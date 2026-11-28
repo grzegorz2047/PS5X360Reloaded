@@ -37,7 +37,7 @@ folder. On its first start it copies your PS5X360 saves once (see
 
 The earlier releases of this fork, `v1.0.2-opt` and `v1.0.2-opt-r2`, were the official v1.0.2
 executable with binary patches. They are superseded: every patch they carried (and the ones made
-after r2) is now a source change in v1.0.3. See [tools/binary-release](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/tools/binary-release/README.md).
+after r2) is now a source change in v1.0.3. See [tools/binary-release](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/tools/binary-release/README.md).
 
 **Games run, but compatibility varies.** Expect crashes, visual errors and uneven performance in
 some titles. There is no promise of full-library compatibility or 60 FPS.
@@ -69,30 +69,27 @@ so the fork, PS5X360Reloaded until v1.0.5, needed a name of its own. What change
 - The repository is now `github.com/grzegorz2047/TrinityX360`; the old address,
   `github.com/grzegorz2047/PS5X360Reloaded`, redirects there.
 
-## v1.0.6
+## v1.0.7
 
-The latest release. The home screen shows **TrinityX360 v1.0.6**. The full notes, with what was
-confirmed on the console and what only by host tests, are in
-[docs/release-notes/v1.0.6.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/release-notes/v1.0.6.md);
+The latest release. The home screen shows **TrinityX360 v1.0.7**. It installs over v1.0.6 like an
+update; your settings stay in `/data/homebrew/PPSA83600`. The full notes, with what was confirmed
+on the console and what only by host tests, are in
+[docs/release-notes/v1.0.7.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/docs/release-notes/v1.0.7.md);
 the notes of earlier versions are on the [releases page](https://github.com/grzegorz2047/TrinityX360/releases).
 
-- **New name:** TrinityX360 with new art and new home screen icons. Same app, same title id
-  `PPSA83600`; it installs over PS5X360Reloaded (see [New name: TrinityX360](#new-name-trinityx360)).
-- **"Automatic" resolution scale, the new default:** games run at 2x while they keep 30 FPS and
-  have enough memory, otherwise at 1x. Kinect games, GTA V, Battlefield 3, Tekken Tag Tournament 2
-  and Red Dead Redemption start at 1x.
-- **Games:** GTA IV drives without the growing pauses and has optional draw distance patches;
-  GTA V installs from its Install disc, gets past the prologue freeze and holds 30 FPS; Dance
-  Central 3 starts and plays; Virtua Tennis 3 no longer freezes in replays; FIFA Street's pitch is
-  no longer black.
-- **Kinect:** Kinect Sports: Season Two's darts loads, Fighters Uncaged gets past player
-  identification, Kinect Sports records replays without stutter, and Kinect games at 2x no longer
-  drop to 0–2 FPS after a few minutes.
-- **Picture:** anti-aliasing (FXAA, SMAA), color presets, overscan crop, a 900p emulated
-  resolution and a screen frame rate limit; no more short screen freezes every ~30 seconds.
-- **Settings:** a new settings menu with clearer names and help in the guide; settings, per-game
-  settings, game folders and covers are now kept in `/data/homebrew/PPSA83600`, so they survive a
-  reinstall.
+- **Games:** GTA V no longer closes after a few minutes of driving; Culdcept Saga's on-screen
+  keyboard opens; Halo: Reach starts at 1x under "Automatic", so its picture no longer fills with
+  noise; GTA IV at 2x loses the thin lines around the minimap, and leaving a game is faster.
+- **Kinect:** Zumba Fitness Core finds the player and plays; Harry Potter for Kinect gets past its
+  loading card into the menu and the Charms class; Nike+ Kinect Training gets past "GET ATHLETE
+  FIT" to its first drill; movement from the phone is steadier, and the motion panel has a new
+  "Play-space map" that shows where the game sees you.
+- **Settings:** a new, optional "Unlimited write speed (root)" (System, off by default) removes the
+  console's per-app write-speed limit on consoles with an ELF loader such as etaHEN's; per-game
+  emulator settings files (`<TITLE ID>.config.toml`) work again; the controller no longer drives
+  the app while the PS5 control center is open.
+- **Still open:** Nike+'s "MOVE ONTO THE MARKER" step, and the L3 + R3 emergency pose with a phone;
+  see the notes' Known limitations.
 
 ## Installation
 
@@ -204,7 +201,7 @@ folder's name, so nothing needs moving there.
 **Forwarders.** Forwarder Manager tiles made for the `PS5X360` target start the official app
 (`PPSA50011`). For TrinityX360, a tile needs the target `PPSA83600`: choose the **Generic**
 target and enter `PPSA83600`, or change `"target"` in the tile's `forwarder.json`. Steps in
-[docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/FORWARDER.md).
+[docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/docs/FORWARDER.md).
 
 **Kinect tracker.** The official `kinect-tracker.elf` sends its frames with the web-settings key
 from `/data/homebrew/PPSA50011`. TrinityX360 also accepts that key (read only) for tracker
@@ -214,7 +211,7 @@ fork has run once.
 
 ## Game status on the console
 
-Results on a PS5. The rows marked *v1.0.6* were checked on the v1.0.6 test builds; most others
+Results on a PS5. The rows marked *v1.0.7* or *v1.0.6* were checked on that version's test builds; most others
 come from `1.0.3_candidate_N` test builds (source builds labelled that way on the home screen).
 Rows marked *binary build* were measured on the official v1.0.2 executable with this fork's
 binary patches and not again on a source build. FPS values come from the
@@ -235,13 +232,17 @@ emulator's own logs.
 | Ninja Gaiden II (`544307D5`) | closes about 30 s after the intro videos | [#11](https://github.com/grzegorz2047/TrinityX360/issues/11) |
 | Dragon Ball Z for Kinect (`4E4D084E`) | works with the emulated Kinect camera (*v1.0.6*) | Steady 30 FPS with a test relay (`candidate_49`); still works with the updated player identification. |
 | Grand Theft Auto IV (`545407F2`) | 43–58 FPS at 2x under "Automatic" (*v1.0.6*) | The pauses that grew while driving are gone in test runs at 1x. Optional "Draw Distance +25%" and "+50%" patches. |
-| Grand Theft Auto V (`545408A7`) | steady 30 FPS, the game's own cap, at 1x (*v1.0.6*) | Installs from "Disc 1 (Install)"; the built-in "Audio freeze fix (prologue)" patch gets it past the prologue. |
+| Grand Theft Auto V (`545408A7`) | steady 30 FPS, the game's own cap, at 1x (*v1.0.6*) | Installs from "Disc 1 (Install)"; the built-in "Audio freeze fix (prologue)" patch gets it past the prologue. In v1.0.7 it no longer closes after a few minutes of driving. |
 | Dance Central 3 (`373307D9`) | plays, 45–59 FPS (*v1.0.6*) | On the first start it asks for the game's music keys (QR code); a full song after a restart. |
 | Kinect Sports (`4D5308C9`) | plays at 1x, 45–59 FPS (*v1.0.6*) | Replays recorded without stutter. |
 | Kinect Sports: Season Two | darts loads and plays (*v1.0.6*) | Some stutter remains ([#63](https://github.com/grzegorz2047/TrinityX360/issues/63)); the other sports are not confirmed yet. |
 | Fighters Uncaged (`5553084E`) | reaches Training, about 60 FPS (*v1.0.6*) | Gets past player identification with the signed-in profile. |
-| Zumba Fitness Core | finds the camera, stops at "Searching for player" (*v1.0.6*) | [#68](https://github.com/grzegorz2047/TrinityX360/issues/68) |
+| Zumba Fitness Core | finds the player and plays (*v1.0.7*) | Recognises the signed-in player and goes into the game ([#68](https://github.com/grzegorz2047/TrinityX360/issues/68)). |
 | Virtua Tennis 3 | no freeze during replays (*v1.0.6*) | About 25 minutes over two sessions. |
+| Halo: Reach (`4D53085B`) | clean picture at 1x under "Automatic" (*v1.0.7*) | At 2x chosen by hand the picture can still fill with noise after a while. |
+| Culdcept Saga (`424107DD`) | the on-screen keyboard opens at "Name" (*v1.0.7*) | Only the keyboard was checked, not the rest of the Create Cepter screen. |
+| Harry Potter for Kinect (`57520826`) | menu and the Year 1 Charms class (*v1.0.7*) | Needs "Camera motion (research)" on; spoken spells and voice commands do not work ([#76](https://github.com/grzegorz2047/TrinityX360/issues/76)). |
+| Nike+ Kinect Training (`4D53090F`) | reaches the first drill, HURDLE STEP (*v1.0.7*) | "MOVE ONTO THE MARKER" is never accepted, so the drills cannot go on ([#77](https://github.com/grzegorz2047/TrinityX360/issues/77)). |
 
 ## Known limitations
 
@@ -273,7 +274,7 @@ made with Forwarder Manager, with the target title id `PPSA83600` (its `PS5X360`
 the official app). Close TrinityX360 before using a tile: arguments only reach a new
 TrinityX360 process. When the forwarder launcher is already running, ShadowMountPlus may
 refuse the start (`0x80940033`, [drakmor/ShadowMountPlus#196](https://github.com/drakmor/ShadowMountPlus/issues/196)).
-Setup and workarounds: [docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/FORWARDER.md).
+Setup and workarounds: [docs/FORWARDER.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/docs/FORWARDER.md).
 
 ## Organize your games
 
@@ -357,17 +358,17 @@ written. The included log downloader can create a ZIP to share.
 | Branch | Contents |
 | --- | --- |
 | [`source-1.0.2-patches`](https://github.com/grzegorz2047/TrinityX360/tree/source-1.0.2-patches) | Development: the assembly and build scripts of the source rebuild, the reconstructed files and every fix (`tools/source-1.0.2/fixes`). Fixes are made on `fix/*` branches and merged here. |
-| [`release/source-1.0.6`](https://github.com/grzegorz2047/TrinityX360/tree/release/source-1.0.6) | The release commit of v1.0.6 (each version has its own `release/source-X.Y.Z`). A push builds the draft release (`release-source.yml`). |
+| [`release/source-1.0.7`](https://github.com/grzegorz2047/TrinityX360/tree/release/source-1.0.7) | The release commit of v1.0.7 (each version has its own `release/source-X.Y.Z`). A push builds the draft release (`release-source.yml`). |
 | [`main`](https://github.com/grzegorz2047/TrinityX360/tree/main) | The default branch: its landing page, the repository's older C++ (v0.5.7-fix.1, not used by the releases) and a copy of `build-source-1.0.2.yml` for the *Run workflow* button. The tools of the superseded binary releases (`tools/binary-release`) are on the source branches above. |
 
 ## Building from source
 
-The v1.0.2 sources are not one tree: [`tools/source-1.0.2/assemble.py`](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/tools/source-1.0.2/assemble.py)
+The v1.0.2 sources are not one tree: [`tools/source-1.0.2/assemble.py`](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/tools/source-1.0.2/assemble.py)
 downloads the author's source packages (`0.5.9-fix1`, `0.6.0`, `1.0.0`, `1.0.2`, pinned by
 SHA-256) and the Xenia Canary netplay core (`AdrianCassar/xenia-canary` `d2cf527aa`), layers them,
 adds the reconstructed headers and applies the fixes. What came from where, and what is missing,
-is in [docs/SOURCE-1.0.2.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/docs/SOURCE-1.0.2.md); the fixes are listed in
-[tools/source-1.0.2/fixes](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.6/tools/source-1.0.2/fixes/README.md).
+is in [docs/SOURCE-1.0.2.md](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/docs/SOURCE-1.0.2.md); the fixes are listed in
+[tools/source-1.0.2/fixes](https://github.com/grzegorz2047/TrinityX360/blob/v1.0.7/tools/source-1.0.2/fixes/README.md).
 
 **Host checks** (no PS5 toolchain; needs Python 3 and clang 18):
 
