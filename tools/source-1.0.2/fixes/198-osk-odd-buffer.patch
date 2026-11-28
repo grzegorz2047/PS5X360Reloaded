@@ -9,7 +9,7 @@ diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-can
 +  // Fix 198: a text buffer at an odd address is accepted, as the console's XAM does. Culdcept Saga
 +  // (424107DD) keeps its Cepter's name at 82C71DD9: 1.0.2 refused it as "not writable" each
 +  // time and the game waited for a keyboard that never came (only LT/RT still turned the figure).
-+  // WriteBE writes the answer byte by byte and valid_range checks every page the range touches.
++  // The answer is written byte by byte and valid_range checks every page the range touches.
 +  if (buffer_length > kMaximumUnits)
 +    return refuse("the text buffer is longer than 65536 characters", X_ERROR_INVALID_PARAMETER);
 +  if (!valid_range(buffer.guest_address(), uint64_t(buffer_length) * 2, kMemoryProtectWrite))
