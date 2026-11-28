@@ -1,0 +1,419 @@
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+index 2570017..4923e67 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -71,6 +71,225 @@ DEFINE_uint32(gpu_async_submit, 0,
+ DEFINE_uint32(gpu_async_submit_chunk_kib, 256,
+               "The recorded commands, in KiB, at which gpu_async_submit ends a submission.",
+               "GPU");
++// Xbox360PS5, fix 142i: in the fast readback mode, a resolve that would wait for the GPU for its
++// copy (no earlier copy of its pass to hand over, or fix 91k's own copy) or that fix 59 leaves
++// for later (the GPU behind) queues its copy instead, and the copy is put in guest memory as soon
++// as the GPU has made it (checked at each resolve and each submission's end). Off by default;
++// readback-deliver.txt in the title folder ("on"/"1", "off"/"0") switches it while the game runs.
++// Keys of readback_deliver_wait_below_kib or less, and keys the CPU has read before their copy
++// was put in memory (readback_deliver_wait_after_early), keep the wait: GTA V's CPU reads its
++// 8 KiB keys a frame after their resolve. Keys listed by address (readback_deliver_wait_keys)
++// always keep the wait. The file can set all three ("wait-below <KiB>", "wait-after-early
++// on|off", "wait-key <hex address>" for each listed key).
++DEFINE_bool(readback_deliver_when_done, false,
++            "Fix 142i: fast readback copies put in guest memory when the GPU has made them, "
++            "instead of a wait for the GPU at the resolve.",
++            "GPU");
++DEFINE_uint32(readback_deliver_wait_below_kib, 64,
++              "Fix 142i: keys of this many KiB or less keep the wait (0: every key queued).",
++              "GPU");
++DEFINE_bool(readback_deliver_wait_after_early, true,
++            "Fix 142i: a key the CPU read before its copy was put in memory keeps the wait from "
++            "then on.",
++            "GPU");
++DEFINE_string(readback_deliver_wait_keys, "",
++              "Fix 142i: the guest addresses (hex, separated by commas or blanks) of keys that "
++              "always keep the wait.",
++              "GPU");
++#if XE_PLATFORM_PS5
++namespace fix142i {
++struct Pending {
++  uint64_t key;
++  uint32_t slot;
++  uint64_t submission;
++  uint32_t address, length;
++  uint64_t frame;
++  bool instead_of_wait;
++};
++std::vector<Pending> pending;
++std::unordered_map<uint64_t, uint64_t> delivered;  // key: the newest submission put in memory
++bool enabled = false, logged = false;
++std::chrono::steady_clock::time_point checked{}, line_at{};
++uint64_t deferred_wait = 0, deferred_late = 0, delivered_count = 0, superseded = 0,
++         early_reads = 0, left_out = 0, delay_frames = 0, delivered_bytes = 0;
++uint32_t early_shown = 0;
++// The keys that keep the wait: small ones, and those the CPU read before their copy was in memory
++// (for the rest of the run).
++uint32_t wait_below = 64 * 1024;
++bool wait_after_early = true;
++std::map<uint64_t, bool> read_early;
++std::vector<uint32_t> listed;  // readback_deliver_wait_keys / "wait-key", sorted
++// A hex guest address ("1F0E8000", "0x1F0E8000"); false if the word is not one.
++bool ParseAddress(std::string word, uint32_t& address) {
++  if (word.size() > 2 && word[0] == '0' && (word[1] == 'x' || word[1] == 'X')) word = word.substr(2);
++  if (word.empty() || word.size() > 8 ||
++      word.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
++    return false;
++  }
++  address = uint32_t(std::strtoul(word.c_str(), nullptr, 16));
++  return true;
++}
++std::string Listed(const std::vector<uint32_t>& keys) {
++  std::string out;
++  for (uint32_t address : keys) {
++    char part[16];
++    std::snprintf(part, sizeof(part), "%s%08X", out.empty() ? "" : ", ", address);
++    out += part;
++  }
++  return out.empty() ? std::string("none") : out;
++}
++uint32_t moved_shown = 0;
++uint64_t kept_small = 0, kept_early = 0, late_small = 0, late_early = 0;
++struct EarlyKey {
++  uint64_t reads = 0, frames = 0;
++};
++std::map<uint64_t, EarlyKey> early_by_key;  // this 30 s
++// Whether a resolve's copy may be queued; otherwise it waits (or, fix 59's late copy, is left out)
++// as before, and is counted.
++bool Queue(uint64_t key, uint32_t length, bool instead_of_wait) {
++  const bool small = length <= wait_below;
++  // Learned keys only while wait-after-early is on; listed keys always.
++  const bool early = !small && ((wait_after_early && read_early.count(key) != 0) ||
++                                std::binary_search(listed.begin(), listed.end(),
++                                                   uint32_t(key >> 32)));
++  if (!small && !early) return true;
++  if (instead_of_wait) {
++    ++(small ? kept_small : kept_early);
++  } else {
++    ++(small ? late_small : late_early);
++  }
++  return false;
++}
++// The 8 keys with the most early reads in the last 30 s.
++std::string EarlyKeys() {
++  std::vector<std::pair<uint64_t, EarlyKey>> keys(early_by_key.begin(), early_by_key.end());
++  std::sort(keys.begin(), keys.end(), [](const auto& a, const auto& b) {
++    return a.second.reads != b.second.reads ? a.second.reads > b.second.reads : a.first < b.first;
++  });
++  std::string out;
++  for (size_t i = 0; i < keys.size() && i < 8; ++i) {
++    char part[96];
++    std::snprintf(part, sizeof(part), "%s%08X/%u x%llu (%.1f frames)", i ? ", " : "",
++                  uint32_t(keys[i].first >> 32), uint32_t(keys[i].first),
++                  static_cast<unsigned long long>(keys[i].second.reads),
++                  double(keys[i].second.frames) / double(keys[i].second.reads));
++    out += part;
++  }
++  if (keys.size() > 8) out += ", " + std::to_string(keys.size() - 8) + " more";
++  return out.empty() ? std::string("none") : out;
++}
++// The switch, at most once a second, and the line every 30 s.
++void Refresh() {
++  const auto now = std::chrono::steady_clock::now();
++  if (logged && now - checked < std::chrono::seconds(1)) return;
++  checked = now;
++  bool next = cvars::readback_deliver_when_done;
++  uint32_t next_below = cvars::readback_deliver_wait_below_kib * 1024;
++  bool next_after_early = cvars::readback_deliver_wait_after_early;
++  std::vector<uint32_t> next_listed;
++  {
++    std::string word;
++    for (char c : cvars::readback_deliver_wait_keys + ",") {
++      if (c == ',' || c == ' ' || c == '\t') {
++        uint32_t address;
++        if (ParseAddress(word, address)) next_listed.push_back(address);
++        word.clear();
++      } else {
++        word += c;
++      }
++    }
++  }
++  bool file_listed = false;
++  const char* from = "the settings";
++  const char* const path = XBOX360PS5_DATA_ROOT "/readback-deliver.txt";
++  if (FILE* file = std::fopen(path, "rb")) {
++    char text[512] = {};
++    const size_t got = std::fread(text, 1, sizeof(text) - 1, file);
++    std::fclose(file);
++    // Words separated by blanks; "#" starts a comment to the end of its line.
++    std::vector<std::string> words;
++    std::string word;
++    bool comment = false;
++    for (size_t i = 0; i <= got; ++i) {
++      const char c = i < got ? text[i] : '\n';
++      if (c == '\n') comment = false;
++      if (c == '#') comment = true;
++      if (comment || c == ' ' || c == '\t' || c == '\r' || c == '\n') {
++        if (!word.empty()) words.push_back(word);
++        word.clear();
++      } else {
++        word += c;
++      }
++    }
++    for (size_t i = 0; i < words.size(); ++i) {
++      const std::string& w = words[i];
++      const std::string value = i + 1 < words.size() ? words[i + 1] : std::string();
++      if (w == "1" || w == "on" || w == "0" || w == "off") {
++        next = w == "1" || w == "on";
++        from = path;
++      } else if (w == "wait-below" && !value.empty() &&
++                 value.find_first_not_of("0123456789") == std::string::npos && value.size() < 7) {
++        next_below = uint32_t(std::strtoul(value.c_str(), nullptr, 10)) * 1024;
++        from = path;
++        ++i;
++      } else if (w == "wait-after-early" && (value == "on" || value == "off")) {
++        next_after_early = value == "on";
++        from = path;
++        ++i;
++      } else if (w == "wait-key") {
++        // The file's list replaces the settings' list.
++        uint32_t address;
++        if (!file_listed) next_listed.clear();
++        file_listed = true;
++        if (ParseAddress(value, address)) {
++          next_listed.push_back(address);
++          ++i;
++        }
++        from = path;
++      }
++    }
++  }
++  std::sort(next_listed.begin(), next_listed.end());
++  next_listed.erase(std::unique(next_listed.begin(), next_listed.end()), next_listed.end());
++  if (!logged || next != enabled || next_below != wait_below ||
++      next_after_early != wait_after_early || next_listed != listed) {
++    XELOGW("Readback delivery (fix 142i): {}; keys of {} KiB or less wait; a key read before its "
++           "copy was put in memory waits from then on: {}; listed keys that wait: {}; from {}",
++           next ? "on" : "off", next_below / 1024, next_after_early ? "yes" : "no",
++           Listed(next_listed), from);
++    enabled = next;
++    wait_below = next_below;
++    wait_after_early = next_after_early;
++    listed = next_listed;
++    logged = true;
++  }
++  if (line_at == std::chrono::steady_clock::time_point()) line_at = now;
++  if (now - line_at >= std::chrono::seconds(30)) {
++    if (enabled || deferred_wait || deferred_late || delivered_count) {
++      XELOGW("Readback delivery, last 30 s (fix 142i, {}): {} copies queued instead of a wait, {} "
++             "queued that fix 59 left for later; {} put in guest memory ({} MiB, {:.1f} frames "
++             "after their resolve on average), {} dropped as a newer copy came first, {} kept out "
++             "(fix 91h); {} CPU reads before their copy was put in memory; {} still queued",
++             enabled ? "on" : "off", deferred_wait, deferred_late, delivered_count,
++             delivered_bytes >> 20,
++             delivered_count ? double(delay_frames) / double(delivered_count) : 0.0, superseded,
++             left_out, early_reads, pending.size());
++      XELOGW("Readback delivery, last 30 s (fix 142i, {}): kept waiting: {} resolves of keys of "
++             "{} KiB or less, {} of keys read early before or listed; fix 59's late copy left out "
++             "as before: {} small, {} read early or listed; {} keys learned from an early read "
++             "(waiting only while wait-after-early is on); early reads by key: {}",
++             enabled ? "on" : "off", kept_small, wait_below / 1024, kept_early, late_small,
++             late_early, read_early.size(), EarlyKeys());
++    }
++    deferred_wait = deferred_late = delivered_count = superseded = early_reads = left_out =
++        delay_frames = delivered_bytes = 0;
++    kept_small = kept_early = late_small = late_early = 0;
++    early_by_key.clear();
++    line_at = now;
++  }
++}
++}  // namespace fix142i
++#endif
+ // Xbox360PS5, fix 133 (readback_batching.h): a resolve key whose family (the keys with its end
+ // address) is steady takes the late copy, unless the CPU reads it. Off per game in
+ // assets/config/<title>.config.toml ([GPU] readback_steady_by_end = false): fix 91k's rule.
+@@ -5469,8 +5688,14 @@ bool VulkanCommandProcessor::IssueCopy() {
+ 
+     uint64_t resolve_key =
+         MakeReadbackResolveKey(written_address, written_length);
++#if XE_PLATFORM_PS5
++    Fix142iDeliver();  // fix 142i: the queued copies the GPU has made, before this resolve
++#endif
+     // Fix 91: the CPU's reads of armed copies since the last resolve mark their keys.
+     readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++#if XE_PLATFORM_PS5
++      Fix142iEarlyRead(read_address, read_length);  // fix 142i
++#endif
+       static uint32_t raw_shown = 0;
+       if (raw_shown < 16) {
+         ++raw_shown;
+@@ -5977,6 +6202,19 @@ bool VulkanCommandProcessor::IssueCopy() {
+       // copy just queued is handed over at the next resolve here.
+       return true;
+     } else if (read_cache_miss) {
++#if XE_PLATFORM_PS5
++      if (fix142i::enabled && fix142i::Queue(resolve_key, readback_length, true)) {
++        // Fix 142i: no wait; the copy just queued goes to guest memory once the GPU has made it.
++        // A one-shot read watch counts a CPU read that comes before it. Small keys, and keys read
++        // early before, wait below as without fix 142i.
++        fix142i::pending.push_back({resolve_key, write_index, rb.submissions[write_index],
++                                    written_address, readback_length, frame_current_, true});
++        ++fix142i::deferred_wait;
++        memory_->EnablePhysicalMemoryAccessCallbacks(
++            written_address, readback_length, false, true);  // fix 142i
++        return true;
++      }
++#endif
+       // Delayed sync, but the previous buffer doesn't exist - use the current
+       // buffer with a sync as a fallback.
+       read_index = write_index;
+@@ -6008,6 +6246,13 @@ bool VulkanCommandProcessor::IssueCopy() {
+         // a resolve later still when the GPU is behind. The other modes awaited all work above.
+ #if XE_PLATFORM_PS5
+         if (!auto_readback) xbox360ps5::frame_cost::NoteLateReadback();
++        if (!auto_readback && fix142i::enabled &&
++            fix142i::Queue(resolve_key, readback_length, false)) {
++          // Fix 142i: the copy fix 59 leaves for later goes to guest memory once it is made.
++          fix142i::pending.push_back({resolve_key, read_index, read_submission, written_address,
++                                      readback_length, frame_current_, false});
++          ++fix142i::deferred_late;
++        }
+ #endif
+         return true;
+       }
+@@ -6043,6 +6288,13 @@ bool VulkanCommandProcessor::IssueCopy() {
+         } else {
+           memory::vastcpy(memory_->TranslatePhysical(written_address),
+                           static_cast<uint8_t*>(mapped_data), readback_length);
++#if XE_PLATFORM_PS5
++          if (fix142i::enabled || !fix142i::pending.empty()) {
++            // Fix 142i: a queued older copy of the key must not overwrite this one.
++            uint64_t& newest = fix142i::delivered[resolve_key];
++            newest = std::max(newest, read_submission);
++          }
++#endif
+         }
+         // Fix 91: a one-shot read watch on the copy, to learn whether the CPU reads it (re-armed
+         // every 600 frames while it does not). The copy above goes through the physical view,
+@@ -6099,6 +6351,101 @@ bool VulkanCommandProcessor::IssueCopy() {
+   return true;
+ }
+ 
++#if XE_PLATFORM_PS5
++// Fix 142i: a CPU read of a copy still queued (read before the copy was put in memory).
++// Counted once per read, and once per key it covers (a 16 KiB read can cover two 8 KiB keys).
++bool VulkanCommandProcessor::Fix142iEarlyRead(uint32_t read_address, uint32_t read_length) {
++  std::vector<uint64_t> keys;
++  for (const fix142i::Pending& p : fix142i::pending) {
++    if (!readback_slots::Overlaps(p.address, p.length, read_address, read_length) ||
++        std::find(keys.begin(), keys.end(), p.key) != keys.end()) {
++      continue;
++    }
++    keys.push_back(p.key);
++    fix142i::EarlyKey& counted = fix142i::early_by_key[p.key];
++    ++counted.reads;
++    counted.frames += frame_current_ - p.frame;
++    if (fix142i::early_shown < 16) {
++      ++fix142i::early_shown;
++      XELOGW("Readback delivery (fix 142i): the CPU read {:08X} ({} bytes) before the copy of "
++             "the key {:08X} ({} bytes) from {} frames ago was put in memory",
++             read_address, read_length, p.address, p.length, frame_current_ - p.frame);
++    }
++    if (fix142i::wait_after_early && !fix142i::read_early.count(p.key)) {
++      fix142i::read_early[p.key] = true;
++      if (fix142i::moved_shown < 32) {
++        ++fix142i::moved_shown;
++        XELOGW("Readback delivery (fix 142i): the key {:08X} ({} bytes) waits from now on, the "
++               "CPU read it before its copy was put in memory",
++               p.address, p.length);
++      }
++    }
++  }
++  if (keys.empty()) return false;
++  ++fix142i::early_reads;
++  return true;
++}
++
++// Fix 142i: puts the queued copies the GPU has made in guest memory, oldest first; a copy whose
++// slot was reused, or older than one already put there, is dropped.
++void VulkanCommandProcessor::Fix142iDeliver() {
++  if (fix142i::pending.empty()) return;
++  readback_reads_.Take([&](uint32_t read_address, uint32_t read_length) {
++    Fix142iEarlyRead(read_address, read_length);
++    for (auto& [key, buffer] : readback_buffers_) {  // fix 91's marks, as at a resolve
++      const uint32_t key_address = uint32_t(key >> 32), key_length = uint32_t(key);
++      if (buffer.armed_frame && !buffer.cpu_reads &&
++          readback_slots::Overlaps(key_address, key_length, read_address, read_length)) {
++        buffer.cpu_reads = true;
++        ++readback_keys_flagged_;
++      }
++    }
++  });
++  const uint64_t completed = completion_timeline_.UpdateAndGetCompletedSubmission();
++  std::sort(fix142i::pending.begin(), fix142i::pending.end(),
++            [](const fix142i::Pending& a, const fix142i::Pending& b) {
++              return a.submission < b.submission;
++            });
++  const ui::vulkan::VulkanDevice::Functions& dfn = GetVulkanDevice()->functions();
++  const VkDevice device = GetVulkanDevice()->device();
++  size_t kept = 0;
++  for (size_t i = 0; i < fix142i::pending.size(); ++i) {
++    const fix142i::Pending p = fix142i::pending[i];
++    if (p.submission > completed) {
++      fix142i::pending[kept++] = p;
++      continue;
++    }
++    auto it = readback_buffers_.find(p.key);
++    uint64_t& newest = fix142i::delivered[p.key];
++    if (it == readback_buffers_.end() || it->second.submissions[p.slot] != p.submission ||
++        it->second.buffers[p.slot] == VK_NULL_HANDLE ||
++        it->second.valid_sizes[p.slot] < p.length || newest >= p.submission) {
++      ++fix142i::superseded;
++      continue;
++    }
++    ReadbackBuffer& rb = it->second;
++    if (xbox360ps5::readback_keys::NoCopy(g_readback_rules, p.address, rb.cpu_reads)) {
++      ++fix142i::left_out;
++      newest = p.submission;
++      continue;
++    }
++    void* mapped_data;
++    if (!MapReadbackMemory(rb.memories[p.slot], rb.host_coherent[p.slot], &mapped_data)) {
++      ++fix142i::superseded;
++      continue;
++    }
++    memory::vastcpy(memory_->TranslatePhysical(p.address), static_cast<uint8_t*>(mapped_data),
++                    p.length);
++    dfn.vkUnmapMemory(device, rb.memories[p.slot]);
++    newest = p.submission;
++    ++fix142i::delivered_count;
++    fix142i::delivered_bytes += p.length;
++    fix142i::delay_frames += frame_current_ - p.frame;
++  }
++  fix142i::pending.resize(kept);
++}
++#endif
++
+ bool VulkanCommandProcessor::MapReadbackMemory(VkDeviceMemory memory,
+                                               bool host_coherent,
+                                               void** mapped_data) {
+@@ -7046,6 +7393,8 @@ bool VulkanCommandProcessor::BeginSubmission(bool is_guest_command) {
+ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+ #if XE_PLATFORM_PS5
+   RefreshAsyncSubmitSettings();  // fix 134
++  fix142i::Refresh();  // fix 142i: the switch and the line
++  Fix142iDeliver();    // fix 142i: the copies the GPU has made since
+ #endif
+ #if XE_PLATFORM_PS5
+   xbox360ps5::frame_cost::SectionScope frame_cost_section(  // candidate 6
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+index 3b1a3bd..5e2867f 100644
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.h
+@@ -546,6 +546,10 @@ class VulkanCommandProcessor final : public CommandProcessor {
+   // dedicated allocation so whole-range invalidation satisfies atom alignment.
+   bool MapReadbackMemory(VkDeviceMemory memory, bool host_coherent,
+                          void** mapped_data);
++  // Xbox360PS5, fix 142i: the resolve readback copies waiting to be put in guest memory once
++  // the GPU has made them (instead of a wait for the GPU at the resolve).
++  void Fix142iDeliver();
++  bool Fix142iEarlyRead(uint32_t read_address, uint32_t read_length);
+ 
+   void ClearTransientDescriptorPools();
+ 
