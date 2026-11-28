@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/grzegorz2047/TrinityX360/releases"><strong>Download</strong></a> ·
-  <a href="docs/release-notes/v1.0.6.md">Release notes</a> ·
+  <a href="docs/release-notes/v1.0.7.md">Release notes</a> ·
   <a href="docs/INSTALLATION.md">Installation guide</a> ·
   <a href="docs/GAME-CONTENT.md">DLC, updates and discs</a> ·
   <a href="https://github.com/grzegorz2047/TrinityX360/issues">Report an issue</a>

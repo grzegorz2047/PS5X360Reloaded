@@ -6,8 +6,8 @@ body:
     id: release
     attributes:
       label: Release version
-      description: The label on the emulator's home screen, e.g. "TrinityX360 v1.0.6" (PS5X360Reloaded until v1.0.5).
-      placeholder: TrinityX360 v1.0.6
+      description: The label on the emulator's home screen, e.g. "TrinityX360 v1.0.7" (PS5X360Reloaded until v1.0.5).
+      placeholder: TrinityX360 v1.0.7
     validations:
       required: true
   - type: input
