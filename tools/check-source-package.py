@@ -170,6 +170,9 @@ SOURCES = {
 }
 SOURCES_BYTES = (json.dumps(SOURCES, indent=1, sort_keys=True) + '\n').encode()
 TOOLCHAIN = package.toolchain_pins(package.WORKFLOW.read_text(encoding='utf-8'))
+# A stand-in for the build's lapy.elf (fix 186): an ELF header and a marker.
+LAPY = b'\x7fELF\x02\x01\x01\x09' + b'lapy helper fixture\n'
+LAPY_PINS = package.lapy_pins()
 
 
 def base_files():
@@ -218,7 +221,7 @@ def base_zip(path):
 def build(**changes):
     args = dict(base_files=base_files(), eboot=eboot(), lang=dict(LANG), sources=json.loads(SOURCES_BYTES),
                 version=VERSION, source_url=SOURCE_URL, date=DATE, toolchain=TOOLCHAIN,
-                sources_sha=sha(SOURCES_BYTES))
+                sources_sha=sha(SOURCES_BYTES), lapy_elf=LAPY)
     args.update(changes)
     return package.build(**args)
 
@@ -242,7 +245,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                     for p in (REPO / 'assets' / skin).glob('*.png')}
     added = {f'licenses/PS5X360-{VERSION}-NOTICE.txt', 'licenses/GPL-3.0.txt',
              'licenses/MBEDTLS-3.6.7-LICENSE.txt', 'licenses/CACERT-MPL-2.0.txt', 'assets/lang/pt-BR.txt',
-             'licenses/PS5X360-MIT.txt'}
+             'licenses/PS5X360-MIT.txt', 'licenses/LAPY-LGPL-2.1.txt', 'lapy.elf'}
     expected = ({name[len(B):] for name in base}
                 - {'readback-auto.off', 'licenses/PS5X360-OPT-NOTICE.txt', 'AUTOLOG.md'}
                 | repo_assets | added)
@@ -252,6 +255,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
 
     # eboot.bin byte for byte; untouched files byte for byte.
     assert files[P + 'eboot.bin'] == eboot()
+    assert files[P + 'lapy.elf'] == LAPY
     for name in ('assets/fonts/font.ttf', 'licenses/WOLFSSL-GPL-3.txt', 'CREDITS.md',
                  'licenses/PS5X360-NOTICE.txt', 'KINECT-source-and-licenses.zip', 'tools/kinect-tracker.elf'):
         assert files[P + name] == base[B + name], name
@@ -377,6 +381,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     assert release['title_id'] == 'PPSA83600' and release['title_name'] == 'TrinityX360'
     assert release['content_version'] == CONTENT_VERSION
     assert release['executable_sha256'] == sha(eboot())
+    assert release['helpers'] == {'lapy.elf': sha(LAPY)}
     assert release['candidate'] is False and release['published'] is True
     assert release['candidate_id'] == 'src-' + sha(eboot())[:8]
     assert release['build'] == 'source'
@@ -420,7 +425,14 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                    'LICENSE is the GPL-3.0 text too',
                    'the PS5X360 code came under the MIT License and keeps its notice\n    (licenses/PS5X360-MIT.txt)',
                    'the official\n    LICENSE, the MIT License, is in licenses/PS5X360-MIT.txt',
-                   f'content version\n    {CONTENT_VERSION}, so an older install shows as outdated'):
+                   f'content version\n    {CONTENT_VERSION}, so an older install shows as outdated',
+                   # Fix 186: the LGPL client in eboot.bin and the separate LGPL helper lapy.elf,
+                   # with their licence, hash, pins and where their source is.
+                   'port/vendor/lapy', 'LGPL-2.1-or-later', 'licenses/LAPY-LGPL-2.1.txt', sha(LAPY),
+                   'not linked into eboot.bin', 'tools/source-1.0.2/lapy-daemon',
+                   'https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon commit ' + LAPY_PINS[0]['commit'],
+                   'https://github.com/mpereiraesaa/prospero-win commit ' + LAPY_PINS[1]['commit'],
+                   'PS5-Lapy-JB-Daemon, prospero-win', 'lapy.elf, VERSION'):
         assert needle in text, needle
     assert 'code is MIT (LICENSE)' not in text
     assert 'complete source tree' not in text
@@ -438,6 +450,9 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     assert files[P + 'licenses/MINIUPNPC.txt'].startswith(b'BSD 3-Clause License')
     assert b'Apache License' in files[P + 'licenses/MBEDTLS-3.6.7-LICENSE.txt']
     assert files[P + 'licenses/CACERT-MPL-2.0.txt'].startswith(b'Mozilla Public License Version 2.0')
+    lgpl = files[P + 'licenses/LAPY-LGPL-2.1.txt']
+    assert lgpl.startswith(b'GNU LESSER GENERAL PUBLIC LICENSE\n\nVersion 2.1, February 1999')
+    assert b'END OF TERMS AND CONDITIONS' in lgpl and lgpl == (REPO / 'licenses/LAPY-LGPL-2.1.txt').read_bytes()
 
     manifest = json.loads(files[P + 'MANIFEST.json'])
     assert set(manifest) == names - {'MANIFEST.json'}
@@ -483,13 +498,14 @@ def main():
         zip_path = tmp / 'base.zip'
         digest = sha(base_zip(zip_path))
         (tmp / 'eboot.bin').write_bytes(eboot())
+        (tmp / 'lapy.elf').write_bytes(LAPY)
         (tmp / 'SOURCES.json').write_bytes(SOURCES_BYTES)
         (tmp / 'lang').mkdir()
         for name, data in LANG.items():
             (tmp / 'lang' / name).write_bytes(data)
         argv = ['--base-zip', str(zip_path), '--eboot', str(tmp / 'eboot.bin'), '--lang-dir', str(tmp / 'lang'),
-                '--sources-json', str(tmp / 'SOURCES.json'), '--version', VERSION,
-                '--source-url', SOURCE_URL, '--date', DATE]
+                '--sources-json', str(tmp / 'SOURCES.json'), '--lapy-elf', str(tmp / 'lapy.elf'),
+                '--version', VERSION, '--source-url', SOURCE_URL, '--date', DATE]
         stdout = sys.stdout
         try:
             sys.stdout = io.StringIO()
@@ -622,6 +638,9 @@ def main():
         refused('licenses/PS5X360-MIT.txt does not end with the base package\'s LICENSE', repo_root=other)
         (other / 'licenses/PS5X360-MIT.txt').write_bytes(MIT_FILE.replace(b'\n', b'\r\n'))
         refused('no release notes docs/release-notes/v1.0.7.md', repo_root=other)
+        # Fix 186: no helper from the build, or one that is not an ELF, stops the packaging.
+        refused('no lapy.elf: the build did not make the helper', lapy_elf=None)
+        refused('lapy.elf is not an ELF file', lapy_elf=b'MZ' + LAPY[4:])
         (other / 'docs/release-notes').mkdir(parents=True)
         (other / 'docs/release-notes/v1.0.7.md').write_bytes(b'## TrinityX360 v1.0.7\n')
         assert build(repo_root=other)[P + 'RELEASE_NOTES.md'] == b'## TrinityX360 v1.0.7\n'

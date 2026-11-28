@@ -20,7 +20,8 @@ name: Source release (draft)
 #    art (tools/source-1.0.2/package.py), the PPSA83600.ffpkg and .ffpfsc
 #    images (tools/binary-release/make_images.sh), the source tarball, the toolchain source
 #    (PS5_Vulkan, PS5_Mesa, PS5_PayloadSDK at the build's pins: RADV, app_crt and the payload SDK
-#    runtime are linked into eboot.bin), a git archive of this repository at the commit (the
+#    runtime are linked into eboot.bin; and, for fix 186's LGPL lapy.elf and elevation client,
+#    PS5-Lapy-JB-Daemon and prospero-win at lapy-daemon/manifest.json's pins), a git archive of this repository at the commit (the
 #    build scripts), the game patches and SHA256SUMS.txt; artifact
 #    PS5X360-<version>-release.
 # 4. draft: creates the draft release (gh release create --draft --target <commit>) or, while
@@ -139,7 +140,9 @@ jobs:
           EBOOT_SHA256: ${{ needs.build.outputs.eboot_sha256 }}
         run: |
           set -euo pipefail
-          for f in dist/build/src102-out/eboot.bin dist/build/src102/SOURCES.json dist/build/src102-build.log; do
+          # lapy.elf: the helper of "Unlimited write speed (root)" (fix 186); its CI step may fail
+          # without stopping a test build, but a release ships it.
+          for f in dist/build/src102-out/eboot.bin dist/build/src102-out/lapy.elf dist/build/src102/SOURCES.json dist/build/src102-build.log; do
             [[ -s $f ]] || { echo "::error::$f is missing from eboot-$VERSION-from-source"; exit 1; }
           done
           # The eboot.bin the build job checked and hashed is the one downloaded here.
@@ -158,6 +161,7 @@ jobs:
             --eboot dist/build/src102-out/eboot.bin \
             --lang-dir dist/build/src102-out/lang \
             --sources-json dist/build/src102/SOURCES.json \
+            --lapy-elf dist/build/src102-out/lapy.elf \
             --version "$VERSION" \
             --source-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/tree/$GITHUB_SHA" \
             --out-dir dist/source-release
@@ -200,6 +204,27 @@ jobs:
             test "$(git -C "$dir" rev-parse HEAD)" = "$rev"
             rm -rf "$dir/.git"
             echo "$repo  https://github.com/mihawk-99/$repo  commit $rev" >> "$root/PINS.txt"
+          done
+          # Fix 186: the LGPL-2.1 source of lapy.elf (PS5-Lapy-JB-Daemon) and of the elevation
+          # client the eboot's port/vendor/lapy is adapted from (prospero-win), at the commits
+          # tools/source-1.0.2/lapy-daemon/manifest.json pins.
+          manifest=tools/source-1.0.2/lapy-daemon/manifest.json
+          for part in lapy_helper prospero_win_client; do
+            url=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["upstream"][sys.argv[2]]["repo"])' "$manifest" "$part")
+            rev=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["upstream"][sys.argv[2]]["commit"])' "$manifest" "$part")
+            repo=${url##*/}
+            if [[ ! $rev =~ ^[0-9a-f]{40}$ || $url != https://github.com/* ]]; then
+              echo "::error file=$manifest::no https URL and 40-hex commit for $part in $manifest"
+              exit 1
+            fi
+            dir=$root/$repo
+            git init -q "$dir"
+            git -C "$dir" remote add origin "$url.git"
+            git -C "$dir" fetch -q --depth 1 origin "$rev"
+            git -C "$dir" checkout -q --detach FETCH_HEAD
+            test "$(git -C "$dir" rev-parse HEAD)" = "$rev"
+            rm -rf "$dir/.git"
+            echo "$repo  $url  commit $rev" >> "$root/PINS.txt"
           done
           tar --create --file=- --format=gnu --sort=name --mtime="@$epoch" \
             --owner=0 --group=0 --numeric-owner --mode='u+rwX,go+rX,go-w' \

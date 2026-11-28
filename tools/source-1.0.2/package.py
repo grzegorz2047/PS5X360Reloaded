@@ -41,6 +41,9 @@ installed app and keeps its saves. This script:
     repository, as the binary release does, and drops readback-auto.off;
   * takes the home screen's icons, assets/skin/*.png and assets/skin-dark/*.png (fix 164), from
     this repository over the base's pictures of the same names;
+  * adds lapy.elf, the build's optional helper of "Unlimited write speed (root)" (fix 186,
+    LGPL-2.1-or-later, a separate program: tools/source-1.0.2/lapy-daemon), after checking it is
+    an ELF;
   * writes VERSION, RELEASE.json (a source build), licenses/PS5X360-<version>-NOTICE.txt (the
     GPL-3.0 notice), the licence texts the official package lacks (tools/source-1.0.2/licenses),
     and MANIFEST.json;
@@ -129,7 +132,14 @@ LICENCES = [
      '9b405ef4c89342f5eae1dd828882f931747f71001cfba7d114801039b52ad09b'),
     ('MPL-2.0.txt', 'licenses/CACERT-MPL-2.0.txt',
      '3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04'),
+    ('LAPY-LGPL-2.1.txt', 'licenses/LAPY-LGPL-2.1.txt',
+     '5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2'),
 ]
+# Fix 186: the optional helper of "Unlimited write speed (root)", lapy.elf, a separate program
+# (LGPL-2.1-or-later) that eboot.bin sends to the console's ELF loader only when the option is on.
+# Its upstream pins (the helper and the client the eboot's port/vendor/lapy is adapted from).
+LAPY_MANIFEST = HERE / 'lapy-daemon/manifest.json'
+LAPY_TARGET = 'lapy.elf'
 
 # (file in tools/source-1.0.2/package-art, path in the package, (width, height), SHA-256); see
 # package-art/README.md. The sizes are the official package's.
@@ -271,7 +281,10 @@ def toolchain_pins(workflow_text):
         if not match:
             fail(f'{WORKFLOW.name}: no {key} pin')
         pins[name] = {'url': f'https://github.com/mihawk-99/{name}', 'commit': match.group(1)}
-    sdk = re.search(r'\bv=([0-9.]+)\s*$', workflow_text, re.M)
+    # The version is the workflow's env VULKAN_SDK_VER since the CI speed-up (#87), a v=... line
+    # in the step before it.
+    sdk = (re.search(r'^\s*VULKAN_SDK_VER:\s*([0-9.]+)\s*$', workflow_text, re.M)
+           or re.search(r'\bv=([0-9.]+)\s*$', workflow_text, re.M))
     sdk_sha = re.search(r'"([0-9a-f]{64})  \$RUNNER_TEMP/\$file"', workflow_text)
     if sdk and sdk_sha:
         pins['Vulkan SDK'] = {'version': sdk.group(1), 'sha256': sdk_sha.group(1)}
@@ -510,8 +523,27 @@ def licence_files(base_license, repo_root=ROOT):
     return {'LICENSE': gpl, MIT_NOTICE: mit}
 
 
-def notice(version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha):
+def lapy_pins():
+    """(helper, client): the upstream pins of lapy-daemon/manifest.json, each with repo and a
+    40-hex commit."""
+    upstream = json.loads(LAPY_MANIFEST.read_text(encoding='utf-8'))['upstream']
+    pins = upstream['lapy_helper'], upstream['prospero_win_client']
+    for pin in pins:
+        if not re.fullmatch(r'[0-9a-f]{40}', pin.get('commit', '')) or not pin.get('repo', '').startswith('https://'):
+            fail(f'{LAPY_MANIFEST.name}: no repo and 40-hex commit for {pin.get("name", "?")}')
+    return pins
+
+
+def check_lapy(lapy_elf):
+    if lapy_elf is None:
+        fail('no lapy.elf: the build did not make the helper of "Unlimited write speed (root)" (fix 186)')
+    if not lapy_elf.startswith(b'\x7fELF'):
+        fail('lapy.elf is not an ELF file')
+
+
+def notice(version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha, lapy_sha):
     release = f'{repo}/releases/tag/v{version}'
+    helper, client = lapy_pins()
     names = source_names(version)
     tarball, toolchain_tar, scripts = names['tarball'], names['toolchain'], names['scripts']
     drops = '\n'.join(f'        {info["asset"]} ({tag})  sha256 {info["sha256"]}'
@@ -544,6 +576,10 @@ Licence of eboot.bin
     under the curl licence (licenses/CURL.txt), miniupnpc is BSD-3-Clause (licenses/MINIUPNPC.txt), Mbed TLS 3.6.7 is
     used under Apache-2.0 (licenses/MBEDTLS-3.6.7-LICENSE.txt), and the embedded Mozilla CA
     certificate bundle (cacert.pem, from curl.se) is MPL-2.0 (licenses/CACERT-MPL-2.0.txt).
+    The elevation client of "Unlimited write speed (root)" (fix 186, port/vendor/lapy, adapted
+    from prospero-win {client['repo']} commit {client['commit']}) is LGPL-2.1-or-later
+    (licenses/LAPY-LGPL-2.1.txt); it is a separate unit of the source, called only through its
+    header, so a changed client can be built and linked in its place.
     The other licence files in licenses/, kept from the official package, cover further
     third-party code of Xenia Canary and of the package, and apply to the parts they name.
     There is NO WARRANTY, to the extent permitted by law (GPL-3.0 sections 15 and 16).
@@ -587,7 +623,17 @@ Corresponding source (GPL-3.0 section 6)
     stubs (PS5_Vulkan) and the payload SDK runtime (PS5_PayloadSDK), and the tools that link and
     sign it (radv-link.sh and ps5-native-tool from PS5_Vulkan). Their source is those public
     repositories at the commits listed under Toolchain above, attached as {toolchain_tar}
-    (PS5_Vulkan, PS5_Mesa and PS5_PayloadSDK without .git, and PINS.txt).
+    (PS5_Vulkan, PS5_Mesa and PS5_PayloadSDK without .git, and PINS.txt; with PS5-Lapy-JB-Daemon
+    and prospero-win for lapy.elf, below).
+
+lapy.elf
+    The optional helper of "Unlimited write speed (root)" (fix 186), sha256 {lapy_sha}: a
+    separate program, not linked into eboot.bin, which eboot.bin sends to the console's ELF
+    loader only when that option is on. It is LGPL-2.1-or-later (licenses/LAPY-LGPL-2.1.txt),
+    built from {helper['repo']} commit {helper['commit']} with
+    tools/source-1.0.2/lapy-daemon (build-lapy-daemon.sh, relax-single-thread.py, ps5log-stub)
+    in {scripts}. The helper's and the client's upstream source at those commits is in
+    {toolchain_tar} too (PS5-Lapy-JB-Daemon, prospero-win).
 
 Not linked into this eboot.bin
     The OpenGL renderer stack (Vulkan only), the physical USB Kinect and its relay, and the disc
@@ -607,7 +653,7 @@ Other files
     dlc/README.md and updates/README.md name {PREFIX} instead, AUTOLOG.md is left out),
     assets/lang/*.txt (English-keyed, tools/source-1.0.2/english/lang),
     assets/presets.txt, assets/config/*.toml, assets/patches/*.patch.toml and the home screen's
-    icons assets/skin/*.png and assets/skin-dark/*.png (from the repository), VERSION, RELEASE.json, MANIFEST.json, this notice, the licence files above
+    icons assets/skin/*.png and assets/skin-dark/*.png (from the repository), lapy.elf, VERSION, RELEASE.json, MANIFEST.json, this notice, the licence files above
     (tools/source-1.0.2/licenses/README.md says where each came from) and LICENSE: the official
     LICENSE, the MIT License, is in licenses/PS5X360-MIT.txt under a header, and LICENSE is the
     GPL-3.0 text.
@@ -616,13 +662,14 @@ Other files
 
 
 def build(base_files, eboot, lang, sources, version, source_url, date, toolchain, sources_sha,
-          repo_root=ROOT):
+          repo_root=ROOT, lapy_elf=None):
     """The package's files ({zip name under PPSA83600/: bytes}) from the official base's files
     (under PPSA50011/). `sources` is the parsed SOURCES.json and `sources_sha` the SHA-256 of its
     bytes."""
     check_version(version)
     repo, commit = parse_source_url(source_url)
     check_eboot(eboot, version)
+    check_lapy(lapy_elf)
     check_sources(sources, version)
     english_lang(lang)
     outside = sorted(name for name in base_files if not name.startswith(BASE_PREFIX))
@@ -648,6 +695,9 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
 
     eboot_sha = sha256(eboot)
     files[PREFIX + 'eboot.bin'] = eboot
+    if PREFIX + LAPY_TARGET in files:
+        fail(f'base package already has {LAPY_TARGET}')
+    files[PREFIX + LAPY_TARGET] = lapy_elf
     for name in base_lang:
         del files[name]
     for name, data in sorted(lang.items()):
@@ -680,13 +730,14 @@ def build(base_files, eboot, lang, sources, version, source_url, date, toolchain
 
     files[PREFIX + 'VERSION'] = (version + '\n').encode()
     files[PREFIX + f'licenses/PS5X360-{version}-NOTICE.txt'] = notice(
-        version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha)
+        version, date, repo, commit, eboot_sha, sources, toolchain, sources_sha, sha256(lapy_elf))
     files[PREFIX + 'RELEASE.json'] = (json.dumps({
         'version': version,
         'title_id': TITLE_ID,
         'title_name': TITLE_NAME,
         'content_version': content_version(version),
         'executable_sha256': eboot_sha,
+        'helpers': {LAPY_TARGET: sha256(lapy_elf)},
         'candidate': False,
         'published': True,
         'candidate_id': f'src-{eboot_sha[:8]}',
@@ -757,6 +808,8 @@ def main(argv=None):
     parser.add_argument('--lang-dir', type=Path, required=True,
                         help='English-keyed *.txt of the build (src102-out/lang)')
     parser.add_argument('--sources-json', type=Path, required=True, help='SOURCES.json of the build')
+    parser.add_argument('--lapy-elf', type=Path, required=True,
+                        help='lapy.elf of the build (fix 186, src102-out/lapy.elf)')
     parser.add_argument('--version', required=True, help='release version X.Y.Z')
     parser.add_argument('--source-url', required=True,
                         help='https://<host>/<owner>/<repo>/tree/<commit> the build was made from')
@@ -772,7 +825,7 @@ def main(argv=None):
     lang = {path.name: path.read_bytes() for path in sorted(args.lang_dir.glob('*.txt'))}
     files = build(base_files, args.eboot.read_bytes(), lang, sources, version, args.source_url,
                   modification_date(args.date), toolchain_pins(WORKFLOW.read_text(encoding='utf-8')),
-                  sha256(sources_bytes))
+                  sha256(sources_bytes), lapy_elf=args.lapy_elf.read_bytes())
     digest = write_package(files, args.out_dir)
     out_zip = args.out_dir / f'{TITLE_ID}.zip'
     print(json.dumps({'version': version, 'title_id': TITLE_ID, 'content_version': content_version(version),
