@@ -239,6 +239,7 @@ checks=(
   check-focus-gate.cpp             # fix 190
   check-xna-usermode.cpp           # fix 191
   check-reserved-store.cpp         # fix 192
+  check-nike-core-config.cpp       # fix 193 (assets/config/4D53090F.config.toml)
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -246,6 +247,7 @@ declare -A arguments=(
   [check-gta4-core-config.cpp]="$repo"
   [check-gta5-audio-patch.cpp]="$repo"
   [check-hp-voice-skip.cpp]="$repo"
+  [check-nike-core-config.cpp]="$repo"
   [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-two-x-unfit.cpp]="$repo/tools/source-1.0.2/english/lang"

@@ -1,0 +1,11 @@
+# 4D53090F - Nike+ Kinect Training
+# Fix 193: no virtual Kinect microphone array for this title. With fix 178's array (silence)
+# the game's speech engine keeps running and the loading screen after the intro never ends
+# (1.0.7_candidate_1 on the console: a black screen, the main thread polling the loading
+# screen's state at 8282FB48). Without it the capture fails as "device not connected", as on
+# 1.0.6, and the game goes on to the Kinect sign-in, the Xbox Fitness body profile (fix 171)
+# and the workouts (confirmed on the console with this setting from the data folder).
+# A player's own <data>/game-configs/4D53090F.config.toml (fix 166) is read after this file.
+
+[Kinect]
+kinect_microphone = false
