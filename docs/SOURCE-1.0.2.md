@@ -371,6 +371,7 @@ also listed here.
 | 196 (`196-emergency-pad-player1`) | for Kinect games with a phone as the Kinect: L3 + R3 is read from player 1's controller only. The other player slots used to reset it every frame, so one brief press asked the phone to re-centre many times in a row, and holding the pair never brought the last pose back (fix 107's emergency pose). Now a brief press re-centres once and a hold of half a second brings the last pose back |
 | 196b (`196b-emergency-hold-hint`) | for Kinect games with a phone: holding L3 + R3 brings the last pose back as soon as the phone has lost the player for half a second (it needed 3 s, so holding straight away did nothing); the log says why a hold did nothing and what the emergency line on the TV showed; when only another user's controller is connected, its L3 + R3 works too |
 | 197 (`197-auto-one-x-halo-reach`) | a 1.0.7 fix: with Automatic resolution scale, Halo: Reach starts at 1x, as fix 162h's games do (at 2x it ran out of video memory after a while and its picture filled with noise; at 1x it was clean) | host-checked (`tools/check-scale-pressure.cpp`); console: Halo: Reach at its own 1x on `1.0.7_candidate_1` |
+| 198 (`198-osk-odd-buffer`) | a 1.0.7 fix: the on-screen keyboard opens when a game keeps its text at an odd memory address. Culdcept Saga's "Name" on the Create Cepter screen waited for a keyboard that never came, and only LT/RT still worked | host-checked (`tools/check-osk-odd-buffer.cpp`) |
 
 ## Comparison with the official executable
 

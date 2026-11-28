@@ -219,6 +219,7 @@ on:
       - 'tools/check-play-space-map.cpp'
       - 'tools/check-emergency-pad-source.cpp'
       - 'tools/check-emergency-hold-hint.cpp'
+      - 'tools/check-osk-odd-buffer.cpp'
       - 'tools/check-lapy-daemon-package.py'
       - 'tools/source-1.0.2/lapy-daemon/**'
       - 'licenses/**'

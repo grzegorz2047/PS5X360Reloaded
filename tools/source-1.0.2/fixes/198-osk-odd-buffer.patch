@@ -1,0 +1,19 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_ui.cc
+@@ -597,8 +597,13 @@ dword_result_t XamShowKeyboardUI_entry(
+   };
+   constexpr uint32_t kMaximumUnits = 65536;
+-  if ((buffer.guest_address() & 1) || buffer_length > kMaximumUnits ||
+-      !valid_range(buffer.guest_address(), uint64_t(buffer_length) * 2, kMemoryProtectWrite))
++  // Fix 198: a text buffer at an odd address is accepted, as the console's XAM does. Culdcept Saga
++  // (424107DD) keeps its Cepter's name at 82C71DD9: 1.0.2 refused it as "not writable" each
++  // time and the game waited for a keyboard that never came (only LT/RT still turned the figure).
++  // The answer is written byte by byte and valid_range checks every page the range touches.
++  if (buffer_length > kMaximumUnits)
++    return refuse("the text buffer is longer than 65536 characters", X_ERROR_INVALID_PARAMETER);
++  if (!valid_range(buffer.guest_address(), uint64_t(buffer_length) * 2, kMemoryProtectWrite))
+     return refuse("the text buffer is not writable guest memory", X_ERROR_INVALID_PARAMETER);
+   if (overlapped && ((overlapped.guest_address() & 3) ||
+        !valid_range(overlapped.guest_address(), sizeof(XAM_OVERLAPPED),
+                     kMemoryProtectRead | kMemoryProtectWrite)))
