@@ -1,4 +1,4 @@
-// Fix 192: the play space as a Kinect game sees it, in the motion panel
+// Fix 194: the play space as a Kinect game sees it, in the motion panel
 // (include/xbox360ps5/play_space_map.hpp).
 //
 //   check-play-space-map <english/lang folder>     run from an assembled tree's root
@@ -289,7 +289,7 @@ static void CheckTree() {
   // The frame the game gets (with the emergency pose), only while the panel is drawn.
   const size_t branch = game.find("} else if (!panel_off) {");
   const size_t guest = game.find("const auto guest = xbox360ps5::motion::emergency_pose.Overlay(pose);");
-  const size_t map = game.find("if (motion_map_) DrawPlaySpace(draw, scale, place, hands.valid);  // fix 192");
+  const size_t map = game.find("if (motion_map_) DrawPlaySpace(draw, scale, place, hands.valid);  // fix 194");
   const size_t foot = game.find("DrawFootLine(draw, scale, place, hands.valid);");
   const size_t bars = game.find("if (hands.valid) DrawReachBars(draw, scale, hands);");
   CHECK(branch != std::string::npos && guest != std::string::npos && map != std::string::npos && foot != std::string::npos);

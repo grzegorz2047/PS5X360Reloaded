@@ -5,7 +5,7 @@ diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
    int motion_phone = 0;        // Research receiver only; no Kinect device advertised.
    int motion_panel = 0;        // Fix 63: the motion panel over a game: top right, top left, off.
    int motion_picture = 0;      // Fix 119: the phone's camera picture as the Kinect colour camera.
-+  int motion_map = 1;          // Fix 192: the play space from above in the motion panel.
++  int motion_map = 1;          // Fix 194: the play space from above in the motion panel.
    int ui_sound_volume = 2;      // 0%, 10%, 20%, 35%, 50%, 100%.
    int xma_decoder = 0;          // 0 new, 1 old, 2 master.
    int xma_inline = 0;           // XMA is decoded without a thread of its own.
@@ -16,7 +16,7 @@ diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_gr
      {"deadzone_right", Group::other, nullptr, nullptr},
      {"motion_phone", Group::other, nullptr, nullptr},
      {"motion_panel", Group::other, nullptr, nullptr},
-+    {"motion_map", Group::other, nullptr, nullptr},  // fix 192
++    {"motion_map", Group::other, nullptr, nullptr},  // fix 194
      {"motion_picture", Group::other, nullptr, nullptr},
      {"show_fps", Group::other, nullptr, nullptr},
      {"achievement_toasts", Group::other, nullptr, nullptr},
@@ -24,7 +24,7 @@ diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_gr
      {"deadzone_right", "Ignores small movements of the right stick."},
      {"motion_phone", "A phone as a motion camera (research). It shows diagnostics."},
      {"motion_panel", "Where the motion panel is drawn over the game."},
-+    {"motion_map", "Shows from above where the game sees you, and where to step."},  // fix 192
++    {"motion_map", "Shows from above where the game sees you, and where to step."},  // fix 194
      {"motion_picture", "Sends the phone camera's picture to games that show the camera."},
      {"show_fps", "Shows the frames per second in a corner."},
      {"achievement_toasts", "Shows a notification when you unlock an achievement."},
@@ -35,7 +35,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
  #include "xbox360ps5/harmonix_keys.hpp"  // fix 147c
  #include "xbox360ps5/motion_emergency.hpp"  // fix 107
  #include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
-+#include "xbox360ps5/play_space_map.hpp"  // fix 192: the play space as the game sees it
++#include "xbox360ps5/play_space_map.hpp"  // fix 194: the play space as the game sees it
  #include "xbox360ps5/body_scale.hpp"  // fix 57: the body the games get
  #include "xbox360ps5/motion_record.hpp"  // 1.0.5: the last 10 s of phone motion
  #include "xbox360ps5/save_storage.hpp"
@@ -65,7 +65,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 -      if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
 -      if (pose.tracked) {
 -        const auto point = [&](int n) { return ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
-+      // Fix 192: the frame the game gets (with the emergency pose, motion_emergency.hpp), upright in
++      // Fix 194: the frame the game gets (with the emergency pose, motion_emergency.hpp), upright in
 +      // the game's sensor space and centred on its hips, and beside it the play space from above
 +      // with where the game sees the player ("Play-space map" option; play_space_map.hpp).
 +      namespace ps = xbox360ps5::motion::play_space;
@@ -85,8 +85,8 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
          draw->PopClipRect();
        }
 -      DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107
-+      if (motion_map_) DrawPlaySpace(draw, scale, place, hands.valid);  // fix 192
-+      DrawFootLine(draw, scale, place, hands.valid);  // fix 107; fix 192: the game's place
++      if (motion_map_) DrawPlaySpace(draw, scale, place, hands.valid);  // fix 194
++      DrawFootLine(draw, scale, place, hands.valid);  // fix 107; fix 194: the game's place
        if (hands.valid) DrawReachBars(draw, scale, hands);
        }
      }
@@ -118,7 +118,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 -      if (!text.empty()) text += " \xC2\xB7 ";
 +  // Fix 63: too close / too far / not all of the body in the picture. Fix 107: with the distance as
 +  // one short line at the skeleton's foot ("2.6 m · Step back", phone_qr_panel.hpp, PanelFootTop),
-+  // raised when it wraps and above the reach bars. Fix 192: the distance is the game's (the hips'
++  // raised when it wraps and above the reach bars. Fix 194: the distance is the game's (the hips'
 +  // sensor depth, after the console re-centres the phone's depth), not the phone page's own (Nike+
 +  // showed its 3.8 m limit with the player about 2-2.5 m away), and the guidance comes from where
 +  // the game sees the player (play_space_map.hpp, Guide): green "Good spot" in the sweet spot.
@@ -149,7 +149,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +                  guide.good ? IM_COL32(100, 230, 120, 255) : IM_COL32(245, 204, 137, 255), text.c_str(),
                    nullptr, wrap);
    }
-+  // Fix 192: one hint of play_space_map.hpp's Guide, translated (the keys are ps::HintKeys').
++  // Fix 194: one hint of play_space_map.hpp's Guide, translated (the keys are ps::HintKeys').
 +  static const char* PlaySpaceHintText(uint32_t hint) {
 +    namespace ps = xbox360ps5::motion::play_space;
 +    switch (hint) {
@@ -162,7 +162,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
 +      default: return nullptr;
 +    }
 +  }
-+  // Fix 192: the play space from above, beside the skeleton (play_space_map.hpp): the sensor at the
++  // Fix 194: the play space from above, beside the skeleton (play_space_map.hpp): the sensor at the
 +  // top, its view (57 degrees, 0.8-4 m), a line each metre, the sweet spot (1.8-2.5 m, centred) and
 +  // the player as a dot where the game sees the hip centre: green in a good spot, amber with a hint,
 +  // a ring while the hips are only inferred or the place is off the map.
@@ -208,7 +208,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
    // Fix 63: the arms as the game wants them, faint, behind the live skeleton: each arm
    // straight out to its side and straight up, from the live shoulder, at the arm's length;
    // a direction the game is counting is drawn brighter.
-+  // Fix 192: in the front view's place and size (play_space_map.hpp, FrontPoint).
++  // Fix 194: in the front view's place and size (play_space_map.hpp, FrontPoint).
    void DrawTargetArms(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose,
 -                      const xbox360ps5::motion::GameHands& hands) {
 -    draw->PushClipRect(ImVec2((1550 + shift_) * scale, 185 * scale), ImVec2((1900 + shift_) * scale, 565 * scale), true);
@@ -250,7 +250,7 @@ diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
    const bool& stalled_;
    const int& touchpad_menu_;
    const int& motion_panel_;
-+  const int& motion_map_;  // fix 192: the "Play-space map" option
++  const int& motion_map_;  // fix 194: the "Play-space map" option
  };
  // The emulator's guide over a running game, after the Xbox 360's: a light
  // panel that unfolds from the middle of the screen, a page of actions and a page
@@ -270,7 +270,7 @@ diff --git a/src/launcher.cpp b/src/launcher.cpp
        {"motion_panel", &S::motion_panel, 3, W::live, 0, true, "Motion panel",
         "Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected.",
         {"Top right", "Top left", "Off"}},
-+      // Fix 192: the play space from above in the motion panel (play_space_map.hpp), on by default.
++      // Fix 194: the play space from above in the motion panel (play_space_map.hpp), on by default.
 +      {"motion_map", &S::motion_map, 3, W::live, 1, true, "Play-space map",
 +       "With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step.",
 +       off_on},
@@ -283,7 +283,7 @@ new file mode 100644
 +++ b/include/xbox360ps5/play_space_map.hpp
 @@ -0,0 +1,208 @@
 +// SPDX-License-Identifier: MIT
-+// Fix 192: the play space as a Kinect game sees it, for the motion panel over the game.
++// Fix 194: the play space as a Kinect game sees it, for the motion panel over the game.
 +//
 +// Nike+ Kinect Training asks the player to "MOVE ONTO THE MARKER". With a phone as the Kinect the
 +// player could not tell where the game thought they stood: the panel showed the phone page's own
