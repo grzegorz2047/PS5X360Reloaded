@@ -255,7 +255,9 @@ int main(int argc, char** argv) {
     // at the skeleton's foot (PanelFootTop), no longer at the status line's right end or on a line
     // of its own at the top.
     CHECK(game.find("const auto lines = xbox360ps5::motion::PanelStatusLines();") != std::string::npos);
-    const size_t foot = game.find("DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107");
+    size_t foot = game.find("DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107");
+    if (foot == std::string::npos)  // fix 192: the game's place (check-play-space-map.cpp)
+      foot = game.find("DrawFootLine(draw, scale, place, hands.valid);  // fix 107; fix 192: the game's place");
     CHECK(foot != std::string::npos && foot < game.find("if (hands.valid) DrawReachBars(draw, scale, hands);"));
     CHECK(game.find("std::snprintf(distance, sizeof(distance), \"%.1f m\", double(metres));") != std::string::npos);
     CHECK(game.find("const float top = xbox360ps5::motion::PanelFootTop(bars, size.y / scale);") != std::string::npos);

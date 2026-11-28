@@ -184,18 +184,22 @@ void CheckTree() {
         std::string::npos);
   // Its place: the "Motion panel" option (top right, top left, off: the code only).
   CHECK(game.find("shift_ = motion_panel_ == 1 ? xbox360ps5::motion::kQrPanelLeftShift : 0.0f;") != std::string::npos);
-  CHECK(game.find("settings.touchpad_menu,settings.motion_panel)") != std::string::npos);
+  CHECK(game.find("settings.touchpad_menu,settings.motion_panel)") != std::string::npos ||
+        game.find("settings.touchpad_menu,settings.motion_panel,settings.motion_map)") != std::string::npos);  // fix 192
   CHECK(game.find("} else if (!panel_off) {") != std::string::npos);
   // The phone's own distance (amber outside DBZ's zone): at the panel's top right, then (fix 107)
   // as "2.6 m" at the skeleton's foot, a number and a unit with nothing to translate.
   CHECK(game.find("Tr(\"Distance %.1f m\")") != std::string::npos ||
         game.find("std::snprintf(distance, sizeof(distance), \"%.1f m\", double(metres));") != std::string::npos);
   CHECK(game.find("const auto pose = xbox360ps5::motion::NormalizedSnapshot();") != std::string::npos);
-  // 1.0.5_candidate_10: the skeleton and the target arms are drawn as a mirror.
-  CHECK(game.find("ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale") !=
+  // 1.0.5_candidate_10: the skeleton and the target arms are drawn as a mirror. Fix 192 draws them
+  // through play_space_map.hpp's FrontPoint, the same mirror (check-play-space-map.cpp).
+  const bool fix192 = game.find("#include \"xbox360ps5/play_space_map.hpp\"") != std::string::npos;
+  CHECK(fix192 || game.find("ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale") !=
         std::string::npos);
-  CHECK(game.find("xbox360ps5::motion::PanelMirrorX(1725 + shift_, shoulder.x, kPanelPixelsPerMetre) * scale") !=
+  CHECK(fix192 || game.find("xbox360ps5::motion::PanelMirrorX(1725 + shift_, shoulder.x, kPanelPixelsPerMetre) * scale") !=
         std::string::npos);
+  CHECK(!fix192 || game.find("ps::FrontPoint(front, guest.joints[n], place.x)") != std::string::npos);
   CHECK(game.find("std::tuple<float, float, int>{right ? 1.f : -1.f, 0.f, outward}") != std::string::npos);
   CHECK(game.find("1725 + shift_ + pose.joints[n].x") == std::string::npos);
   CHECK(launcher.find("{\"motion_panel\", &S::motion_panel, 3, W::live, 0, true, \"Motion panel\",") != std::string::npos);
@@ -206,11 +210,14 @@ void CheckTree() {
     CHECK(game.find(key) != std::string::npos);
   // The hand view: the title's state read by the kernel side, drawn under the live skeleton.
   CHECK(game.find("#include \"xbox360ps5/kinect_hand_view.hpp\"") != std::string::npos);
-  CHECK(game.find("DrawTargetArms(draw, scale, pose, hands)") != std::string::npos);
+  // Fix 192: the frame the game gets (guest), placed by the front view.
+  const std::string arms = fix192 ? "DrawTargetArms(draw, scale, guest, hands, front, place.x)" : "DrawTargetArms(draw, scale, pose, hands)";
+  CHECK(game.find(arms) != std::string::npos);
   CHECK(game.find("DrawReachBars(draw, scale, hands)") != std::string::npos);
   CHECK(game.find("DrawPositionHint(draw, scale, pose)") != std::string::npos ||
-        game.find("DrawFootLine(draw, scale, phone, pose, hands.valid)") != std::string::npos);  // fix 107: at the foot
-  CHECK(game.find("DrawTargetArms(draw, scale, pose, hands)") < game.find("const int bones[][2]"));  // under it
+        game.find("DrawFootLine(draw, scale, phone, pose, hands.valid)") != std::string::npos ||  // fix 107: at the foot
+        game.find("DrawFootLine(draw, scale, place, hands.valid)") != std::string::npos);  // fix 192: the game's place
+  CHECK(game.find(arms) < game.find("const int bones[][2]"));  // under it
   for (const char* key : {"Tr(\"Step back\")", "Tr(\"Step closer\")", "Tr(\"Show your whole body to the camera\")",
                           "Tr(\"Hand reach (the game needs %.2f)\")"})
     CHECK(game.find(key) != std::string::npos);

@@ -214,6 +214,7 @@ on:
       - 'tools/check-unlimited-write.cpp'
       - 'tools/check-xna-usermode.cpp'
       - 'tools/check-camera-figure.cpp'
+      - 'tools/check-play-space-map.cpp'
       - 'tools/check-lapy-daemon-package.py'
       - 'tools/source-1.0.2/lapy-daemon/**'
       - 'licenses/**'

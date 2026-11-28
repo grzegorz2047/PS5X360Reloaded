@@ -427,6 +427,13 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x enquanto o jogo man
 This game runs better at 1x: from its next start it runs at 1x. = Este jogo roda melhor em 1x: a partir da próxima vez que for iniciado, ele roda em 1x.
 Unlimited write speed (root) = Velocidade de gravação ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Remove o limite de velocidade de gravação que o console impõe ao aplicativo, então salvar dados dos jogos e o cache de shaders fica muito mais rápido. Ao iniciar, o aplicativo pede ao jailbreak para elevá-lo ao nível de sistema (root), o que altera suas credenciais de sistema durante a sessão; use por sua conta e risco. Precisa de um jailbreak compatível; sem ele, o aplicativo simplesmente funciona normalmente. Passa a valer na próxima vez que você abrir o aplicativo e não afeta seu tema, configurações ou dados dos jogos.
+Play-space map = Mapa do espaço de jogo
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Com um celular como Kinect, o painel de movimento também mostra o cômodo visto de cima como o jogo o vê: a visão da câmera, o lugar que a maioria dos jogos quer, você como um ponto e para onde ir.
+Shows from above where the game sees you, and where to step. = Mostra de cima onde o jogo vê você e para onde ir.
+Move left = Vá para a esquerda
+Move right = Vá para a direita
+Good spot = Bom lugar
+The camera sees you sideways: stand the phone upright = A câmera vê você de lado: coloque o celular em pé
 
 [added pt]
 Console storage = Armazenamento da consola
@@ -666,6 +673,13 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x enquanto o jogo man
 This game runs better at 1x: from its next start it runs at 1x. = Este jogo corre melhor em 1x: a partir do próximo arranque, corre em 1x.
 Unlimited write speed (root) = Velocidade de gravação ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Remove o limite de velocidade de escrita que a consola impõe à aplicação, por isso guardar dados dos jogos e a cache de shaders fica muito mais rápido. Ao iniciar, a aplicação pede ao jailbreak para a elevar ao nível de sistema (root), o que altera as suas credenciais de sistema durante a sessão; use por sua conta e risco. Precisa de um jailbreak compatível; sem ele, a aplicação funciona simplesmente como de costume. Tem efeito no próximo arranque da aplicação e não afeta o seu tema, definições ou dados dos jogos.
+Play-space map = Mapa do espaço de jogo
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Com um telemóvel como Kinect, o painel de movimento também mostra a divisão vista de cima como o jogo a vê: a visão da câmara, o local que a maioria dos jogos quer, você como um ponto e para onde ir.
+Shows from above where the game sees you, and where to step. = Mostra de cima onde o jogo o vê e para onde ir.
+Move left = Vá para a esquerda
+Move right = Vá para a direita
+Good spot = Bom local
+The camera sees you sideways: stand the phone upright = A câmara vê-o de lado: coloque o telemóvel na vertical
 
 [added es]
 Console storage = Almacenamiento de la consola
@@ -905,6 +919,13 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x mientras el juego m
 This game runs better at 1x: from its next start it runs at 1x. = Este juego funciona mejor a 1x: desde su próximo inicio funcionará a 1x.
 Unlimited write speed (root) = Velocidad de escritura ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Elimina el límite de velocidad de escritura que la consola impone a la aplicación, por lo que guardar los datos de los juegos y la caché de sombreadores es mucho más rápido. Al iniciarse, la aplicación pide al jailbreak que la eleve al nivel de sistema (root), lo que cambia sus credenciales de sistema durante la sesión; úsalo bajo tu propia responsabilidad. Necesita un jailbreak compatible; sin él, la aplicación simplemente funciona con normalidad. Surte efecto la próxima vez que abras la aplicación y no afecta a tu tema, ajustes ni datos de los juegos.
+Play-space map = Mapa del espacio de juego
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Con un móvil como Kinect, el panel de movimiento también muestra la habitación vista desde arriba como la ve el juego: la vista de la cámara, el sitio que quieren la mayoría de los juegos, tú como un punto y hacia dónde moverte.
+Shows from above where the game sees you, and where to step. = Muestra desde arriba dónde te ve el juego y hacia dónde moverte.
+Move left = Muévete a la izquierda
+Move right = Muévete a la derecha
+Good spot = Buen sitio
+The camera sees you sideways: stand the phone upright = La cámara te ve de lado: pon el móvil en vertical
 
 [added es-419]
 Console storage = Almacenamiento de la consola
@@ -1144,6 +1165,13 @@ Automatic (2x while the game keeps 30 fps) = Automática (2x mientras el juego m
 This game runs better at 1x: from its next start it runs at 1x. = Este juego funciona mejor a 1x: desde su próximo inicio funcionará a 1x.
 Unlimited write speed (root) = Velocidad de escritura ilimitada (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimental. Elimina el límite de velocidad de escritura que la consola impone a la aplicación, por lo que guardar los datos de los juegos y el caché de sombreadores es mucho más rápido. Al iniciarse, la aplicación le pide al jailbreak que la eleve al nivel de sistema (root), lo que cambia sus credenciales de sistema durante la sesión; úsalo bajo tu propio riesgo. Necesita un jailbreak compatible; sin él, la aplicación simplemente funciona con normalidad. Tiene efecto la próxima vez que abras la aplicación y no afecta tu tema, ajustes ni datos de los juegos.
+Play-space map = Mapa del espacio de juego
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Con un celular como Kinect, el panel de movimiento también muestra la habitación vista desde arriba como la ve el juego: la vista de la cámara, el lugar que quieren la mayoría de los juegos, tú como un punto y hacia dónde moverte.
+Shows from above where the game sees you, and where to step. = Muestra desde arriba dónde te ve el juego y hacia dónde moverte.
+Move left = Muévete a la izquierda
+Move right = Muévete a la derecha
+Good spot = Buen lugar
+The camera sees you sideways: stand the phone upright = La cámara te ve de lado: pon el celular en vertical
 
 [added de]
 Console storage = Konsolenspeicher
@@ -1383,6 +1411,13 @@ Automatic (2x while the game keeps 30 fps) = Automatisch (2x, solange das Spiel 
 This game runs better at 1x: from its next start it runs at 1x. = Dieses Spiel läuft mit 1x besser: Ab dem nächsten Start läuft es mit 1x.
 Unlimited write speed (root) = Unbegrenzte Schreibgeschwindigkeit (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimentell. Hebt das von der Konsole pro App auferlegte Schreibgeschwindigkeits-Limit auf, sodass Spieldaten und Shader-Caches viel schneller gespeichert werden. Beim Start bittet die App den Jailbreak, sie auf Systemebene (root) anzuheben, was ihre System-Anmeldedaten für die Sitzung ändert; Nutzung auf eigenes Risiko. Es wird ein Jailbreak benötigt, der das unterstützt; ohne ihn läuft die App einfach wie gewohnt. Die Änderung wirkt beim nächsten Start der App und beeinflusst weder dein Design noch deine Einstellungen oder Spieldaten.
+Play-space map = Spielbereich-Karte
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Mit einem Handy als Kinect zeigt das Bewegungsfeld auch den Raum von oben, wie das Spiel ihn sieht: das Sichtfeld der Kamera, den Platz, den die meisten Spiele wollen, dich als Punkt und wohin du gehen sollst.
+Shows from above where the game sees you, and where to step. = Zeigt von oben, wo das Spiel dich sieht und wohin du gehen sollst.
+Move left = Geh nach links
+Move right = Geh nach rechts
+Good spot = Guter Platz
+The camera sees you sideways: stand the phone upright = Die Kamera sieht dich seitlich: Stell das Handy aufrecht
 
 [added fr]
 Console storage = Stockage de la console
@@ -1622,6 +1657,13 @@ Automatic (2x while the game keeps 30 fps) = Automatique (2x tant que le jeu tie
 This game runs better at 1x: from its next start it runs at 1x. = Ce jeu tourne mieux en 1x : dès son prochain lancement, il tournera en 1x.
 Unlimited write speed (root) = Vitesse d'écriture illimitée (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Expérimental. Supprime la limite de vitesse d'écriture que la console impose à l'application, ce qui rend l'enregistrement des données de jeu et du cache de shaders bien plus rapide. Au démarrage, l'application demande au jailbreak de l'élever au niveau système (root), ce qui modifie ses identifiants système pour la session ; à utiliser à vos propres risques. Nécessite un jailbreak compatible ; sans lui, l'application fonctionne simplement normalement. L'effet s'applique au prochain lancement de l'application et n'affecte ni votre thème, ni vos réglages, ni vos données de jeu.
+Play-space map = Carte de l'espace de jeu
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Avec un téléphone comme Kinect, le panneau de mouvement montre aussi la pièce vue de dessus comme le jeu la voit : le champ de la caméra, la place que veulent la plupart des jeux, vous sous forme de point, et où vous placer.
+Shows from above where the game sees you, and where to step. = Montre de dessus où le jeu vous voit, et où vous placer.
+Move left = Allez à gauche
+Move right = Allez à droite
+Good spot = Bonne place
+The camera sees you sideways: stand the phone upright = La caméra vous voit de côté : mettez le téléphone à la verticale
 
 [added it]
 Console storage = Memoria della console
@@ -1861,6 +1903,13 @@ Automatic (2x while the game keeps 30 fps) = Automatica (2x finché il gioco man
 This game runs better at 1x: from its next start it runs at 1x. = Questo gioco funziona meglio a 1x: dal prossimo avvio funzionerà a 1x.
 Unlimited write speed (root) = Velocità di scrittura illimitata (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Sperimentale. Rimuove il limite di velocità di scrittura che la console impone all'app, così il salvataggio dei dati di gioco e della cache degli shader diventa molto più veloce. All'avvio l'app chiede al jailbreak di elevarla a livello di sistema (root), modificando le sue credenziali di sistema per la sessione; usala a tuo rischio. Richiede un jailbreak che lo supporti; senza, l'app funziona semplicemente come al solito. Ha effetto al successivo avvio dell'app e non modifica il tema, le impostazioni o i dati di gioco.
+Play-space map = Mappa dell'area di gioco
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Con un telefono come Kinect, il pannello del movimento mostra anche la stanza vista dall'alto come la vede il gioco: il campo della fotocamera, il punto che vuole la maggior parte dei giochi, tu come un punto e dove spostarti.
+Shows from above where the game sees you, and where to step. = Mostra dall'alto dove ti vede il gioco e dove spostarti.
+Move left = Spostati a sinistra
+Move right = Spostati a destra
+Good spot = Posizione giusta
+The camera sees you sideways: stand the phone upright = La fotocamera ti vede di lato: metti il telefono in verticale
 
 [added ja]
 Console storage = 本体ストレージ
@@ -2100,6 +2149,13 @@ Automatic (2x while the game keeps 30 fps) = 自動（30fpsを保てる間は2x�
 This game runs better at 1x: from its next start it runs at 1x. = このゲームは1xのほうが快適に動作します。次回の起動から1xで動作します。
 Unlimited write speed (root) = 書き込み速度の制限解除（root）
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 実験的な機能です。本体がアプリごとに課す書き込み速度の制限を解除し、ゲームデータやシェーダーキャッシュの保存が大幅に速くなります。起動時にアプリはjailbreakへ自身をシステム権限（root）に昇格するよう要求し、セッション中はシステム資格情報が変更されます。自己責任でご利用ください。対応するjailbreakが必要で、ない場合アプリは通常どおり動作します。次回アプリ起動時から有効になり、テーマ・設定・ゲームデータには影響しません。
+Play-space map = プレイスペースマップ
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = スマートフォンをKinectとして使うとき、モーションパネルにはゲームから見た部屋を上から見た図も表示されます：カメラの視野、多くのゲームが求める位置、点で示したあなた、移動する方向。
+Shows from above where the game sees you, and where to step. = ゲームがあなたをどこに見ているかと、移動する方向を上から表示します。
+Move left = 左へ移動してください
+Move right = 右へ移動してください
+Good spot = 良い位置です
+The camera sees you sideways: stand the phone upright = カメラにあなたが横向きに映っています：スマートフォンを縦に立ててください
 
 [added ko]
 Console storage = 본체 저장 공간
@@ -2339,6 +2395,13 @@ Automatic (2x while the game keeps 30 fps) = 자동 (게임이 30fps를 유지�
 This game runs better at 1x: from its next start it runs at 1x. = 이 게임은 1x에서 더 잘 실행됩니다. 다음 실행부터 1x로 실행합니다.
 Unlimited write speed (root) = 쓰기 속도 무제한 (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 실험적 기능입니다. 콘솔이 앱별로 적용하는 쓰기 속도 제한을 해제하여 게임 데이터와 셰이더 캐시 저장이 훨씬 빨라집니다. 앱은 시작할 때 jailbreak에 자신을 시스템 수준(root)으로 올려 달라고 요청하며, 이 세션 동안 앱의 시스템 자격 증명이 변경됩니다. 사용에 따른 책임은 본인에게 있습니다. 이를 지원하는 jailbreak가 필요하며, 없으면 앱은 평소대로 실행됩니다. 다음에 앱을 시작할 때 적용되며 테마, 설정, 게임 데이터에는 영향을 주지 않습니다.
+Play-space map = 플레이 공간 지도
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = 휴대폰을 Kinect로 쓸 때 모션 패널에 게임이 보는 방을 위에서 본 모습도 표시합니다: 카메라 시야, 대부분의 게임이 원하는 위치, 점으로 표시된 플레이어, 이동할 방향.
+Shows from above where the game sees you, and where to step. = 게임이 플레이어를 어디에서 보는지와 이동할 방향을 위에서 보여 줍니다.
+Move left = 왼쪽으로 이동하세요
+Move right = 오른쪽으로 이동하세요
+Good spot = 좋은 위치입니다
+The camera sees you sideways: stand the phone upright = 카메라에 플레이어가 옆으로 누워 보입니다: 휴대폰을 세로로 세우세요
 
 [added nl]
 Console storage = Consoleopslag
@@ -2578,6 +2641,13 @@ Automatic (2x while the game keeps 30 fps) = Automatisch (2x zolang het spel 30 
 This game runs better at 1x: from its next start it runs at 1x. = Dit spel draait beter op 1x: vanaf de volgende start draait het op 1x.
 Unlimited write speed (root) = Onbeperkte schrijfsnelheid (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Experimenteel. Verwijdert de schrijfsnelheidslimiet die de console per app oplegt, zodat het opslaan van spelgegevens en shader-caches veel sneller gaat. Bij het starten vraagt de app de jailbreak om zichzelf naar systeemniveau (root) te verheffen, wat de systeemreferenties voor de sessie wijzigt; gebruik op eigen risico. Vereist een jailbreak die dit ondersteunt; zonder zo'n jailbreak werkt de app gewoon normaal. Het werkt vanaf de volgende keer dat je de app start en heeft geen invloed op je thema, instellingen of spelgegevens.
+Play-space map = Kaart van de speelruimte
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Met een telefoon als Kinect toont het bewegingspaneel ook de kamer van bovenaf zoals de game die ziet: het beeld van de camera, de plek die de meeste games willen, jij als stip en waar je heen moet.
+Shows from above where the game sees you, and where to step. = Toont van bovenaf waar de game je ziet en waar je heen moet.
+Move left = Ga naar links
+Move right = Ga naar rechts
+Good spot = Goede plek
+The camera sees you sideways: stand the phone upright = De camera ziet je zijdelings: zet de telefoon rechtop
 
 [added pl]
 Console storage = Pamięć konsoli
@@ -2817,6 +2887,13 @@ Automatic (2x while the game keeps 30 fps) = Automatyczna (2x, gdy gra utrzymuje
 This game runs better at 1x: from its next start it runs at 1x. = Ta gra działa lepiej w 1x: od następnego uruchomienia będzie działać w 1x.
 Unlimited write speed (root) = Nieograniczona prędkość zapisu (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Eksperymentalne. Usuwa limit prędkości zapisu nakładany przez konsolę na aplikację, dzięki czemu dane gier i pamięć podręczna shaderów zapisują się znacznie szybciej. Przy starcie aplikacja prosi jailbreak o podniesienie jej do poziomu systemowego (root), co zmienia jej uprawnienia systemowe na czas sesji; używasz na własne ryzyko. Wymaga jailbreaka, który to obsługuje; bez niego aplikacja po prostu działa normalnie. Zmiana działa od następnego uruchomienia aplikacji i nie wpływa na motyw, ustawienia ani dane gier.
+Play-space map = Mapa miejsca gry
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Gdy telefon służy jako Kinect, panel ruchu pokazuje też pokój z góry tak, jak widzi go gra: pole widzenia kamery, miejsce, którego chce większość gier, ciebie jako kropkę i dokąd przejść.
+Shows from above where the game sees you, and where to step. = Pokazuje z góry, gdzie widzi cię gra i dokąd przejść.
+Move left = W lewo
+Move right = W prawo
+Good spot = Dobre miejsce
+The camera sees you sideways: stand the phone upright = Kamera widzi cię bokiem: postaw telefon pionowo
 
 [added ru]
 Console storage = Память консоли
@@ -3056,6 +3133,13 @@ Automatic (2x while the game keeps 30 fps) = Автоматически (2x, п�
 This game runs better at 1x: from its next start it runs at 1x. = Эта игра лучше работает в 1x: со следующего запуска она будет работать в 1x.
 Unlimited write speed (root) = Неограниченная скорость записи (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Экспериментально. Снимает ограничение скорости записи, которое консоль накладывает на приложение, поэтому сохранение игровых данных и кэша шейдеров идёт намного быстрее. При запуске приложение просит jailbreak повысить его до системного уровня (root), что меняет его системные учётные данные на время сеанса; используйте на свой страх и риск. Требуется jailbreak с поддержкой этой функции; без него приложение просто работает как обычно. Изменение вступает в силу при следующем запуске приложения и не затрагивает вашу тему, настройки и игровые данные.
+Play-space map = Карта игровой зоны
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Когда телефон служит Kinect, панель движения также показывает комнату сверху так, как её видит игра: обзор камеры, место, которое нужно большинству игр, вас в виде точки и куда перейти.
+Shows from above where the game sees you, and where to step. = Показывает сверху, где вас видит игра и куда перейти.
+Move left = Сместитесь влево
+Move right = Сместитесь вправо
+Good spot = Хорошее место
+The camera sees you sideways: stand the phone upright = Камера видит вас боком: поставьте телефон вертикально
 
 [added tr]
 Console storage = Konsol depolama alanı
@@ -3295,6 +3379,13 @@ Automatic (2x while the game keeps 30 fps) = Otomatik (oyun 30 fps'yi koruduğu 
 This game runs better at 1x: from its next start it runs at 1x. = Bu oyun 1x'te daha iyi çalışır: bir sonraki başlatmadan itibaren 1x'te çalışacak.
 Unlimited write speed (root) = Sınırsız yazma hızı (root)
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = Deneyseldir. Konsolun uygulama başına uyguladığı yazma hızı sınırını kaldırır, böylece oyun verilerinin ve gölgelendirici önbelleğinin kaydedilmesi çok daha hızlı olur. Uygulama başlarken jailbreak'ten kendisini sistem düzeyine (root) yükseltmesini ister; bu, oturum boyunca sistem kimlik bilgilerini değiştirir; kendi sorumluluğunuzda kullanın. Bunu destekleyen bir jailbreak gerekir; olmadan uygulama yalnızca normal şekilde çalışır. Uygulamayı bir sonraki açışınızda etkinleşir ve temanızı, ayarlarınızı veya oyun verilerinizi etkilemez.
+Play-space map = Oyun alanı haritası
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = Telefon Kinect olarak kullanıldığında hareket paneli, odayı oyunun gördüğü gibi yukarıdan da gösterir: kameranın görüş alanı, çoğu oyunun istediği yer, nokta olarak siz ve nereye geçmeniz gerektiği.
+Shows from above where the game sees you, and where to step. = Oyunun sizi nerede gördüğünü ve nereye geçmeniz gerektiğini yukarıdan gösterir.
+Move left = Sola geçin
+Move right = Sağa geçin
+Good spot = İyi konum
+The camera sees you sideways: stand the phone upright = Kamera sizi yan görüyor: telefonu dik konuma getirin
 
 [added zh-Hans]
 Console storage = 主机存储空间
@@ -3534,6 +3625,13 @@ Automatic (2x while the game keeps 30 fps) = 自动（游戏保持 30 fps 时使
 This game runs better at 1x: from its next start it runs at 1x. = 此游戏在 1x 下运行更好：从下次启动起将以 1x 运行。
 Unlimited write speed (root) = 无限写入速度（root）
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 实验性功能。解除主机对各应用施加的写入速度限制，让游戏数据和着色器缓存的保存快得多。应用启动时会请求 jailbreak 将自身提升到系统级别（root），这会在本次会话期间更改其系统凭据；使用风险自负。需要支持此功能的 jailbreak；没有时应用会照常运行。更改将在下次启动应用时生效，不会影响你的主题、设置或游戏数据。
+Play-space map = 游戏空间地图
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = 将手机用作 Kinect 时，动作面板还会按游戏所见的样子从上方显示房间：摄像头的视野、大多数游戏需要的位置、代表你的圆点，以及该往哪里移动。
+Shows from above where the game sees you, and where to step. = 从上方显示游戏看到你在哪里，以及该往哪里移动。
+Move left = 请向左移动
+Move right = 请向右移动
+Good spot = 位置合适
+The camera sees you sideways: stand the phone upright = 摄像头看到你是横着的：请把手机竖直放置
 
 [added zh-Hant]
 Console storage = 主機儲存空間
@@ -3773,3 +3871,10 @@ Automatic (2x while the game keeps 30 fps) = 自動（遊戲維持 30 fps 時使
 This game runs better at 1x: from its next start it runs at 1x. = 此遊戲在 1x 下執行得更好：從下次啟動起將以 1x 執行。
 Unlimited write speed (root) = 無限寫入速度（root）
 Experimental. Removes the console's per-app write-speed limit, so saving game data and shader caches is much faster. The app asks the jailbreak to raise itself to system level (root) when it starts, which changes its system credentials for the session; use it at your own risk. It needs a jailbreak that supports this; without one, the app simply runs as usual. It takes effect the next time you start the app, and does not affect your theme, settings or game data. = 實驗性功能。解除主機對各應用程式施加的寫入速度限制，讓遊戲資料和著色器快取的儲存快上許多。應用程式啟動時會要求 jailbreak 將自身提升到系統層級（root），這會在本次工作階段期間變更其系統憑證；使用風險自負。需要支援此功能的 jailbreak；沒有時應用程式會照常運作。變更會在下次啟動應用程式時生效，不會影響你的佈景主題、設定或遊戲資料。
+Play-space map = 遊戲空間地圖
+With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step. = 將手機當作 Kinect 時，動作面板還會依遊戲所見的樣子從上方顯示房間：攝影機的視野、大多數遊戲需要的位置、代表你的圓點，以及該往哪裡移動。
+Shows from above where the game sees you, and where to step. = 從上方顯示遊戲看到你在哪裡，以及該往哪裡移動。
+Move left = 請向左移動
+Move right = 請向右移動
+Good spot = 位置合適
+The camera sees you sideways: stand the phone upright = 攝影機看到你是橫著的：請把手機直立擺放

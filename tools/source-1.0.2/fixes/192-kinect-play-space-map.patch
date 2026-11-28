@@ -1,0 +1,492 @@
+diff --git a/include/xbox360ps5/launcher.hpp b/include/xbox360ps5/launcher.hpp
+--- a/include/xbox360ps5/launcher.hpp
++++ b/include/xbox360ps5/launcher.hpp
+@@ -114,6 +114,7 @@ struct Settings {
+   int motion_phone = 0;        // Research receiver only; no Kinect device advertised.
+   int motion_panel = 0;        // Fix 63: the motion panel over a game: top right, top left, off.
+   int motion_picture = 0;      // Fix 119: the phone's camera picture as the Kinect colour camera.
++  int motion_map = 1;          // Fix 192: the play space from above in the motion panel.
+   int ui_sound_volume = 2;      // 0%, 10%, 20%, 35%, 50%, 100%.
+   int xma_decoder = 0;          // 0 new, 1 old, 2 master.
+   int xma_inline = 0;           // XMA is decoded without a thread of its own.
+diff --git a/include/xbox360ps5/option_groups.hpp b/include/xbox360ps5/option_groups.hpp
+--- a/include/xbox360ps5/option_groups.hpp
++++ b/include/xbox360ps5/option_groups.hpp
+@@ -116,6 +116,7 @@ inline constexpr Entry kEntries[] = {
+     {"deadzone_right", Group::other, nullptr, nullptr},
+     {"motion_phone", Group::other, nullptr, nullptr},
+     {"motion_panel", Group::other, nullptr, nullptr},
++    {"motion_map", Group::other, nullptr, nullptr},  // fix 192
+     {"motion_picture", Group::other, nullptr, nullptr},
+     {"show_fps", Group::other, nullptr, nullptr},
+     {"achievement_toasts", Group::other, nullptr, nullptr},
+@@ -295,6 +296,7 @@ inline constexpr Brief kBriefs[] = {
+     {"deadzone_right", "Ignores small movements of the right stick."},
+     {"motion_phone", "A phone as a motion camera (research). It shows diagnostics."},
+     {"motion_panel", "Where the motion panel is drawn over the game."},
++    {"motion_map", "Shows from above where the game sees you, and where to step."},  // fix 192
+     {"motion_picture", "Sends the phone camera's picture to games that show the camera."},
+     {"show_fps", "Shows the frames per second in a corner."},
+     {"achievement_toasts", "Shows a notification when you unlock an achievement."},
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -173,6 +173,7 @@ int PictureState();  // 1: a picture with content was shown; -1: only black for
+ #include "xbox360ps5/harmonix_keys.hpp"  // fix 147c
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107
+ #include "xbox360ps5/kinect_hand_view.hpp"  // fix 63: the title's hand reach in the panel
++#include "xbox360ps5/play_space_map.hpp"  // fix 192: the play space as the game sees it
+ #include "xbox360ps5/body_scale.hpp"  // fix 57: the body the games get
+ #include "xbox360ps5/motion_record.hpp"  // 1.0.5: the last 10 s of phone motion
+ #include "xbox360ps5/save_storage.hpp"
+@@ -437,9 +438,9 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
+ class FpsOverlay final : public xe::ui::ImGuiDialog {
+  public:
+   FpsOverlay(xe::ui::ImGuiDrawer* drawer,const float& fps,const int& shown,const bool& stalled,
+-             const int& touchpad_menu, const int& motion_panel)
++             const int& touchpad_menu, const int& motion_panel, const int& motion_map)
+       : ImGuiDialog(drawer),fps_(fps),shown_(shown),stalled_(stalled),touchpad_menu_(touchpad_menu),
+-        motion_panel_(motion_panel) {}
++        motion_panel_(motion_panel), motion_map_(motion_map) {}
+  protected:
+   void OnDraw(ImGuiIO& io) override {
+     // Fix 147c: the Harmonix music keys panel while a game asks for them (harmonix_keys.hpp), on
+@@ -499,23 +500,29 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+       draw->AddRectFilled(ImVec2((1550 + shift_)*scale,100*scale),ImVec2((1900 + shift_)*scale,640*scale),IM_COL32(0,0,0,150),8*scale);
+       // Fix 107: one line each (phone_qr_panel.hpp, PanelStatusLines); the distance and the
+       // position hint are at the skeleton's foot (DrawFootLine).
+-      const auto phone = xbox360ps5::motion::Snapshot();
+       const auto lines = xbox360ps5::motion::PanelStatusLines();
+       draw->AddText(ImVec2((1570 + shift_)*scale,lines.status*scale), IM_COL32(130,240,170,255), pose.tracked ? "Motion: tracking (research)" : "Motion: waiting / body lost");
+       draw->AddText(ImVec2((1570 + shift_)*scale,lines.skeleton*scale), IM_COL32(220,220,220,255), xbox360ps5::motion::guest_skeleton_bound.load() ? "Game skeleton: from this pose" : xbox360ps5::motion::guest_camera_open.load() ? "Guest camera: virtual depth" : "Guest camera: not opened");
+       // Fix 63: what the game needs, under the live skeleton (kinect_hand_view.hpp).
+       const auto hands = xbox360ps5::motion::SnapshotGameHands();
+-
+-      if (pose.tracked && hands.valid) DrawTargetArms(draw, scale, pose, hands);
+-      if (pose.tracked) {
+-        const auto point = [&](int n) { return ImVec2(xbox360ps5::motion::PanelMirrorX(1725 + shift_, pose.joints[n].x, kPanelPixelsPerMetre)*scale,(405-pose.joints[n].y*kPanelPixelsPerMetre)*scale); };
++      // Fix 192: the frame the game gets (with the emergency pose, motion_emergency.hpp), upright in
++      // the game's sensor space and centred on its hips, and beside it the play space from above
++      // with where the game sees the player ("Play-space map" option; play_space_map.hpp).
++      namespace ps = xbox360ps5::motion::play_space;
++      const auto guest = xbox360ps5::motion::emergency_pose.Overlay(pose);
++      const ps::Place place = ps::PlaceOf(guest);
++      const ps::FrontView front = ps::FrontFor(motion_map_ != 0, shift_);
++      if (guest.tracked && hands.valid) DrawTargetArms(draw, scale, guest, hands, front, place.x);
++      if (guest.tracked) {
++        const auto point = [&](int n) { const ps::Point p = ps::FrontPoint(front, guest.joints[n], place.x); return ImVec2(p.x*scale,p.y*scale); };
+         const int bones[][2]={{0,1},{1,2},{2,3},{2,4},{4,5},{5,6},{6,7},{2,8},{8,9},{9,10},{10,11},{0,12},{12,13},{13,14},{14,15},{0,16},{16,17},{17,18},{18,19}};
+-        draw->PushClipRect(ImVec2((1550 + shift_)*scale,185*scale),ImVec2((1900 + shift_)*scale,hands.valid ? 565*scale : 640*scale),true);
+-        for (const auto& bone : bones) if (pose.joints[bone[0]].confidence >= .5f && pose.joints[bone[1]].confidence >= .5f) draw->AddLine(point(bone[0]),point(bone[1]),IM_COL32(100,240,160,255),2*scale);
+-        for (int n=0;n<20;++n) if (pose.joints[n].confidence >= .5f) draw->AddCircleFilled(point(n),4*scale,IM_COL32(240,255,240,255));
++        draw->PushClipRect(ImVec2(front.left*scale,185*scale),ImVec2(front.right*scale,hands.valid ? 565*scale : 640*scale),true);
++        for (const auto& bone : bones) if (guest.joints[bone[0]].confidence >= .5f && guest.joints[bone[1]].confidence >= .5f) draw->AddLine(point(bone[0]),point(bone[1]),IM_COL32(100,240,160,255),2*scale);
++        for (int n=0;n<20;++n) if (guest.joints[n].confidence >= .5f) draw->AddCircleFilled(point(n),4*scale,IM_COL32(240,255,240,255));
+         draw->PopClipRect();
+       }
+-      DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107
++      if (motion_map_) DrawPlaySpace(draw, scale, place, hands.valid);  // fix 192
++      DrawFootLine(draw, scale, place, hands.valid);  // fix 107; fix 192: the game's place
+       if (hands.valid) DrawReachBars(draw, scale, hands);
+       }
+     }
+@@ -613,60 +620,117 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+     draw->AddText(font, at.text_size * scale, ImVec2((at.text_x + shift_) * scale, at.text_y * scale),
+                   IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
+   }
+-  // Fix 63: too close / too far / not all of the body in the picture; 1.0.5_candidate_4: the
+-  // distance the phone page reports (before the console re-centres it), amber outside Dragon Ball
+-  // Z's 1.8-3.5 m. Fix 107: both as one short line at the skeleton's foot ("2.6 m · Step back",
+-  // phone_qr_panel.hpp, PanelFootTop), raised when it wraps and above the reach bars.
+-  void DrawFootLine(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& phone,
+-                    const xbox360ps5::motion::Frame& pose, bool bars) {
+-    using xbox360ps5::motion::Positioning;
+-    const Positioning hint = xbox360ps5::motion::PositionHint(pose);
+-    const char* advice = hint == Positioning::kStepBack ? Tr("Step back")
+-                       : hint == Positioning::kStepCloser ? Tr("Step closer")
+-                       : hint == Positioning::kWholeBody ? Tr("Show your whole body to the camera") : nullptr;
+-    std::string text;
+-    bool outside = false;
+-    if (phone.tracked) {
+-      const float metres = xbox360ps5::motion::kBridgeBodyDistance - phone.joints[0].z;
+-      char distance[32];
+-      std::snprintf(distance, sizeof(distance), "%.1f m", double(metres));
+-      text = distance;
+-      outside = metres < xbox360ps5::motion::kNearestMetres || metres > xbox360ps5::motion::kFarthestMetres;
+-    }
+-    if (advice) {
+-      if (!text.empty()) text += " \xC2\xB7 ";
++  // Fix 63: too close / too far / not all of the body in the picture. Fix 107: with the distance as
++  // one short line at the skeleton's foot ("2.6 m · Step back", phone_qr_panel.hpp, PanelFootTop),
++  // raised when it wraps and above the reach bars. Fix 192: the distance is the game's (the hips'
++  // sensor depth, after the console re-centres the phone's depth), not the phone page's own (Nike+
++  // showed its 3.8 m limit with the player about 2-2.5 m away), and the guidance comes from where
++  // the game sees the player (play_space_map.hpp, Guide): green "Good spot" in the sweet spot.
++  void DrawFootLine(ImDrawList* draw, float scale, const xbox360ps5::motion::play_space::Place& place, bool bars) {
++    namespace ps = xbox360ps5::motion::play_space;
++    if (!place.body) return;
++    const ps::Guidance guide = ps::Guide(place);
++    const float metres = place.z;
++    char distance[32];
++    std::snprintf(distance, sizeof(distance), "%.1f m", double(metres));
++    std::string text = distance;
++    for (uint32_t bit = 1; bit <= ps::kMoveRight; bit <<= 1) {
++      const char* advice = !(guide.hints & bit) ? nullptr : PlaySpaceHintText(bit);
++      if (!advice) continue;
++      text += " \xC2\xB7 ";
+       text += advice;
+     }
+-    if (text.empty()) return;
++    if (guide.good) {
++      text += " \xC2\xB7 ";
++      text += Tr("Good spot");
++    }
+     const float wrap = 312 * scale;
+     const ImVec2 size = ImGui::GetFont()->CalcTextSizeA(20 * scale, 4096, wrap, text.c_str());
+     const float top = xbox360ps5::motion::PanelFootTop(bars, size.y / scale);
+     draw->AddText(ImGui::GetFont(), 20 * scale, ImVec2((1570 + shift_) * scale, top * scale),
+-                  advice || outside ? IM_COL32(245, 204, 137, 255) : IM_COL32(200, 200, 200, 255), text.c_str(),
++                  guide.good ? IM_COL32(100, 230, 120, 255) : IM_COL32(245, 204, 137, 255), text.c_str(),
+                   nullptr, wrap);
+   }
++  // Fix 192: one hint of play_space_map.hpp's Guide, translated (the keys are ps::HintKeys').
++  static const char* PlaySpaceHintText(uint32_t hint) {
++    namespace ps = xbox360ps5::motion::play_space;
++    switch (hint) {
++      case ps::kSideways: return Tr("The camera sees you sideways: stand the phone upright");
++      case ps::kWholeBody: return Tr("Show your whole body to the camera");
++      case ps::kStepBack: return Tr("Step back");
++      case ps::kStepCloser: return Tr("Step closer");
++      case ps::kMoveLeft: return Tr("Move left");
++      case ps::kMoveRight: return Tr("Move right");
++      default: return nullptr;
++    }
++  }
++  // Fix 192: the play space from above, beside the skeleton (play_space_map.hpp): the sensor at the
++  // top, its view (57 degrees, 0.8-4 m), a line each metre, the sweet spot (1.8-2.5 m, centred) and
++  // the player as a dot where the game sees the hip centre: green in a good spot, amber with a hint,
++  // a ring while the hips are only inferred or the place is off the map.
++  void DrawPlaySpace(ImDrawList* draw, float scale, const xbox360ps5::motion::play_space::Place& place, bool bars) {
++    namespace ps = xbox360ps5::motion::play_space;
++    const ps::MapView map = ps::MapFor(shift_, bars);
++    const auto at = [&](ps::Point p) { return ImVec2(p.x * scale, p.y * scale); };
++    const ImVec2 top_left(map.left * scale, map.top * scale), bottom_right(map.right * scale, map.bottom * scale);
++    draw->AddRectFilled(top_left, bottom_right, IM_COL32(255, 255, 255, 16), 4 * scale);
++    draw->PushClipRect(top_left, bottom_right, true);
++    const ps::Quad view = ps::ViewQuad(map);
++    ImVec2 outline[4];
++    for (int n = 0; n < 4; ++n) outline[n] = at(view.corner[n]);
++    const ImVec2 sensor = at(ps::MapPoint(map, 0, 0));
++    draw->AddConvexPolyFilled(outline, 4, IM_COL32(120, 180, 255, 40));
++    draw->AddPolyline(outline, 4, IM_COL32(120, 180, 255, 150), ImDrawFlags_Closed, 1.5f * scale);
++    draw->AddLine(sensor, outline[0], IM_COL32(120, 180, 255, 90), 1.0f * scale);
++    draw->AddLine(sensor, outline[3], IM_COL32(120, 180, 255, 90), 1.0f * scale);
++    for (int metre = 1; metre <= 4; ++metre) {
++      const float half = ps::HalfWidthAt(float(metre));
++      draw->AddLine(at(ps::MapPoint(map, -half, float(metre))), at(ps::MapPoint(map, half, float(metre))),
++                    IM_COL32(255, 255, 255, 40), 1.0f * scale);
++      char label[8];
++      std::snprintf(label, sizeof(label), "%d m", metre);
++      const ps::Point p = ps::MapPoint(map, 0, float(metre));
++      draw->AddText(ImGui::GetFont(), 14 * scale, ImVec2((map.left + 3) * scale, (p.y - 15) * scale),
++                    IM_COL32(200, 200, 200, 160), label);
++    }
++    const ps::Quad sweet = ps::SweetQuad(map);
++    draw->AddRectFilled(at(sweet.corner[0]), at(sweet.corner[2]), IM_COL32(100, 230, 120, 60), 3 * scale);
++    draw->AddRect(at(sweet.corner[0]), at(sweet.corner[2]), IM_COL32(100, 230, 120, 200), 3 * scale, 0, 1.5f * scale);
++    draw->AddRectFilled(ImVec2(sensor.x - 12 * scale, sensor.y - 4 * scale), ImVec2(sensor.x + 12 * scale, sensor.y + 1 * scale),
++                        IM_COL32(230, 230, 230, 255), 1 * scale);
++    if (place.body) {
++      bool outside = false;
++      const ImVec2 dot = at(ps::DotPoint(map, place, &outside));
++      const ImU32 colour = ps::Guide(place).good ? IM_COL32(100, 230, 120, 255) : IM_COL32(245, 204, 137, 255);
++      if (place.hips_seen && !outside) draw->AddCircleFilled(dot, 7 * scale, colour);
++      else draw->AddCircle(dot, 7 * scale, colour, 16, 2.5f * scale);
++    }
++    draw->PopClipRect();
++  }
+   // Fix 63: the arms as the game wants them, faint, behind the live skeleton: each arm
+   // straight out to its side and straight up, from the live shoulder, at the arm's length;
+   // a direction the game is counting is drawn brighter.
++  // Fix 192: in the front view's place and size (play_space_map.hpp, FrontPoint).
+   void DrawTargetArms(ImDrawList* draw, float scale, const xbox360ps5::motion::Frame& pose,
+-                      const xbox360ps5::motion::GameHands& hands) {
+-    draw->PushClipRect(ImVec2((1550 + shift_) * scale, 185 * scale), ImVec2((1900 + shift_) * scale, 565 * scale), true);
++                      const xbox360ps5::motion::GameHands& hands,
++                      const xbox360ps5::motion::play_space::FrontView& front, float hip_x) {
++    draw->PushClipRect(ImVec2(front.left * scale, 185 * scale), ImVec2(front.right * scale, 565 * scale), true);
+     for (int side = 0; side < 2; ++side) {
+       const bool right = side == 0;
+       const auto& shoulder = pose.joints[right ? 8 : 4];
+       if (shoulder.confidence < .5f) continue;
+       const float length = std::max(0.55f, xbox360ps5::motion::PhoneArmLength(pose, right));
+       const auto& hand = right ? hands.right : hands.left;
+-      const ImVec2 from(xbox360ps5::motion::PanelMirrorX(1725 + shift_, shoulder.x, kPanelPixelsPerMetre) * scale,
+-                        (405 - shoulder.y * kPanelPixelsPerMetre) * scale);
++      const auto at = xbox360ps5::motion::play_space::FrontPoint(front, shoulder, hip_x);
++      const ImVec2 from(at.x * scale, at.y * scale);
+       // The player's right is the phone's -X, the game's +X (bit 2); left: bit 1. The panel is a
+       // mirror (PanelMirrorX): the right arm points out to the panel's right.
+       const int outward = right ? 1 : 0, up = 2;  // counters: 0 left(-X) 1 right(+X) 2 up 3 down 4 front
+       for (const auto& [dx, dy, counter] : {std::tuple<float, float, int>{right ? 1.f : -1.f, 0.f, outward},
+                                             std::tuple<float, float, int>{0.f, 1.f, up}}) {
+         const bool counting = hand.counters[counter] > 0;
+-        const ImVec2 to(from.x + dx * length * kPanelPixelsPerMetre * scale,
+-                        from.y - dy * length * kPanelPixelsPerMetre * scale);
++        const ImVec2 to(from.x + dx * length * front.pixels_per_metre * scale,
++                        from.y - dy * length * front.pixels_per_metre * scale);
+         draw->AddLine(from, to, counting ? IM_COL32(120, 180, 255, 230) : IM_COL32(120, 180, 255, 90),
+                       (counting ? 7 : 5) * scale);
+         draw->AddCircle(to, 7 * scale, counting ? IM_COL32(120, 180, 255, 230) : IM_COL32(120, 180, 255, 90), 16,
+@@ -738,7 +802,6 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+     draw->AddText(font, at.text_size * scale, ImVec2((at.text_x + shift) * scale, at.text_y * scale),
+                   IM_COL32(230, 230, 230, 255), how.c_str(), nullptr, at.text_width * scale);
+   }
+-  static constexpr float kPanelPixelsPerMetre = 130;
+   std::chrono::steady_clock::time_point keys_checked_{};  // fix 147c
+   std::string keys_url_, keys_key_;                       // fix 147c
+   xbox360ps5::QrCode keys_qr_;                            // fix 147c
+@@ -752,6 +815,7 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+   const bool& stalled_;
+   const int& touchpad_menu_;
+   const int& motion_panel_;
++  const int& motion_map_;  // fix 192: the "Play-space map" option
+ };
+ // The emulator's guide over a running game, after the Xbox 360's: a light
+ // panel that unfolds from the middle of the screen, a page of actions and a page
+@@ -4068,7 +4132,7 @@ int main(int argc, char** argv) {
+         xbox360ps5::gpu_diag::Reset();
+         float fps = 0.0f;
+         bool stalled_notice=false;
+-        new FpsOverlay(&drawer,fps,settings.show_fps,stalled_notice,settings.touchpad_menu,settings.motion_panel);
++        new FpsOverlay(&drawer,fps,settings.show_fps,stalled_notice,settings.touchpad_menu,settings.motion_panel,settings.motion_map);
+         // The emulator's guide over the game.
+         GuideState guide;
+         if (autotest.active) guide.hint = 0.0f;
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -585,6 +585,10 @@ const std::vector<Option>& Options() {
+       {"motion_panel", &S::motion_panel, 3, W::live, 0, true, "Motion panel",
+        "Where the camera motion panel is drawn over a game (the pose from the phone, what the game needs from the hands, the code to connect a phone). Off keeps only the code while no phone is connected.",
+        {"Top right", "Top left", "Off"}},
++      // Fix 192: the play space from above in the motion panel (play_space_map.hpp), on by default.
++      {"motion_map", &S::motion_map, 3, W::live, 1, true, "Play-space map",
++       "With a phone as the Kinect, the motion panel also shows the room from above as the game sees it: the camera's view, the spot most games want, you as a dot, and where to step.",
++       off_on},
+       // Fix 119: off by default; the phone page has its own switch too (camera_picture.hpp).
+       {"motion_picture", &S::motion_picture, 3, W::live, 0, true, "Camera picture for the game",
+        "With a phone as the Kinect, the phone can also send a small picture from its camera for games that show the camera (replays, photos). It goes only to this console, and the emulator keeps it in memory only, never on a drive; a game may still keep photos of its own in its saves. It also needs Camera picture for the game on the phone page. Off, games see a grey picture.",
+diff --git a/include/xbox360ps5/play_space_map.hpp b/include/xbox360ps5/play_space_map.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/play_space_map.hpp
+@@ -0,0 +1,208 @@
++// SPDX-License-Identifier: MIT
++// Fix 192: the play space as a Kinect game sees it, for the motion panel over the game.
++//
++// Nike+ Kinect Training asks the player to "MOVE ONTO THE MARKER". With a phone as the Kinect the
++// player could not tell where the game thought they stood: the panel showed the phone page's own
++// distance (3.8 m, its upper limit, while the player stood about 2-2.5 m away) and a front view
++// only. The game gets neither: body_scale.hpp re-centres the hips' depth on the bridge's 2.5 m,
++// and virtual_skeleton.hpp's SkeletonSpace turns the result into sensor metres.
++//
++// So the panel now shows, from the frame the game gets (the phone's pose after NormalizedSnapshot,
++// and the emergency pose while it is on, motion_emergency.hpp):
++//  - a top-down map: the sensor's field of view (57 degrees across, 0.8-4 m deep, SkeletonSpace's
++//    range), the usual Kinect sweet spot (1.8-2.5 m, centred) and the player as a dot at the hip
++//    centre's sensor x and z;
++//  - short guidance from that place: step back or closer, move left or right, show the whole body,
++//    or that the camera sees the body lying sideways (a phone turned with its picture not turned);
++//  - the front view, upright as the game gets it (sensor x and y), beside the map.
++// Only the drawing reads this; the game's frames do not change.
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <vector>
++
++#include "xbox360ps5/kinect_hand_view.hpp"  // PositionHint: the whole body seen
++#include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/virtual_skeleton.hpp"  // SkeletonSpace, kSensorHeight
++
++namespace xbox360ps5::motion::play_space {
++
++// The field of view: Kinect's 57 degrees across, and the depth SkeletonSpace keeps (0.8-4 m).
++constexpr float kHalfFovDegrees = 28.5f;
++constexpr float kNearMetres = 0.8f, kFarMetres = 4.0f;
++// The sweet spot most Kinect games ask for: 1.8-2.5 m from the sensor, centred.
++constexpr float kSweetNear = 1.8f, kSweetFar = 2.5f, kSweetHalfWidth = 0.5f;
++// Guidance: a depth hint once the hips are this far outside the sweet spot's depth (the bridge
++// re-centres the hips on 2.5 m, which must not read as "step closer"); a side hint past
++// kSideMetres from the centre, or nearer than kEdgeMargin (half a body) to the view's edge.
++constexpr float kDepthSlack = 0.1f;
++constexpr float kSideMetres = 0.5f, kEdgeMargin = 0.3f;
++// The torso (hip centre to shoulder centre) further than this from upright: lying sideways.
++constexpr float kSidewaysDegrees = 50.0f;
++// The map shows x within +-kMapHalfWidth (the wedge is wider further back, and is cut there).
++constexpr float kMapHalfWidth = 1.5f, kMapDepth = 4.25f;
++constexpr int kHipCentre = 0, kSpine = 1, kShoulderCentre = 2;
++
++inline float HalfWidthAt(float z) { return z * std::tan(kHalfFovDegrees * 3.14159265f / 180.0f); }
++
++// Where the game sees the body: the hip centre in sensor metres, as WriteSkeletonFrame writes it
++// (+x the player's right, which is the sensor's left; z away from the sensor).
++struct Place {
++  bool body = false;        // a tracked body with a placed hip centre (or spine)
++  float x = 0, z = 0;       // sensor metres
++  bool hips_seen = false;   // the hip centre tracked (confidence >= 0.5), not inferred
++  bool whole_body = false;  // head, hands and feet seen (PositionHint)
++  float tilt_degrees = 0;   // the torso from upright (0 upright, 90 lying, 180 upside down)
++  bool tilt_known = false;
++};
++
++inline Place PlaceOf(const Frame& guest) {
++  Place place;
++  if (!guest.tracked) return place;
++  // WriteSkeletonFrame leaves a joint of confidence 0 at the zeroed position: no place from it.
++  const int at = guest.joints[kHipCentre].confidence > 0 ? kHipCentre
++               : guest.joints[kSpine].confidence > 0     ? kSpine
++                                                         : -1;
++  if (at < 0) return place;
++  float y = 0;
++  SkeletonSpace(guest.joints[size_t(at)], place.x, y, place.z);
++  place.body = true;
++  place.hips_seen = at == kHipCentre && guest.joints[kHipCentre].confidence >= 0.5f;
++  place.whole_body = PositionHint(guest) != Positioning::kWholeBody;
++  const Joint& hip = guest.joints[size_t(at)];
++  const Joint& shoulders = guest.joints[kShoulderCentre];
++  if (shoulders.confidence > 0) {
++    float hx, hy, hz, sx, sy, sz;
++    SkeletonSpace(hip, hx, hy, hz);
++    SkeletonSpace(shoulders, sx, sy, sz);
++    const float dx = sx - hx, dy = sy - hy;
++    if (std::hypot(dx, dy) > 0.05f) {
++      place.tilt_degrees = std::atan2(std::fabs(dx), dy) * 180.0f / 3.14159265f;
++      place.tilt_known = true;
++    }
++  }
++  return place;
++}
++
++// What to tell the player, most important first.
++enum Hint : uint32_t {
++  kNone = 0,
++  kSideways = 1u << 0,    // the picture is turned: only this one is given
++  kWholeBody = 1u << 1,
++  kStepBack = 1u << 2,    // nearer than the sweet spot
++  kStepCloser = 1u << 3,  // further than the sweet spot
++  kMoveLeft = 1u << 4,    // too far to the player's right
++  kMoveRight = 1u << 5,   // too far to the player's left
++};
++struct Guidance {
++  uint32_t hints = kNone;
++  bool in_sweet_spot = false;  // the hips inside the marked sweet spot
++  bool good = false;           // a body, no hint: the player stands where games want them
++};
++
++inline bool InSweetSpot(float x, float z) {
++  return z >= kSweetNear && z <= kSweetFar && std::fabs(x) <= kSweetHalfWidth;
++}
++
++inline Guidance Guide(const Place& place) {
++  Guidance guide;
++  if (!place.body) return guide;
++  guide.in_sweet_spot = InSweetSpot(place.x, place.z);
++  if (place.tilt_known && place.tilt_degrees > kSidewaysDegrees) {
++    guide.hints = kSideways;
++    return guide;
++  }
++  if (!place.whole_body) guide.hints |= kWholeBody;
++  if (place.z < kSweetNear - kDepthSlack) guide.hints |= kStepBack;
++  else if (place.z > kSweetFar + kDepthSlack) guide.hints |= kStepCloser;
++  const float side = std::max(0.1f, std::min(kSideMetres, HalfWidthAt(place.z) - kEdgeMargin));
++  if (place.x > side) guide.hints |= kMoveLeft;
++  else if (place.x < -side) guide.hints |= kMoveRight;
++  guide.good = guide.hints == kNone;
++  return guide;
++}
++
++// The English keys of the hints, in order (the panel translates each with Tr and joins them).
++inline std::vector<const char*> HintKeys(uint32_t hints) {
++  std::vector<const char*> keys;
++  if (hints & kSideways) keys.push_back("The camera sees you sideways: stand the phone upright");
++  if (hints & kWholeBody) keys.push_back("Show your whole body to the camera");
++  if (hints & kStepBack) keys.push_back("Step back");
++  if (hints & kStepCloser) keys.push_back("Step closer");
++  if (hints & kMoveLeft) keys.push_back("Move left");
++  if (hints & kMoveRight) keys.push_back("Move right");
++  return keys;
++}
++inline constexpr const char* kGoodSpot = "Good spot";
++
++// Panel geometry, in 1080p units (the overlay scales by the screen's height). The motion panel is
++// x 1550-1900 (+ shift) by y 100-640; the skeleton area starts at y 185 and ends at 565 while the
++// hand-reach bars show under it, else at 640 (phone_qr_panel.hpp).
++struct Point { float x = 0, y = 0; };
++
++// The front view: the game's skeleton, upright, centred on the hip centre (the map has the place).
++struct FrontView {
++  float centre_x = 1725, floor_y = 522, pixels_per_metre = 130;
++  float left = 1550, right = 1900;  // its clip, sideways
++};
++// Without the map, the old place and size (fix 63: centre 1725, 130 per metre, the hips at y 405);
++// with it, the left half.
++inline FrontView FrontFor(bool map_shown, float shift) {
++  if (!map_shown) return {1725 + shift, 405 + (kHipHeight) * 130, 130, 1550 + shift, 1900 + shift};
++  return {1637 + shift, 512, 100, 1550 + shift, 1724 + shift};
++}
++// A joint of the game's skeleton in the front view: sensor y up from the floor (the floor is
++// kSensorHeight below the sensor), sensor x from the hip centre, the player's right on the right
++// (a mirror, as fix 63's panel: PanelMirrorX).
++inline Point FrontPoint(const FrontView& view, const Joint& joint, float hip_x) {
++  float x, y, z;
++  SkeletonSpace(joint, x, y, z);
++  return {view.centre_x + (x - hip_x) * view.pixels_per_metre,
++          view.floor_y - (y + kSensorHeight) * view.pixels_per_metre};
++}
++
++// The map: the right half of the panel, above the foot line (two lines of guidance).
++struct MapView {
++  float left = 0, top = 0, right = 0, bottom = 0;
++  float centre_x = 0, sensor_y = 0, pixels_per_metre = 0;
++};
++constexpr float kMapLeft = 1730, kMapRight = 1892, kMapTop = 190, kMapFootRoom = 52;
++inline MapView MapFor(float shift, bool bars_shown) {
++  MapView map;
++  map.left = kMapLeft + shift;
++  map.right = kMapRight + shift;
++  map.top = kMapTop;
++  const float bottom = (bars_shown ? 565.0f : 640.0f) - kMapFootRoom;
++  map.pixels_per_metre = std::min((map.right - map.left) / (2 * kMapHalfWidth), (bottom - map.top) / kMapDepth);
++  map.bottom = map.top + kMapDepth * map.pixels_per_metre;
++  map.centre_x = (map.left + map.right) / 2;
++  map.sensor_y = map.top + 0.1f * map.pixels_per_metre;
++  return map;
++}
++// A floor place (sensor x, z) on the map: the sensor at the top, the player's right on the right
++// (as the player sees the room from above with the TV ahead of them).
++inline Point MapPoint(const MapView& map, float x, float z) {
++  return {map.centre_x + x * map.pixels_per_metre, map.sensor_y + z * map.pixels_per_metre};
++}
++// The dot: kept inside the map (`outside` says it was moved in).
++inline Point DotPoint(const MapView& map, const Place& place, bool* outside = nullptr) {
++  const Point p = MapPoint(map, place.x, place.z);
++  const Point in = {std::clamp(p.x, map.left + 6, map.right - 6), std::clamp(p.y, map.top + 6, map.bottom - 6)};
++  if (outside) *outside = in.x != p.x || in.y != p.y;
++  return in;
++}
++// The field of view as a convex outline (near left, far left, far right, near right) and the sweet
++// spot as a rectangle (near left, far right); the overlay clips both to the map.
++struct Quad { Point corner[4]; };
++inline Quad ViewQuad(const MapView& map) {
++  const float near_w = HalfWidthAt(kNearMetres), far_w = HalfWidthAt(kFarMetres);
++  return {{MapPoint(map, -near_w, kNearMetres), MapPoint(map, -far_w, kFarMetres),
++           MapPoint(map, far_w, kFarMetres), MapPoint(map, near_w, kNearMetres)}};
++}
++inline Quad SweetQuad(const MapView& map) {
++  return {{MapPoint(map, -kSweetHalfWidth, kSweetNear), MapPoint(map, -kSweetHalfWidth, kSweetFar),
++           MapPoint(map, kSweetHalfWidth, kSweetFar), MapPoint(map, kSweetHalfWidth, kSweetNear)}};
++}
++
++}  // namespace xbox360ps5::motion::play_space
