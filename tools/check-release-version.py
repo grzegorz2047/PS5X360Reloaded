@@ -285,8 +285,10 @@ def check_workflow_text(text):
             'name: ${{ steps.source.outputs.artifact }}',
             'value: ${{ jobs.rebuild.outputs.artifact }}'):
         assert needle in text, needle
-    # The release checks run after the link and before anything is uploaded.
-    order = [text.index(s) for s in ('- name: Check the release version', '- name: Assemble the 1.0.2',
+    # The release checks run after the link and before anything is uploaded, in the rebuild job
+    # (the host checks job before it assembles a tree of its own).
+    rebuild = text.index('\n  rebuild:\n')
+    order = [text.index(s, rebuild) for s in ('- name: Check the release version', '- name: Assemble the 1.0.2',
                                      '- name: Compile and link eboot.bin', '- name: Check the release eboot',
                                      '- name: GPL source tarball', '- name: Name the eboot artifact',
                                      '- name: Upload eboot.bin', '- name: Upload the GPL source tarball')]

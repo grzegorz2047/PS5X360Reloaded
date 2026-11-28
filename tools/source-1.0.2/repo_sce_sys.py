@@ -1,7 +1,7 @@
 """Writes or checks the repository's sce_sys/param.json and sce_sys/icon0.png for a release.
 
-    python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip PPSA50011-v1.0.2.zip --version 1.0.6 --write
-    python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip PPSA50011-v1.0.2.zip --version 1.0.6 --check
+    python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip PPSA50011-v1.0.2.zip --version 1.0.7 --write
+    python3 -I tools/source-1.0.2/repo_sce_sys.py --base-zip PPSA50011-v1.0.2.zip --version 1.0.7 --check
 
 Homebrew catalogs and stores read the title id, name, contentVersion and icon from sce_sys/ in the
 repository at the release tag (github.com/darkxex/ps5-homebrew-catalog, docs/submitting.md and
