@@ -1,0 +1,62 @@
+diff --git a/platform/ps5/dualsense_input.cpp b/platform/ps5/dualsense_input.cpp
+--- a/platform/ps5/dualsense_input.cpp
++++ b/platform/ps5/dualsense_input.cpp
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: MIT
+ #include "xbox360ps5/dualsense_input.hpp"
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107: L3 + R3 held
++#include "xbox360ps5/emergency_pad_source.hpp"  // fix 196: player 1's pad only
+ #include "xenia/ui/virtual_key.h"
+ #if XBOX360PS5_CANARY
+ #include "xenia/ui/controller_keyboard.h"
+@@ -43,8 +44,9 @@ void DualSenseInput::Submit(const PadSample& sample) {
+   // Fix 107: L3 + R3 held is the Kinect games' way out of a lost player (motion_emergency.hpp).
+   // The pad's buttons still reach the game as they are.
+   // Pressed briefly, the pair asks the phone page to re-centre its camera.
+-  if (motion::emergency_pose.Pad(sample.connected && (sample.buttons & motion::kEmergencyButtons) ==
+-                                                         motion::kEmergencyButtons,
++  // Fix 196: only player 1's pad feeds the detector; slots 2-4, submitted every frame too,
++  // reset its hold and turned one press into a request a frame (emergency_pad_source.hpp).
++  if (motion::EmergencyPadSample(motion::emergency_pose, user_, sample.connected, sample.buttons,
+                                  std::chrono::steady_clock::now()) &&
+       motion::enabled.load() && motion::game_running.load()) {
+     XELOGW("Virtual Kinect: re-centre requested from the pad (seq {}) (fix 107)",
+diff --git a/include/xbox360ps5/emergency_pad_source.hpp b/include/xbox360ps5/emergency_pad_source.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/emergency_pad_source.hpp
+@@ -0,0 +1,34 @@
++// SPDX-License-Identifier: MIT
++// Fix 196: fix 107's L3 + R3 detector (motion_emergency.hpp) hears player 1's pad only.
++//
++// EmergencyPose keeps one held state for the whole process, and every DualSenseInput fed it from
++// its Submit. There is a driver for each of the four player slots, and the game loop submits
++// slots 2-4 (poll_extra_players, disconnected: "nothing pressed") before player 1's pad each
++// frame. While L3 + R3 were down the state flipped held, released, held every frame:
++//  - each flip was a brief press, so one press asked the phone page to re-centre once a frame
++//    (the logs: requests seq 1-10 and 11-15 for two presses on Nike+, 48 requests and 6
++//    acknowledgements in a Kinect Sports log);
++//  - the hold restarted every frame and never reached kHoldToStart, so the emergency pose never
++//    started (no "Virtual Kinect: emergency pose" line in any log).
++// Now only player 1's pad (user 0) reaches the detector; the other slots, connected or not,
++// neither press nor reset it. The pads' buttons still reach the game as before.
++#pragma once
++#include <chrono>
++#include <cstdint>
++
++#include "xbox360ps5/motion_emergency.hpp"
++
++namespace xbox360ps5::motion {
++
++constexpr uint32_t kEmergencyPadUser = 0;  // player 1
++inline bool FeedsEmergency(uint32_t user) { return user == kEmergencyPadUser; }
++
++// One pad sample of player slot `user`. True when it ends a brief L3 + R3 press of player 1's
++// pad (a re-centre request); a sample of another slot changes nothing and is never a press.
++inline bool EmergencyPadSample(EmergencyPose& pose, uint32_t user, bool connected, uint32_t buttons,
++                               std::chrono::steady_clock::time_point now) {
++  if (!FeedsEmergency(user)) return false;
++  return pose.Pad(connected && (buttons & kEmergencyButtons) == kEmergencyButtons, now);
++}
++
++}  // namespace xbox360ps5::motion
