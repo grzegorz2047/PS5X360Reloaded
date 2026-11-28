@@ -216,6 +216,7 @@ on:
       - 'tools/check-reserved-store.cpp'
       - 'tools/check-nike-core-config.cpp'
       - 'tools/check-camera-figure.cpp'
+      - 'tools/check-play-space-map.cpp'
       - 'tools/check-lapy-daemon-package.py'
       - 'tools/source-1.0.2/lapy-daemon/**'
       - 'licenses/**'

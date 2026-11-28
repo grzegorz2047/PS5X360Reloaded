@@ -240,9 +240,11 @@ checks=(
   check-xna-usermode.cpp           # fix 191
   check-reserved-store.cpp         # fix 192
   check-nike-core-config.cpp       # fix 193 (assets/config/4D53090F.config.toml)
+  check-play-space-map.cpp         # fix 194
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-play-space-map.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
   [check-gta4-core-config.cpp]="$repo"
   [check-gta5-audio-patch.cpp]="$repo"
@@ -454,6 +456,7 @@ declare -A fix_of=(
   [check-focus-gate.cpp]=190
   [check-xna-usermode.cpp]=191
   [check-reserved-store.cpp]=192
+  [check-play-space-map.cpp]=194
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
