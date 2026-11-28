@@ -283,7 +283,10 @@ def check_workflow_text(text):
             'echo "artifact=source-$RELEASE_VERSION"',
             'name: ${{ steps.artifact.outputs.name ||',
             'name: ${{ steps.source.outputs.artifact }}',
-            'value: ${{ jobs.rebuild.outputs.artifact }}'):
+            'value: ${{ jobs.rebuild.outputs.artifact }}',
+            # Fix 186: a release ships lapy.elf, so its build step is fatal there.
+            'continue-on-error: ${{ inputs.release != true }}',
+            'a release needs build/src102-out/lapy.elf (fix 186)'):
         assert needle in text, needle
     # The release checks run after the link and before anything is uploaded, in the rebuild job
     # (the host checks job before it assembles a tree of its own).

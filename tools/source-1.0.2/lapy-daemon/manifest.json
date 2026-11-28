@@ -26,21 +26,23 @@
       "PS5-Lapy-JB-Daemon source/owned_root_daemon.c|donor_transaction.c|vnode_ref_probe.c": "no SPDX header -> repo MIT",
       "PS5-Lapy-JB-Daemon source/lapy_elevation_protocol.h": "SPDX LGPL-2.1-or-later (used by owned_root_daemon.c)",
       "prospero-win native/pw_lapy_elevation.c|.h, pw_data_mount.c|.h, lapy_elevation_protocol.h, ps5log/ps5log_ps5_net.c": "SPDX LGPL-2.1-or-later",
-      "lapy.elf (aggregate)": "LGPL-2.1-or-later",
+      "lapy.elf (aggregate)": "GPL-3.0-or-later as a whole: it links the PS5_PayloadSDK crt (GPL-3.0-or-later); its Lapy parts keep LGPL-2.1-or-later (lapy_elevation_protocol.h) and MIT (the daemon sources)",
       "port/vendor/lapy/lapy_elevation_client.c|.h, lapy_elevation_protocol.h (ours, adapted)": "SPDX LGPL-2.1-or-later"
     },
     "license_text": "licenses/LAPY-LGPL-2.1.txt",
-    "corresponding_source": "The exact source matching the shipped binary is the upstream repos at the pinned commits above (Lapy helper, prospero-win client), plus port/vendor/lapy in this repository. See tools/source-1.0.2/lapy-daemon/NOTICE.md to relink.",
-    "relink": "eboot links the LGPL client (port/vendor/lapy/lapy_elevation_client.c) as a separable unit; the whole project source is public, so the binary is relinkable with a modified client. The LGPL is never fused into TrinityX360's MIT-licensed source files."
+    "corresponding_source": "The upstream repos at the pinned commits above (Lapy helper, prospero-win client), plus port/vendor/lapy and tools/source-1.0.2/lapy-daemon in this repository; the release attaches them (and PS5_PayloadSDK) in PS5X360-<version>-toolchain-source.tar.xz.",
+    "relink": "eboot links the LGPL client (port/vendor/lapy/lapy_elevation_client.c) as a separable unit; the whole project source is public, so the binary is relinkable with a modified client. The LGPL is never fused into TrinityX360's MIT-licensed source files.",
+    "binary_license": "lapy.elf: GPL-3.0-or-later as a whole (payload SDK runtime linked), with licenses/LAPY-LGPL-2.1.txt and licenses/LAPY-MIT.txt for its parts; port/vendor/lapy: LGPL-2.1-or-later",
+    "mit_notice": "licenses/LAPY-MIT.txt (the upstream LICENSE at the pinned commit)"
   },
   "build": {
     "toolchain": "ps5-payload-sdk prospero-clang",
-    "helper_command": "python3 tools/build_owned_daemon.py --sdk <SDK> --logging-client <ps5log-stub> --elf-helper --title PPSA83600",
+    "helper_command": "bash tools/source-1.0.2/lapy-daemon/build-lapy-daemon.sh <ps5-payload-sdk> <out-dir> (clones the pin, applies relax-single-thread.py, compiles with ps5log-stub)",
     "client": "port/vendor/lapy/lapy_elevation_client.c is compiled into the eboot by canary/CMakeLists.txt",
-    "output": "lapy.elf (bundled at /app0 by stage-reloaded-candidate.py)"
+    "output": "lapy.elf (shipped at /app0 by tools/source-1.0.2/package.py; stage-reloaded-candidate.py for test images)"
   },
   "deployment": {
-    "model": "The eboot streams the bundled /app0/lapy.elf to the local elfldr (127.0.0.1:9021) at startup, ONLY when /data/homebrew/PPSA83600/elevate-probe.txt says on (off by default). The user accepted this auto-invocation on their own console.",
+    "model": "The eboot streams /app0/lapy.elf to the local elfldr (127.0.0.1:9021) at startup only when the setting \"Unlimited write speed (root)\" (unlimited_write=1, off by default) or the developer switch file elevate-probe.txt asks for it. On any failure the app runs at UID 1.",
     "status": "EXPERIMENTAL on the user's firmware (FW 13.60). Elevation changes kernel credentials; the stability risk is the user's to accept. On any failure the app runs at UID 1 and is never closed."
   }
 }

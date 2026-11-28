@@ -495,10 +495,12 @@ diff --git a/port/vendor/lapy/lapy_elevation_client.h b/port/vendor/lapy/lapy_el
 new file mode 100644
 --- /dev/null
 +++ b/port/vendor/lapy/lapy_elevation_client.h
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,28 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
 +/* Isolated LGPL-2.1 elevation client, adapted from prospero-win (mpereiraesaa,
 + * tag v0.3.0, rev 404cac6ebbb236d2486d2796fd28b9bd39f2caa6) native/pw_lapy_elevation.c.
++ * Modified by the TrinityX360 contributors, 2026-11-26 to 2026-11-27 (fix 186): a C interface of
++ * its own (lapy_elevation_request) in place of prospero-win's.
 + * Not fused into TrinityX360's MIT eboot; the eboot calls it through this header.
 + * See NOTICE.md / licenses/LAPY-LGPL-2.1.txt. */
 +#ifndef LAPY_ELEVATION_CLIENT_H
@@ -526,8 +528,10 @@ diff --git a/port/vendor/lapy/lapy_elevation_client.c b/port/vendor/lapy/lapy_el
 new file mode 100644
 --- /dev/null
 +++ b/port/vendor/lapy/lapy_elevation_client.c
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,170 @@
 +/* SPDX-License-Identifier: LGPL-2.1-or-later */
++/* Modified by the TrinityX360 contributors, 2026-11-26 to 2026-11-27 (fix 186): POSIX sockets in
++ * place of prospero-win's sceNet wrappers, no ps5log, and an interface of its own. */
 +/* Isolated LGPL-2.1 elevation client. The ELV1 handshake and the "stream the one-shot ELF to the
 + * local elfldr, then REQUEST/PREPARE/seteuid/PREPARED/RESPONSE" sequence are adapted from
 + * prospero-win (mpereiraesaa, tag v0.3.0, rev 404cac6ebbb236d2486d2796fd28b9bd39f2caa6)

@@ -43,6 +43,15 @@ OFFICIAL_URL = 'https://github.com/BrinooTk/PS5X360/releases/download/v1.0.2/PPS
 def check_workflows():
     assert ID == 'PPSA83600' and OFFICIAL == 'PPSA50011', (ID, OFFICIAL)
     text = (REPO / '.github/workflows/release-source.yml').read_text(encoding='utf-8')
+    # Fix 186: the package gets the build's lapy.elf, and the toolchain source the LGPL/MIT source
+    # of it and of the eboot's elevation client at lapy-daemon/manifest.json's pins.
+    for needle in ('dist/build/src102-out/lapy.elf dist/build/src102/SOURCES.json',
+                   '--lapy-elf dist/build/src102-out/lapy.elf',
+                   'manifest=tools/source-1.0.2/lapy-daemon/manifest.json',
+                   'for part in lapy_helper prospero_win_client; do',
+                   '["upstream"][sys.argv[2]]["repo"]', '["upstream"][sys.argv[2]]["commit"]',
+                   'echo "$repo  $url  commit $rev" >> "$root/PINS.txt"'):
+        assert needle in text, needle
     for needle in (
             f'run: bash tools/binary-release/make_images.sh dist/source-release/stage/{ID} dist/source-release {ID}\n',
             f'cp "$out/{ID}.zip" "$out/{ID}.zip.sha256" "$out/{ID}.ffpkg" "$out/{ID}.ffpfsc" "$rel/"',

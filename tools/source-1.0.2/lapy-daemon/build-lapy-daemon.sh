@@ -3,8 +3,9 @@
 # reproducibly in CI, from the pinned upstream commit, with the ps5-payload-sdk prospero-clang (the
 # same SDK CI builds kinect-fake-relay.elf with) and our own MIT no-op ps5log.h stub.
 #
-# LICENCE: the built lapy.elf is LGPL-2.1-or-later, NOT MIT (its source
-# lapy_elevation_protocol.h is LGPL-2.1-or-later). It is a SEPARATE helper ELF, not linked into
+# LICENCE: the built lapy.elf links the payload SDK's crt (GPL-3.0-or-later), so it is
+# GPL-3.0-or-later as a whole; its Lapy parts keep LGPL-2.1-or-later (lapy_elevation_protocol.h)
+# and MIT (the daemon sources, licenses/LAPY-MIT.txt in the package). It is a SEPARATE helper ELF, not linked into
 # eboot.bin; the MIT eboot streams it to the local elfldr (127.0.0.1:9021) at startup only when the
 # probe is switched on (fix 186d). See manifest.json / NOTICE.md.
 #
@@ -32,7 +33,9 @@ if [ "$got" != "$PIN" ]; then
   exit 1
 fi
 
-# Our MIT no-op ps5log stub stands in for the logging_server client the build expects.
+# Our MIT ps5log stub stands in for the logging_server client the build expects. It is the
+# DIAGNOSTIC stub (it appends the helper's stages to /data/homebrew/PPSA83600/lapy-helper.log), and
+# it stays so in the release: with a pure no-op stub the helper's APPLY failed (fix 186k -> 186n).
 logging="$here/ps5log-stub"
 test -f "$logging/ps5log.h" || { echo "lapy-daemon: FAIL missing ps5log stub" >&2; exit 1; }
 

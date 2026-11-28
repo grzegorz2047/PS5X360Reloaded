@@ -41,9 +41,8 @@ installed app and keeps its saves. This script:
     repository, as the binary release does, and drops readback-auto.off;
   * takes the home screen's icons, assets/skin/*.png and assets/skin-dark/*.png (fix 164), from
     this repository over the base's pictures of the same names;
-  * adds lapy.elf, the build's optional helper of "Unlimited write speed (root)" (fix 186,
-    LGPL-2.1-or-later, a separate program: tools/source-1.0.2/lapy-daemon), after checking it is
-    an ELF;
+  * adds lapy.elf, the build's optional helper of "Unlimited write speed (root)" (fix 186, a
+    separate program: tools/source-1.0.2/lapy-daemon), after checking it is an ELF;
   * writes VERSION, RELEASE.json (a source build), licenses/PS5X360-<version>-NOTICE.txt (the
     GPL-3.0 notice), the licence texts the official package lacks (tools/source-1.0.2/licenses),
     and MANIFEST.json;
@@ -134,9 +133,13 @@ LICENCES = [
      '3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04'),
     ('LAPY-LGPL-2.1.txt', 'licenses/LAPY-LGPL-2.1.txt',
      '5749785c8bdefafcb5d798270ed0a967036fe2ca63dcedade1627565dfef81d2'),
+    ('LAPY-MIT.txt', 'licenses/LAPY-MIT.txt',
+     '5ef18e95f617c9d3a2674cc3256f5c0d6ec2f794a57e9e40f2185dd454c9f8da'),
 ]
 # Fix 186: the optional helper of "Unlimited write speed (root)", lapy.elf, a separate program
-# (LGPL-2.1-or-later) that eboot.bin sends to the console's ELF loader only when the option is on.
+# that eboot.bin sends to the console's ELF loader only when the option is on. It links the payload
+# SDK's GPL-3.0-or-later runtime, so it is GPL-3.0-or-later as a whole; its Lapy parts keep their
+# LGPL-2.1-or-later and MIT licences.
 # Its upstream pins (the helper and the client the eboot's port/vendor/lapy is adapted from).
 LAPY_MANIFEST = HERE / 'lapy-daemon/manifest.json'
 LAPY_TARGET = 'lapy.elf'
@@ -629,11 +632,17 @@ Corresponding source (GPL-3.0 section 6)
 lapy.elf
     The optional helper of "Unlimited write speed (root)" (fix 186), sha256 {lapy_sha}: a
     separate program, not linked into eboot.bin, which eboot.bin sends to the console's ELF
-    loader only when that option is on. It is LGPL-2.1-or-later (licenses/LAPY-LGPL-2.1.txt),
-    built from {helper['repo']} commit {helper['commit']} with
-    tools/source-1.0.2/lapy-daemon (build-lapy-daemon.sh, relax-single-thread.py, ps5log-stub)
-    in {scripts}. The helper's and the client's upstream source at those commits is in
-    {toolchain_tar} too (PS5-Lapy-JB-Daemon, prospero-win).
+    loader only when that option is on. It is built from
+    {helper['repo']} commit {helper['commit']}
+    with tools/source-1.0.2/lapy-daemon (build-lapy-daemon.sh, which applies
+    relax-single-thread.py and uses ps5log-stub) in {scripts}, and the payload SDK of the
+    Toolchain above. It links that SDK's runtime (GPL-3.0-or-later, licenses/NATIVE-RUNTIME-GPL-3.txt),
+    so lapy.elf as a whole is distributed under the GNU GPL version 3 or later
+    (licenses/GPL-3.0.txt). Its parts keep their own licences as well: the ELV1 protocol header
+    is LGPL-2.1-or-later (licenses/LAPY-LGPL-2.1.txt) and the daemon's sources are MIT,
+    Copyright (c) 2026 Arksama (Team PHU) (licenses/LAPY-MIT.txt). Its upstream source at that
+    commit, the client's (prospero-win) and the payload SDK's are in {toolchain_tar}
+    (PS5-Lapy-JB-Daemon, prospero-win, PS5_PayloadSDK).
 
 Not linked into this eboot.bin
     The OpenGL renderer stack (Vulkan only), the physical USB Kinect and its relay, and the disc

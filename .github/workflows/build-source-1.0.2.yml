@@ -329,15 +329,20 @@ jobs:
 
       # Fix 186 (issue #80): the optional, USER-loaded Lapy owned-root elevation helper, built from a
       # pinned upstream commit with the same SDK. LGPL-2.1-or-later (NOT MIT); a separate helper ELF,
-      # not linked into eboot.bin and not auto-launched. Non-fatal: a build failure (e.g. a missing
-      # SDK symbol for an unvalidated firmware) never blocks eboot.bin or the host checks; the helper
-      # is simply absent from the artifact and the MIT marker probe still works with a user-run Lapy.
+      # not linked into eboot.bin and not auto-launched. Non-fatal in a test build: a failure (e.g. a
+      # missing SDK symbol for an unvalidated firmware) never blocks eboot.bin or the host checks; the
+      # helper is simply absent from the artifact. A release ships it (package.py --lapy-elf), so
+      # there the step is fatal and its ELF must be there before the artifact gets the release name.
       - name: Build the Lapy elevation helper (optional, LGPL-2.1, user-loaded)
-        continue-on-error: true
+        continue-on-error: ${{ inputs.release != true }}
         run: |
           set -euo pipefail
           sdk=.deps/references/PS5_Vulkan/.deps/native/ps5-payload-sdk
           bash tools/source-1.0.2/lapy-daemon/build-lapy-daemon.sh "$sdk" build/src102-out
+          if [[ "${{ inputs.release == true }}" == true && ! -s build/src102-out/lapy.elf ]]; then
+            echo "::error::a release needs build/src102-out/lapy.elf (fix 186)"
+            exit 1
+          fi
 
       - name: Save compiler cache
         if: always()

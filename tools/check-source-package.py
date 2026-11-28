@@ -245,7 +245,7 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                     for p in (REPO / 'assets' / skin).glob('*.png')}
     added = {f'licenses/PS5X360-{VERSION}-NOTICE.txt', 'licenses/GPL-3.0.txt',
              'licenses/MBEDTLS-3.6.7-LICENSE.txt', 'licenses/CACERT-MPL-2.0.txt', 'assets/lang/pt-BR.txt',
-             'licenses/PS5X360-MIT.txt', 'licenses/LAPY-LGPL-2.1.txt', 'lapy.elf'}
+             'licenses/PS5X360-MIT.txt', 'licenses/LAPY-LGPL-2.1.txt', 'licenses/LAPY-MIT.txt', 'lapy.elf'}
     expected = ({name[len(B):] for name in base}
                 - {'readback-auto.off', 'licenses/PS5X360-OPT-NOTICE.txt', 'AUTOLOG.md'}
                 | repo_assets | added)
@@ -432,7 +432,11 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
                    'not linked into eboot.bin', 'tools/source-1.0.2/lapy-daemon',
                    'https://github.com/mpereiraesaa/PS5-Lapy-JB-Daemon commit ' + LAPY_PINS[0]['commit'],
                    'https://github.com/mpereiraesaa/prospero-win commit ' + LAPY_PINS[1]['commit'],
-                   'PS5-Lapy-JB-Daemon, prospero-win', 'lapy.elf, VERSION'):
+                   'PS5-Lapy-JB-Daemon, prospero-win, PS5_PayloadSDK', 'lapy.elf, VERSION',
+                   # lapy.elf links the payload SDK's GPL-3.0-or-later runtime: GPL-3.0-or-later as a
+                   # whole, its Lapy parts LGPL-2.1-or-later and MIT (Arksama).
+                   'so lapy.elf as a whole is distributed under the GNU GPL version 3 or later',
+                   'licenses/LAPY-MIT.txt', 'Arksama (Team PHU)', 'relax-single-thread.py'):
         assert needle in text, needle
     assert 'code is MIT (LICENSE)' not in text
     assert 'complete source tree' not in text
@@ -453,6 +457,9 @@ def check_files(files, base_sha=package.BASE_ZIP_SHA256):
     lgpl = files[P + 'licenses/LAPY-LGPL-2.1.txt']
     assert lgpl.startswith(b'GNU LESSER GENERAL PUBLIC LICENSE\n\nVersion 2.1, February 1999')
     assert b'END OF TERMS AND CONDITIONS' in lgpl and lgpl == (REPO / 'licenses/LAPY-LGPL-2.1.txt').read_bytes()
+    lapy_mit = files[P + 'licenses/LAPY-MIT.txt']
+    assert lapy_mit.startswith(b'MIT License\n\nCopyright (c) 2026 Arksama (Team PHU)\n')
+    assert b'Permission is hereby granted' in lapy_mit
 
     manifest = json.loads(files[P + 'MANIFEST.json'])
     assert set(manifest) == names - {'MANIFEST.json'}
@@ -641,6 +648,7 @@ def main():
         # Fix 186: no helper from the build, or one that is not an ELF, stops the packaging.
         refused('no lapy.elf: the build did not make the helper', lapy_elf=None)
         refused('lapy.elf is not an ELF file', lapy_elf=b'MZ' + LAPY[4:])
+        refused('base package already has lapy.elf', base_files=dict(base_files(), **{B + 'lapy.elf': LAPY}))
         (other / 'docs/release-notes').mkdir(parents=True)
         (other / 'docs/release-notes/v1.0.7.md').write_bytes(b'## TrinityX360 v1.0.7\n')
         assert build(repo_root=other)[P + 'RELEASE_NOTES.md'] == b'## TrinityX360 v1.0.7\n'

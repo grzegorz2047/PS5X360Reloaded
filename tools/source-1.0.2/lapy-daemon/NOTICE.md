@@ -26,6 +26,31 @@ Full licence text: `licenses/LAPY-LGPL-2.1.txt` (shipped beside the helper as `L
 TrinityX360's own `eboot.bin` and the fix-186 orchestration (`elevate_probe.hpp`, the launcher,
 `canary_game_main.cpp`) stay **MIT**; no LGPL code is fused into those MIT source files.
 
+## Release status (v1.0.7)
+
+- The option **"Unlimited write speed (root)"** (Settings, System; off by default, fix 186k) or the
+  developer switch file `elevate-probe.txt` makes the eboot send `/app0/lapy.elf` to the local
+  elfldr at its next start. The text above about the write bench and `elevate-probe.txt` alone is
+  the history of fix 186d.
+- The release package (`tools/source-1.0.2/package.py`) ships `lapy.elf` with
+  `licenses/LAPY-LGPL-2.1.txt` and `licenses/LAPY-MIT.txt`, and names them in
+  `licenses/PS5X360-<version>-NOTICE.txt`.
+- **Licence of the binary:** `lapy.elf` links the payload SDK's crt (PS5_PayloadSDK,
+  GPL-3.0-or-later), so it is distributed as a whole under the GPL-3.0-or-later. Its Lapy parts keep
+  their own licences: `lapy_elevation_protocol.h` LGPL-2.1-or-later, the daemon's sources MIT
+  (Copyright (c) 2026 Arksama (Team PHU)). The client `port/vendor/lapy` in `eboot.bin` is
+  LGPL-2.1-or-later.
+- **The shipped helper is built by** `bash tools/source-1.0.2/lapy-daemon/build-lapy-daemon.sh
+  <ps5-payload-sdk built from PS5_PayloadSDK at the build workflow's pin> <out-dir>`. It clones the
+  pinned commit, applies `relax-single-thread.py` (fix 186i: accept our multi-threaded process;
+  fix 186j: credentials only, no sandbox escape) and compiles with `ps5log-stub/ps5log.h`, the
+  diagnostic logger that writes `/data/homebrew/PPSA83600/lapy-helper.log` (a pure no-op stub made
+  APPLY fail, fix 186k -> 186n). The plain upstream recipe below does not give the shipped binary.
+- The helper's build id (`LAPY_OWNED_ID`, in its log lines) is a hash over the absolute paths of
+  its sources, so a rebuild in another folder gives other bytes than the release's sha256.
+- The release's `PS5X360-<version>-toolchain-source.tar.xz` holds PS5-Lapy-JB-Daemon and
+  prospero-win at the pins below, and PS5_PayloadSDK at the build's pin.
+
 ## Corresponding source and relink (LGPL-2.1)
 
 - `lapy.elf` source: PS5-Lapy-JB-Daemon at the pinned commit above (`--elf-helper --title PPSA83600`).
