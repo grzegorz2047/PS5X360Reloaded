@@ -239,6 +239,7 @@ checks=(
   check-focus-gate.cpp             # fix 190
   check-xna-usermode.cpp           # fix 191
   check-play-space-map.cpp         # fix 194
+  check-emergency-pad-source.cpp   # fix 196
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -453,6 +454,7 @@ declare -A fix_of=(
   [check-focus-gate.cpp]=190
   [check-xna-usermode.cpp]=191
   [check-play-space-map.cpp]=194
+  [check-emergency-pad-source.cpp]=196
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))

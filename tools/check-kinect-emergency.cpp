@@ -247,7 +247,9 @@ int main(int argc, char** argv) {
     CHECK(cam.find("xbox360ps5::motion::emergency_pose.Reset();  // fix 107") != std::string::npos);
     CHECK(cam.find("emergency_pose.Overlay(xbox360ps5::motion::NormalizedSnapshot());") != std::string::npos);
     CHECK(depth.find("Render(emergency_pose.Overlay(NormalizedSnapshot()),depth_);") != std::string::npos);
-    const size_t pad_call = pad.find("motion::emergency_pose.Pad(sample.connected && (sample.buttons & motion::kEmergencyButtons) ==");
+    size_t pad_call = pad.find("motion::emergency_pose.Pad(sample.connected && (sample.buttons & motion::kEmergencyButtons) ==");
+    if (pad_call == std::string::npos)  // fix 196: player 1's pad only (check-emergency-pad-source.cpp)
+      pad_call = pad.find("motion::EmergencyPadSample(motion::emergency_pose, user_, sample.connected, sample.buttons,");
     CHECK(pad_call != std::string::npos && pad_call < pad.find("std::lock_guard<std::mutex> lock(mutex_);", pad.find("void DualSenseInput::Submit")));
     CHECK(game.find("DrawEmergencyHint(scale, now);  // fix 107") != std::string::npos);
     CHECK(game.find("const bool recentring = xbox360ps5::motion::RecentrePending(now_ms);  // fix 107") != std::string::npos);
