@@ -1,0 +1,326 @@
+diff --git a/include/xbox360ps5/camera_figure.hpp b/include/xbox360ps5/camera_figure.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/camera_figure.hpp
+@@ -0,0 +1,209 @@
++// SPDX-License-Identifier: MIT
++// Fix 185: a figure of the tracked player as the Kinect colour camera's picture, while the phone's
++// camera picture ("Camera picture for the game", motion_picture) is off.
++//
++// The virtual Kinect gave its colour stream a flat grey (fix 119's kNoPictureLevel) without the
++// phone's picture. Harry Potter for Kinect shows the colour camera in a window, which was a green
++// rectangle. Two reasons:
++//  - the picture was flat;
++//  - Harry Potter asks for the camera's 16-bit YUV picture (640x480, 2 bytes a pixel: its colour
++//    reads have a 0x96000-byte buffer; Kinect Sports and Fighters Uncaged read the 8-bit Bayer
++//    mosaic, 0x4B000 bytes), and the emulator sent the 0x4B000-byte mosaic into it: half the
++//    buffer read as YUV and half left as it was.
++//
++// Now:
++//  - CameraFigure draws the player as the NUI skeleton has them (the body the skeleton frames
++//    and the depth frames get) on a dark neutral background: thick limbs (left arm and leg blue,
++//    right orange, as the phone page draws them), the torso and a head in light grey. Each joint
++//    is placed in the 640x480 picture as the NUI library places it, NuiTransformSkeletonToDepthImage
++//    scaled to 640x480 (the library's 285.63 per 320x240, found as a constant in Fighters
++//    Uncaged's library; the virtual camera's registration is empty, so the colour picture lines up
++//    with the depth picture), so the figure is where the title expects its player. With no body
++//    it is the background alone. It is drawn into a mask once per new pose (no allocation after
++//    the first frame), then as the 8-bit mosaic (G R / B G rows, as fix 119's pictures).
++//  - BayerToUyvy turns any mosaic (the figure, the phone's picture, the grey) into the 16-bit
++//    picture for a title that reads that (UYVY, full-range BT.601, each 2x2 block of the mosaic
++//    one colour for the two pixels of each row of it), so the YUV reads get a whole frame.
++// The setting "kinect_camera_figure" (a core option, true by default; per title through fix 166's
++// game configs) turns the figure off: the grey of before. Non-Kinect titles never open the camera.
++#pragma once
++#include <algorithm>
++#include <array>
++#include <atomic>
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++#include <vector>
++
++#include "xbox360ps5/camera_picture.hpp"    // kMosaicWidth/Height, MosaicChannel
++#include "xbox360ps5/virtual_skeleton.hpp"  // SkeletonSpace, Frame
++
++namespace xbox360ps5::motion {
++
++// The core's option, read when the camera opens (xboxkrnl_pscam.cc).
++inline std::atomic<bool> camera_figure_wanted{true};
++
++// NUI_CAMERA_SKELETON_TO_DEPTH_IMAGE_MULTIPLIER_320x240.
++constexpr float kNuiSkeletonToImage320 = 285.63f;
++constexpr uint32_t kFigureWidth = kMosaicWidth, kFigureHeight = kMosaicHeight;
++constexpr size_t kUyvyBytes = size_t(kFigureWidth) * kFigureHeight * 2;  // 0x96000
++constexpr size_t kColorYuvReadBytes = 0x96000;                           // a 16-bit colour read
++
++// A point in skeleton (sensor) space to the 640x480 picture, as NuiTransformSkeletonToDepthImage
++// gives it for 320x240, scaled by two; false behind the sensor.
++inline bool FigurePoint(float x, float y, float z, float& px, float& py) {
++  if (!(z > 0.1f)) return false;
++  px = kFigureWidth * (0.5f + x * kNuiSkeletonToImage320 / (z * 320.0f));
++  py = kFigureHeight * (0.5f - y * kNuiSkeletonToImage320 / (z * 240.0f));
++  return true;
++}
++
++// The colours (R, G, B) of the background and the parts.
++enum FigurePart : uint8_t { kBackground = 0, kTorso = 1, kLeftLimb = 2, kRightLimb = 3 };
++constexpr std::array<std::array<uint8_t, 3>, 4> kFigureColours{{
++    {38, 42, 50},     // background: dark, neutral
++    {205, 210, 216},  // torso and head
++    {96, 190, 232},   // left arm and leg
++    {238, 160, 82},   // right arm and leg
++}};
++
++class CameraFigure {
++ public:
++  // The mosaic for `pose` (the body the skeleton frames have): drawn again only when the pose
++  // changed (another frame of the phone, a body that came or went).
++  const std::vector<uint8_t>& Mosaic(const Frame& pose) {
++    const Key key{pose.tracked, pose.session, pose.sequence};
++    if (!drawn_ || !(key == key_)) {
++      DrawMask(pose, mask_);
++      MaskToMosaic(mask_, mosaic_);
++      key_ = key;
++      drawn_ = true;
++      ++draws_;
++    }
++    return mosaic_;
++  }
++  uint64_t draws() const { return draws_; }
++
++  // The figure's parts, one byte a pixel (FigurePart), 640x480.
++  static void DrawMask(const Frame& pose, std::vector<uint8_t>& mask) {
++    mask.assign(size_t(kFigureWidth) * kFigureHeight, kBackground);
++    if (!pose.tracked) return;
++    struct Point {
++      float x, y, z, confidence;
++      bool ok;
++    };
++    std::array<Point, 20> points{};
++    for (size_t n = 0; n < 20; ++n) {
++      float x, y, z;
++      SkeletonSpace(pose.joints[n], x, y, z);
++      Point& p = points[n];
++      p.z = z;
++      p.confidence = pose.joints[n].confidence;
++      p.ok = p.confidence >= 0.4f && FigurePoint(x, y, z, p.x, p.y);
++    }
++    const float focal = kFigureWidth * kNuiSkeletonToImage320 / 320.0f;
++    auto capsule = [&](size_t a, size_t b, float radius, FigurePart part) {
++      const Point& p = points[a];
++      const Point& q = points[b];
++      if (!p.ok || !q.ok) return;
++      const float r = focal * radius / ((p.z + q.z) * 0.5f);
++      const int x0 = std::clamp(int(std::floor(std::min(p.x, q.x) - r)), 0, int(kFigureWidth) - 1);
++      const int x1 = std::clamp(int(std::ceil(std::max(p.x, q.x) + r)), 0, int(kFigureWidth) - 1);
++      const int y0 = std::clamp(int(std::floor(std::min(p.y, q.y) - r)), 0, int(kFigureHeight) - 1);
++      const int y1 = std::clamp(int(std::ceil(std::max(p.y, q.y) + r)), 0, int(kFigureHeight) - 1);
++      if (x0 > x1 || y0 > y1) return;
++      const float dx = q.x - p.x, dy = q.y - p.y, length = dx * dx + dy * dy;
++      for (int y = y0; y <= y1; ++y) {
++        uint8_t* row = mask.data() + size_t(y) * kFigureWidth;
++        for (int x = x0; x <= x1; ++x) {
++          const float cx = x + 0.5f, cy = y + 0.5f;
++          const float t = length > 0 ? std::clamp(((cx - p.x) * dx + (cy - p.y) * dy) / length, 0.f, 1.f) : 0.f;
++          const float ex = cx - p.x - t * dx, ey = cy - p.y - t * dy;
++          if (ex * ex + ey * ey <= r * r) row[x] = part;
++        }
++      }
++    };
++    // Legs and arms first, the torso and head over them; the side nearer the sensor last.
++    const bool left_nearer = points[4].z < points[8].z;
++    for (int pass = 0; pass < 2; ++pass) {
++      const bool left = (pass == 0) != left_nearer;
++      const FigurePart part = left ? kLeftLimb : kRightLimb;
++      const size_t hip = left ? 12 : 16;
++      capsule(hip, hip + 1, 0.085f, part);
++      capsule(hip + 1, hip + 2, 0.075f, part);
++      capsule(hip + 2, hip + 3, 0.06f, part);
++      capsule(0, hip, 0.09f, kTorso);
++    }
++    capsule(0, 1, 0.15f, kTorso);
++    capsule(1, 2, 0.16f, kTorso);
++    capsule(4, 8, 0.08f, kTorso);
++    capsule(2, 3, 0.06f, kTorso);  // the neck
++    capsule(3, 3, 0.11f, kTorso);  // the head
++    for (int pass = 0; pass < 2; ++pass) {
++      const bool left = (pass == 0) != left_nearer;
++      const FigurePart part = left ? kLeftLimb : kRightLimb;
++      const size_t shoulder = left ? 4 : 8;
++      capsule(shoulder, shoulder + 1, 0.065f, part);
++      capsule(shoulder + 1, shoulder + 2, 0.055f, part);
++      capsule(shoulder + 2, shoulder + 3, 0.06f, part);
++    }
++  }
++
++  // The mask as the camera's 8-bit mosaic (G R / B G rows).
++  static void MaskToMosaic(const std::vector<uint8_t>& mask, std::vector<uint8_t>& mosaic) {
++    mosaic.resize(size_t(kFigureWidth) * kFigureHeight);
++    for (uint32_t y = 0; y < kFigureHeight; ++y) {
++      const uint8_t* in = mask.data() + size_t(y) * kFigureWidth;
++      uint8_t* out = mosaic.data() + size_t(y) * kFigureWidth;
++      for (uint32_t x = 0; x < kFigureWidth; ++x) out[x] = kFigureColours[in[x] & 3][MosaicChannel(x, y)];
++    }
++  }
++
++ private:
++  struct Key {
++    bool tracked = false;
++    uint32_t session = 0, sequence = 0;
++    bool operator==(const Key& o) const { return tracked == o.tracked && session == o.session && sequence == o.sequence; }
++  };
++  std::vector<uint8_t> mask_, mosaic_;
++  Key key_;
++  bool drawn_ = false;
++  uint64_t draws_ = 0;
++};
++
++// Full-range BT.601 (as camera_picture.hpp's PictureChannel, reversed).
++inline void RgbToYuv(float r, float g, float b, uint8_t& y, uint8_t& u, uint8_t& v) {
++  const auto clamp = [](float value) { return uint8_t(std::clamp(value + 0.5f, 0.f, 255.f)); };
++  y = clamp(0.299f * r + 0.587f * g + 0.114f * b);
++  u = clamp(128.f - 0.168736f * r - 0.331264f * g + 0.5f * b);
++  v = clamp(128.f + 0.5f * r - 0.418688f * g - 0.081312f * b);
++}
++
++// A 640x480 mosaic as the 16-bit picture (U Y0 V Y1 for each two pixels): each 2x2 block of the
++// mosaic (G R / B G) is one colour, given to the two pixels of each of its rows.
++inline void BayerToUyvy(const std::vector<uint8_t>& mosaic, std::vector<uint8_t>& uyvy) {
++  uyvy.resize(kUyvyBytes);
++  if (mosaic.size() < size_t(kFigureWidth) * kFigureHeight) {
++    std::fill(uyvy.begin(), uyvy.end(), uint8_t(128));
++    return;
++  }
++  for (uint32_t by = 0; by < kFigureHeight; by += 2) {
++    const uint8_t* top = mosaic.data() + size_t(by) * kFigureWidth;
++    const uint8_t* bottom = top + kFigureWidth;
++    uint8_t* out0 = uyvy.data() + size_t(by) * kFigureWidth * 2;
++    uint8_t* out1 = out0 + size_t(kFigureWidth) * 2;
++    for (uint32_t bx = 0; bx < kFigureWidth; bx += 2) {
++      const float g = (top[bx] + bottom[bx + 1]) * 0.5f, r = top[bx + 1], b = bottom[bx];
++      uint8_t y, u, v;
++      RgbToYuv(r, g, b, y, u, v);
++      for (uint8_t* out : {out0 + bx * 2, out1 + bx * 2}) {
++        out[0] = u;
++        out[1] = y;
++        out[2] = v;
++        out[3] = y;
++      }
++    }
++  }
++}
++
++}  // namespace xbox360ps5::motion
+diff --git a/include/xbox360ps5/virtual_depth_camera.hpp b/include/xbox360ps5/virtual_depth_camera.hpp
+--- a/include/xbox360ps5/virtual_depth_camera.hpp
++++ b/include/xbox360ps5/virtual_depth_camera.hpp
+@@ -7,6 +7,7 @@
+ #include "xbox360ps5/body_scale.hpp"  // 1.0.5_candidate_3: the body the skeleton frames have
+ #include "xbox360ps5/motion_emergency.hpp"  // fix 107: the emergency body, as the skeleton has it
+ #include "xbox360ps5/camera_picture.hpp"  // fix 119: the phone's picture as the colour stream
++#include "xbox360ps5/camera_figure.hpp"  // fix 185: the player's figure without it
+ #include "xbox360ps5/usb_kinect.hpp"
+ #include "xbox360ps5/factory_calibration.hpp"
+ #include <algorithm>
+@@ -79,8 +80,17 @@ class VirtualDepthCamera {
+       return sequence;
+     }
+     picture_stats.Frame(false);
++    // Fix 185: with the phone's picture off, a figure of the player (camera_figure.hpp) instead of
++    // the flat grey, unless the option "kinect_camera_figure" is off; the grey while the picture is
++    // wanted and none came yet.
++    if (!picture_wanted.load() && camera_figure_wanted.load()) {
++      const auto& mosaic = figure_.Mosaic(emergency_pose.Overlay(NormalizedSnapshot()));
++      out.assign(mosaic.begin(), mosaic.end());
++      return sequence;
++    }
+     out.assign(kColorFrameBytes,kNoPictureLevel);return sequence;
+   }
++  uint64_t FigureDraws() const { return figure_.draws(); }  // fix 185
+  private:
+   uint32_t Sequence() const {
+     const auto tick=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start_).count()/33;
+@@ -89,6 +99,7 @@ class VirtualDepthCamera {
+   VirtualDepthCalibration calibration_;
+   std::chrono::steady_clock::time_point start_=std::chrono::steady_clock::now();
+   std::vector<uint16_t> depth_;
++  CameraFigure figure_;  // fix 185
+   // Declared last: destroyed first, which stops the sensor's streams.
+   kinect_usb::Sensor sensor_;
+ };
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc
+@@ -55,6 +55,14 @@
+ #include "xenia/kernel/xthread.h"
+ #include "xenia/xbox.h"
+ 
++// Fix 185 (xbox360ps5/camera_figure.hpp): without the phone's camera picture, the colour camera
++// shows a figure of the tracked player; false: the flat grey of before. Per title through fix 166's
++// game configs ([Kinect] kinect_camera_figure = false).
++DEFINE_bool(kinect_camera_figure, true,
++            "Kinect titles without the phone's camera picture get a figure of the tracked player as "
++            "the colour camera's picture; false: a flat grey picture.",
++            "Kinect");
++
+ namespace xe {
+ namespace kernel {
+ namespace xboxkrnl {
+@@ -244,6 +252,10 @@ class CameraDevice {
+       XELOGI("PsCamDeviceRequest: no Kinect camera found");
+       return;
+     }
++    // Fix 185: the option, read once per camera.
++    xbox360ps5::motion::camera_figure_wanted = cvars::kinect_camera_figure;
++    XELOGW("Virtual Kinect: colour camera without the phone's picture: {} (fix 185)",
++           cvars::kinect_camera_figure ? "a figure of the player" : "flat grey (kinect_camera_figure off)");
+     worker_thread_ = object_ref<XHostThread>(new XHostThread(
+         kernel_state, kWorkerStackSize, 0,
+         [this]() {
+@@ -700,7 +712,12 @@ class CameraDevice {
+         depth ? pst::DepthReadBytes(request->buffer_size) : 0;
+     const bool packed = depth_bytes == pst::kDepthPackedBytes &&
+                         frame_.size() == pst::kDepthPackedBytes;
+-    const uint32_t copy_bytes = packed ? pst::kDepthPackedBytes : frame_bytes;
++    // Fix 185: a colour read with a 16-bit buffer (Harry Potter) gets the whole 16-bit picture
++    // (camera_figure.hpp, BayerToUyvy), not the 8-bit mosaic in half of it.
++    const bool yuv = !depth && request->buffer_size == xbox360ps5::motion::kColorYuvReadBytes;
++    const uint32_t copy_bytes = packed ? pst::kDepthPackedBytes
++                                : yuv  ? uint32_t(xbox360ps5::motion::kUyvyBytes)
++                                       : frame_bytes;
+     if (request->buffer_size < copy_bytes ||
+         !IsGuestRange(buffer, copy_bytes)) {
+       done.status = X_STATUS_INVALID_PARAMETER;
+@@ -715,6 +732,23 @@ class CameraDevice {
+     } else if (depth) {
+       UnpackDepth(frame_, Guest<uint8_t>(buffer), frame_bytes / 2);
+       ++xbox360ps5::motion::guest_depth_frames;
++    } else if (yuv) {
++      xbox360ps5::motion::BayerToUyvy(frame_, yuv_);  // fix 185
++      std::memcpy(Guest<uint8_t>(buffer), yuv_.data(), xbox360ps5::motion::kUyvyBytes);
++      static std::atomic<bool> said{false};
++      if (!said.exchange(true))
++        XELOGW("Virtual Kinect: colour frames sent as the 16-bit picture (UYVY, {:X} bytes) for "
++               "the title's 16-bit reads (fix 185)", xbox360ps5::motion::kUyvyBytes);
++      {
++        RequestWriteWindow window(memory_, read.request_ptr,
++                                  sizeof(X_PSCAM_READ_FRAME_REQUEST));  // fix 156g
++        request->settings_generation = settings_generation_;
++      }
++      ++xbox360ps5::motion::guest_color_frames;
++      if (const std::string line = xbox360ps5::motion::picture_stats.Due(
++              xbox360ps5::motion::SteadyMs(), xbox360ps5::motion::picture_wanted.load());
++          !line.empty())
++        XELOGW("{}", line);
+     } else {
+       std::memcpy(Guest<uint8_t>(buffer), frame_.data(), frame_bytes);
+       {
+@@ -863,6 +897,7 @@ class CameraDevice {
+   uint8_t requested_generation_ = 0;
+   std::atomic<uint8_t> settings_generation_ = 0;
+   std::vector<uint8_t> frame_;
++  std::vector<uint8_t> yuv_;  // fix 185: a 16-bit colour frame, reused
+ };
+ 
+ xe_mutex g_camera_device_mutex;

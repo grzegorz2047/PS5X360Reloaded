@@ -1,0 +1,2811 @@
+diff --git a/.deps/xenia-canary/src/xenia/base/threading_fiber_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_fiber_posix.cc
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/base/threading_fiber_posix.cc
+@@ -0,0 +1,236 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Copyright 2026 Ben Vanik. All rights reserved.                             *
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++// Adapted from Xenia Edge / XeniOS (https://github.com/has207/xenia-edge, https://github.com/xenios-jp/XeniOS), user-mode work by Herman S. (has207), BSD-3-Clause.
++
++#include "xenia/base/threading.h"
++
++#include <cstdint>
++#include <cstring>
++#include <functional>
++#include <memory>
++#include <utility>
++
++#include "xenia/base/assert.h"
++#include "xenia/base/literals.h"
++#include "xenia/base/math.h"
++#include "xenia/base/memory.h"
++#include "xenia/base/platform.h"
++
++#if XE_ARCH_AMD64
++
++// SysV AMD64 context switch (Linux x86-64 and PS5 FreeBSD x86-64).
++// Saves/restores MXCSR, x87 FCW, and callee-saved GPRs r12-r15, rbx, rbp.
++// Argument 0 (%rdi): void** from_fctx_slot (receives suspended %rsp).
++// Argument 1 (%rsi): void*  to_fctx        (resumed %rsp).
++__asm__(
++    ".text\n"
++    ".p2align 4\n"
++    ".globl xe_switch_fcontext\n"
++    ".hidden xe_switch_fcontext\n"
++    "xe_switch_fcontext:\n"
++    "  subq $0x38, %rsp\n"
++    "  stmxcsr (%rsp)\n"
++    "  fnstcw 4(%rsp)\n"
++    "  movq %r12, 0x08(%rsp)\n"
++    "  movq %r13, 0x10(%rsp)\n"
++    "  movq %r14, 0x18(%rsp)\n"
++    "  movq %r15, 0x20(%rsp)\n"
++    "  movq %rbx, 0x28(%rsp)\n"
++    "  movq %rbp, 0x30(%rsp)\n"
++    "  movq %rsp, (%rdi)\n"
++    "  movq %rsi, %rsp\n"
++    "  ldmxcsr (%rsp)\n"
++    "  fldcw 4(%rsp)\n"
++    "  movq 0x08(%rsp), %r12\n"
++    "  movq 0x10(%rsp), %r13\n"
++    "  movq 0x18(%rsp), %r14\n"
++    "  movq 0x20(%rsp), %r15\n"
++    "  movq 0x28(%rsp), %rbx\n"
++    "  movq 0x30(%rsp), %rbp\n"
++    "  addq $0x38, %rsp\n"
++    "  retq\n"
++    "\n"
++    ".p2align 4\n"
++    ".globl xe_fiber_entry_stub\n"
++    ".hidden xe_fiber_entry_stub\n"
++    "xe_fiber_entry_stub:\n"
++    "  xorl %ebp, %ebp\n"
++    "  movq %r12, %rdi\n"
++    "  callq *%r13\n"
++    "  ud2\n"
++#if defined(__linux__)
++    ".section .note.GNU-stack,\"\",@progbits\n"
++#endif
++);
++
++extern "C" void xe_switch_fcontext(void** from_fctx_slot, void* to_fctx);
++extern "C" void xe_fiber_entry_stub();
++
++namespace xe {
++namespace threading {
++namespace {
++
++using namespace xe::literals;
++
++constexpr size_t kDefaultFiberStackSize = 2_MiB;
++
++struct FiberContextFrame {
++  uint32_t mxcsr;
++  uint32_t fcw;
++  uint64_t r12;
++  uint64_t r13;
++  uint64_t r14;
++  uint64_t r15;
++  uint64_t rbx;
++  uint64_t rbp;
++  uint64_t rip;
++};
++static_assert(sizeof(FiberContextFrame) == 0x40,
++              "FiberContextFrame must match xe_switch_fcontext layout");
++
++struct FiberStack {
++  uint8_t* base = nullptr;
++  size_t total_size = 0;
++  size_t guard_size = 0;
++  uint8_t* high = nullptr;
++};
++
++// Allocates through xe::memory::AllocFixed rather than anonymous mmap so PS5
++// builds draw from direct memory instead of the 448 MiB flexible budget.
++FiberStack AllocFiberStack(size_t requested_size) {
++  const size_t page = xe::memory::page_size();
++  const size_t usable = xe::round_up(
++      requested_size ? requested_size : kDefaultFiberStackSize, page);
++  const size_t total = usable + page;
++  auto* base = static_cast<uint8_t*>(xe::memory::AllocFixed(
++      nullptr, total, xe::memory::AllocationType::kReserveCommit,
++      xe::memory::PageAccess::kReadWrite));
++  assert_not_null(base);
++  // Guard floor page at the low end of the downward-growing stack.
++  xe::memory::Protect(base, page, xe::memory::PageAccess::kNoAccess);
++  FiberStack stack;
++  stack.base = base;
++  stack.total_size = total;
++  stack.guard_size = page;
++  stack.high = base + total;
++  return stack;
++}
++
++void FreeFiberStack(FiberStack& stack) {
++  if (!stack.base) {
++    return;
++  }
++  if (stack.guard_size) {
++    xe::memory::Protect(stack.base, stack.guard_size,
++                        xe::memory::PageAccess::kReadWrite);
++  }
++  xe::memory::DeallocFixed(stack.base, stack.total_size,
++                           xe::memory::DeallocationType::kRelease);
++  stack = {};
++}
++
++class FcontextFiber final : public Fiber {
++ public:
++  // Adopted thread fiber.
++  FcontextFiber() = default;
++
++  // Newly created fiber with its own host stack.
++  FcontextFiber(size_t stack_size, std::function<void()> start_routine)
++      : entry_(std::move(start_routine)), owns_stack_(true) {
++    stack_ = AllocFiberStack(stack_size);
++    ResetContext();
++  }
++
++  ~FcontextFiber() override {
++    if (current_fiber_ == this) {
++      current_fiber_ = nullptr;
++    }
++    if (owns_stack_) {
++      FreeFiberStack(stack_);
++    }
++  }
++
++  static Fiber* Current() { return current_fiber_; }
++
++  static std::unique_ptr<Fiber> AdoptCurrentThread() {
++    assert_null(current_fiber_);
++    auto fiber = std::make_unique<FcontextFiber>();
++    current_fiber_ = fiber.get();
++    return fiber;
++  }
++
++  void SwitchTo() override {
++    assert_false(terminated_);
++    FcontextFiber* prev = current_fiber_;
++    assert_not_null(prev);
++    if (prev == this) {
++      return;
++    }
++    current_fiber_ = this;
++    xe_switch_fcontext(&prev->fctx_, fctx_);
++  }
++
++  void SetTerminated() override { terminated_ = true; }
++
++  void Restart() override {
++    assert_true(owns_stack_);
++    assert_true(current_fiber_ != this);
++    ResetContext();
++    terminated_ = false;
++  }
++
++ private:
++  void ResetContext() {
++    uintptr_t top = reinterpret_cast<uintptr_t>(stack_.high) & ~uintptr_t(0xF);
++    auto* frame = reinterpret_cast<FiberContextFrame*>(top - sizeof(FiberContextFrame));
++    std::memset(frame, 0, sizeof(*frame));
++    frame->mxcsr = 0x1F80;
++    frame->fcw = 0x037F;
++    frame->r12 = reinterpret_cast<uint64_t>(this);
++    frame->r13 = reinterpret_cast<uint64_t>(&FcontextFiber::RunEntry);
++    frame->rip = reinterpret_cast<uint64_t>(&xe_fiber_entry_stub);
++    fctx_ = frame;
++  }
++
++  static void RunEntry(void* raw_self) {
++    auto* self = static_cast<FcontextFiber*>(raw_self);
++    self->entry_();
++    self->terminated_ = true;
++    assert_always("Fiber start routine returned without switching away");
++  }
++
++  static thread_local FcontextFiber* current_fiber_;
++
++  void* fctx_ = nullptr;
++  FiberStack stack_;
++  std::function<void()> entry_;
++  bool owns_stack_ = false;
++  bool terminated_ = false;
++};
++
++thread_local FcontextFiber* FcontextFiber::current_fiber_ = nullptr;
++
++}  // namespace
++
++std::unique_ptr<Fiber> Fiber::CreateFromThread() {
++  return FcontextFiber::AdoptCurrentThread();
++}
++
++std::unique_ptr<Fiber> Fiber::Create(CreationParameters params,
++                                     std::function<void()> start_routine) {
++  return std::make_unique<FcontextFiber>(params.stack_size,
++                                         std::move(start_routine));
++}
++
++Fiber* Fiber::GetCurrentFiber() { return FcontextFiber::Current(); }
++
++}  // namespace threading
++}  // namespace xe
++
++#endif  // XE_ARCH_AMD64
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_usermode.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_usermode.cc
+new file mode 100644
+--- /dev/null
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_usermode.cc
+@@ -0,0 +1,486 @@
++/**
++ ******************************************************************************
++ * Xenia : Xbox 360 Emulator Research Project                                 *
++ ******************************************************************************
++ * Copyright 2026 Ben Vanik. All rights reserved.                             *
++ * Released under the BSD license - see LICENSE in the root for more details. *
++ ******************************************************************************
++ */
++// Adapted from Xenia Edge / XeniOS (https://github.com/has207/xenia-edge, https://github.com/xenios-jp/XeniOS), user-mode work by Herman S. (has207), BSD-3-Clause.
++
++#include <algorithm>
++#include <atomic>
++#include <cstring>
++#include <memory>
++
++#include "xenia/base/byte_order.h"
++#include "xenia/base/literals.h"
++#include "xenia/base/logging.h"
++#include "xenia/base/threading.h"
++#include "xenia/cpu/processor.h"
++#include "xenia/kernel/kernel_state.h"
++#include "xenia/kernel/util/shim_utils.h"
++#include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
++#include "xenia/kernel/xboxkrnl/xboxkrnl_rtl.h"
++#include "xenia/kernel/xthread.h"
++#include "xenia/xbox.h"
++
++// User mode code and the handler it traps into run on per-thread host fibers.
++// User mode code runs against its own membase, see EnableUserModeViews.
++
++namespace xe {
++namespace kernel {
++namespace xboxkrnl {
++
++using namespace xe::literals;
++using cpu::ppc::PPCContext;
++
++namespace {
++
++// Trap frame layout. RuntimeHost uses the GPRs, lr and iar; ctr, cr and xer
++// sit in the upper control area of the 0x1C0-byte KTRAP_FRAME.
++constexpr uint32_t kKframesSize = 0x1C0;
++constexpr uint32_t kKframesGpr = 0x50;
++constexpr uint32_t kKframesMsr = 0x160;
++constexpr uint32_t kKframesCtr = 0x1A0;
++constexpr uint32_t kKframesLr = 0x1A8;
++constexpr uint32_t kKframesIar = 0x1AC;
++constexpr uint32_t kKframesCr = 0x1B4;
++constexpr uint32_t kKframesXer = 0x1B8;
++
++// MSR[PR], which a trap frame from user mode carries.
++constexpr uint32_t kMsrUserMode = 0x4000;
++
++constexpr uint32_t kReturnSentinel = 0xBCBCBCBC;
++// Keeps the handler clear of the frame that called KeEnterUserMode.
++constexpr uint64_t kHandlerStackGap = 0x100;
++// Host JIT stack size per user-mode fiber (guest stack lives in guest RAM).
++constexpr size_t kUserModeFiberStackSize = 2_MiB;
++
++uint32_t GetXer(const PPCContext* context) {
++  return (uint32_t(context->xer_so) << 31) | (uint32_t(context->xer_ov) << 30) |
++         (uint32_t(context->xer_ca) << 29);
++}
++
++void SetXer(PPCContext* context, uint32_t xer) {
++  context->xer_so = (xer >> 31) & 1;
++  context->xer_ov = (xer >> 30) & 1;
++  context->xer_ca = (xer >> 29) & 1;
++}
++
++void SaveKframes(PPCContext* context, uint8_t* kframes, uint32_t iar) {
++  std::memset(kframes, 0, kKframesSize);
++  for (size_t i = 0; i < 32; ++i) {
++    xe::store_and_swap<uint64_t>(kframes + kKframesGpr + i * 8, context->r[i]);
++  }
++  xe::store_and_swap<uint64_t>(kframes + kKframesCtr, context->ctr);
++  xe::store_and_swap<uint32_t>(kframes + kKframesCr, uint32_t(context->cr()));
++  xe::store_and_swap<uint32_t>(kframes + kKframesXer, GetXer(context));
++  xe::store_and_swap<uint32_t>(kframes + kKframesMsr,
++                               uint32_t(context->msr) | kMsrUserMode);
++  xe::store_and_swap<uint32_t>(kframes + kKframesLr, uint32_t(context->lr));
++  xe::store_and_swap<uint32_t>(kframes + kKframesIar, iar);
++}
++
++uint32_t LoadKframes(PPCContext* context, const uint8_t* kframes) {
++  for (size_t i = 0; i < 32; ++i) {
++    context->r[i] = xe::load_and_swap<uint64_t>(kframes + kKframesGpr + i * 8);
++  }
++  context->ctr = xe::load_and_swap<uint64_t>(kframes + kKframesCtr);
++  context->set_cr(xe::load_and_swap<uint32_t>(kframes + kKframesCr));
++  SetXer(context, xe::load_and_swap<uint32_t>(kframes + kKframesXer));
++  context->lr = xe::load_and_swap<uint32_t>(kframes + kKframesLr);
++  return xe::load_and_swap<uint32_t>(kframes + kKframesIar);
++}
++
++// Whether |fiber| runs user code or the trap handler for |user_mode|.
++bool IsUserModeFiber(XThread::UserMode* user_mode,
++                     xe::threading::Fiber* fiber) {
++  if (fiber == user_mode->handler_fiber.get()) {
++    return true;
++  }
++  for (auto& user_fiber : user_mode->fibers) {
++    if (fiber == user_fiber->fiber.get()) {
++      return true;
++    }
++  }
++  return false;
++}
++
++// Runs guest code from a host frame that nothing returns to.
++void RunGuest(XThread* thread, cpu::Function* function, uint32_t address) {
++  if (!function) {
++    XELOGE("User mode: no guest code at {:08X}", address);
++    return;
++  }
++  function->Call(thread->thread_state(), kReturnSentinel);
++}
++
++void RunGuest(XThread* thread, uint32_t address) {
++  RunGuest(
++      thread,
++      thread->thread_state()->context()->processor->ResolveFunction(address),
++      address);
++}
++
++// Exchanges |state| into the context, recorded so leaving user mode undoes it.
++void PushStackpointState(PPCContext* context, XThread::UserMode* user_mode,
++                         void* state) {
++  context->processor->backend()->SwapStackpointState(context, state);
++  user_mode->swapped_stackpoint_states.push_back(state);
++}
++
++void PopStackpointState(PPCContext* context, XThread::UserMode* user_mode) {
++  if (user_mode->swapped_stackpoint_states.empty()) {
++    return;
++  }
++  context->processor->backend()->SwapStackpointState(
++      context, user_mode->swapped_stackpoint_states.back());
++  user_mode->swapped_stackpoint_states.pop_back();
++}
++
++// Resumes KeEnterUserMode on the kernel fiber and never returns.
++void LeaveUserMode(XThread* thread, uint32_t value) {
++  auto user_mode = thread->user_mode();
++  auto context = thread->thread_state()->context();
++  user_mode->in_user_code = false;
++  user_mode->leave_value = value;
++  context->virtual_membase = kernel_memory()->virtual_membase();
++  auto& registers = user_mode->kernel_registers;
++  std::memcpy(context->r, registers.r, sizeof(registers.r));
++  context->ctr = registers.ctr;
++  context->lr = registers.lr;
++  context->set_cr(registers.cr);
++  SetXer(context, registers.xer);
++  while (!user_mode->swapped_stackpoint_states.empty()) {
++    PopStackpointState(context, user_mode);
++  }
++  user_mode->kernel_fiber->SwitchTo();
++}
++
++bool UserModeSyscall(PPCContext* context) {
++  XThread* thread = XThread::GetCurrentThread();
++  auto user_mode = thread ? thread->user_mode() : nullptr;
++  if (!user_mode || !user_mode->in_user_code) {
++    return false;
++  }
++  auto trapped = user_mode->running;
++  user_mode->in_user_code = false;
++  context->virtual_membase = kernel_memory()->virtual_membase();
++  const uint32_t resume_address = uint32_t(context->scratch);
++  auto kframes = context->TranslateVirtual<uint8_t*>(user_mode->kframes);
++  SaveKframes(context, kframes, resume_address);
++  trapped->resume_address = resume_address;
++  trapped->stack_pointer = uint32_t(context->r[1]);
++  trapped->handler_returned = false;
++  user_mode->parked.push_back(trapped);
++  user_mode->trapped = trapped;
++
++  auto& registers = user_mode->kernel_registers;
++  context->r[1] = (registers.r[1] - kHandlerStackGap) & ~uint64_t(0xF);
++  context->r[2] = registers.r[2];
++  context->r[13] = registers.r[13];
++  context->r[3] = 0;
++  context->r[4] = user_mode->kframes;
++  context->lr = kReturnSentinel;
++  PushStackpointState(context, user_mode, user_mode->handler_stackpoint_state);
++  context->processor->backend()->PrepareForReentry(context);
++  user_mode->handler_fiber->Restart();
++  user_mode->handler_fiber->SwitchTo();
++
++  // Back on the trapped fiber, because the handler returned or because the
++  // kernel entered user mode again to resume this trap.
++  user_mode->running = trapped;
++  if (!trapped->handler_returned) {
++    // KeEnterUserMode loaded the resumed registers and stackpoints.
++    return true;
++  }
++  PopStackpointState(context, user_mode);
++  auto parked_trap =
++      std::find(user_mode->parked.begin(), user_mode->parked.end(), trapped);
++  if (parked_trap != user_mode->parked.end()) {
++    user_mode->parked.erase(parked_trap);
++  }
++
++  // The handler returned, so resume from the frame it may have redirected.
++  const uint32_t address = LoadKframes(context, kframes);
++  context->virtual_membase = kernel_memory()->user_virtual_membase();
++  user_mode->in_user_code = true;
++  if (address != resume_address) {
++    // The handler redirected the trap rather than resuming it.
++    RunGuest(thread, address);
++    XELOGE("User mode: code at {:08X} returned without leaving user mode",
++           address);
++    LeaveUserMode(thread, 0);
++  }
++  return true;
++}
++
++std::unique_ptr<XThread::UserMode::UserFiber> CreateUserFiber(
++    XThread* thread, PPCContext* context) {
++  auto user_fiber = std::make_unique<XThread::UserMode::UserFiber>();
++  xe::threading::Fiber::CreationParameters fiber_params;
++  fiber_params.stack_size = kUserModeFiberStackSize;
++  user_fiber->fiber = xe::threading::Fiber::Create(
++      fiber_params, [thread, user_fiber = user_fiber.get()]() {
++        RunGuest(thread, user_fiber->entry_address);
++        XELOGE("User mode: code at {:08X} returned without leaving user mode",
++               user_fiber->entry_address);
++        LeaveUserMode(thread, 0);
++      });
++  user_fiber->stackpoint_state =
++      context->processor->backend()->CreateStackpointState();
++  return user_fiber;
++}
++
++XThread::UserMode* CreateUserMode(XThread* thread, PPCContext* context) {
++  auto user_mode = std::make_unique<XThread::UserMode>();
++  xe::threading::Fiber::CreationParameters fiber_params;
++  fiber_params.stack_size = kUserModeFiberStackSize;
++  user_mode->handler_fiber =
++      xe::threading::Fiber::Create(fiber_params, [thread]() {
++        auto user_mode = thread->user_mode();
++        RunGuest(thread, user_mode->handler_function, user_mode->handler);
++        // The handler returned rather than leaving user mode.
++        auto trapped = user_mode->trapped;
++        trapped->handler_returned = true;
++        trapped->fiber->SwitchTo();
++      });
++  user_mode->handler_stackpoint_state =
++      context->processor->backend()->CreateStackpointState();
++  user_mode->kframes = kernel_state()->memory()->SystemHeapAlloc(kKframesSize);
++  auto result = user_mode.get();
++  thread->set_user_mode(std::move(user_mode));
++  return result;
++}
++
++}  // namespace
++
++dword_result_t KeCreateUserMode_entry(dword_t unknown, lpvoid_t descriptor,
++                                      const ppc_context_t& context) {
++  // User code runs on its own host fibers, so the backend has to keep their
++  // stackpoint records apart.
++  auto backend = context->processor->backend();
++  void* stackpoint_probe = backend->CreateStackpointState();
++  if (!stackpoint_probe) {
++    XELOGE("KeCreateUserMode: the backend keeps no per-stack records");
++    return X_STATUS_NOT_SUPPORTED;
++  }
++  backend->DestroyStackpointState(stackpoint_probe);
++  if (!kernel_memory()->EnableUserModeViews()) {
++    return X_STATUS_NO_MEMORY;
++  }
++  context->processor->EnableDynamicCode();
++  context->processor->set_syscall_hook(&UserModeSyscall);
++  XELOGI("KeCreateUserMode: enabled user mode address space and syscall hook");
++  return X_STATUS_SUCCESS;
++}
++DECLARE_XBOXKRNL_EXPORT2(KeCreateUserMode, kThreading, kImplemented, kSketchy);
++
++dword_result_t KeDeleteUserMode_entry(dword_t handle) {
++  return X_STATUS_SUCCESS;
++}
++DECLARE_XBOXKRNL_EXPORT1(KeDeleteUserMode, kThreading, kImplemented);
++
++// Returns the value KeLeaveUserMode is called with.
++dword_result_t KeEnterUserMode_entry(lpvoid_t user_context, dword_t handler,
++                                     lpvoid_t nonvolatile_save, dword_t unknown,
++                                     const ppc_context_t& context) {
++  XThread* thread = XThread::GetCurrentThread();
++  PPCContext* guest_context = context.value();
++  if (!kernel_memory()->user_virtual_membase()) {
++    XELOGE("KeEnterUserMode without a user mode address space");
++    return 0;
++  }
++  auto user_mode = thread->user_mode();
++  if (user_mode &&
++      IsUserModeFiber(user_mode, xe::threading::Fiber::GetCurrentFiber())) {
++    XELOGE("KeEnterUserMode from user mode is not supported");
++    return 0;
++  }
++  if (!user_mode) {
++    user_mode = CreateUserMode(thread, guest_context);
++  }
++
++  auto& registers = user_mode->kernel_registers;
++  std::memcpy(registers.r, guest_context->r, sizeof(registers.r));
++  registers.ctr = guest_context->ctr;
++  registers.lr = guest_context->lr;
++  registers.cr = uint32_t(guest_context->cr());
++  registers.xer = GetXer(guest_context);
++  if (!user_mode->handler_function || user_mode->handler != handler) {
++    user_mode->handler = handler;
++    user_mode->handler_function =
++        guest_context->processor->ResolveFunction(handler);
++  }
++
++  auto p = user_context.as<const uint8_t*>();
++  for (size_t i = 0; i < 32; ++i) {
++    guest_context->r[i] = xe::load_and_swap<uint64_t>(p + kContextGpr + i * 8);
++  }
++  guest_context->ctr = xe::load_and_swap<uint64_t>(p + kContextCtr);
++  guest_context->lr = xe::load_and_swap<uint32_t>(p + kContextLr);
++  guest_context->set_cr(xe::load_and_swap<uint32_t>(p + kContextCr));
++  SetXer(guest_context, xe::load_and_swap<uint32_t>(p + kContextXer));
++  const uint32_t entry_address = xe::load_and_swap<uint32_t>(p + kContextIar);
++  if (!guest_context->r[1]) {
++    // A context with no stack pointer borrows the lower half of the remaining
++    // kernel stack so trap servicing runs above it without overwriting frames.
++    const uint32_t kernel_sp = uint32_t(registers.r[1]);
++    const uint32_t limit = thread->stack_limit();
++    const uint32_t user_sp =
++        limit && limit < kernel_sp
++            ? (limit + (kernel_sp - limit) / 2) & ~uint32_t(0xF)
++            : kernel_sp;
++    guest_context->r[1] = user_sp;
++    static std::atomic<bool> reported{false};
++    if (!reported.exchange(true)) {
++      XELOGW(
++          "KeEnterUserMode: the context at {:08X} names no stack. User mode "
++          "runs at {:08X} on the kernel stack",
++          user_context.guest_address(), user_sp);
++    }
++  }
++
++  if (!xe::threading::Fiber::GetCurrentFiber()) {
++    user_mode->adopted_fiber = xe::threading::Fiber::CreateFromThread();
++  }
++  user_mode->kernel_fiber = xe::threading::Fiber::GetCurrentFiber();
++  guest_context->virtual_membase = kernel_memory()->user_virtual_membase();
++
++  // The kernel services a trap by entering again at the instruction after it,
++  // with the stack pointer it trapped with, so that fiber continues in place.
++  XThread::UserMode::UserFiber* target = nullptr;
++  for (size_t i = user_mode->parked.size(); i-- > 0;) {
++    auto parked = user_mode->parked[i];
++    if (parked->resume_address == entry_address &&
++        parked->stack_pointer == uint32_t(guest_context->r[1])) {
++      target = parked;
++      break;
++    }
++  }
++  if (target) {
++    // Traps parked after it belong to calls that already finished.
++    while (user_mode->parked.back() != target) {
++      user_mode->parked.pop_back();
++    }
++    user_mode->parked.pop_back();
++    PushStackpointState(guest_context, user_mode, target->stackpoint_state);
++  } else {
++    // Guest stacks grow down, so an entry at or above a parked trap's stack
++    // pointer has overwritten its frames.
++    while (!user_mode->parked.empty() &&
++           user_mode->parked.back()->stack_pointer <=
++               uint32_t(guest_context->r[1])) {
++      user_mode->parked.pop_back();
++    }
++    for (auto& user_fiber : user_mode->fibers) {
++      if (std::find(user_mode->parked.begin(), user_mode->parked.end(),
++                    user_fiber.get()) == user_mode->parked.end()) {
++        target = user_fiber.get();
++        break;
++      }
++    }
++    if (!target) {
++      user_mode->fibers.push_back(CreateUserFiber(thread, guest_context));
++      target = user_mode->fibers.back().get();
++    }
++    target->entry_address = entry_address;
++    PushStackpointState(guest_context, user_mode, target->stackpoint_state);
++    guest_context->processor->backend()->PrepareForReentry(guest_context);
++    target->fiber->Restart();
++  }
++  user_mode->running = target;
++  user_mode->in_user_code = true;
++  target->fiber->SwitchTo();
++  return user_mode->leave_value;
++}
++DECLARE_XBOXKRNL_EXPORT3(KeEnterUserMode, kThreading, kImplemented,
++                         kHighFrequency, kSketchy);
++
++void KeLeaveUserMode_entry(dword_t value) {
++  XThread* thread = XThread::GetCurrentThread();
++  auto user_mode = thread ? thread->user_mode() : nullptr;
++  if (!user_mode ||
++      xe::threading::Fiber::GetCurrentFiber() == user_mode->kernel_fiber) {
++    XELOGE("KeLeaveUserMode({}) outside user mode", uint32_t(value));
++    return;
++  }
++  LeaveUserMode(thread, value);
++}
++DECLARE_XBOXKRNL_EXPORT3(KeLeaveUserMode, kThreading, kImplemented,
++                         kHighFrequency, kSketchy);
++
++void KeContextFromKframes_entry(lpvoid_t kframes, lpvoid_t context) {
++  auto k = kframes.as<const uint8_t*>();
++  auto p = context.as<uint8_t*>();
++  const uint32_t flags = xe::load_and_swap<uint32_t>(p + kContextFlags);
++  // The kernel side only resumes user mode from a context that says so.
++  xe::store_and_swap<uint32_t>(
++      p + kContextUserModeControl,
++      (xe::load_and_swap<uint32_t>(k + kKframesMsr) & kMsrUserMode) ? 1 : 0);
++  if (flags & kContextControl) {
++    xe::store_and_swap<uint32_t>(p + kContextMsr,
++                                 xe::load_and_swap<uint32_t>(k + kKframesMsr));
++    xe::store_and_swap<uint32_t>(p + kContextIar,
++                                 xe::load_and_swap<uint32_t>(k + kKframesIar));
++    xe::store_and_swap<uint32_t>(p + kContextLr,
++                                 xe::load_and_swap<uint32_t>(k + kKframesLr));
++    xe::store_and_swap<uint64_t>(p + kContextCtr,
++                                 xe::load_and_swap<uint64_t>(k + kKframesCtr));
++  }
++  // RuntimeHost asks for control and integer state; the kframes carry no
++  // floating point or vector registers, which user mode shares with the
++  // kernel.
++  if (flags & kContextInteger) {
++    std::memcpy(p + kContextGpr, k + kKframesGpr, 32 * 8);
++    xe::store_and_swap<uint32_t>(p + kContextCr,
++                                 xe::load_and_swap<uint32_t>(k + kKframesCr));
++    xe::store_and_swap<uint32_t>(p + kContextXer,
++                                 xe::load_and_swap<uint32_t>(k + kKframesXer));
++  }
++}
++DECLARE_XBOXKRNL_EXPORT2(KeContextFromKframes, kThreading, kImplemented,
++                         kHighFrequency);
++
++void KeContextToKframes_entry(lpvoid_t kframes, lpvoid_t context,
++                              dword_t flags) {
++  auto k = kframes.as<uint8_t*>();
++  auto p = context.as<const uint8_t*>();
++  if (flags & kContextControl) {
++    xe::store_and_swap<uint32_t>(k + kKframesIar,
++                                 xe::load_and_swap<uint32_t>(p + kContextIar));
++    xe::store_and_swap<uint32_t>(k + kKframesLr,
++                                 xe::load_and_swap<uint32_t>(p + kContextLr));
++    xe::store_and_swap<uint64_t>(k + kKframesCtr,
++                                 xe::load_and_swap<uint64_t>(p + kContextCtr));
++  }
++  if (flags & kContextInteger) {
++    std::memcpy(k + kKframesGpr, p + kContextGpr, 32 * 8);
++    xe::store_and_swap<uint32_t>(k + kKframesCr,
++                                 xe::load_and_swap<uint32_t>(p + kContextCr));
++    xe::store_and_swap<uint32_t>(k + kKframesXer,
++                                 xe::load_and_swap<uint32_t>(p + kContextXer));
++  }
++}
++DECLARE_XBOXKRNL_EXPORT1(KeContextToKframes, kThreading, kImplemented);
++
++// The user mode alias maps the backing direct memory directly, so there is no
++// separate software TLB to flush.
++void KeFlushUserModeCurrentTb_entry() {}
++DECLARE_XBOXKRNL_EXPORT1(KeFlushUserModeCurrentTb, kMemory, kImplemented);
++
++void KeFlushUserModeTb_entry() {}
++DECLARE_XBOXKRNL_EXPORT1(KeFlushUserModeTb, kMemory, kImplemented);
++
++void KeFlushCurrentEntireTb_entry() {}
++DECLARE_XBOXKRNL_EXPORT1(KeFlushCurrentEntireTb, kMemory, kImplemented);
++
++void KeFlushEntireTb_entry() {}
++DECLARE_XBOXKRNL_EXPORT1(KeFlushEntireTb, kMemory, kImplemented);
++
++}  // namespace xboxkrnl
++}  // namespace kernel
++}  // namespace xe
++
++DECLARE_XBOXKRNL_EMPTY_REGISTER_EXPORTS(UserMode);
+diff --git a/.deps/xenia-canary/src/xenia/base/threading.h b/.deps/xenia-canary/src/xenia/base/threading.h
+--- a/.deps/xenia-canary/src/xenia/base/threading.h
++++ b/.deps/xenia-canary/src/xenia/base/threading.h
+@@ -564,6 +564,45 @@ class Thread : public WaitHandle {
+   std::string name_;
+ };
+ 
++// Cooperative user-space execution context used by Xbox 360 kernel user mode
++// (KeEnterUserMode / KeLeaveUserMode / user-mode sc traps).
++class Fiber {
++ public:
++  struct CreationParameters {
++    size_t stack_size = 0;
++  };
++
++  virtual ~Fiber() = default;
++
++  // Adopts the calling thread's current stack as a fiber so other fibers can
++  // switch back to it.
++  static std::unique_ptr<Fiber> CreateFromThread();
++
++  // Creates a fiber with its own host stack that starts in |start_routine|.
++  static std::unique_ptr<Fiber> Create(CreationParameters params,
++                                       std::function<void()> start_routine);
++
++  // Fiber currently executing on the calling host thread, or nullptr.
++  static Fiber* GetCurrentFiber();
++
++  // Suspends the calling fiber and resumes |this|.
++  virtual void SwitchTo() = 0;
++
++  // Marks the fiber terminated. Switching to a terminated fiber is undefined.
++  virtual void SetTerminated() = 0;
++
++  // Runs the start routine again from the top of the same stack, abandoning
++  // any suspended frames on it without unwinding them. Not valid on the
++  // current fiber or one adopted by CreateFromThread.
++  virtual void Restart() = 0;
++
++  virtual void set_name(std::string name) { name_ = std::move(name); }
++  const std::string& name() const { return name_; }
++
++ protected:
++  std::string name_;
++};
++
+ }  // namespace threading
+ }  // namespace xe
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/backend.h b/.deps/xenia-canary/src/xenia/cpu/backend/backend.h
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/backend.h
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/backend.h
+@@ -94,6 +94,19 @@ class Backend {
+   * */
+   virtual void PrepareForReentry(void* ctx) {}
+ 
++  // Drops what every guest thread cached about where code in [start, end] was
++  // compiled to, for a guest that has since written other code there.
++  virtual void InvalidateDynamicCalls(uint32_t start, uint32_t end) {}
++
++  // Extra stackpoint records for a guest thread that runs on more than one
++  // host stack, or null from a backend that keeps none. Swapping exchanges the
++  // records in the context with the ones in the state, so swaps have to be
++  // undone in reverse before returning to guest code the other set recorded,
++  // and a state has to be swapped out before it is destroyed.
++  virtual void* CreateStackpointState() { return nullptr; }
++  virtual void DestroyStackpointState(void* state) {}
++  virtual void SwapStackpointState(void* ctx, void* state) {}
++
+   // returns true if populated st
+   virtual bool PopulatePseudoStacktrace(GuestPseudoStackTrace* st) {
+     return false;
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/code_cache_base.h b/.deps/xenia-canary/src/xenia/cpu/backend/code_cache_base.h
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/code_cache_base.h
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/code_cache_base.h
+@@ -111,6 +111,19 @@ class CodeCacheBase : public CodeCache {
+ 
+   bool has_indirection_table() { return indirection_table_base_ != nullptr; }
+ 
++  // The guest addresses that have indirection slots.
++  static constexpr uint32_t indirection_guest_base() {
++    return uint32_t(kIndirectionTableBase);
++  }
++  static constexpr uint32_t indirection_guest_size() {
++    return uint32_t(kIndirectionTableSize);
++  }
++  static constexpr bool HasIndirectionSlot(uint32_t guest_address) {
++    return guest_address >= indirection_guest_base() &&
++           guest_address - indirection_guest_base() + 4 <=
++               indirection_guest_size();
++  }
++
+   void set_indirection_default(uint32_t default_value) {
+     indirection_default_value_ = default_value;
+   }
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.cc
+@@ -9,8 +9,10 @@
+ 
+ #include "xenia/cpu/backend/x64/x64_backend.h"
+ 
++#include <algorithm>
+ #include <array>
+ #include <cstddef>
++#include <utility>
+ 
+ #include "third_party/capstone/include/capstone/capstone.h"
+ #include "third_party/capstone/include/capstone/x86.h"
+@@ -976,6 +978,21 @@ ResolveFunctionThunk X64HelperEmitter::EmitResolveFunctionThunk() {
+ void* X64HelperEmitter::EmitGuestAndHostSynchronizeStackHelper() {
+   _code_offsets code_offsets = {};
+   code_offsets.prolog = getSize();
++  Xbyak::Label search_stackpoints{};
++  // ResolveDynamicReturn recorded the frame to continue in.
++  mov(rax, GetBackendCtxPtr(offsetof(X64BackendContext, unwind_host_stack)));
++  test(rax, rax);
++  jz(search_stackpoints, T_NEAR);
++  mov(ecx,
++      GetBackendCtxPtr(offsetof(X64BackendContext, unwind_stackpoint_depth)));
++  mov(GetBackendCtxPtr(offsetof(X64BackendContext, current_stackpoint_depth)),
++      ecx);
++  xor_(ecx, ecx);
++  mov(GetBackendCtxPtr(offsetof(X64BackendContext, unwind_host_stack)), rcx);
++  mov(rsp, rax);
++  jmp(r8);
++
++  L(search_stackpoints);
+   push(rbx);
+   mov(rbx, GetBackendCtxPtr(offsetof(X64BackendContext, stackpoints)));
+   mov(eax,
+@@ -998,7 +1015,8 @@ void* X64HelperEmitter::EmitGuestAndHostSynchronizeStackHelper() {
+ 
+   cmp(r10d, r9d);
+ 
+-  jge(loopout, T_NEAR);
++  // Unsigned, to match ResolveLongjmp: guest stacks can be above 0x80000000.
++  jae(loopout, T_NEAR);
+ 
+   inc(r12d);
+ 
+@@ -1772,22 +1790,27 @@ void X64HelperEmitter::EmitLoadNonvolatileRegs() {
+   vmovups(xmm15, qword[rsp + offsetof(StackLayout::Thunk, xmm[9])]);
+ #endif
+ }
++X64BackendStackpoint* X64Backend::AllocStackpoints() {
++  return cvars::enable_host_guest_stack_synchronization
++             ? new X64BackendStackpoint[cvars::max_stackpoints]
++             : nullptr;
++}
++
+ void X64Backend::InitializeBackendContext(void* ctx) {
+   X64BackendContext* bctx = BackendContextForGuestContext(ctx);
+   bctx->mxcsr_fpu =
+       DEFAULT_FPU_MXCSR;  // idk if this is right, check on rgh what the
+                           // rounding on ppc is at startup
+ 
+-  /*
+-          todo: stackpoint arrays should be pooled virtual memory at the very
+-     least there may be some fancy virtual address tricks we can do here
+-
+-  */
+-
+-  bctx->stackpoints = cvars::enable_host_guest_stack_synchronization
+-                          ? new X64BackendStackpoint[cvars::max_stackpoints]
+-                          : nullptr;
++  bctx->stackpoints = AllocStackpoints();
+   bctx->current_stackpoint_depth = 0;
++  bctx->dynamic_call_cache = nullptr;
++  bctx->unwind_host_stack = 0;
++  bctx->unwind_stackpoint_depth = 0;
++  {
++    auto global_lock = global_critical_region_.Acquire();
++    backend_contexts_.push_back(ctx);
++  }
+   bctx->mxcsr_vmx = DEFAULT_VMX_MXCSR;
+   bctx->flags = (1U << kX64BackendNJMOn);  // NJM on by default
+   // https://media.discordapp.net/attachments/440280035056943104/1000765256643125308/unknown.png
+@@ -1802,12 +1825,72 @@ void X64Backend::DeinitializeBackendContext(void* ctx) {
+     delete[] bctx->stackpoints;
+     bctx->stackpoints = nullptr;
+   }
++  auto global_lock = global_critical_region_.Acquire();
++  backend_contexts_.erase(
++      std::remove(backend_contexts_.begin(), backend_contexts_.end(), ctx),
++      backend_contexts_.end());
++  // InvalidateDynamicCalls walks a registered context's cache under the lock.
++  delete[] bctx->dynamic_call_cache;
++  bctx->dynamic_call_cache = nullptr;
++}
++
++void X64Backend::InvalidateDynamicCalls(uint32_t start, uint32_t end) {
++  auto global_lock = global_critical_region_.Acquire();
++  for (void* ctx : backend_contexts_) {
++    X64BackendContext* bctx = BackendContextForGuestContext(ctx);
++    if (!bctx->dynamic_call_cache) {
++      continue;
++    }
++    for (uint32_t i = 0; i < kX64DynamicCallCacheSize; ++i) {
++      auto& entry = bctx->dynamic_call_cache[i];
++      if (entry.guest_address >= start && entry.guest_address <= end) {
++        // The lookup only rejects an entry whose host address is zero.
++        entry.host_address = 0;
++        entry.guest_address = UINT32_MAX;
++      }
++    }
++  }
+ }
+ 
+ void X64Backend::PrepareForReentry(void* ctx) {
+   X64BackendContext* bctx = BackendContextForGuestContext(ctx);
+ 
+   bctx->current_stackpoint_depth = 0;
++  bctx->unwind_host_stack = 0;
++}
++
++namespace {
++struct X64StackpointState {
++  X64BackendStackpoint* stackpoints = nullptr;
++  unsigned int depth = 0;
++};
++}  // namespace
++
++void* X64Backend::CreateStackpointState() {
++  auto state = new X64StackpointState();
++  state->stackpoints = AllocStackpoints();
++  return state;
++}
++
++void X64Backend::DestroyStackpointState(void* state) {
++  if (!state) {
++    return;
++  }
++  auto stackpoint_state = static_cast<X64StackpointState*>(state);
++  delete[] stackpoint_state->stackpoints;
++  delete stackpoint_state;
++}
++
++void X64Backend::SwapStackpointState(void* ctx, void* state) {
++  if (!state) {
++    return;
++  }
++  X64BackendContext* bctx = BackendContextForGuestContext(ctx);
++  auto stackpoint_state = static_cast<X64StackpointState*>(state);
++  std::swap(bctx->stackpoints, stackpoint_state->stackpoints);
++  std::swap(bctx->current_stackpoint_depth, stackpoint_state->depth);
++  // A pending unwind names the host stack being swapped out.
++  bctx->unwind_host_stack = 0;
+ }
+ 
+ constexpr uint32_t mxcsr_table[8] = {
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.h b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.h
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.h
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_backend.h
+@@ -10,10 +10,13 @@
+ #ifndef XENIA_CPU_BACKEND_X64_X64_BACKEND_H_
+ #define XENIA_CPU_BACKEND_X64_X64_BACKEND_H_
+ 
++#include <cstddef>
+ #include <memory>
++#include <vector>
+ 
+ #include "xenia/base/bit_map.h"
+ #include "xenia/base/cvar.h"
++#include "xenia/base/mutex.h"
+ #include "xenia/cpu/backend/backend.h"
+ 
+ #if XE_PLATFORM_WIN32 == 1
+@@ -71,9 +74,9 @@ struct ReserveHelper {
+ struct X64BackendStackpoint {
+   uint64_t host_stack_;
+   unsigned guest_stack_;
+-  // pad to 16 bytes so we never end up having a 64 bit load/store for
+-  // host_stack_ straddling two lines. Consider this field reserved for future
+-  // use
++  // Guest lr at the prolog, which a dynamic code return matches against. It
++  // also pads to 16 bytes so we never end up having a 64 bit load/store for
++  // host_stack_ straddling two lines.
+   unsigned guest_return_address_;
+ };
+ enum : uint32_t {
+@@ -84,11 +87,33 @@ enum : uint32_t {
+   kX64BackendNonIEEEMode =
+       3,  // non-ieee mode is currently enabled for scalar fpu.
+ };
++// A resolved guest address that has no indirection slot.
++struct X64DynamicCallCacheEntry {
++  uint32_t guest_address;
++  uint32_t unused;
++  uint64_t host_address;
++};
++constexpr uint32_t kX64DynamicCallCacheSize = 4096;
++// EmitDynamicCallLookup indexes and loads these itself.
++static_assert(sizeof(X64DynamicCallCacheEntry) == 16);
++static_assert(offsetof(X64DynamicCallCacheEntry, host_address) == 8);
++static_assert((kX64DynamicCallCacheSize & (kX64DynamicCallCacheSize - 1)) == 0);
++
+ // located prior to the ctx register
+ // some things it would be nice to have be per-emulator instance instead of per
+ // context (somehow placing a global X64BackendCtx prior to membase, so we can
+ // negatively index the membase reg)
+ struct X64BackendContext {
++  // The fields before the union are only read away from the hot path. Code
++  // addresses this struct back from its end, so they come first to keep the
++  // rest within 8-bit displacements.
++  // allocated by the first dynamic call resolve on this thread
++  X64DynamicCallCacheEntry* dynamic_call_cache;
++  // host stack and stackpoint depth a dynamic code return continues with,
++  // taken by the stack synchronization helper at its target;
++  // unwind_host_stack is 0 when none is pending
++  uint64_t unwind_host_stack;
++  uint32_t unwind_stackpoint_depth;
+   union {
+     __m128 helper_scratch_xmms[4];
+     uint64_t helper_scratch_u64s[8];
+@@ -168,6 +193,11 @@ class X64Backend : public Backend {
+   virtual void InitializeBackendContext(void* ctx) override;
+   virtual void DeinitializeBackendContext(void* ctx) override;
+   virtual void PrepareForReentry(void* ctx) override;
++  virtual void InvalidateDynamicCalls(uint32_t start, uint32_t end) override;
++  static X64BackendStackpoint* AllocStackpoints();
++  void* CreateStackpointState() override;
++  void DestroyStackpointState(void* state) override;
++  void SwapStackpointState(void* ctx, void* state) override;
+   X64BackendContext* BackendContextForGuestContext(void* ctx) {
+     return reinterpret_cast<X64BackendContext*>(
+         reinterpret_cast<intptr_t>(ctx) - sizeof(X64BackendContext));
+@@ -196,6 +226,11 @@ class X64Backend : public Backend {
+ 
+   uintptr_t capstone_handle_ = 0;
+ 
++  // Every live guest context, so code the guest overwrites can be forgotten on
++  // the threads that cached it rather than only on the one that wrote it.
++  xe::global_critical_region global_critical_region_;
++  std::vector<void*> backend_contexts_;
++
+   std::unique_ptr<X64CodeCache> code_cache_;
+   uintptr_t emitter_data_ = 0;
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/backend/x64/x64_emitter.cc
+@@ -467,6 +467,65 @@ void X64Emitter::UnimplementedInstr(const hir::Instr* i) {
+   assert_always();
+ }
+ 
++// Where a return site in an already translated function continues, when the
++// guest is unwinding to it past more than one frame, or 0. The caller
++// decides that |target_address| is a return site. |pending_pops| is
++// how many stackpoints the branch still pops after resolving, which the stack
++// synchronization helper will not see.
++static uint64_t ResolveLongjmp(ppc::PPCContext_s* guest_context,
++                               uint32_t target_address, uint32_t pending_pops) {
++  auto processor = guest_context->thread_state->processor();
++  auto ones_with_address = processor->FindFunctionsWithAddress(target_address);
++
++  X64Function* candidate = nullptr;
++  uintptr_t host_address = 0;
++  for (auto&& entry : ones_with_address) {
++    X64Function* xfunc = static_cast<X64Function*>(entry);
++
++    host_address = xfunc->MapGuestAddressToMachineCode(target_address);
++    if (host_address &&
++        xfunc->machine_code() != reinterpret_cast<const uint8_t*>(host_address)) {
++      candidate = xfunc;
++      break;
++    }
++  }
++  if (!candidate || !host_address) {
++    return 0;
++  }
++  X64Backend* backend = static_cast<X64Backend*>(processor->backend());
++  X64BackendContext* backend_context =
++      backend->BackendContextForGuestContext(guest_context);
++
++  if (backend_context->current_stackpoint_depth <= pending_pops) {
++    return 0;
++  }
++  uint32_t current_stackpoint_index =
++      backend_context->current_stackpoint_depth - pending_pops;
++
++  --current_stackpoint_index;
++
++  X64BackendStackpoint* stackpoints = backend_context->stackpoints;
++
++  uint32_t current_guest_stackpointer =
++      static_cast<uint32_t>(guest_context->r[1]);
++  uint32_t num_frames_bigger = 0;
++
++  while (current_stackpoint_index != 0xFFFFFFFF) {
++    if (current_guest_stackpointer >
++        stackpoints[current_stackpoint_index].guest_stack_) {
++      --current_stackpoint_index;
++      ++num_frames_bigger;
++    } else {
++      break;
++    }
++  }
++
++  if (num_frames_bigger <= 1) {
++    return 0;
++  }
++  return host_address;
++}
++
+ // This is used by the X64ThunkEmitter's ResolveFunctionThunk.
+ uint64_t ResolveFunction(void* raw_context, uint64_t target_address) {
+   auto guest_context = reinterpret_cast<ppc::PPCContext_s*>(raw_context);
+@@ -476,199 +535,21 @@ uint64_t ResolveFunction(void* raw_context, uint64_t target_address) {
+   // TODO(benvanik): required?
+   assert_not_zero(target_address);
+ 
+-  /*
+-          todo: refactor this!
+-
+-         The purpose of this code is to allow guest longjmp to call into
+-     the body of an existing host function. There are a lot of conditions we
+-     have to check here to ensure that we do not mess up a normal call to a
+-     function
+-
+-         The address must be within an XexModule (may need to make some changes
+-     to instructionaddressflags to remove this limitation) The target address
+-     must be a known return site. The guest address must be part of a function
+-     that was already translated.
+-
+-  */
+-
+   if (cvars::enable_host_guest_stack_synchronization) {
+     auto processor = thread_state->processor();
+ 
+     auto module_for_address =
+         processor->LookupModule(static_cast<uint32_t>(target_address));
+ 
+-    if (module_for_address) {
+-      XexModule* xexmod = dynamic_cast<XexModule*>(module_for_address);
+-      if (xexmod) {
+-        InfoCacheFlags* flags = xexmod->GetInstructionAddressFlags(
+-            static_cast<uint32_t>(target_address));
+-        if (flags) {
+-          if (flags->is_return_site) {
+-            auto ones_with_address = processor->FindFunctionsWithAddress(
+-                static_cast<uint32_t>(target_address));
+-
+-            if (ones_with_address.size() != 0) {
+-              // this loop to find a host address for the guest address is
+-              // necessary because FindFunctionsWithAddress works via a range
+-              // check, but if the function consists of multiple blocks
+-              // scattered around with "holes" of instructions that cannot be
+-              // reached in between those holes the instructions that cannot be
+-              // reached will incorrectly be considered members of the function
+-
+-              X64Function* candidate = nullptr;
+-              uintptr_t host_address = 0;
+-              for (auto&& entry : ones_with_address) {
+-                X64Function* xfunc = static_cast<X64Function*>(entry);
+-
+-                host_address = xfunc->MapGuestAddressToMachineCode(
+-                    static_cast<uint32_t>(target_address));
+-                // host address does exist within the function, and that host
+-                // function is not the start of the function, it is instead
+-                // somewhere within its existing body
+-                // i originally did not have this (xfunc->machine_code() !=
+-                // reinterpret_cast<const uint8_t*>(host_address))) condition
+-                // here when i distributed builds for testing, no issues arose
+-                // related to it but i wanted to be more explicit
+-                if (host_address &&
+-                    xfunc->machine_code() !=
+-                        reinterpret_cast<const uint8_t*>(host_address)) {
+-                  candidate = xfunc;
+-                  break;
+-                }
+-              }
+-              // we found an existing X64Function, and a return site within that
+-              // function that has a host address w/ native code
+-              if (candidate && host_address) {
+-                X64Backend* backend =
+-                    static_cast<X64Backend*>(processor->backend());
+-                // grab the backend context, next we have to check whether the
+-                // guest and host stack are out of sync if they arent, its fine
+-                // for the backend to create a new function for the guest
+-                // address we're resolving if they are, it means that the reason
+-                // we're resolving this address is because context is being
+-                // restored (probably by longjmp)
+-                X64BackendContext* backend_context =
+-                    backend->BackendContextForGuestContext(guest_context);
+-
+-                uint32_t current_stackpoint_index =
+-                    backend_context->current_stackpoint_depth;
+-
+-                --current_stackpoint_index;
+-
+-                X64BackendStackpoint* stackpoints =
+-                    backend_context->stackpoints;
+-
+-                uint32_t current_guest_stackpointer =
+-                    static_cast<uint32_t>(guest_context->r[1]);
+-                uint32_t num_frames_bigger = 0;
+-
+-                /*
+-                        if the current guest stack pointer is bigger than the
+-                   recorded pointer for this stack thats fine, plenty of
+-                   functions restore the original stack pointer early
+-
+-                        if more than 1... we're longjmping and sure of it at
+-                   this point (jumping to a return site that has already been
+-                   emitted)
+-                */
+-                while (current_stackpoint_index != 0xFFFFFFFF) {
+-                  if (current_guest_stackpointer >
+-                      stackpoints[current_stackpoint_index].guest_stack_) {
+-                    --current_stackpoint_index;
+-                    ++num_frames_bigger;
+-
+-                  } else {
+-                    break;
+-                  }
+-                }
+-                /*
+-                                        DEFINITELY a longjmp, return original
+-                   host address. returning the existing host address is going to
+-                   set off some extra machinery we have set up to support this
+-
+-                                        to break it down, our caller (us being
+-                   this ResolveFunction that this comment is in) is
+-                   X64Backend::resolve_function_thunk_ which is implemented in
+-                   x64_backend.cc X64HelperEmitter::EmitResolveFunctionThunk, or
+-                   a call from the resolver table
+-
+-                                        the x64 fastcall abi dictates that the
+-                   stack must always be 16 byte aligned. We select our stack
+-                   size for functions to ensure that we keep rsp aligned to 16
+-                   bytes
+-
+-                                        but by calling into the body of an
+-                   existing function we've pushed our return address onto the
+-                   stack (dont worry about this return address, it gets
+-                   discarded in a later step)
+-
+-                                        this means that the stack is no longer
+-                   16 byte aligned, (rsp % 16) now == 8, and this is the only
+-                   time outside of the prolog or epilog of a function that this
+-                   will be the case
+-
+-                                        so, after all direct or indirect
+-                   function calls we set
+-                   X64Emitter::synchronize_stack_on_next_instruction_ to true.
+-                                        On the next instruction that is not
+-                   OPCODE_SOURCE_OFFSET we will emit a check when we see
+-                   synchronize_stack_on_next_instruction_ is true. We have to
+-                   skip OPCODE_SOURCE_OFFSET because its not a "real"
+-                   instruction and if we emit on it the return address of the
+-                   function call will point to AFTER our check, so itll never be
+-                   executed.
+-
+-                                        our check is just going to do test esp,
+-                   15 to see if the stack is misaligned. (using esp instead of
+-                   rsp saves 1 byte). We tail emit the handling for when the
+-                   check succeeds because in 99.99999% of function calls it will
+-                   be aligned, in the end the runtime cost of these checks is 5
+-                   bytes for the test instruction which ought to be one cycle
+-                   and 5 bytes for the jmp with no cycles taken for the jump
+-                   which will be predicted not taken.
+-
+-                  Our handling for the check is implemented in
+-                  X64HelperEmitter::EmitGuestAndHostSynchronizeStackHelper. we
+-                  don't call it directly though, instead we go through
+-                  backend()->synchronize_guest_and_host_stack_helper_for_size(num_bytes_needed_to_represent_stack_size).
+-                  we place the stack size after the call instruction so we can
+-                  load it in the helper and readjust the return address to point
+-                  after the literal value.
+-
+-                                  The helper is going to search the array of
+-                  stackpoints to find the first one that is greater than or
+-                  equal to the current stack pointer, when it finds the entry it
+-                  will set the currently host rsp to the host stack pointer
+-                  value in the entry, and then subtract the stack size of the
+-                  caller from that. the current stackpoint index is adjusted to
+-                  point to the one after the stackpoint we restored to.
+-
+-                                  The helper then jumps back to the function
+-                  that was longjmp'ed to, with the host stack in its proper
+-                  state. it just works!
+-
+-
+-
+-                 */
+-
+-                if (num_frames_bigger > 1) {
+-                  /*
+-                   * can't do anything about this right now :(
+-                   * epic mickey is quite slow due to having to call resolve on
+-                   * every longjmp, and it longjmps a lot but if we add an
+-                   * indirection we lose our stack misalignment check
+-                   */
+-                  /* reinterpret_cast<X64CodeCache*>(backend->code_cache())
+-      ->AddIndirection(static_cast<uint32_t>(target_address),
+-                       static_cast<uint32_t>(host_address));
+-                        */
+-
+-                  return host_address;
+-                }
+-              }
+-            }
+-          }
+-        }
++    auto* xexmod = dynamic_cast<XexModule*>(module_for_address);
++    InfoCacheFlags* flags =
++        xexmod ? xexmod->GetInstructionAddressFlags(
++                     static_cast<uint32_t>(target_address))
++               : nullptr;
++    if (flags && flags->is_return_site) {
++      if (uint64_t host_address = ResolveLongjmp(
++              guest_context, static_cast<uint32_t>(target_address), 0)) {
++        return host_address;
+       }
+     }
+   }
+@@ -681,6 +562,167 @@ uint64_t ResolveFunction(void* raw_context, uint64_t target_address) {
+   return addr;
+ }
+ 
++// Where a dynamic code branch to the instruction after a call continues in
++// translated code, or 0. While the frame of that call is live, the branch
++// returns into it however many frames it skips or bytes the callee popped, and
++// the stack synchronization helper at the target takes the host stack and
++// stackpoint depth left here. Once the call has returned, as for setjmp, the
++// guest stack decides how far to unwind. |pending_pops| is how many stackpoints
++// the branch still pops after resolving. |out_is_return_site| tells the caller
++// whether the target follows a call, which is never worth caching.
++static uint64_t ResolveDynamicReturn(ppc::PPCContext_s* guest_context,
++                                     uint32_t target_address,
++                                     uint32_t pending_pops,
++                                     bool* out_is_return_site) {
++  *out_is_return_site = false;
++  if (!cvars::enable_host_guest_stack_synchronization) {
++    return 0;
++  }
++  auto processor = guest_context->processor;
++  auto backend = static_cast<X64Backend*>(processor->backend());
++  X64BackendContext* backend_context =
++      backend->BackendContextForGuestContext(guest_context);
++  const uint32_t depth = backend_context->current_stackpoint_depth;
++  const uint32_t live_frames = depth > pending_pops ? depth - pending_pops : 0;
++  const uint32_t stack_pointer = static_cast<uint32_t>(guest_context->r[1]);
++  uint32_t found_index = 0;
++  uint32_t found_popped = UINT32_MAX;
++  uint64_t found_host_address = 0;
++  for (uint32_t i = live_frames; i-- > 0;) {
++    const X64BackendStackpoint& stackpoint = backend_context->stackpoints[i];
++    if (stackpoint.guest_return_address_ != target_address ||
++        stackpoint.guest_stack_ > stack_pointer ||
++        stack_pointer - stackpoint.guest_stack_ >= found_popped) {
++      continue;
++    }
++    const uint64_t host_return =
++        *reinterpret_cast<const uint64_t*>(stackpoint.host_stack_);
++    auto function = backend->code_cache()->LookupFunction(host_return);
++    if (!function ||
++        function->MapGuestAddressToMachineCode(target_address) != host_return) {
++      continue;
++    }
++    found_index = i;
++    found_popped = stack_pointer - stackpoint.guest_stack_;
++    found_host_address = host_return;
++    if (!found_popped) {
++      break;
++    }
++  }
++  if (found_host_address) {
++    *out_is_return_site = true;
++    backend_context->unwind_host_stack =
++        backend_context->stackpoints[found_index].host_stack_ +
++        sizeof(uint64_t);
++    backend_context->unwind_stackpoint_depth = found_index;
++    return found_host_address;
++  }
++
++  // Dynamic code has no instruction flags, so recognize the call before it.
++  if (target_address < 4) {
++    return 0;
++  }
++  auto module = processor->LookupModule(target_address - 4);
++  if (!module) {
++    return 0;
++  }
++  const uint32_t previous =
++      xe::load_and_swap<uint32_t>(module->TranslateCode(target_address - 4));
++  const bool is_return_site = ((previous & 0xFC000001) == 0x48000001) ||
++                              ((previous & 0xFC000001) == 0x40000001) ||
++                              ((previous & 0xFC0007FF) == 0x4C000421) ||
++                              ((previous & 0xFC0007FF) == 0x4C000021);
++  *out_is_return_site = is_return_site;
++  if (!is_return_site) {
++    return 0;
++  }
++  return ResolveLongjmp(guest_context, target_address, pending_pops);
++}
++
++static uint32_t DynamicCallCacheIndex(uint32_t guest_address) {
++  return ((guest_address >> 2) ^ (guest_address >> 14)) &
++         (kX64DynamicCallCacheSize - 1);
++}
++
++// Resolves a target without an indirection slot and caches it per thread.
++static uint64_t ResolveDynamicFunction(void* raw_context,
++                                       uint64_t target_address,
++                                       uint32_t pending_pops) {
++  auto guest_context = reinterpret_cast<ppc::PPCContext_s*>(raw_context);
++  bool is_return_site = false;
++  if (uint64_t return_address = ResolveDynamicReturn(
++          guest_context, static_cast<uint32_t>(target_address), pending_pops,
++          &is_return_site)) {
++    return return_address;
++  }
++  auto function = guest_context->processor->ResolveFunction(
++      static_cast<uint32_t>(target_address));
++  if (!function || !function->is_guest()) {
++    XELOGE("No guest code at {:08X} for a dynamic call",
++           static_cast<uint32_t>(target_address));
++    return 0;
++  }
++  const uint64_t host_address = reinterpret_cast<uint64_t>(
++      static_cast<X64Function*>(function)->machine_code());
++  auto backend = static_cast<X64Backend*>(guest_context->processor->backend());
++  auto bctx = backend->BackendContextForGuestContext(raw_context);
++  if (!bctx->dynamic_call_cache) {
++    bctx->dynamic_call_cache =
++        new X64DynamicCallCacheEntry[kX64DynamicCallCacheSize];
++    for (uint32_t i = 0; i < kX64DynamicCallCacheSize; ++i) {
++      bctx->dynamic_call_cache[i] = {UINT32_MAX, 0, 0};
++    }
++  }
++  // A return resolves to an address that is only valid for the unwind that
++  // reached it, and caching the site would skip that unwind on every later
++  // return, so only targets a call can reach are cached.
++  if (!is_return_site) {
++    auto& entry = bctx->dynamic_call_cache[DynamicCallCacheIndex(
++        static_cast<uint32_t>(target_address))];
++    entry.host_address = host_address;
++    entry.guest_address = static_cast<uint32_t>(target_address);
++  }
++  return host_address;
++}
++
++static uint64_t ResolveDynamicCall(void* raw_context, uint64_t target_address) {
++  return ResolveDynamicFunction(raw_context, target_address, 0);
++}
++
++// A tail branch pops the current function's stackpoint after resolving.
++static uint64_t ResolveDynamicTailCall(void* raw_context,
++                                       uint64_t target_address) {
++  return ResolveDynamicFunction(raw_context, target_address, 1);
++}
++
++// Loads the host address for the guest address in edx into rax.
++static void EmitDynamicCallLookup(X64Emitter& e, bool tail) {
++  Xbyak::Label miss;
++  Xbyak::Label done;
++  e.mov(e.eax, e.edx);
++  e.shr(e.eax, 2);
++  e.mov(e.ecx, e.edx);
++  e.shr(e.ecx, 14);
++  e.xor_(e.eax, e.ecx);
++  e.and_(e.eax, kX64DynamicCallCacheSize - 1);
++  e.shl(e.eax, 4);
++  e.mov(e.rcx,
++        e.GetBackendCtxPtr(offsetof(X64BackendContext, dynamic_call_cache)));
++  e.test(e.rcx, e.rcx);
++  e.jz(miss, X64Emitter::T_NEAR);
++  e.cmp(e.dword[e.rcx + e.rax], e.edx);
++  e.jne(miss, X64Emitter::T_NEAR);
++  e.mov(e.rax, e.qword[e.rcx + e.rax + 8]);
++  // An entry the cache was initialized with holds no address.
++  e.test(e.rax, e.rax);
++  e.jz(miss, X64Emitter::T_NEAR);
++  e.jmp(done, X64Emitter::T_NEAR);
++  e.L(miss);
++  e.CallNativeSafe(reinterpret_cast<void*>(tail ? ResolveDynamicTailCall
++                                                : ResolveDynamicCall));
++  e.L(done);
++}
++
+ bool X64Emitter::TryInlinePPCGprLrSaveRestore(const hir::Instr* instr,
+                                               const GuestFunction* function) {
+   if (!function->IsSaverest() ||
+@@ -801,7 +843,8 @@ void X64Emitter::Call(const hir::Instr* instr, GuestFunction* function) {
+     }
+ 
+     return;
+-  } else if (code_cache_->has_indirection_table()) {
++  } else if (code_cache_->has_indirection_table() &&
++             code_cache_->HasIndirectionSlot(function->address())) {
+     // Load the pointer to the indirection table maintained in X64CodeCache.
+     // The target dword will either contain the address of the generated code
+     // or a thunk to ResolveAddress.
+@@ -811,6 +854,9 @@ void X64Emitter::Call(const hir::Instr* instr, GuestFunction* function) {
+ #else
+     mov(eax, dword[ebx]);
+ #endif
++  } else if (code_cache_->has_indirection_table()) {
++    mov(edx, function->address());
++    EmitDynamicCallLookup(*this, (instr->flags & hir::CALL_TAIL) != 0);
+   } else {
+     // Old-style resolve.
+     // Not too important because indirection table is almost always available.
+@@ -859,11 +905,33 @@ void X64Emitter::CallIndirect(const hir::Instr* instr,
+       mov(ebx, reg.cvt32());
+     }
+ #endif
++    // A target without an indirection slot goes through the dynamic call cache.
++    // Only dynamic code has such targets, and the check costs code cache space
++    // at every call site, which the largest titles already nearly fill.
++    Xbyak::Label* target_ready = nullptr;
++    if (processor()->dynamic_code_enabled()) {
++      target_ready = &NewCachedLabel();
++      mov(eax, ebx);
++      sub(eax, code_cache_->indirection_guest_base());
++      cmp(eax, code_cache_->indirection_guest_size());
++      const bool tail_call = (instr->flags & hir::CALL_TAIL) != 0;
++      Xbyak::Label& resolve_natively = AddToTail(
++          [target_ready, tail_call](X64Emitter& e, Xbyak::Label& tail) {
++            e.L(tail);
++            e.mov(e.edx, e.ebx);
++            EmitDynamicCallLookup(e, tail_call);
++            e.jmp(*target_ready, X64Emitter::T_NEAR);
++          });
++      jae(resolve_natively, T_NEAR);
++    }
+ #if XE_PLATFORM_PS5
+     mov(eax, dword[rbx + X64CodeCache::kIndirectionTableHostDelta]);
+ #else
+     mov(eax, dword[ebx]);
+ #endif
++    if (target_ready) {
++      L(*target_ready);
++    }
+   } else {
+     // Old-style resolve.
+     // Not too important because indirection table is almost always available.
+@@ -1029,10 +1097,7 @@ bool X64Emitter::ConstantFitsIn32Reg(uint64_t v) {
+ void X64Emitter::MovMem64(const Xbyak::RegExp& addr, uint64_t v) {
+   uint32_t lowpart = static_cast<uint32_t>(v);
+   uint32_t highpart = static_cast<uint32_t>(v >> 32);
+-  // check whether the constant coincidentally collides with our membase
+-  if (v == (uintptr_t)processor()->memory()->virtual_membase()) {
+-    mov(qword[addr], GetMembaseReg());
+-  } else if ((v & ~0x7FFFFFFF) == 0) {
++  if ((v & ~0x7FFFFFFF) == 0) {
+     // Fits under 31 bits, so just load using normal mov.
+ 
+     mov(qword[addr], v);
+diff --git a/.deps/xenia-canary/src/xenia/cpu/entry_table.cc b/.deps/xenia-canary/src/xenia/cpu/entry_table.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/entry_table.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/entry_table.cc
+@@ -105,6 +105,31 @@ void EntryTable::Delete(uint32_t address) {
+   }
+ }
+ 
++std::vector<Function*> EntryTable::DeleteRange(uint32_t start, uint32_t end) {
++  auto global_lock = global_critical_region_.Acquire();
++  std::vector<Function*> removed;
++  std::vector<uint32_t> keys_to_erase;
++  for (auto& it : map_.Values()) {
++    Entry* entry = it;
++    if (!entry || entry->status != Entry::STATUS_READY) {
++      continue;
++    }
++    if (entry->address <= end && entry->end_address >= start) {
++      // Left allocated, like Delete does: code that is already running holds
++      // pointers into it and only the next lookup needs to miss.
++      removed.push_back(entry->function);
++      keys_to_erase.push_back(entry->address);
++    }
++  }
++  for (uint32_t key : keys_to_erase) {
++    uint32_t idx = map_.IndexForKey(key);
++    if (idx != map_.size() && *map_.KeyAt(idx) == key) {
++      map_.EraseAt(idx);
++    }
++  }
++  return removed;
++}
++
+ std::vector<Function*> EntryTable::FindWithAddress(uint32_t address) {
+   auto global_lock = global_critical_region_.Acquire();
+   std::vector<Function*> fns;
+diff --git a/.deps/xenia-canary/src/xenia/cpu/entry_table.h b/.deps/xenia-canary/src/xenia/cpu/entry_table.h
+--- a/.deps/xenia-canary/src/xenia/cpu/entry_table.h
++++ b/.deps/xenia-canary/src/xenia/cpu/entry_table.h
+@@ -52,6 +52,9 @@ class EntryTable {
+   void MarkReady(Entry* entry, Function* function, uint32_t end_address);
+   void MarkFailed(Entry* entry);
+   void Delete(uint32_t address);
++  // Drops every ready entry overlapping [start, end] and returns what they
++  // compiled, so the caller can let their modules forget them too.
++  std::vector<Function*> DeleteRange(uint32_t start, uint32_t end);
+ 
+   std::vector<Function*> FindWithAddress(uint32_t address);
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.cc
+@@ -411,6 +411,17 @@ bool MMIOHandler::ExceptionCallback(Exception* ex) {
+     return false;
+   }
+   bool is_write = operation == Exception::AccessViolationOperation::kWrite;
++  // User mode views are never protected, so no MMIO range or watch applies.
++  const uint64_t user_membase =
++      uint64_t(user_membase_.load(std::memory_order_relaxed));
++  if (user_membase && ex->fault_address() - user_membase < 0x100000000ull) {
++    if (!access_violation_callback_) {
++      return false;
++    }
++    return access_violation_callback_(
++        global_critical_region_.Acquire(), access_violation_callback_context_,
++        reinterpret_cast<void*>(ex->fault_address()), is_write);
++  }
+   if (ex->fault_address() < uint64_t(virtual_membase_) ||
+       ex->fault_address() > uint64_t(memory_end_)) {
+     // Quick kill anything outside our mapping.
+diff --git a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.h b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.h
+--- a/.deps/xenia-canary/src/xenia/cpu/mmio_handler.h
++++ b/.deps/xenia-canary/src/xenia/cpu/mmio_handler.h
+@@ -10,6 +10,7 @@
+ #ifndef XENIA_CPU_MMIO_HANDLER_H_
+ #define XENIA_CPU_MMIO_HANDLER_H_
+ 
++#include <atomic>
+ #include <memory>
+ #include <mutex>
+ #include <vector>
+@@ -78,6 +79,11 @@ class MMIOHandler {
+     record_mmio_callback_ = callback;
+   }
+ 
++  // Faults in the user mode views go straight to the access violation callback.
++  void SetUserMembase(uint8_t* user_membase) {
++    user_membase_.store(user_membase, std::memory_order_relaxed);
++  }
++
+  protected:
+   MMIOHandler(uint8_t* virtual_membase, uint8_t* physical_membase,
+               uint8_t* membase_end, HostToGuestVirtual host_to_guest_virtual,
+@@ -93,6 +99,7 @@ class MMIOHandler {
+   uint8_t* virtual_membase_;
+   uint8_t* physical_membase_;
+   uint8_t* memory_end_;
++  std::atomic<uint8_t*> user_membase_{nullptr};
+ 
+   std::vector<MMIORange> mapped_ranges_;
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/module.cc b/.deps/xenia-canary/src/xenia/cpu/module.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/module.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/module.cc
+@@ -23,6 +23,10 @@ Module::~Module() = default;
+ 
+ bool Module::ContainsAddress(uint32_t address) { return true; }
+ 
++const uint8_t* Module::TranslateCode(uint32_t address) const {
++  return memory_->TranslateVirtual<const uint8_t*>(address);
++}
++
+ Symbol* Module::LookupSymbol(uint32_t address, bool wait) {
+   auto global_lock = global_critical_region_.Acquire();
+   const auto it = map_.find(address);
+@@ -142,6 +146,11 @@ Symbol::Status Module::DefineVariable(Symbol* symbol) {
+   return DefineSymbol(symbol);
+ }
+ 
++void Module::ForgetSymbol(uint32_t address) {
++  auto global_lock = global_critical_region_.Acquire();
++  map_.erase(address);
++}
++
+ const std::vector<uint32_t> Module::GetAddressedFunctions() {
+   std::vector<uint32_t> addresses;
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/module.h b/.deps/xenia-canary/src/xenia/cpu/module.h
+--- a/.deps/xenia-canary/src/xenia/cpu/module.h
++++ b/.deps/xenia-canary/src/xenia/cpu/module.h
+@@ -37,6 +37,7 @@ class Module {
+   virtual bool is_executable() const = 0;
+ 
+   virtual bool ContainsAddress(uint32_t address);
++  virtual const uint8_t* TranslateCode(uint32_t address) const;
+ 
+   Symbol* LookupSymbol(uint32_t address, bool wait = true);
+   virtual Symbol::Status DeclareFunction(uint32_t address,
+@@ -46,6 +47,11 @@ class Module {
+   Symbol::Status DefineFunction(Function* symbol);
+   Symbol::Status DefineVariable(Symbol* symbol);
+ 
++  // Drops the symbol at |address| so the next declaration compiles the code
++  // there again. The old symbol stays owned here rather than being deleted,
++  // because code that is already running still points into it.
++  void ForgetSymbol(uint32_t address);
++
+   const std::vector<uint32_t> GetAddressedFunctions();
+   void ForEachFunction(std::function<void(Function*)> callback);
+   void ForEachSymbol(size_t start_index, size_t end_index,
+diff --git a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_emit_control.cc b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_emit_control.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_emit_control.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_emit_control.cc
+@@ -459,6 +459,9 @@ int InstrEmit_sc(PPCHIRBuilder& f, const InstrData& i) {
+   // LEV=2 is to signify 'call import' from Xenia.
+   // TODO(gibbed): syscalls!
+   if (i.SC.LEV == 0) {
++    // The resume address, for the syscall handler.
++    f.StoreContext(offsetof(PPCContext, scratch),
++                   f.LoadConstantUint64(i.address + 4));
+     f.CallExtern(f.builtins()->syscall_handler);
+     return 0;
+   }
+diff --git a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_frontend.cc
+@@ -84,6 +84,10 @@ void LeaveGlobalLock(PPCContext* ppc_context, void* arg0, void* arg1) {
+ }
+ 
+ void SyscallHandler(PPCContext* ppc_context, void* arg0, void* arg1) {
++  if (auto hook = ppc_context->processor->syscall_hook();
++      hook && hook(ppc_context)) {
++    return;
++  }
+   uint64_t syscall_number = ppc_context->r[0];
+   switch (syscall_number) {
+     default:
+diff --git a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_hir_builder.cc b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_hir_builder.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_hir_builder.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_hir_builder.cc
+@@ -85,7 +85,7 @@ void PPCHIRBuilder::Reset() {
+ bool PPCHIRBuilder::Emit(GuestFunction* function, uint32_t flags) {
+   SCOPE_profile_cpu_f("cpu");
+ 
+-  Memory* memory = frontend_->memory();
++  Module* module = function->module();
+ 
+   function_ = function;
+   start_address_ = function_->address();
+@@ -123,8 +123,8 @@ bool PPCHIRBuilder::Emit(GuestFunction* function, uint32_t flags) {
+   // address, which is the function being translated).
+   {
+     const int probe = xbox360ps5::entry_probe::Find(
+-        start_address_, [memory](uint32_t address) {
+-          return xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++        start_address_, [module](uint32_t address) {
++          return xe::load_and_swap<uint32_t>(module->TranslateCode(address));
+         });
+     if (probe >= 0) {
+       CallExtern(builtins()->entry_probes[probe]);
+@@ -137,8 +137,7 @@ bool PPCHIRBuilder::Emit(GuestFunction* function, uint32_t flags) {
+   for (uint32_t address = start_address, offset = 0; address <= end_address;
+        address += 4, offset++) {
+     trace_info_.dest_count = 0;
+-    uint32_t code =
+-        xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++    uint32_t code = xe::load_and_swap<uint32_t>(module->TranslateCode(address));
+     auto opcode = LookupOpcode(code);
+     auto& opcode_info = GetOpcodeInfo(opcode);
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_scanner.cc b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_scanner.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_scanner.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_scanner.cc
+@@ -46,7 +46,7 @@ bool PPCScanner::Scan(GuestFunction* function, FunctionDebugInfo* debug_info) {
+   // is before the expected end address then the function address range is
+   // split up and the second half is treated as another function.
+ 
+-  Memory* memory = frontend_->memory();
++  Module* module = function->module();
+ 
+   LOGPPC("Analyzing function {:08X}...", function->address());
+ 
+@@ -62,8 +62,14 @@ bool PPCScanner::Scan(GuestFunction* function, FunctionDebugInfo* debug_info) {
+   bool in_block = false;
+   bool starts_with_mfspr_lr = false;
+   while (true) {
+-    uint32_t code =
+-        xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++    // Dynamic code is backed by whatever the guest committed, so stop rather
++    // than read past it. The first page holds the function start.
++    if (!(address & 0xFFF) && !module->ContainsAddress(address)) {
++      LOGPPC("function end {:08X} (outside the module)", address);
++      address -= 4;
++      break;
++    }
++    uint32_t code = xe::load_and_swap<uint32_t>(module->TranslateCode(address));
+ 
+     // If we fetched 0 assume that we somehow hit one of the awesome
+     // 'no really we meant to end after that bl' functions.
+@@ -290,7 +296,7 @@ bool PPCScanner::Scan(GuestFunction* function, FunctionDebugInfo* debug_info) {
+ }
+ 
+ std::vector<BlockInfo> PPCScanner::FindBlocks(GuestFunction* function) {
+-  Memory* memory = frontend_->memory();
++  Module* module = function->module();
+ 
+   std::map<uint32_t, BlockInfo> block_map;
+ 
+@@ -299,8 +305,7 @@ std::vector<BlockInfo> PPCScanner::FindBlocks(GuestFunction* function) {
+   bool in_block = false;
+   uint32_t block_start = 0;
+   for (uint32_t address = start_address; address <= end_address; address += 4) {
+-    uint32_t code =
+-        xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++    uint32_t code = xe::load_and_swap<uint32_t>(module->TranslateCode(address));
+     if (!code) {
+       continue;
+     }
+diff --git a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_translator.cc b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_translator.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_translator.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/ppc/ppc_translator.cc
+@@ -282,10 +282,10 @@ bool PPCTranslator::Translate(GuestFunction* function,
+ void PPCTranslator::Reset() { builder_->ResetPools(); }
+ void PPCTranslator::DumpSource(GuestFunction* function,
+                                StringBuffer* string_buffer) {
+-  Memory* memory = frontend_->memory();
++  Module* module = function->module();
+ 
+   string_buffer->AppendFormat(
+-      "{} fn {:08X}-{:08X} {}\n", function->module()->name().c_str(),
++      "{} fn {:08X}-{:08X} {}\n", module->name().c_str(),
+       function->address(), function->end_address(), function->name().c_str());
+ 
+   auto blocks = scanner_->FindBlocks(function);
+@@ -295,8 +295,7 @@ void PPCTranslator::DumpSource(GuestFunction* function,
+   auto block_it = blocks.begin();
+   for (uint32_t address = start_address, offset = 0; address <= end_address;
+        address += 4, offset++) {
+-    uint32_t code =
+-        xe::load_and_swap<uint32_t>(memory->TranslateVirtual(address));
++    uint32_t code = xe::load_and_swap<uint32_t>(module->TranslateCode(address));
+ 
+     // Check labels.
+     if (block_it != blocks.end() && block_it->start_address == address) {
+diff --git a/.deps/xenia-canary/src/xenia/cpu/processor.cc b/.deps/xenia-canary/src/xenia/cpu/processor.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/processor.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/processor.cc
+@@ -86,6 +86,72 @@ class BuiltinModule : public Module {
+   std::string name_;
+ };
+ 
++class DynamicCodeModule : public Module {
++ public:
++  explicit DynamicCodeModule(Processor* processor)
++      : Module(processor), name_("dynamic") {}
++
++  const std::string& name() const override { return name_; }
++  bool is_executable() const override { return false; }
++
++  // User mode addresses alias physical memory, so ask about the kernel address.
++  bool ContainsAddress(uint32_t address) override {
++    const uint32_t kernel_address = Memory::UserModeKernelAddress(address);
++    auto heap = memory_->LookupHeap(kernel_address);
++    uint32_t protect = 0;
++    return heap && heap->QueryProtect(kernel_address, &protect) &&
++           (protect & kMemoryProtectRead);
++  }
++
++  // A physical window's view keeps the protection last set through that
++  // window, but the physical view keeps the latest set through any of them,
++  // which is what ContainsAddress checks. So read code through that.
++  const uint8_t* TranslateCode(uint32_t address) const override {
++    const uint32_t kernel_address = Memory::UserModeKernelAddress(address);
++    auto heap = memory_->LookupHeap(kernel_address);
++    if (heap && heap->heap_type() == HeapType::kGuestPhysical) {
++      return memory_->TranslatePhysical<const uint8_t*>(
++          static_cast<PhysicalHeap*>(heap)->GetPhysicalAddress(kernel_address));
++    }
++    return memory_->TranslateVirtual<const uint8_t*>(kernel_address);
++  }
++
++ protected:
++  std::unique_ptr<Function> CreateFunction(uint32_t address) override {
++    auto function = processor_->backend()->CreateGuestFunction(this, address);
++    // Dynamic code has no .pdata so only the swept range bounds the scan. It's
++    // used only where the range ends on an unconditional branch. A range that
++    // covers part of a function, like a patch or an old sweep of reused
++    // memory, rarely does and doesn't cut the function off.
++    const uint32_t end = function ? processor_->SweptCodeEnd(address) : 0;
++    const uint32_t last = ((end + 3) & ~uint32_t(3)) - 4;
++    if (end && last > address && ContainsAddress(last) &&
++        IsUnconditionalBranch(
++            xe::load_and_swap<uint32_t>(TranslateCode(last)))) {
++      function->set_end_address(last);
++    }
++    return function;
++  }
++
++ private:
++  // b, blr or bctr, with or without link.
++  static bool IsUnconditionalBranch(uint32_t code) {
++    switch (code >> 26) {
++      case 18:
++        return true;
++      case 19: {
++        const uint32_t extended = (code >> 1) & 0x3FF;
++        const uint32_t bo = (code >> 21) & 0x1F;
++        return (extended == 16 || extended == 528) && (bo & 0x14) == 0x14;
++      }
++      default:
++        return false;
++    }
++  }
++
++  std::string name_;
++};
++
+ Processor::Processor(xe::Memory* memory, ExportResolver* export_resolver)
+     : memory_(memory), export_resolver_(export_resolver) {}
+ 
+@@ -93,6 +159,7 @@ Processor::~Processor() {
+   {
+     auto global_lock = global_critical_region_.Acquire();
+     modules_.clear();
++    dynamic_code_module_.reset();
+   }
+ 
+   frontend_.reset();
+@@ -212,7 +279,8 @@ Module* Processor::GetModule(const std::string_view name) {
+ 
+ std::vector<Module*> Processor::GetModules() {
+   auto global_lock = global_critical_region_.Acquire();
+-  std::vector<Module*> clone(modules_.size());
++  std::vector<Module*> clone;
++  clone.reserve(modules_.size());
+   for (const auto& module : modules_) {
+     clone.push_back(module.get());
+   }
+@@ -253,6 +321,80 @@ void Processor::RemoveFunctionByAddress(uint32_t address) {
+   entry_table_.Delete(address);
+ }
+ 
++void Processor::InvalidateCodeRange(uint32_t address, uint32_t length) {
++  if (!length) {
++    return;
++  }
++  const uint32_t end = address + length - 1;
++  auto global_lock = global_critical_region_.Acquire();
++  RecordSweptCode(address, length);
++  for (Function* function : entry_table_.DeleteRange(address, end)) {
++    // The entry is what a call looks up, but the module would hand back the
++    // same already defined symbol and never compile the new code.
++    if (function && function->module()) {
++      function->module()->ForgetSymbol(function->address());
++    }
++  }
++  backend_->InvalidateDynamicCalls(address, end);
++}
++
++void Processor::RecordSweptCode(uint32_t address, uint32_t length) {
++  if (!dynamic_code_enabled_.load()) {
++    // Only dynamic code is bounded this way, and nothing prunes the map.
++    return;
++  }
++  // Spans are keyed by physical address, so a range whose pages aren't
++  // physically contiguous would claim someone else's memory.
++  const uint64_t span_start = CodeRangeKey(address);
++  const uint64_t span_end = span_start + length;
++  if (CodeRangeKey(address + length - 1) != span_end - 1) {
++    return;
++  }
++  // Spans stay exact rather than merging, since back-to-back blocks must not
++  // bound each other. A sweep replaces any span it overlaps.
++  auto range = swept_code_ranges_.lower_bound(span_start);
++  if (range != swept_code_ranges_.begin()) {
++    auto previous = range;
++    --previous;
++    if (previous->second > span_start) {
++      range = previous;
++    }
++  }
++  while (range != swept_code_ranges_.end() && range->first < span_end) {
++    range = swept_code_ranges_.erase(range);
++  }
++  swept_code_ranges_.emplace(span_start, span_end);
++}
++
++uint64_t Processor::CodeRangeKey(uint32_t address) {
++  const uint32_t kernel_address = Memory::UserModeKernelAddress(address);
++  auto heap = memory_->LookupHeap(kernel_address);
++  if (heap && heap->heap_type() == HeapType::kGuestPhysical) {
++    const uint32_t physical_address =
++        memory_->GetPhysicalAddress(kernel_address);
++    if (physical_address != UINT32_MAX) {
++      return kPhysicalCodeKey | physical_address;
++    }
++  }
++  return kernel_address;
++}
++
++uint32_t Processor::SweptCodeEnd(uint32_t address) {
++  auto global_lock = global_critical_region_.Acquire();
++  const uint64_t key = CodeRangeKey(address);
++  auto range = swept_code_ranges_.upper_bound(key);
++  if (range == swept_code_ranges_.begin()) {
++    return 0;
++  }
++  --range;
++  if (key >= range->second) {
++    return 0;
++  }
++  // The range may be keyed by another address for the same memory, so convert
++  // back to this one.
++  return address + uint32_t(range->second - key);
++}
++
+ Function* Processor::ResolveFunction(uint32_t address) {
+   Entry* entry;
+   Entry::Status status = entry_table_.GetOrCreate(address, &entry);
+@@ -302,8 +444,19 @@ Module* Processor::LookupModule(uint32_t address) {
+       return module.get();
+     }
+   }
++  if (dynamic_code_module_ && dynamic_code_module_->ContainsAddress(address)) {
++    return dynamic_code_module_.get();
++  }
+   return nullptr;
+ }
++
++void Processor::EnableDynamicCode() {
++  auto global_lock = global_critical_region_.Acquire();
++  if (!dynamic_code_module_) {
++    dynamic_code_module_ = std::make_unique<DynamicCodeModule>(this);
++  }
++  dynamic_code_enabled_.store(true, std::memory_order_relaxed);
++}
+ Function* Processor::LookupFunction(uint32_t address) {
+   // TODO(benvanik): fast reject invalid addresses/log errors.
+ 
+diff --git a/.deps/xenia-canary/src/xenia/cpu/processor.h b/.deps/xenia-canary/src/xenia/cpu/processor.h
+--- a/.deps/xenia-canary/src/xenia/cpu/processor.h
++++ b/.deps/xenia-canary/src/xenia/cpu/processor.h
+@@ -10,6 +10,7 @@
+ #ifndef XENIA_CPU_PROCESSOR_H_
+ #define XENIA_CPU_PROCESSOR_H_
+ 
++#include <atomic>
+ #include <map>
+ #include <memory>
+ #include <string>
+@@ -110,9 +111,27 @@ class Processor {
+                           BuiltinFunction::Handler handler, void* arg0,
+                           void* arg1);
+ 
++  // Runs for a guest sc before the default handling, true if it handled it.
++  using SyscallHook = bool (*)(ppc::PPCContext* context);
++  SyscallHook syscall_hook() const { return syscall_hook_.load(); }
++  void set_syscall_hook(SyscallHook hook) { syscall_hook_.store(hook); }
++
++  // Lets guest code run from committed memory that no module claims.
++  void EnableDynamicCode();
++  bool dynamic_code_enabled() const {
++    return dynamic_code_enabled_.load(std::memory_order_relaxed);
++  }
++
+   Function* QueryFunction(uint32_t address);
+   std::vector<Function*> FindFunctionsWithAddress(uint32_t address);
+   void RemoveFunctionByAddress(uint32_t address);
++  // Forgets code compiled from [address, address + length), so the next call
++  // into it compiles what the guest has since written there, and records the
++  // range as the extent of the code the guest wrote.
++  void InvalidateCodeRange(uint32_t address, uint32_t length);
++
++  // The exclusive end of the swept range an address falls in, or 0 for none.
++  uint32_t SweptCodeEnd(uint32_t address);
+ 
+   Function* LookupFunction(uint32_t address);
+   Module* LookupModule(uint32_t address);
+@@ -271,6 +290,20 @@ class Processor {
+   std::vector<std::unique_ptr<Module>> modules_;
+   Module* builtin_module_ = nullptr;
+   uint32_t next_builtin_address_ = 0xFFFF0000u;
++  // Consulted after modules_, so a loaded module always takes precedence.
++  std::unique_ptr<Module> dynamic_code_module_;
++  std::atomic<bool> dynamic_code_enabled_{false};
++  std::atomic<SyscallHook> syscall_hook_{nullptr};
++
++  // Code can be written through one address and run through another, so swept
++  // ranges are keyed by physical address where there is one. This bit keeps
++  // those keys apart from plain virtual addresses.
++  static constexpr uint64_t kPhysicalCodeKey = 0x100000000ull;
++  void RecordSweptCode(uint32_t address, uint32_t length);
++  uint64_t CodeRangeKey(uint32_t address);
++  // Swept code ranges by start key, holding the exclusive end of each.
++  // Guarded with the global lock.
++  std::map<uint64_t, uint64_t> swept_code_ranges_;
+ 
+   // Maps thread ID to state. Updated on thread create, and threads are never
+   // removed. Must be guarded with the global lock.
+diff --git a/.deps/xenia-canary/src/xenia/cpu/xex_module.cc b/.deps/xenia-canary/src/xenia/cpu/xex_module.cc
+--- a/.deps/xenia-canary/src/xenia/cpu/xex_module.cc
++++ b/.deps/xenia-canary/src/xenia/cpu/xex_module.cc
+@@ -1263,6 +1263,30 @@ bool XexModule::Unload() {
+   return true;
+ }
+ 
++bool XexModule::GetPageSectionType(uint32_t address,
++                                   xex2_section_type* out_type) const {
++  if (!loaded_ || !base_address_ || address < base_address_ ||
++      address - base_address_ >= xex_security_info()->image_size) {
++    return false;
++  }
++  auto heap = memory()->LookupHeap(base_address_);
++  if (!heap) {
++    return false;
++  }
++  const uint32_t page = (address - base_address_) / heap->page_size();
++  auto sec_header = xex_security_info();
++  for (uint32_t i = 0, end = 0; i < sec_header->page_descriptor_count; i++) {
++    xex2_page_descriptor desc;
++    desc.value = xe::byte_swap(sec_header->page_descriptors[i].value);
++    end += desc.page_count;
++    if (page < end) {
++      *out_type = desc.info;
++      return true;
++    }
++  }
++  return false;
++}
++
+ bool XexModule::SetupLibraryImports(const std::string_view name,
+                                     const xex2_import_library* library) {
+   ExportResolver* kernel_resolver = nullptr;
+@@ -1298,6 +1322,12 @@ bool XexModule::SetupLibraryImports(const std::string_view name,
+ 
+     if (kernel_resolver) {
+       kernel_export = kernel_resolver->GetExportByOrdinal(name, ordinal);
++      // A module that enters user mode runs guest code no module claims, and
++      // every call site has to be translated for it, so before precompiling.
++      if (kernel_export &&
++          std::strcmp(kernel_export->name, "KeCreateUserMode") == 0) {
++        processor_->EnableDynamicCode();
++      }
+     } else if (user_module) {
+       user_export_addr = user_module->GetProcAddressByOrdinal(ordinal);
+     }
+diff --git a/.deps/xenia-canary/src/xenia/cpu/xex_module.h b/.deps/xenia-canary/src/xenia/cpu/xex_module.h
+--- a/.deps/xenia-canary/src/xenia/cpu/xex_module.h
++++ b/.deps/xenia-canary/src/xenia/cpu/xex_module.h
+@@ -179,6 +179,9 @@ class XexModule : public xe::cpu::Module {
+   const uint32_t base_address() const { return base_address_; }
+   const bool is_dev_kit() const { return is_dev_kit_; }
+ 
++  // Section type of the image page containing `address`.
++  bool GetPageSectionType(uint32_t address, xex2_section_type* out_type) const;
++
+   // Gets an optional header. Returns NULL if not found.
+   // Special case: if key & 0xFF == 0x00, this function will return the value,
+   // not a pointer! This assumes out_ptr points to uint32_t.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.cc
+@@ -481,6 +481,22 @@ object_ref<XModule> KernelState::GetModule(const std::string_view name,
+   return nullptr;
+ }
+ 
++object_ref<UserModule> KernelState::GetUserModuleForAddress(uint32_t address) {
++  auto global_lock = global_critical_region_.Acquire();
++  for (auto& user_module : user_modules_) {
++    if (user_module->module_format() != UserModule::kModuleFormatXex) {
++      continue;
++    }
++    auto xex_module = user_module->xex_module();
++    uint32_t base_address = xex_module->base_address();
++    if (address >= base_address &&
++        address - base_address < xex_module->xex_security_info()->image_size) {
++      return retain_object(user_module.get());
++    }
++  }
++  return nullptr;
++}
++
+ object_ref<XThread> KernelState::LaunchModule(object_ref<UserModule> module) {
+   if (!module->is_executable()) {
+     return nullptr;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
+--- a/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
++++ b/.deps/xenia-canary/src/xenia/kernel/kernel_state.h
+@@ -257,6 +257,8 @@ class KernelState {
+   bool IsModuleLoaded(const std::string_view name);
+   object_ref<XModule> GetModule(const std::string_view name,
+                                 bool user_only = false);
++  // Returns the loaded XEX module whose image contains the guest address.
++  object_ref<UserModule> GetUserModuleForAddress(uint32_t address);
+ 
+   object_ref<XThread> LaunchModule(object_ref<UserModule> module);
+   object_ref<UserModule> GetExecutableModule();
+diff --git a/.deps/xenia-canary/src/xenia/kernel/user_module.h b/.deps/xenia-canary/src/xenia/kernel/user_module.h
+--- a/.deps/xenia-canary/src/xenia/kernel/user_module.h
++++ b/.deps/xenia-canary/src/xenia/kernel/user_module.h
+@@ -48,6 +48,8 @@ class UserModule : public XModule {
+     kModuleFormatElf,
+   };
+ 
++  ModuleFormat module_format() const { return module_format_; }
++
+   const xe::cpu::XexModule* xex_module() const {
+     assert_true(module_format_ == kModuleFormatXex);
+     return reinterpret_cast<xe::cpu::XexModule*>(processor_module_);
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+@@ -10,6 +10,8 @@
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_memory.h"
+ #include <atomic>  // fix 156g
+ #include "xenia/base/logging.h"
++#include "xenia/cpu/processor.h"
++#include "xenia/cpu/xex_module.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/util/shim_utils.h"
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+@@ -851,6 +853,32 @@ dword_result_t KeGetImagePageTableEntry_entry(dword_t address,
+     returned_value |= 1;
+   }
+ 
++  // User mode maps a module from the PowerPC page protection in the low bits,
++  // PP in bits 0-1 and no-execute in bit 2. Only a title that enters user mode
++  // reads them, and bit 0 above means something else to the dashboard.
++  if (kernel_state->memory()->user_virtual_membase()) {
++    for (auto* module : kernel_state->processor()->GetModules()) {
++      auto* xex_module = dynamic_cast<cpu::XexModule*>(module);
++      xex2_section_type section_type;
++      if (!xex_module || xex_module->is_patch() ||
++          !xex_module->GetPageSectionType(address, &section_type)) {
++        continue;
++      }
++      switch (section_type) {
++        case XEX_SECTION_CODE:
++          returned_value = (returned_value & ~0b111u) | 0b011;
++          break;
++        case XEX_SECTION_DATA:
++          returned_value = (returned_value & ~0b111u) | 0b110;
++          break;
++        case XEX_SECTION_READONLY_DATA:
++          returned_value = (returned_value & ~0b111u) | 0b111;
++          break;
++      }
++      break;
++    }
++  }
++
+   return returned_value & 0x400FFFFF;  // this is actually the mask it applies
+                                        // to the final
+   // result before returning it
+@@ -911,6 +939,32 @@ dword_result_t MmIsAddressValid_entry(dword_t address,
+ 
+ DECLARE_XBOXKRNL_EXPORT1(MmIsAddressValid, kMemory, kImplemented);
+ 
++// A guest that writes code sweeps the instruction cache before running it, so
++// this is where anything already compiled from that memory has to be dropped.
++void KeSweepIcacheRange_entry(lpvoid_t address, dword_t length,
++                              const ppc_context_t& ctx) {
++  // Before fix 191 this export was not implemented (the guest's call did
++  // nothing): only a title that enters user mode (XNA) sweeps through here.
++  if (!kernel_state()->processor()->dynamic_code_enabled()) {
++    return;
++  }
++  auto processor = ctx->processor;
++  const uint32_t start = address.guest_address();
++  processor->InvalidateCodeRange(start, length);
++  // Code is written through whichever address space the writer runs in and
++  // run from the other, so the range has to be forgotten under both names.
++  const uint32_t kernel_start = xe::Memory::UserModeKernelAddress(start);
++  if (kernel_start != start) {
++    processor->InvalidateCodeRange(kernel_start, length);
++  }
++  const uint32_t user_start = xe::Memory::KernelModeUserAddress(start);
++  if (user_start != start) {
++    processor->InvalidateCodeRange(user_start, length);
++  }
++}
++DECLARE_XBOXKRNL_EXPORT2(KeSweepIcacheRange, kMemory, kImplemented,
++                         kHighFrequency);
++
+ }  // namespace xboxkrnl
+ }  // namespace kernel
+ }  // namespace xe
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_module_export_groups.inc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_module_export_groups.inc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_module_export_groups.inc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_module_export_groups.inc
+@@ -28,6 +28,7 @@ XE_MODULE_EXPORT_GROUP(xboxkrnl, Rtl)
+ XE_MODULE_EXPORT_GROUP(xboxkrnl, String)
+ XE_MODULE_EXPORT_GROUP(xboxkrnl, Threading)
+ XE_MODULE_EXPORT_GROUP(xboxkrnl, Usbcam)
++XE_MODULE_EXPORT_GROUP(xboxkrnl, UserMode)
+ XE_MODULE_EXPORT_GROUP(xboxkrnl, Video)
+ XE_MODULE_EXPORT_GROUP(xboxkrnl, XConfig)
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_modules.cc
+@@ -9,6 +9,7 @@
+ 
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_modules.h"
+ #include "xenia/base/logging.h"
++#include "xenia/cpu/processor.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/util/shim_utils.h"
+@@ -93,6 +94,26 @@ dword_result_t XexGetModuleSection_entry(lpvoid_t hmodule, lpstring_t name,
+ }
+ DECLARE_XBOXKRNL_EXPORT1(XexGetModuleSection, kModules, kImplemented);
+ 
++// Returns the image base of the module containing pc (callers pass it to
++// RtlImageDirectoryEntryToData to find .pdata) and stores its loader entry. A
++// pc in no module returns 0 and leaves ldr_data_ptr alone.
++dword_result_t XexPcToFileHeader_entry(dword_t pc, lpdword_t ldr_data_ptr) {
++  // Before fix 191 this export was not implemented and returned 0 (nothing
++  // stored): only a title that enters user mode (XNA) gets the image base.
++  if (!kernel_state()->processor()->dynamic_code_enabled()) {
++    return 0;
++  }
++  auto module = kernel_state()->GetUserModuleForAddress(pc);
++  if (!module) {
++    return 0;
++  }
++  if (ldr_data_ptr) {
++    *ldr_data_ptr = module->hmodule_ptr();
++  }
++  return module->xex_module()->base_address();
++}
++DECLARE_XBOXKRNL_EXPORT1(XexPcToFileHeader, kModules, kImplemented);
++
+ inline const std::map<X_MODULE_FLAGS, std::string> xex_load_image_map = {
+     {TITLE_PROCESS, "Title Process"},
+     {TITLE_IMPORT, "Title Import"},
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.cc
+@@ -14,6 +14,7 @@
+ #include "xenia/base/atomic.h"
+ #include "xenia/base/pe_image.h"
+ #include "xenia/base/wait_stats.h"
++#include "xenia/cpu/processor.h"
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/user_module.h"
+ #include "xenia/kernel/util/critical_section.h"
+@@ -861,6 +862,71 @@ void RtlGetStackLimits_entry(lpdword_t out_end, lpdword_t out_base,
+ }
+ DECLARE_XBOXKRNL_EXPORT1(RtlGetStackLimits, kNone, kImplemented);
+ 
++// The kernel's RtlCaptureContext is a system call and reports the iar after its
++// sc, where an unwinder finds no function entry and steps out to lr. The
++// caller's import thunk has no function entry either, so it stands in.
++static uint32_t CapturedContextIar(uint32_t lr) {
++  if (auto module = kernel_state()->GetUserModuleForAddress(lr)) {
++    for (const auto& library : *module->xex_module()->import_libraries()) {
++      if (library.name != "xboxkrnl.exe") {
++        continue;
++      }
++      for (const auto& import : library.imports) {
++        if (import.ordinal == ordinals::RtlCaptureContext &&
++            import.thunk_address) {
++          return import.thunk_address;
++        }
++      }
++    }
++  }
++  return lr;
++}
++
++// The import thunk leaves the caller's registers in the guest context.
++void RtlCaptureContext_entry(lpvoid_t context_record,
++                             const ppc_context_t& ctx) {
++  // Before fix 191 this export was not implemented and wrote no context:
++  // only a title that enters user mode (XNA) gets one.
++  if (!kernel_state()->processor()->dynamic_code_enabled()) {
++    return;
++  }
++  auto p = context_record.as<uint8_t*>();
++  const uint32_t lr = static_cast<uint32_t>(ctx->lr);
++  const uint32_t xer = (uint32_t(ctx->xer_so) << 31) |
++                       (uint32_t(ctx->xer_ov) << 30) |
++                       (uint32_t(ctx->xer_ca) << 29);
++  xe::store_and_swap<uint32_t>(p + kContextFlags,
++                               kContextControl | kContextFloatingPoint |
++                                   kContextInteger | kContextVector);
++  xe::store_and_swap<uint32_t>(p + kContextMsr,
++                               static_cast<uint32_t>(ctx->msr));
++  xe::store_and_swap<uint32_t>(p + kContextIar, CapturedContextIar(lr));
++  xe::store_and_swap<uint32_t>(p + kContextLr, lr);
++  xe::store_and_swap<uint64_t>(p + kContextCtr, ctx->ctr);
++  for (size_t i = 0; i < 32; ++i) {
++    xe::store_and_swap<uint64_t>(p + kContextGpr + i * 8, ctx->r[i]);
++  }
++  xe::store_and_swap<uint32_t>(p + kContextCr,
++                               static_cast<uint32_t>(ctx->cr()));
++  xe::store_and_swap<uint32_t>(p + kContextXer, xer);
++  xe::store_and_swap<uint64_t>(p + kContextFpscr, ctx->fpscr.value);
++  for (size_t i = 0; i < 32; ++i) {
++    xe::store_and_swap<double>(p + kContextFpr + i * 8, ctx->f[i]);
++  }
++  xe::store_and_swap<uint32_t>(p + kContextUserModeControl, 0);
++  for (size_t i = 0; i < 4; ++i) {
++    xe::store_and_swap<uint32_t>(p + kContextVscr + i * 4,
++                                 ctx->vscr_vec.u32[i]);
++  }
++  for (size_t i = 0; i < 128; ++i) {
++    for (size_t j = 0; j < 4; ++j) {
++      xe::store_and_swap<uint32_t>(p + kContextVr + i * 16 + j * 4,
++                                   ctx->v[i].u32[j]);
++    }
++  }
++}
++DECLARE_XBOXKRNL_EXPORT1(RtlCaptureContext, kNone, kImplemented);
++
+ }  // namespace xboxkrnl
+ }  // namespace kernel
+ }  // namespace xe
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.h b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_rtl.h
+@@ -16,6 +16,30 @@ namespace xe {
+ namespace kernel {
+ namespace xboxkrnl {
+ 
++// Guest CONTEXT record fields.
++constexpr uint32_t kContextFlags = 0x0;
++constexpr uint32_t kContextMsr = 0x4;
++constexpr uint32_t kContextIar = 0x8;
++constexpr uint32_t kContextLr = 0xC;
++constexpr uint32_t kContextCtr = 0x10;
++constexpr uint32_t kContextGpr = 0x18;
++constexpr uint32_t kContextCr = 0x118;
++constexpr uint32_t kContextXer = 0x11C;
++// A doubleword with the FPSCR in its low half, then the 32 FPRs.
++constexpr uint32_t kContextFpscr = 0x120;
++constexpr uint32_t kContextFpr = 0x128;
++// Whether the context is user mode's.
++constexpr uint32_t kContextUserModeControl = 0x228;
++// The VSCR as a vector register, then the 128 vector registers.
++constexpr uint32_t kContextVscr = 0x230;
++constexpr uint32_t kContextVr = 0x240;
++
++// CONTEXT flags.
++constexpr uint32_t kContextControl = 0x1;
++constexpr uint32_t kContextFloatingPoint = 0x2;
++constexpr uint32_t kContextInteger = 0x4;
++constexpr uint32_t kContextVector = 0x10;
++
+ struct X_RTL_CRITICAL_SECTION;
+ 
+ void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -151,6 +151,16 @@ XThread::~XThread() {
+ 
+   thread_.reset();
+ 
++  if (user_mode_) {
++    auto backend = emulator()->processor()->backend();
++    for (auto& user_fiber : user_mode_->fibers) {
++      backend->DestroyStackpointState(user_fiber->stackpoint_state);
++    }
++    backend->DestroyStackpointState(user_mode_->handler_stackpoint_state);
++    kernel_state()->memory()->SystemHeapFree(user_mode_->kframes);
++    user_mode_.reset();
++  }
++
+   if (thread_state_) {
+     delete thread_state_;
+   }
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.h b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.h
+@@ -33,6 +33,9 @@
+ #include "xbox360ps5/suspend_count.hpp"  // fix 151
+ 
+ namespace xe {
++namespace cpu {
++class Function;
++}  // namespace cpu
+ namespace kernel {
+ 
+ constexpr fourcc_t kThreadSaveSignature = make_fourcc("THRD");
+@@ -515,6 +518,62 @@ class XThread : public XObject, public cpu::Thread {
+ 
+   xe::threading::Thread* thread() { return thread_.get(); }
+ 
++  // Guest user mode state, created by the first KeEnterUserMode.
++  struct UserMode {
++    // A host stack that user code runs on. The kernel services a trap by
++    // leaving user mode and entering again at the instruction after it, so a
++    // fiber parked in a trap keeps its host call frames for that resume.
++    struct UserFiber {
++      std::unique_ptr<xe::threading::Fiber> fiber;
++      // Backend stackpoint record for this stack.
++      void* stackpoint_state = nullptr;
++      // Where a fresh entry starts.
++      uint32_t entry_address = 0;
++      // Where the parked trap resumes, and the guest stack pointer it had.
++      uint32_t resume_address = 0;
++      uint32_t stack_pointer = 0;
++      // Set when the handler returned instead of leaving user mode.
++      bool handler_returned = false;
++    };
++    std::vector<std::unique_ptr<UserFiber>> fibers;
++    // Fibers parked in a trap, most recent last.
++    std::vector<UserFiber*> parked;
++    // The fiber user code last ran on.
++    UserFiber* running = nullptr;
++    // The fiber whose trap the handler is running for.
++    UserFiber* trapped = nullptr;
++    // Runs the trap handler, so leaving user mode from it leaves the trapped
++    // fiber's frames intact.
++    std::unique_ptr<xe::threading::Fiber> handler_fiber;
++    void* handler_stackpoint_state = nullptr;
++    // Stackpoint states exchanged into the context since the kernel entered
++    // user mode, exchanged back in reverse on leave.
++    std::vector<void*> swapped_stackpoint_states;
++    // Suspended in KeEnterUserMode while user code runs.
++    xe::threading::Fiber* kernel_fiber = nullptr;
++    // Owns kernel_fiber when the thread has not adopted one yet.
++    std::unique_ptr<xe::threading::Fiber> adopted_fiber;
++    // Integer and control registers from KeEnterUserMode, restored on leave.
++    struct {
++      uint64_t r[32];
++      uint64_t ctr;
++      uint64_t lr;
++      uint32_t cr;
++      uint32_t xer;
++    } kernel_registers;
++    uint32_t handler = 0;
++    // Resolved once per handler rather than on every trap.
++    cpu::Function* handler_function = nullptr;
++    // Guest buffer the handler receives as the trapped register frame.
++    uint32_t kframes = 0;
++    uint32_t leave_value = 0;
++    bool in_user_code = false;
++  };
++  UserMode* user_mode() const { return user_mode_.get(); }
++  void set_user_mode(std::unique_ptr<UserMode> user_mode) {
++    user_mode_ = std::move(user_mode);
++  }
++
+   virtual bool Save(ByteStream* stream) override;
+   static object_ref<XThread> Restore(KernelState* kernel_state,
+                                      ByteStream* stream);
+@@ -584,6 +643,8 @@ class XThread : public XObject, public cpu::Thread {
+   uint32_t reentry_address_ = 0;
+   uint32_t reentry_mxcsr_ = 0;
+ 
++  std::unique_ptr<UserMode> user_mode_;
++
+   std::mutex thread_lock_;
+ };
+ 
+diff --git a/.deps/xenia-canary/src/xenia/memory.cc b/.deps/xenia-canary/src/xenia/memory.cc
+--- a/.deps/xenia-canary/src/xenia/memory.cc
++++ b/.deps/xenia-canary/src/xenia/memory.cc
+@@ -12,6 +12,7 @@
+ 
+ #include <cstring>
+ #include <random>
++#include <type_traits>
+ 
+ #include "third_party/fmt/include/fmt/format.h"
+ #include "xenia/base/assert.h"
+@@ -234,6 +235,7 @@ Memory::~Memory() {
+ 
+   // Unmap all views and close mapping.
+   if (mapping_ != xe::memory::kFileMappingHandleInvalid) {
++    UnmapUserViews();
+     UnmapViews();
+     xe::memory::CloseFileMappingHandle(mapping_, file_name_);
+     mapping_base_ = nullptr;
+@@ -458,6 +460,46 @@ void Memory::UnmapViews() {
+   }
+ }
+ 
++bool Memory::MapUserViews(uint8_t* user_membase) {
++  // The alias replaces the raw physical view, which user mode cannot reach.
++  static_assert(xe::countof(map_info) ==
++                std::extent_v<decltype(Memory::user_views_)>);
++  uint64_t granularity_mask = ~uint64_t(system_allocation_granularity_ - 1);
++  size_t count = 0;
++  auto map = [&](uint64_t start, uint64_t end, uint64_t target) {
++    const size_t length = size_t(end - start + 1);
++    auto view = reinterpret_cast<uint8_t*>(xe::memory::MapFileView(
++        mapping_, user_membase + start, length,
++        xe::memory::PageAccess::kReadWrite, target & granularity_mask));
++    user_views_[count++] = {view, length};
++    return view != nullptr;
++  };
++  // Physical memory, at the file offset the 0xA0000000 view starts from.
++  bool mapped =
++      map(kUserAliasBase, kUserAliasBase + kUserAliasSize - 1, 0x100000000ull);
++  for (size_t n = 0; mapped && n < xe::countof(map_info) - 1; n++) {
++    const uint64_t start = map_info[n].virtual_address_start;
++    uint64_t end = map_info[n].virtual_address_end;
++    if (start < kUserAliasBase) {
++      end = std::min(end, uint64_t(kUserAliasBase) - 1);
++    }
++    mapped = map(start, end, map_info[n].target_address);
++  }
++  if (!mapped) {
++    UnmapUserViews();
++  }
++  return mapped;
++}
++
++void Memory::UnmapUserViews() {
++  for (auto& view : user_views_) {
++    if (view.base) {
++      xe::memory::UnmapFileView(mapping_, view.base, view.length);
++    }
++    view = {};
++  }
++}
++
+ void Memory::Reset() {
+   heaps_.v00000000.Reset();
+   heaps_.v40000000.Reset();
+@@ -671,10 +713,16 @@ bool Memory::AccessViolationCallback(
+   // Access via physical_membase_ is special, when need to bypass everything
+   // (for instance, for a data provider to actually write the data) so only
+   // triggering callbacks on virtual memory regions.
+-  if (reinterpret_cast<size_t>(host_address) <
+-          reinterpret_cast<size_t>(virtual_membase_) ||
+-      reinterpret_cast<size_t>(host_address) >=
+-          reinterpret_cast<size_t>(physical_membase_)) {
++  const size_t host = reinterpret_cast<size_t>(host_address);
++  const size_t user_membase = reinterpret_cast<size_t>(user_virtual_membase());
++  // The user mode views are mapped read-write and never protected again, so
++  // no watch, MMIO range or no-access page applies to them.
++  const bool user_mode = user_membase && host - user_membase < 0x100000000ull;
++  if (user_mode) {
++    return false;
++  }
++  if (host < reinterpret_cast<size_t>(virtual_membase_) ||
++      host >= reinterpret_cast<size_t>(physical_membase_)) {
+     return false;
+   }
+   uint32_t virtual_address = HostToGuestVirtual(host_address);
+@@ -827,6 +875,50 @@ void Memory::SystemHeapFree(uint32_t address, uint32_t* out_region_size) {
+   heap->Release(address, out_region_size);
+ }
+ 
++bool Memory::EnableUserModeViews() {
++  auto global_lock = global_critical_region_.Acquire();
++  if (user_virtual_membase()) {
++    return true;
++  }
++#if XE_PLATFORM_PS5
++  // On PS5, 0x2_0000_0000..0x2_FFFF_FFFF is the Vulkan driver's GPU window and
++  // the title heap starts at 0x20_0000_0000 (platform/ps5/memory_ps5.cpp).
++  // Place the 4 GiB-aligned user-mode address space inside the unplaced window
++  // [0x14_0000_0000, 0x20_0000_0000), starting well clear of early unplaced
++  // allocations.
++  constexpr uint64_t kSearchStart = 0x1800000000ull;
++  constexpr uint64_t kSearchEnd = 0x2000000000ull;
++  for (uint64_t base = kSearchStart; base + 0x100000000ull <= kSearchEnd;
++       base += 1ull << 32) {
++    if (MapUserViews(reinterpret_cast<uint8_t*>(base))) {
++      user_virtual_membase_.store(reinterpret_cast<uint8_t*>(base),
++                                  std::memory_order_relaxed);
++      break;
++    }
++  }
++#else
++  const uint64_t layout_end = reinterpret_cast<uint64_t>(physical_membase_) +
++                              0x20000000ull + system_allocation_granularity_;
++  // Low 32 bits clear like the kernel membase, which the JIT may rely on.
++  for (uint64_t base = xe::round_up(layout_end, 1ull << 32);
++       base < (1ull << 47); base += 1ull << 32) {
++    if (MapUserViews(reinterpret_cast<uint8_t*>(base))) {
++      user_virtual_membase_.store(reinterpret_cast<uint8_t*>(base),
++                                  std::memory_order_relaxed);
++      break;
++    }
++  }
++#endif
++  if (!user_virtual_membase()) {
++    XELOGE("Memory: unable to map the user mode address space");
++    return false;
++  }
++  mmio_handler_->SetUserMembase(user_virtual_membase());
++  XELOGI("Memory: user mode virtual membase {}",
++         static_cast<void*>(user_virtual_membase()));
++  return true;
++}
++
+ void Memory::DumpMap() {
+   XELOGE("==================================================================");
+   XELOGE("Memory Dump");
+diff --git a/.deps/xenia-canary/src/xenia/memory.h b/.deps/xenia-canary/src/xenia/memory.h
+--- a/.deps/xenia-canary/src/xenia/memory.h
++++ b/.deps/xenia-canary/src/xenia/memory.h
+@@ -10,6 +10,7 @@
+ #ifndef XENIA_MEMORY_H_
+ #define XENIA_MEMORY_H_
+ 
++#include <atomic>
+ #include <cstdint>
+ #include <map>
+ #include <memory>
+@@ -609,6 +610,28 @@ class Memory {
+   // Frees memory allocated with SystemHeapAlloc.
+   void SystemHeapFree(uint32_t address, uint32_t* out_region_size = nullptr);
+ 
++  // Maps the address space user mode code runs in, which shows 64 KB physical
++  // memory at 0x20000000-0x3FFFFFFF. Titles without user mode never create it.
++  bool EnableUserModeViews();
++
++  // Base of the user mode address space, null until it is created.
++  inline uint8_t* user_virtual_membase() const {
++    return user_virtual_membase_.load(std::memory_order_relaxed);
++  }
++
++  // The kernel address with the same contents as a user mode address.
++  static uint32_t UserModeKernelAddress(uint32_t user_address) {
++    return user_address - kUserAliasBase < kUserAliasSize
++               ? user_address + 0x80000000
++               : user_address;
++  }
++  // The inverse of UserModeKernelAddress.
++  static uint32_t KernelModeUserAddress(uint32_t kernel_address) {
++    return kernel_address - 0xA0000000 < kUserAliasSize
++               ? kernel_address - 0x80000000
++               : kernel_address;
++  }
++
+   // Gets the heap for the address space containing the given address.
+   XE_NOALIAS
+   const BaseHeap* LookupHeap(uint32_t address) const;
+@@ -641,6 +664,11 @@ class Memory {
+  private:
+   int MapViews(uint8_t* mapping_base);
+   void UnmapViews();
++  bool MapUserViews(uint8_t* user_membase);
++  void UnmapUserViews();
++
++  static constexpr uint32_t kUserAliasBase = 0x20000000;
++  static constexpr uint32_t kUserAliasSize = 0x20000000;
+ 
+   static uint32_t HostToGuestVirtualThunk(const void* context,
+                                           const void* host_address);
+@@ -674,6 +702,11 @@ class Memory {
+     };
+     uint8_t* all_views[9];
+   } views_ = {{0}};
++  std::atomic<uint8_t*> user_virtual_membase_{nullptr};
++  struct {
++    uint8_t* base;
++    size_t length;
++  } user_views_[9] = {};
+ 
+   std::unique_ptr<cpu::MMIOHandler> mmio_handler_;
+ 
+diff --git a/platform/ps5/memory_ps5.cpp b/platform/ps5/memory_ps5.cpp
+--- a/platform/ps5/memory_ps5.cpp
++++ b/platform/ps5/memory_ps5.cpp
+@@ -95,8 +95,12 @@ void* Reserve(uintptr_t wanted, size_t bytes) {
+     } else {
+       Note("reserve", wanted, bytes, result);
+     }
+-    // The kernel moved the hint. Below 4 GiB, take a verified free range.
+-    if (wanted + bytes <= 0x100000000ull && RangeFree(wanted, bytes)) {
++    // The kernel moved the hint. Below 4 GiB, or inside the unplaced window
++    // (for the 4 GiB-aligned user-mode address space, fix 191), take a
++    // verified free range.
++    if ((wanted + bytes <= 0x100000000ull ||
++         (wanted >= kAnywhereStart && wanted + bytes <= kAnywhereEnd)) &&
++        RangeFree(wanted, bytes)) {
+       at = reinterpret_cast<void*>(wanted);
+       if (sceKernelReserveVirtualRange(&at, bytes, kFixed, kPage) == 0) {
+         if (at == reinterpret_cast<void*>(wanted)) return at;
+@@ -295,7 +299,9 @@ bool DeallocFixed(void* address, size_t length, DeallocationType type) {
+     return good;
+   }
+   auto i = views.find(at);
+-  if (type != DeallocationType::kRelease || length != 0 || i == views.end() || !i->second.owns_object) return false;
++  if (type != DeallocationType::kRelease || i == views.end() ||
++      (length != 0 && RoundUp(length, kPage) != i->second.size) ||
++      !i->second.owns_object) return false;
+   if (sceKernelMunmap(address, i->second.size)) return false;
+   const auto object = objects.find(i->second.handle);
+   if (object != objects.end()) {

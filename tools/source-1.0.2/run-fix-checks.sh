@@ -16,7 +16,8 @@
 # (release-source.yml's decisions) and tools/check-core-commit.py (build.sh's core commit).
 # tools/check-docs-reloaded.py checks the user docs for the app's name, TrinityX360 since 1.0.6
 # (PS5X360Reloaded before), and its title id (PPSA83600, next to the official PPSA50011).
-# tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node.
+# tools/check-kinect-page.mjs (fix 56: the phone camera page and its pairing state) runs with node,
+# and so does tools/check-phone-pose-steady.mjs (fix 169: its pose frames and its link).
 # check-game-info.cpp reads a committed excerpt of the official package's assets/gameinfo.txt, and
 # the whole file too when PS5X360_GAMEINFO names it (fix 43). check-guest-crash.cpp (fix 45) runs
 # threads that time XmaDecoder's pause handshake (100 ms as a rule and 1 s at most with the fix; 1.0.2's
@@ -33,6 +34,18 @@ repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 tree=$(realpath "$1")
 cxx=${CXX_HOST:-clang++-18}
 python=${PYTHON_HOST:-python3}
+jobs=${JOBS:-$(nproc)}
+launcher=()
+if command -v ccache > /dev/null && [[ ${PS5X360_NO_CCACHE:-0} != 1 ]]; then
+  launcher=(ccache)
+  export CCACHE_SLOPPINESS="${CCACHE_SLOPPINESS:-time_macros}"
+fi
+ldflag=()
+probe_bin=$(mktemp)
+if "$cxx" -fuse-ld=lld -x c++ - -o "$probe_bin" <<< 'int main() { return 0; }' 2>/dev/null; then
+  ldflag=(-fuse-ld=lld)
+fi
+rm -f "$probe_bin"
 checks=(
   check-stale-dispatch-header.cpp  # fix 20
   check-forward.cpp                # fix 21
@@ -186,7 +199,7 @@ checks=(
   check-utility-cache-drive.cpp    # fixes 150c, 150d and 150f
   check-two-x-unfit.cpp            # fix 150g
   check-kinect-camera-classes.cpp  # fix 162a
-  check-scale-pressure.cpp         # fixes 162c, 162h and 163
+  check-scale-pressure.cpp         # fixes 162c, 162h, 163 and 197
   check-kinect-title-rule.cpp      # fixes 162f and 163
   check-auto-scale.cpp             # fix 163
   check-write-bench.cpp            # fixes 148i, 148j, 148k
@@ -203,15 +216,48 @@ checks=(
   check-skeleton-frame-number.cpp  # fix 156i
   check-xex-dll-heap.cpp           # fix 156j
   check-diag-r31.cpp               # fixes 156k and 156m
-  check-nui-identity.cpp           # fixes 156l, 156n, 156q and 156u
+  check-nui-identity.cpp           # fixes 156l, 156n, 156q, 156t, 156u and 156v
   check-diag-stuck-dump.cpp        # fixes 156o and 156r
   check-avatar-assets-success.cpp  # fix 156p
+  check-player-choice.cpp          # fix 156s
+  check-nui-identity-retrack.cpp   # fix 156w
   check-user-storage.cpp           # fix 165
+  check-game-configs.cpp           # fix 166
+  check-resolve-trace.cpp          # fix 167
+  check-half-pixel-host.cpp        # fix 168
+  check-gta4-core-config.cpp       # fix 168b (assets/config/545407F2.config.toml)
+  check-phone-link.cpp             # fix 169
+  check-nui-speech.cpp             # fix 170
+  check-xbox-fitness.cpp           # fix 171
+  check-cache-churn.cpp            # fix 172
+  check-exit-cache-timing.cpp      # fix 173
+  check-pipeline-cache-skip.cpp    # fixes 173b and 173c
+  check-guest-object-close.cpp     # fix 174
+  check-virtual-mic.cpp            # fix 178
+  check-recent-list.cpp            # fix 181
+  check-disc-swap-content.cpp      # fix 182
+  check-camera-figure.cpp          # fix 185
+  check-elevate-probe.cpp          # fix 186
+  check-unlimited-write.cpp        # fix 186
+  check-hp-voice-skip.cpp          # fix 187 (assets/patches)
+  check-title-memory-stats.cpp     # fix 188
+  check-focus-gate.cpp             # fix 190
+  check-xna-usermode.cpp           # fix 191
+  check-reserved-store.cpp         # fix 192
+  check-nike-core-config.cpp       # fix 193 (assets/config/4D53090F.config.toml)
+  check-play-space-map.cpp         # fix 194
+  check-emergency-pad-source.cpp   # fix 196
+  check-emergency-hold-hint.cpp    # fix 196b
+  check-osk-odd-buffer.cpp         # fix 198
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
+  [check-play-space-map.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-harmonix-keys.cpp]="$repo"
+  [check-gta4-core-config.cpp]="$repo"
   [check-gta5-audio-patch.cpp]="$repo"
+  [check-hp-voice-skip.cpp]="$repo"
+  [check-nike-core-config.cpp]="$repo"
   [check-dlc-incomplete.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-install-notice.cpp]="$repo/tools/source-1.0.2/english/lang"
   [check-two-x-unfit.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -389,34 +435,106 @@ declare -A fix_of=(
   [check-skeleton-frame-number.cpp]=156i
   [check-xex-dll-heap.cpp]=156j
   [check-diag-r31.cpp]="156k 156m"
-  [check-nui-identity.cpp]="156l 156n 156q 156u"
+  [check-nui-identity.cpp]="156l 156n 156q 156t 156u 156v"
   [check-diag-stuck-dump.cpp]="156o 156r"
   [check-avatar-assets-success.cpp]=156p
+  [check-player-choice.cpp]=156s
+  [check-nui-identity-retrack.cpp]=156w
   [check-user-storage.cpp]=165
+  [check-game-configs.cpp]=166
+  [check-resolve-trace.cpp]=167
+  [check-half-pixel-host.cpp]=168
+  [check-gta4-core-config.cpp]=168
+  [check-phone-link.cpp]=169
+  [check-nui-speech.cpp]=170
+  [check-xbox-fitness.cpp]=171
+  [check-cache-churn.cpp]=172
+  [check-exit-cache-timing.cpp]=173
+  [check-pipeline-cache-skip.cpp]=173b
+  [check-guest-object-close.cpp]=174
+  [check-virtual-mic.cpp]=178
+  [check-recent-list.cpp]=181
+  [check-disc-swap-content.cpp]=182
+  [check-camera-figure.cpp]=185
+  [check-elevate-probe.cpp]=186
+  [check-unlimited-write.cpp]=186
+  [check-title-memory-stats.cpp]=188
+  [check-focus-gate.cpp]=190
+  [check-xna-usermode.cpp]=191
+  [check-reserved-store.cpp]=192
+  [check-play-space-map.cpp]=194
+  [check-emergency-pad-source.cpp]=196
+  [check-emergency-hold-hint.cpp]=196b
+  [check-osk-odd-buffer.cpp]="114 198"
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
 print(" ".join(os.path.basename(p).split("-", 1)[0] for p in report.get("fixes_skipped", [])))' "$tree/SOURCES.json")
-mkdir -p "$tree/tools" "$tree/build/fix-checks"
+mkdir -p "$tree/tools" "$tree/build/fix-checks" "$tree/build/fix-checks/build-logs"
 status=0
+
+# Stage sources and compile/link all active C++ checks in parallel (-c for ccache + fast lld link),
+# then run the compiled binaries in deterministic order without background compiler contention.
+compile_script="$tree/build/fix-checks/compile-one.sh"
+cat > "$compile_script" <<'COMPILE_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+name=$1
+exe="$FIX_CHECKS_TREE/build/fix-checks/${name%.cpp}"
+log="$FIX_CHECKS_TREE/build/fix-checks/build-logs/${name%.cpp}.log"
+rc_file="$FIX_CHECKS_TREE/build/fix-checks/build-logs/${name%.cpp}.rc"
+read -r -a launcher_arr <<< "${FIX_CHECKS_LAUNCHER:-}"
+read -r -a ldflag_arr <<< "${FIX_CHECKS_LDFLAG:-}"
+if (cd "$FIX_CHECKS_TREE" &&
+    ${launcher_arr[@]+"${launcher_arr[@]}"} "$FIX_CHECKS_CXX" -std=c++20 -O1 -g -pthread -march=znver2 \
+      -Wall -Wno-unused-function -Iinclude -Ireconstructed \
+      -I.deps/xenia-canary/src -I.deps/xenia-canary \
+      -c "tools/$name" -o "$exe.o" &&
+    "$FIX_CHECKS_CXX" -O1 -g -pthread ${ldflag_arr[@]+"${ldflag_arr[@]}"} "$exe.o" -o "$exe" &&
+    rm -f "$exe.o") > "$log" 2>&1; then
+  echo 0 > "$rc_file"
+else
+  echo 1 > "$rc_file"
+fi
+COMPILE_EOF
+chmod +x "$compile_script"
+
+compile_queue="$tree/build/fix-checks/build-logs/queue.txt"
+: > "$compile_queue"
+declare -A left_out_map=()
 for name in "${checks[@]}"; do
   left_out=
   for fix in ${fix_of[$name]:-}; do
     if [[ " $skipped_fixes " == *" $fix "* ]]; then left_out=$fix; fi
   done
   if [[ -n $left_out ]]; then
-    echo "=== $name"
-    echo "skip $name (fix $left_out left out of this build)"
+    left_out_map[$name]=$left_out
     continue
   fi
   cp "$repo/tools/$name" "$tree/tools/$name"
+  printf '%s\n' "$name" >> "$compile_queue"
+done
+
+if [[ -s $compile_queue ]]; then
+  FIX_CHECKS_TREE="$tree" FIX_CHECKS_CXX="$cxx" \
+    FIX_CHECKS_LAUNCHER="${launcher[*]}" FIX_CHECKS_LDFLAG="${ldflag[*]}" \
+    xargs -P "$jobs" -n 1 bash "$compile_script" < "$compile_queue"
+fi
+
+for name in "${checks[@]}"; do
+  if [[ -n ${left_out_map[$name]:-} ]]; then
+    echo "=== $name"
+    echo "skip $name (fix ${left_out_map[$name]} left out of this build)"
+    continue
+  fi
   exe="$tree/build/fix-checks/${name%.cpp}"
+  build_log="$tree/build/fix-checks/build-logs/${name%.cpp}.log"
+  rc_file="$tree/build/fix-checks/build-logs/${name%.cpp}.rc"
   args=()
   if [[ -n "${arguments[$name]:-}" ]]; then args=("${arguments[$name]}"); fi
   echo "=== $name"
-  if (cd "$tree" && "$cxx" -std=c++20 -O1 -g -pthread -march=znver2 -Wall -Wno-unused-function \
-        -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
-        "tools/$name" -o "$exe" && "$exe" "${args[@]}"); then
+  [[ -s $build_log ]] && cat "$build_log"
+  if [[ -f $rc_file && $(<"$rc_file") == 0 ]] && (cd "$tree" && "$exe" "${args[@]}"); then
     echo "pass $name"
   else
     echo "FAIL $name"
@@ -485,6 +603,15 @@ else
   echo "FAIL check-game-patch-files.py"
   status=1
 fi
+# Fix 186 (issue #80): the optional, user-loaded Lapy elevation helper is packaged with full LGPL-2.1
+# compliance (pinned commit, licence, NOTICE, MIT stub, non-fatal CI step) -- no build needed here.
+echo "=== check-lapy-daemon-package.py"
+if "$python" -I "$repo/tools/check-lapy-daemon-package.py"; then
+  echo "pass check-lapy-daemon-package.py"
+else
+  echo "FAIL check-lapy-daemon-package.py"
+  status=1
+fi
 # Fix 164: the home screen's icons (assets/skin, assets/skin-dark) and their SVG sources.
 echo "=== check-skin-icons.py"
 if "$python" -I "$repo/tools/check-skin-icons.py"; then
@@ -506,6 +633,7 @@ fi
 # fix 31 under ThreadSanitizer, and with the real 4 ms bound under Address- and
 # UndefinedBehaviorSanitizer. Sanitized runs go without address randomization (setarch -R):
 # TSan in clang 18 does not start under the runners' 32-bit mmap randomization.
+# Fix 180 adds the atomic pulse's cases, left out (-DCHECK_NO_FIX180) when a build leaves fix 180 out.
 cp "$repo/tools/check-wait-wakeups.cpp" "$tree/tools/check-wait-wakeups.cpp"
 wait_variants=(
   "fix31|-O1 -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
@@ -513,16 +641,43 @@ wait_variants=(
   "tsan|-O1 -fsanitize=thread -DXBOX360PS5_MULTI_WAIT_BOUND_MS=60000"
   "asan|-O1 -fsanitize=address,undefined -fno-sanitize-recover=all"
 )
+wait_pids=()
 for variant in "${wait_variants[@]}"; do
   label=${variant%%|*}
   read -r -a flags <<< "${variant#*|}"
+  # Fix 180's cases (the atomic pulse) only when the build has fix 180.
+  if [[ " $skipped_fixes " == *" 180 "* ]]; then flags+=(-DCHECK_NO_FIX180); fi
+  # Fix 180b (atomic by default): its default only when the build has it.
+  if [[ " $skipped_fixes " == *" 180b "* ]]; then flags+=(-DCHECK_NO_FIX180B); fi
   exe="$tree/build/fix-checks/check-wait-wakeups-$label"
+  wlog="$tree/build/fix-checks/build-logs/wait-$label.log"
+  wrc="$tree/build/fix-checks/build-logs/wait-$label.rc"
+  (
+    if (cd "$tree" &&
+        ${launcher[@]+"${launcher[@]}"} "$cxx" -std=c++20 -g -pthread -march=znver2 -Wall -Wno-unused-function \
+          "${flags[@]}" -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
+          -c tools/check-wait-wakeups.cpp -o "$exe.o" &&
+        "$cxx" -g -pthread "${flags[@]}" "$exe.o" -o "$exe" &&
+        rm -f "$exe.o") > "$wlog" 2>&1; then
+      echo 0 > "$wrc"
+    else
+      echo 1 > "$wrc"
+    fi
+  ) &
+  wait_pids+=($!)
+done
+for pid in "${wait_pids[@]}"; do wait "$pid" || true; done
+
+for variant in "${wait_variants[@]}"; do
+  label=${variant%%|*}
+  exe="$tree/build/fix-checks/check-wait-wakeups-$label"
+  wlog="$tree/build/fix-checks/build-logs/wait-$label.log"
+  wrc="$tree/build/fix-checks/build-logs/wait-$label.rc"
   run=("$exe")
   if [[ $label == tsan || $label == asan ]]; then run=(setarch "$(uname -m)" -R "$exe"); fi
   echo "=== check-wait-wakeups.cpp ($label)"
-  if (cd "$tree" && "$cxx" -std=c++20 -g -pthread -march=znver2 -Wall -Wno-unused-function \
-        "${flags[@]}" -Iinclude -Ireconstructed -I.deps/xenia-canary/src -I.deps/xenia-canary \
-        tools/check-wait-wakeups.cpp -o "$exe" && "${run[@]}"); then
+  [[ -s $wlog ]] && cat "$wlog"
+  if [[ -f $wrc && $(<"$wrc") == 0 ]] && (cd "$tree" && "${run[@]}"); then
     echo "pass check-wait-wakeups.cpp ($label)"
   else
     echo "FAIL check-wait-wakeups.cpp ($label)"
@@ -666,6 +821,16 @@ elif node "$repo/tools/check-kinect-camera-picture.mjs" "$tree"; then
   echo "pass check-kinect-camera-picture.mjs"
 else
   echo "FAIL check-kinect-camera-picture.mjs"
+  status=1
+fi
+# Fix 169: the phone page's steadier pose frames and its tolerance of one failed request, with node.
+echo "=== check-phone-pose-steady.mjs"
+if [[ " $skipped_fixes " == *" 169 "* ]]; then
+  echo "skip check-phone-pose-steady.mjs (fix 169 left out of this build)"
+elif node "$repo/tools/check-phone-pose-steady.mjs" "$tree"; then
+  echo "pass check-phone-pose-steady.mjs"
+else
+  echo "FAIL check-phone-pose-steady.mjs"
   status=1
 fi
 echo "=== check-gdfx-names.sh"

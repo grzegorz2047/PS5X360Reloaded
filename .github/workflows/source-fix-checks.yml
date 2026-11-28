@@ -218,8 +218,38 @@ on:
       - 'tools/check-kinect-title-rule.cpp'
       - 'tools/check-auto-scale.cpp'
       - 'tools/check-gta5-audio-patch.cpp'
+      - 'tools/check-hp-voice-skip.cpp'
       - 'tools/check-single-game-folder.cpp'
       - 'tools/check-user-storage.cpp'
+      - 'tools/check-game-configs.cpp'
+      - 'tools/check-resolve-trace.cpp'
+      - 'tools/check-phone-link.cpp'
+      - 'tools/check-phone-pose-steady.mjs'
+      - 'tools/check-kinect-camera-picture.mjs'
+      - 'tools/check-xbox-fitness.cpp'
+      - 'tools/check-half-pixel-host.cpp'
+      - 'tools/check-gta4-core-config.cpp'
+      - 'assets/config/**'
+      - 'tools/check-exit-cache-timing.cpp'
+      - 'tools/check-pipeline-cache-skip.cpp'
+      - 'tools/check-cache-churn.cpp'
+      - 'tools/check-recent-list.cpp'
+      - 'tools/check-disc-swap-content.cpp'
+      - 'tools/check-elevate-probe.cpp'
+      - 'tools/check-unlimited-write.cpp'
+      - 'tools/check-xna-usermode.cpp'
+      - 'tools/check-reserved-store.cpp'
+      - 'tools/check-nike-core-config.cpp'
+      - 'tools/check-camera-figure.cpp'
+      - 'tools/check-play-space-map.cpp'
+      - 'tools/check-emergency-pad-source.cpp'
+      - 'tools/check-emergency-hold-hint.cpp'
+      - 'tools/check-osk-odd-buffer.cpp'
+      - 'tools/check-lapy-daemon-package.py'
+      - 'tools/source-1.0.2/lapy-daemon/**'
+      - 'licenses/**'
+      - 'tools/check-title-memory-stats.cpp'
+      - 'tools/check-focus-gate.cpp'
       - 'assets/patches/**'
       - 'tools/check-nui-device-status.cpp'
       - 'tools/check-kernel-timer.cpp'
@@ -235,11 +265,16 @@ on:
       - 'tools/check-nui-identity.cpp'
       - 'tools/check-diag-stuck-dump.cpp'
       - 'tools/check-avatar-assets-success.cpp'
+      - 'tools/check-nui-speech.cpp'
+      - 'tools/check-guest-object-close.cpp'
+      - 'tools/check-virtual-mic.cpp'
       - 'assets/skin/**'
       - 'assets/skin-dark/**'
       - 'assets/skin-src/**'
       - 'tools/check-skin-icons.py'
       - 'tools/make-skin-icons.py'
+      - 'tools/check-player-choice.cpp'
+      - 'tools/check-nui-identity-retrack.cpp'
       - '.github/workflows/source-fix-checks.yml'
   workflow_dispatch:
 
@@ -259,6 +294,13 @@ jobs:
       - name: Console image tool checks
         run: python3 -I tools/check-console-image-tools.py
 
+      - name: Ensure ccache and lld-18
+        run: |
+          if ! command -v ccache >/dev/null || ! command -v ld.lld-18 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ccache lld-18
+          fi
+
       - name: Restore the source drops
         uses: actions/cache@v4
         with:
@@ -266,10 +308,27 @@ jobs:
           key: src102-drops-${{ hashFiles('tools/source-1.0.2/assemble.py') }}
           restore-keys: src102-drops-
 
+      - name: Restore host check compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: fix-checks-ccache-${{ github.run_id }}
+          restore-keys: fix-checks-ccache-
+
       - name: Assemble the 1.0.2 source tree
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
 
       - name: Host checks of the fixes
         run: |
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE
+          export CCACHE_COMPILERCHECK=content CCACHE_SLOPPINESS=time_macros
           clang++-18 --version | head -1
           bash tools/source-1.0.2/run-fix-checks.sh build/src102
+          ccache -s || true
+
+      - name: Save host check compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: fix-checks-ccache-${{ github.run_id }}

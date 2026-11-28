@@ -1,0 +1,117 @@
+diff --git a/include/xbox360ps5/title_memory_stats.hpp b/include/xbox360ps5/title_memory_stats.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/title_memory_stats.hpp
+@@ -0,0 +1,64 @@
++// SPDX-License-Identifier: MIT
++#pragma once
++// Fix 188 (issue #81): the title's free pages that MmQueryStatistics reports.
++// UEFA Champions League 2006-2007 (B39D547B, title 45410811) on 1.0.6 ended as a match loaded:
++// "PhysicalHeap::AllocRange unable to alloc physical memory in parent heap (requested 196608
++// bytes, parent free 32/131072 pages)", "MmAllocatePhysicalMemoryEx: Allocation failed", then
++// the game's own DbgBreakPoint. The game sizes its memory by the free pages the kernel reports
++// (MmQueryStatistics, which XAPI's GlobalMemoryStatus reads too) and leaves the rest alone, so it
++// fills the physical memory only when that answer is wrong.
++// Canary answered total_physical_pages - kernel_pages - (pages the 4 KiB, 64 KiB and 16 MiB
++// physical heaps hold) in 32 bits. kernel_pages (1 MiB) is held back in the answer only: no heap
++// reserves it, so the title can take those pages too. Once fewer than 1 MiB of pages are free the
++// subtraction wraps, and the game is told about four billion pages are free (about 4 GiB in
++// GlobalMemoryStatus's 32-bit bytes): it keeps allocating until the physical heap is empty and an
++// allocation fails. The answer now stops at zero, and is never more than the physical heap under
++// those heaps has free (less the same kernel share), which also counts the pages the three heaps'
++// counts miss (the reserved last 64 KiB).
++#include <atomic>
++#include <cstdint>
++
++namespace xbox360ps5 {
++namespace title_memory {
++
++// 1.0.6's answer (the Canary one): wraps once used + kernel passes total.
++inline uint32_t WrappingAvailablePages(uint32_t total, uint32_t kernel, uint32_t used) {
++  return total - kernel - used;
++}
++
++// The answer with this fix. total: total_physical_pages; kernel: kernel_pages; used: the pages
++// the three physical heaps hold (GetHeapsPageStatsSummary); physical_free: the unreserved pages
++// of the physical heap they all take their pages from.
++inline uint32_t AvailablePages(uint32_t total, uint32_t kernel, uint32_t used, uint32_t physical_free) {
++  const uint64_t by_heaps = uint64_t(used) + kernel >= total ? 0 : uint64_t(total) - kernel - used;
++  const uint64_t by_free = physical_free > kernel ? uint64_t(physical_free) - kernel : 0;
++  return uint32_t(by_heaps < by_free ? by_heaps : by_free);
++}
++
++// What one query should log: the session's first query, and the first whose 1.0.6 answer differs
++// from this one by more than the reserved last 64 KiB (16 pages): a wrapped or too large answer.
++struct Report {
++  bool first = false;
++  bool corrected = false;
++};
++struct State {
++  std::atomic<uint64_t> queries{0};
++  std::atomic<bool> corrected_logged{false};
++};
++inline State& Get() {
++  static State state;
++  return state;
++}
++inline constexpr uint32_t kReservedTailPages = 16;
++inline Report Note(uint32_t old_answer, uint32_t new_answer, State& state = Get()) {
++  Report report;
++  report.first = state.queries.fetch_add(1, std::memory_order_relaxed) == 0;
++  if (old_answer > new_answer && old_answer - new_answer > kReservedTailPages &&
++      !state.corrected_logged.exchange(true, std::memory_order_relaxed)) {
++    report.corrected = true;
++  }
++  return report;
++}
++
++}  // namespace title_memory
++}  // namespace xbox360ps5
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_memory.cc
+@@ -15,6 +15,7 @@
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_private.h"
+ #include "xenia/xbox.h"
+ #include "xenia/kernel/xthread.h"  // fix 61: the calling thread's handle
++#include "xbox360ps5/title_memory_stats.hpp"  // fix 188: free pages without a wrap
+ #if XE_PLATFORM_PS5
+ #include "xbox360ps5/hang_watch.hpp"  // fix 47: big and failed allocations
+ #endif
+@@ -673,9 +674,33 @@ dword_result_t xeMmQueryStatistics(
+       physical_heaps, std::size(physical_heaps), reserved_pages,
+       unreserved_pages, used_pages, reserved_pages_bytes);
+ 
+-  assert_true(used_pages < stats_ptr->total_physical_pages);
+-  stats_ptr->title.available_pages =
+-      stats_ptr->total_physical_pages - stats_ptr->kernel_pages - used_pages;
++  // Fix 188 (UEFA Champions League 2006-2007): with less than kernel_pages free the old
++  // subtraction wrapped to about four billion pages, and a game that sizes its memory by this
++  // answer allocated until the physical heap was empty. Zero at the least, and never more than
++  // the physical heap has free.
++  const uint32_t physical_free =
++      kernel_memory()->GetPhysicalHeap()->unreserved_page_count();
++  const uint32_t wrapping_pages = xbox360ps5::title_memory::WrappingAvailablePages(
++      stats_ptr->total_physical_pages, stats_ptr->kernel_pages, used_pages);
++  const uint32_t available_pages = xbox360ps5::title_memory::AvailablePages(
++      stats_ptr->total_physical_pages, stats_ptr->kernel_pages, used_pages,
++      physical_free);
++  stats_ptr->title.available_pages = available_pages;
++  const auto report =
++      xbox360ps5::title_memory::Note(wrapping_pages, available_pages);
++  if (report.first) {
++    XELOGW(
++        "Memory (fix 188): the game asked how much memory is free "
++        "(MmQueryStatistics): {} MiB available, {} MiB used by the physical "
++        "heaps, {} MiB free in the physical heap",
++        available_pages / 256, used_pages / 256, physical_free / 256);
++  }
++  if (report.corrected) {
++    XELOGW(
++        "Memory (fix 188): free memory answered as {} pages ({} KiB), {} "
++        "pages free in the physical heap; 1.0.6 would have answered {} pages",
++        available_pages, available_pages * 4, physical_free, wrapping_pages);
++  }
+   stats_ptr->title.total_virtual_memory_bytes = 0x2FFE0000;
+   stats_ptr->title.reserved_virtual_memory_bytes = reserved_pages_bytes;
+   stats_ptr->title.physical_pages = 0x00001000;  // TODO(gibbed): FIXME

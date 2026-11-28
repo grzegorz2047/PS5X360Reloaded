@@ -1,0 +1,672 @@
+diff --git a/include/xbox360ps5/event_pulse.hpp b/include/xbox360ps5/event_pulse.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/event_pulse.hpp
+@@ -0,0 +1,167 @@
++// Xbox360PS5 fix 180: how NtPulseEvent and KePulseEvent release the threads waiting on an event.
++//
++// Spider-Man: Web of Shadows (41560815, issue #78) pulses events about 1,300-2,000 times a frame in
++// play (11-26k a second) and ran at 9-17 FPS with the GPU idle for the guest 820-900 ms a second.
++// 1.0.6's POSIX pulse set the event, yielded, slept 10 us and reset it; the console's sleeps overshoot
++// by about 0.1 ms, so each pulse cost its caller some 20-110 us (the console's KePulseEvent: a few us),
++// and a waiter that ran only after the reset missed the pulse. "atomic" releases, under the event's
++// lock, the threads waiting at that moment (one for an auto-reset event, all for a manual-reset one)
++// and leaves the event reset for everybody else, with no sleep (xenia/base/posix_conditions.h).
++//
++// The mode: the first word of event-pulse.txt in the data folder ("atomic" or "old"), re-read about
++// twice a second while the game pulses, so that a console test can switch it live; without the file
++// (or with another word in it), the setting `event_pulse` (default "old" in this first build).
++// Header-only, no Xenia headers: the core (xevent.cc, threading_posix.cc, wait_stats.h) and the
++// host check use it.
++#pragma once
++
++#include <fcntl.h>
++#include <unistd.h>
++
++#include <atomic>
++#include <cstddef>
++#include <cstdint>
++#include <string_view>
++
++#include "xbox360ps5/app_identity.hpp"  // XBOX360PS5_DATA_ROOT
++
++#if defined(__x86_64__) || defined(_M_X64)
++#include <x86intrin.h>
++#else
++#include <chrono>
++#endif
++
++namespace xbox360ps5 {
++namespace event_pulse {
++
++enum Mode : int { kOld = 0, kAtomic = 1 };
++enum Source : int { kDefault = 0, kSetting = 1, kFile = 2 };
++
++// The first word of `text`: "atomic" -> kAtomic, "old" -> kOld, anything else -> -1.
++inline int ParseSwitch(std::string_view text) {
++  size_t begin = 0;
++  while (begin < text.size() &&
++         (text[begin] == ' ' || text[begin] == '\t' || text[begin] == '\r' || text[begin] == '\n' ||
++          static_cast<unsigned char>(text[begin]) == 0xEF || static_cast<unsigned char>(text[begin]) == 0xBB ||
++          static_cast<unsigned char>(text[begin]) == 0xBF)) {
++    ++begin;  // blanks and a UTF-8 byte-order mark
++  }
++  size_t end = begin;
++  while (end < text.size() && text[end] != ' ' && text[end] != '\t' && text[end] != '\r' && text[end] != '\n') {
++    ++end;
++  }
++  const std::string_view word = text.substr(begin, end - begin);
++  const auto same = [&word](std::string_view lower) {
++    if (word.size() != lower.size()) return false;
++    for (size_t i = 0; i < word.size(); ++i) {
++      char c = word[i];
++      if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
++      if (c != lower[i]) return false;
++    }
++    return true;
++  };
++  if (same("atomic")) return kAtomic;
++  if (same("old")) return kOld;
++  return -1;
++}
++
++inline const char* ModeName(int mode) { return mode == kAtomic ? "atomic" : "old"; }
++inline const char* SourceText(int source) {
++  switch (source) {
++    case kFile:
++      return "event-pulse.txt says so";
++    case kSetting:
++      return "the setting event_pulse, no event-pulse.txt";
++    default:
++      return "the default, no event-pulse.txt";
++  }
++}
++
++inline std::atomic<int> mode{kOld};
++inline std::atomic<int> source{kDefault};
++inline std::atomic<bool> known{false};  // a refresh has run
++inline std::atomic<uint64_t> last_check{0};
++inline std::atomic<bool> checking{false};
++inline std::atomic<uint32_t> changes{0};
++// For the host check: another file instead of the data folder's (nullptr: the console's).
++inline std::atomic<const char*> path_override{nullptr};
++
++inline uint64_t Ticks() {
++#if defined(__x86_64__) || defined(_M_X64)
++  return __rdtsc();
++#else
++  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
++                      std::chrono::steady_clock::now().time_since_epoch())
++                      .count());
++#endif
++}
++// Between two looks at the file: 2^30 TSC ticks (about 0.3-0.7 s), no clock call per pulse.
++inline constexpr uint64_t kCheckTicks = uint64_t(1) << 30;
++
++// The word of the switch file, or -1 (no file, or no word it knows).
++inline int ReadFile() {
++  const char* override_path = path_override.load(std::memory_order_acquire);
++  const char* const paths[2] = {override_path ? override_path : XBOX360PS5_DATA_ROOT "/event-pulse.txt",
++                                override_path ? nullptr : "/download0/xbox360ps5/event-pulse.txt"};
++  for (const char* path : paths) {
++    if (!path) continue;
++    const int fd = ::open(path, O_RDONLY);
++    if (fd < 0) continue;
++    char buffer[64];
++    const ssize_t got = ::read(fd, buffer, sizeof(buffer));
++    ::close(fd);
++    return got > 0 ? ParseSwitch(std::string_view(buffer, size_t(got))) : -1;
++  }
++  return -1;
++}
++
++struct Refreshed {
++  bool changed = false;  // the mode or where it comes from differs from before (or the first look)
++  int mode = kOld;
++  int source = kDefault;
++};
++
++// Before a pulse: looks at the file when kCheckTicks have passed (one thread at a time; the others
++// keep the mode they find). `setting` is ParseSwitch of the setting event_pulse (-1: not a word it
++// knows, read as the default). `force` looks now.
++inline Refreshed Refresh(int setting, bool force = false) {
++  Refreshed result;
++  const uint64_t now = Ticks();
++  const uint64_t last = last_check.load(std::memory_order_relaxed);
++  if (!force && known.load(std::memory_order_acquire) && now - last < kCheckTicks) {
++    result.mode = mode.load(std::memory_order_relaxed);
++    result.source = source.load(std::memory_order_relaxed);
++    return result;
++  }
++  if (checking.exchange(true, std::memory_order_acquire)) {
++    result.mode = mode.load(std::memory_order_relaxed);
++    result.source = source.load(std::memory_order_relaxed);
++    return result;
++  }
++  last_check.store(now, std::memory_order_relaxed);
++  const int from_file = ReadFile();
++  int new_mode = kOld, new_source = kDefault;
++  if (from_file >= 0) {
++    new_mode = from_file;
++    new_source = kFile;
++  } else if (setting >= 0) {
++    new_mode = setting;
++    new_source = setting == kOld ? kDefault : kSetting;
++  }
++  const bool was_known = known.load(std::memory_order_relaxed);
++  result.changed = !was_known || new_mode != mode.load(std::memory_order_relaxed) ||
++                   new_source != source.load(std::memory_order_relaxed);
++  mode.store(new_mode, std::memory_order_relaxed);
++  source.store(new_source, std::memory_order_relaxed);
++  known.store(true, std::memory_order_release);
++  if (result.changed && was_known) changes.fetch_add(1, std::memory_order_relaxed);
++  checking.store(false, std::memory_order_release);
++  result.mode = new_mode;
++  result.source = new_source;
++  return result;
++}
++
++inline bool Atomic() { return mode.load(std::memory_order_relaxed) == kAtomic; }
++
++}  // namespace event_pulse
++}  // namespace xbox360ps5
+diff --git a/.deps/xenia-canary/src/xenia/base/posix_conditions.h b/.deps/xenia-canary/src/xenia/base/posix_conditions.h
+--- a/.deps/xenia-canary/src/xenia/base/posix_conditions.h
++++ b/.deps/xenia-canary/src/xenia/base/posix_conditions.h
+@@ -422,6 +422,7 @@ class PosixCondition<Event> : public PosixConditionBase {
+       // Xbox360PS5: with threads already waiting, the signal of an auto-reset
+       // event is theirs (see PosixConditionBase::wait_ticket_).
+       reserved_ = !manual_reset_ && waiters_ > 0;
++      pulsed_ = false;  // fix 180: a Set after a pulse is an ordinary signal
+       reserved_ticket_ = ticket_counter_.load();
+       // Fix 31: every thread waiting now holds a ticket not above
+       // reserved_ticket_ (tickets are taken under mutex_).
+@@ -438,13 +439,54 @@ class PosixCondition<Event> : public PosixConditionBase {
+     auto lock = std::unique_lock(mutex_);
+     signal_ = false;
+     reserved_ = false;
++    pulsed_ = false;  // fix 180
++  }
++
++  // Xbox360PS5 fix 180: KePulseEvent as the console does it, with no sleep.
++  // The threads waiting now (each holds a ticket not above the counter read
++  // here, tickets being taken under mutex_) are released: one of them for an
++  // auto-reset event, all of them for a manual-reset one; a thread that starts
++  // waiting later does not see it, and the event is reset once the last of
++  // those leaves, or at once when nobody waits. A released thread that runs
++  // late still finds it (1.0.6's pulse reset the event after 10 us, and a
++  // waiter scheduled after that missed it). Returns how many it releases.
++  uint32_t PulseAtomic() {
++    uint32_t released;
++    {
++      SuspensionDeferred condition_suspend_guard;
++      auto lock = std::unique_lock(mutex_);
++      if (waiters_ == 0) {
++        signal_ = false;
++        reserved_ = false;
++        pulsed_ = false;
++        return 0;
++      }
++      signal_ = true;
++      reserved_ = true;
++      pulsed_ = true;
++      reserved_ticket_ = ticket_counter_.load();
++      eligible_ = waiters_;
++      released = manual_reset_ ? waiters_ : 1u;
++      cond_.notify_all();
++      NotifyMultiWaiters();
++    }
++    NotifyAnyLegacy();
++    return released;
++  }
++
++  // Fix 180: the threads blocked on this event now (for the old pulse's count).
++  uint32_t Waiting() {
++    SuspensionDeferred condition_suspend_guard;
++    auto lock = std::unique_lock(mutex_);
++    return waiters_;
+   }
+ 
+   EventInfo Query() {
+     SuspensionDeferred condition_suspend_guard;
+     auto lock = std::unique_lock(mutex_);
+     // EVENT_TYPE: NotificationEvent = 0, SynchronizationEvent = 1.
+-    return EventInfo{manual_reset_ ? 0u : 1u, signal_ ? 1u : 0u};
++    // Fix 180: a pulse's grant to its waiters is not a signaled state.
++    return EventInfo{manual_reset_ ? 0u : 1u, signal_ && !pulsed_ ? 1u : 0u};
+   }
+ 
+  private:
+@@ -456,12 +498,25 @@ class PosixCondition<Event> : public PosixConditionBase {
+     if (!manual_reset_) {
+       signal_ = false;
+       reserved_ = false;
++      pulsed_ = false;  // fix 180: the one waiter a pulse releases
+     }
+   }
+   void begin_wait() override { ++waiters_; }
+   void end_wait() override {
+     const bool was_eligible =
+         reserved_ && wait_ticket_ != 0 && wait_ticket_ <= reserved_ticket_;
++    if (pulsed_) {
++      // Fix 180: a pulse is only for the threads that waited when it came;
++      // when the last of them leaves (with it, or with another object of a
++      // multi-object wait, or nobody waits any more) the event is reset.
++      const bool last = --waiters_ == 0;
++      if (last || (was_eligible && --eligible_ == 0)) {
++        signal_ = false;
++        reserved_ = false;
++        pulsed_ = false;
++      }
++      return;
++    }
+     // Nobody left of those the signal was kept for: anyone may take it.
+     if (--waiters_ == 0) {
+       reserved_ = false;
+@@ -477,6 +532,7 @@ class PosixCondition<Event> : public PosixConditionBase {
+   uint32_t eligible_ = 0;  // waiters that may take the kept signal
+   bool reserved_ = false;
+   uint64_t reserved_ticket_ = 0;
++  bool pulsed_ = false;  // fix 180: signal_ is a pulse's, for eligible waiters only
+   bool signal_;
+   const bool manual_reset_;
+ };
+diff --git a/.deps/xenia-canary/src/xenia/base/threading_posix.cc b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+--- a/.deps/xenia-canary/src/xenia/base/threading_posix.cc
++++ b/.deps/xenia-canary/src/xenia/base/threading_posix.cc
+@@ -990,10 +990,22 @@ class PosixEvent final : public PosixConditionHandle<Event> {
+   EventInfo Query() override { return handle_.Query(); }
+   void Pulse() override {
+     using namespace std::chrono_literals;
+-    handle_.Signal();
+-    MaybeYield();
+-    Sleep(10us);
+-    handle_.Reset();
++    // Xbox360PS5 fix 180: "atomic" releases the threads waiting now under the
++    // event's lock (posix_conditions.h); "old" is 1.0.6's set, yield, sleep
++    // 10 us (some 0.1 ms on the console), reset. Each pulse is counted for its
++    // thread with what it cost and how many blocked waiters it found.
++    const uint64_t started = wait_stats::Ticks();
++    uint32_t released;
++    if (xbox360ps5::event_pulse::Atomic()) {
++      released = handle_.PulseAtomic();
++    } else {
++      released = handle_.Waiting();
++      handle_.Signal();
++      MaybeYield();
++      Sleep(10us);
++      handle_.Reset();
++    }
++    wait_stats::AddPulse(wait_stats::Ticks() - started, released);
+   }
+ };
+ 
+diff --git a/.deps/xenia-canary/src/xenia/base/wait_stats.h b/.deps/xenia-canary/src/xenia/base/wait_stats.h
+--- a/.deps/xenia-canary/src/xenia/base/wait_stats.h
++++ b/.deps/xenia-canary/src/xenia/base/wait_stats.h
+@@ -40,6 +40,7 @@
+ #endif
+ #endif
+ #include "xenia/base/platform.h"
++#include "xbox360ps5/event_pulse.hpp"  // fix 180: the pulse mode in the report
+ 
+ #if __has_include(<pthread.h>)
+ #include <pthread.h>
+@@ -62,6 +63,13 @@ enum Counter : unsigned {
+   kMultiBound,      // of those, ended by the 4 ms bound, not by a signal
+   kSuspendMask,     // SuspensionDeferred signal-mask pairs
+   kPriority,        // host priority changes on a wake (BoostOnWake)
++  // Fix 180: per thread, for the "kernel calls by thread" line.
++  kPulse,       // NtPulseEvent/KePulseEvent (ticks: the pulse; extra: blocked waiters it found)
++  kDelayZero,   // KeDelayExecutionThread with an interval of 0
++  kDelayShort,  // ... a relative interval under 1 ms (the core yields for it)
++  kDelayLong,   // ... 1 ms or more (or an absolute time)
++  kPoll,        // waits with a timeout under 1 ms (the core polls for it)
++  kPollMiss,    // of those, the ones that found nothing
+   kCount
+ };
+ 
+@@ -87,6 +95,8 @@ struct Slot {
+   std::array<std::atomic<uint64_t>, kCount> extra{};
+   std::array<std::atomic<uint64_t>, 3> name{};  // 24 bytes, NUL-padded
+   std::atomic<uint32_t> name_epoch{~0u};
++  std::atomic<uint64_t> pulse_max_ticks{0};  // fix 180: longest pulse since the last report
++  std::atomic<uint32_t> guest{0};            // fix 180: the guest thread's handle (0: none)
+ };
+ 
+ inline constexpr size_t kSlots = 192;
+@@ -215,11 +225,28 @@ inline void Add(Counter counter, uint64_t ticks = 0, uint64_t extra = 0) {
+   if (extra) {
+     Bump(slot.extra[counter], extra, shared);
+   }
+-  if (counter == kCsBlocked || counter == kSingleBlocked) {
++  if (counter == kCsBlocked || counter == kSingleBlocked || counter >= kPulse) {
+     RefreshName(slot);
+   }
+ }
+ 
++// Fix 180: a pulse of this thread, what it cost and how many blocked waiters it found.
++inline void AddPulse(uint64_t ticks, uint32_t released) {
++  Add(kPulse, ticks ? ticks : 1, released);
++  Slot& slot = Mine();
++  if (ticks > slot.pulse_max_ticks.load(std::memory_order_relaxed)) {
++    slot.pulse_max_ticks.store(ticks, std::memory_order_relaxed);
++  }
++}
++
++// Fix 180: the guest thread this host thread runs (XThread::Execute).
++inline void SetGuest(uint32_t handle) {
++  Slot& slot = Mine();
++  if (!IsShared(slot)) {
++    slot.guest.store(handle, std::memory_order_relaxed);
++  }
++}
++
+ // Critical sections by guest address (slow paths only).
+ struct CsEntry {
+   std::atomic<uint32_t> address{0};
+@@ -281,6 +308,9 @@ struct Totals {
+ struct Reporter {
+   struct ThreadTotals {
+     uint64_t cs_ticks = 0, single_ticks = 0;
++    // Fix 180: kPulse .. kPollMiss counts, the pulses' ticks and waiters found.
++    std::array<uint64_t, kCount - kPulse> calls{};
++    uint64_t pulse_ticks = 0, pulse_found = 0, pulse_max_ticks = 0;
+   };
+   std::chrono::steady_clock::time_point at{};
+   uint64_t at_ticks = 0;
+@@ -318,6 +348,13 @@ inline std::vector<std::string> Report(
+     threads[i].cs_ticks = slot.ticks[kCsBlocked].load(std::memory_order_relaxed);
+     threads[i].single_ticks =
+         slot.ticks[kSingleBlocked].load(std::memory_order_relaxed);
++    for (unsigned c = kPulse; c < kCount; ++c) {
++      threads[i].calls[c - kPulse] = slot.count[c].load(std::memory_order_relaxed);
++    }
++    threads[i].pulse_ticks = slot.ticks[kPulse].load(std::memory_order_relaxed);
++    threads[i].pulse_found = slot.extra[kPulse].load(std::memory_order_relaxed);
++    threads[i].pulse_max_ticks =
++        slots[i].pulse_max_ticks.exchange(0, std::memory_order_relaxed);
+   }
+   std::vector<std::array<uint64_t, 5>> cs;
+   for (const CsEntry& entry : cs_entries) {
+@@ -486,6 +523,86 @@ inline std::vector<std::string> Report(
+     lines.push_back(line);
+   }
+ 
++  // Fix 180: the threads that pulsed, delayed and polled most in this period.
++  struct CallDelta {
++    size_t index;
++    std::array<double, kCount - kPulse> calls;
++    double pulse_us, pulse_found, pulse_max_us;
++  };
++  std::vector<CallDelta> call_delta;
++  for (size_t i = 0; i < used; ++i) {
++    CallDelta d{i, {}, 0, 0, 0};
++    double any = 0;
++    for (unsigned c = kPulse; c < kCount; ++c) {
++      d.calls[c - kPulse] =
++          double(threads[i].calls[c - kPulse] - reporter.threads[i].calls[c - kPulse]);
++      any += d.calls[c - kPulse];
++    }
++    if (any <= 0) {
++      continue;
++    }
++    d.pulse_us = double(threads[i].pulse_ticks - reporter.threads[i].pulse_ticks) * us_per_tick;
++    d.pulse_found = double(threads[i].pulse_found - reporter.threads[i].pulse_found);
++    d.pulse_max_us = double(threads[i].pulse_max_ticks) * us_per_tick;
++    call_delta.push_back(d);
++  }
++  const auto rank = [](const CallDelta& d) {
++    return d.calls[kPulse - kPulse] * 1e6 + d.calls[kDelayZero - kPulse] +
++           d.calls[kDelayShort - kPulse] + d.calls[kDelayLong - kPulse] +
++           d.calls[kPoll - kPulse];
++  };
++  std::sort(call_delta.begin(), call_delta.end(),
++            [&rank](const CallDelta& a, const CallDelta& b) {
++              const double ra = rank(a), rb = rank(b);
++              return ra != rb ? ra > rb : a.index < b.index;
++            });
++  if (!call_delta.empty()) {
++    namespace ep = xbox360ps5::event_pulse;
++    std::string line = "Waits: kernel calls by thread (fix 180; event pulse ";
++    if (ep::known.load(std::memory_order_acquire)) {
++      line += ep::ModeName(ep::mode.load(std::memory_order_relaxed));
++      line += ", ";
++      line += ep::SourceText(ep::source.load(std::memory_order_relaxed));
++    } else {
++      line += "not used yet";
++    }
++    line += "):";
++    for (size_t i = 0; i < std::min<size_t>(call_delta.size(), 6); ++i) {
++      const CallDelta& d = call_delta[i];
++      char name[25] = {};
++      for (size_t w = 0; w < 3; ++w) {
++        const uint64_t word = slots[d.index].name[w].load(std::memory_order_relaxed);
++        std::memcpy(name + w * 8, &word, 8);
++      }
++      if (!name[0]) {
++        std::snprintf(name, sizeof(name), "thread %zu", d.index);
++      }
++      const uint32_t guest = slots[d.index].guest.load(std::memory_order_relaxed);
++      char id[16] = "host";
++      if (guest) {
++        std::snprintf(id, sizeof(id), "%08X", guest);
++      }
++      const double pulses = d.calls[kPulse - kPulse];
++      std::snprintf(
++          text, sizeof(text),
++          "%s %s '%s' pulses %.0f/s (%.2f blocked waiters each, %s us each, "
++          "longest %s us), delays %.0f/s (0: %.0f, under 1 ms: %.0f, 1 ms or "
++          "more: %.0f), polls %.0f/s (%.0f found nothing)",
++          i ? ";" : "", id, name, pulses / seconds,
++          pulses > 0 ? d.pulse_found / pulses : 0.0,
++          Micro(pulses > 0 ? d.pulse_us / pulses : 0.0).c_str(),
++          Micro(d.pulse_max_us).c_str(),
++          (d.calls[kDelayZero - kPulse] + d.calls[kDelayShort - kPulse] +
++           d.calls[kDelayLong - kPulse]) / seconds,
++          d.calls[kDelayZero - kPulse] / seconds,
++          d.calls[kDelayShort - kPulse] / seconds,
++          d.calls[kDelayLong - kPulse] / seconds, d.calls[kPoll - kPulse] / seconds,
++          d.calls[kPollMiss - kPulse] / seconds);
++      line += text;
++    }
++    lines.push_back(line);
++  }
++
+   reporter.at = now;
+   reporter.at_ticks = now_ticks;
+   reporter.totals = totals;
+diff --git a/.deps/xenia-canary/src/xenia/kernel/object_history.h b/.deps/xenia-canary/src/xenia/kernel/object_history.h
+--- a/.deps/xenia-canary/src/xenia/kernel/object_history.h
++++ b/.deps/xenia-canary/src/xenia/kernel/object_history.h
+@@ -11,6 +11,9 @@
+ 
+ #include <array>
+ #include <chrono>
++#if defined(__x86_64__) || defined(_M_X64)
++#include <x86intrin.h>  // fix 180: __rdtsc
++#endif
+ #include <cstdint>
+ #include <cstdio>
+ #include <mutex>
+@@ -55,12 +58,34 @@ struct Entry {
+ };
+ 
+ // Milliseconds since the first use (the process's start, near enough).
+-inline uint32_t NowMs() {
++// Xbox360PS5 fix 180: every wait, set, release and pulse records one, and the
++// clock is a system call on the console (Spider-Man: Web of Shadows makes
++// some 250k such calls a second). Each thread reads it again only once the TSC
++// has moved on by kNowMsTicks (about 0.3-0.7 ms) since its last read, or gone
++// back (another core), and otherwise gives the time it read then: still
++// milliseconds, a little behind at most.
++inline uint32_t ClockMs() {
+   static const auto start = std::chrono::steady_clock::now();
+   return uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::steady_clock::now() - start)
+                       .count());
+ }
++inline constexpr uint64_t kNowMsTicks = uint64_t(1) << 20;
++inline uint32_t NowMs() {
++#if defined(__x86_64__) || defined(_M_X64)
++  static thread_local uint64_t read_at = 0;
++  static thread_local uint32_t read_ms = 0;
++  const uint64_t now = __rdtsc();
++  if (read_at && now - read_at < kNowMsTicks) {
++    return read_ms;
++  }
++  read_ms = ClockMs();
++  read_at = now;
++  return read_ms;
++#else
++  return ClockMs();
++#endif
++}
+ 
+ class Ring {
+  public:
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_threading.cc
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "xenia/kernel/xboxkrnl/xboxkrnl_threading.h"
++#include "xenia/base/wait_stats.h"  // fix 180
+ #include <algorithm>
+ #include <atomic>
+ #include <chrono>
+@@ -516,6 +517,20 @@ dword_result_t KeDelayExecutionThread_entry(dword_t processor_mode,
+                                             const ppc_context_t& context) {
+   // TODO(Ecredes): Verify whether a null interval should be treated as zero.
+   uint64_t interval = interval_ptr ? static_cast<uint64_t>(*interval_ptr) : 0u;
++  // Xbox360PS5 fix 180: the thread's delays by interval (0, a relative one
++  // under 1 ms, which Delay turns into a yield, and the rest).
++  xe::wait_stats::Add(interval == 0 ? xe::wait_stats::kDelayZero
++                      : int64_t(interval) < 0 && int64_t(interval) > -10000
++                          ? xe::wait_stats::kDelayShort
++                          : xe::wait_stats::kDelayLong);
++  // Xbox360PS5 fix 180: fixes 148c and 148d read the clock (a system call on
++  // the console) on every delay; only a thread that has read or written a file
++  // can be one they count (its stamps are thread-local), so the others, which
++  // spin here hundreds of thousands of times a second, skip both.
++  if (!xbox360ps5::package_io::last_package_read_ns &&
++      !xbox360ps5::package_io::last_file_io_ns) {
++    return KeDelayExecutionThread(processor_mode, alertable, &interval, context);
++  }
+   // Xbox360PS5 fix 148c: the delays of a thread that reads a package file
+   // (an install's pace), relative intervals only.
+   {
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xevent.cc b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xevent.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xevent.cc
+@@ -10,11 +10,36 @@
+ #include "xenia/kernel/xevent.h"
+ 
+ #include "xenia/base/byte_stream.h"
++#include "xenia/base/cvar.h"
+ #include "xenia/base/logging.h"
++#include "xbox360ps5/event_pulse.hpp"  // fix 180
++
++// Xbox360PS5 fix 180 (see xbox360ps5/event_pulse.hpp). event-pulse.txt in the
++// data folder ("atomic" or "old") overrides it while the game runs.
++DEFINE_string(event_pulse, "old",
++              "How NtPulseEvent and KePulseEvent release the threads waiting on "
++              "an event: \"old\" sets it, sleeps 10 us and resets it (1.0.6); "
++              "\"atomic\" releases the threads waiting at once, as the console "
++              "does (fix 180).",
++              "Kernel");
+ 
+ namespace xe {
+ namespace kernel {
+ 
++namespace {
++// Fix 180: the pulse mode, looked at about twice a second while pulses come;
++// a line when it changes (and with the first pulse).
++void RefreshPulseMode() {
++  namespace ep = xbox360ps5::event_pulse;
++  const ep::Refreshed now = ep::Refresh(ep::ParseSwitch(cvars::event_pulse));
++  if (now.changed) {
++    XELOGW("Event pulse (fix 180): {} ({}); {} change(s) while running",
++           ep::ModeName(now.mode), ep::SourceText(now.source),
++           ep::changes.load(std::memory_order_relaxed));
++  }
++}
++}  // namespace
++
+ XEvent::XEvent(KernelState* kernel_state)
+     : XObject(kernel_state, kObjectType) {}
+ 
+@@ -95,6 +120,7 @@ int32_t XEvent::Set(uint32_t priority_increment, bool wait) {
+ 
+ int32_t XEvent::Pulse(uint32_t priority_increment, bool wait) {
+   NoteHistory(xbox360ps5::object_history::Op::kPulse, 0, 0);  // fix 24
++  RefreshPulseMode();  // fix 180, before the event's lock
+   set_priority_increment(priority_increment);
+   auto* kevent = memory()->TranslateVirtual<X_KEVENT*>(guest_object());
+   // KePulseEvent returns the pre-pulse signal state.
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xobject.cc b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xobject.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xobject.cc
+@@ -13,6 +13,7 @@
+ #include "xenia/kernel/xobject.h"
+ 
+ #include "xenia/base/byte_stream.h"
++#include "xenia/base/wait_stats.h"  // fix 180
+ #include "xenia/kernel/kernel_state.h"
+ #include "xenia/kernel/native_object_resolve.h"
+ #include "xenia/kernel/util/shim_utils.h"
+@@ -251,6 +252,17 @@ static int32_t NotedTimeout(const uint64_t* opt_timeout, uint32_t ms) {
+   return opt_timeout ? int32_t(ms) : -1;
+ }
+ 
++// Xbox360PS5 fix 180: a wait with a timeout under 1 ms (0 ms here) only looks
++// at its objects; counted per thread, with the ones that found nothing.
++static void NotePoll(int32_t noted_ms, X_STATUS status) {
++  if (noted_ms == 0) {
++    xe::wait_stats::Add(xe::wait_stats::kPoll);
++    if (status == X_STATUS_TIMEOUT) {
++      xe::wait_stats::Add(xe::wait_stats::kPollMiss);
++    }
++  }
++}
++
+ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
+                        uint32_t alertable, uint64_t* opt_timeout) {
+   const int32_t noted_ms = NotedTimeout(
+@@ -294,6 +306,7 @@ X_STATUS XObject::Wait(uint32_t wait_reason, uint32_t processor_mode,
+       return X_STATUS_ABANDONED_WAIT_0;
+   }
+   }();
++  NotePoll(noted_ms, status);  // fix 180
+   NoteHistory(xbox360ps5::object_history::Op::kWait, noted_ms, uint32_t(status));
+   return status;
+ }
+@@ -424,6 +437,7 @@ X_STATUS XObject::WaitMultiple(uint32_t count, XObject** objects,
+   }
+   const int32_t noted_ms = NotedTimeout(
+       opt_timeout, opt_timeout ? TimeoutTicksToMs(int64_t(*opt_timeout)) : 0);
++  NotePoll(noted_ms, status);  // fix 180
+   for (uint32_t i = 0; i < count; ++i) {
+     objects[i]->NoteHistory(wait_type ? xbox360ps5::object_history::Op::kWaitAny
+                                       : xbox360ps5::object_history::Op::kWaitAll,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xthread.cc b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xthread.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xthread.cc
+@@ -635,6 +635,8 @@ void XThread::Execute() {
+               thread_id_, handle(), thread_name_, thread_->system_id());
+   // Let the kernel know we are starting.
+   kernel_state()->OnThreadExecute(this);
++  // Xbox360PS5 fix 180: the guest handle for the "kernel calls by thread" line.
++  xe::wait_stats::SetGuest(handle());
+ 
+   // Dispatch any APCs that were queued before the thread was created first.
+   DeliverAPCs();
+@@ -1540,6 +1542,7 @@ void XHostThread::Execute() {
+       thread_id_, handle(), thread_name_, thread_->system_id());
+   // Let the kernel know we are starting.
+   kernel_state()->OnThreadExecute(this);
++  xe::wait_stats::SetGuest(handle());  // fix 180
+   int ret = host_fn_();
+ 
+   // Exit.

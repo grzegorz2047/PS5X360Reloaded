@@ -39,6 +39,11 @@ on:
         description: Optimization level of the title objects (default -O2 as 1.0.2; -O3 for a test build)
         required: false
         default: ''
+      skip_checks:
+        description: Skip the parallel host fix checks job (e.g. when source-fix-checks.yml already runs)
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -75,8 +80,83 @@ env:
   PS5_VULKAN_REV: 3f3ee69607013b345d2baa6d6a37c86745649a08
   PS5_MESA_REV: 0b2d6d1a61d9bbf89cf8beb88a696144f67c61f8
   PS5_PAYLOAD_SDK_REV: 95c08f27386fc698f6bbe21dde3030140a41d10b
+  VULKAN_SDK_VER: 1.4.341.1
 
 jobs:
+  checks:
+    name: Host checks of the 1.0.2 fixes
+    if: ${{ !inputs.skip_checks }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout PS5X360
+        uses: actions/checkout@v4
+
+      - name: Ensure ccache and lld-18
+        run: |
+          if ! command -v ccache >/dev/null || ! command -v ld.lld-18 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ccache lld-18
+          fi
+
+      - name: Restore Vulkan SDK shader tools
+        id: vk_tools_checks
+        uses: actions/cache@v4
+        with:
+          path: ~/vulkan-sdk/${{ env.VULKAN_SDK_VER }}/x86_64
+          key: vulkan-shader-tools-${{ env.VULKAN_SDK_VER }}
+
+      - name: Install Vulkan SDK shader tools
+        run: |
+          set -euo pipefail
+          v="${VULKAN_SDK_VER}"
+          if [[ "${{ steps.vk_tools_checks.outputs.cache-hit }}" != "true" ]]; then
+            file=vulkansdk-linux-x86_64-$v.tar.xz
+            curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/$file" \
+              "https://sdk.lunarg.com/sdk/download/$v/linux/$file"
+            echo "3bf0f762afb6c79bc6a9d9fb5998745ccff928800a29619b501ed9de7fd9789b  $RUNNER_TEMP/$file" | sha256sum --check --strict
+            mkdir -p "$HOME/vulkan-sdk"
+            tar -xJf "$RUNNER_TEMP/$file" -C "$HOME/vulkan-sdk" "$v/x86_64/bin" "$v/x86_64/lib"
+          fi
+          mkdir -p "$HOME/shader-tools"
+          for tool in glslangValidator spirv-opt spirv-dis; do
+            ln -sf "$HOME/vulkan-sdk/$v/x86_64/bin/$tool" "$HOME/shader-tools/$tool"
+          done
+          echo "$HOME/shader-tools" >> "$GITHUB_PATH"
+
+      - name: Restore the source drops
+        uses: actions/cache@v4
+        with:
+          path: .deps/src102-cache
+          key: src102-drops-${{ hashFiles('tools/source-1.0.2/assemble.py') }}
+          restore-keys: src102-drops-
+
+      - name: Restore host check compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: fix-checks-ccache-${{ github.run_id }}
+          restore-keys: fix-checks-ccache-
+
+      - name: Assemble the 1.0.2 source tree
+        env:
+          PS5X360_SKIP_FIXES: ${{ inputs.skip_fixes }}
+        run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
+
+      - name: Host checks of the fixes
+        run: |
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE
+          export CCACHE_COMPILERCHECK=content CCACHE_SLOPPINESS=time_macros
+          bash tools/source-1.0.2/run-fix-checks.sh build/src102
+          ccache -s || true
+
+      - name: Save host check compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: fix-checks-ccache-${{ github.run_id }}
+
   rebuild:
     name: ${{ inputs.release == true && format('Assemble and compile release {0}', inputs.version) || 'Assemble and compile 1.0.2' }}
     runs-on: ubuntu-24.04
@@ -148,20 +228,37 @@ jobs:
           pipx install meson==1.7.2
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - name: Restore Vulkan SDK shader tools
+        id: vk_tools
+        uses: actions/cache@v4
+        with:
+          path: ~/vulkan-sdk/${{ env.VULKAN_SDK_VER }}/x86_64
+          key: vulkan-shader-tools-${{ env.VULKAN_SDK_VER }}
+
       - name: Install Vulkan SDK shader tools
         run: |
           set -euo pipefail
-          v=1.4.341.1
-          file=vulkansdk-linux-x86_64-$v.tar.xz
-          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/$file" \
-            "https://sdk.lunarg.com/sdk/download/$v/linux/$file"
-          echo "3bf0f762afb6c79bc6a9d9fb5998745ccff928800a29619b501ed9de7fd9789b  $RUNNER_TEMP/$file" | sha256sum --check --strict
-          mkdir -p "$HOME/vulkan-sdk" "$HOME/shader-tools"
-          tar -xJf "$RUNNER_TEMP/$file" -C "$HOME/vulkan-sdk" "$v/x86_64/bin" "$v/x86_64/lib"
+          v="${VULKAN_SDK_VER}"
+          if [[ "${{ steps.vk_tools.outputs.cache-hit }}" != "true" ]]; then
+            file=vulkansdk-linux-x86_64-$v.tar.xz
+            curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/$file" \
+              "https://sdk.lunarg.com/sdk/download/$v/linux/$file"
+            echo "3bf0f762afb6c79bc6a9d9fb5998745ccff928800a29619b501ed9de7fd9789b  $RUNNER_TEMP/$file" | sha256sum --check --strict
+            mkdir -p "$HOME/vulkan-sdk"
+            tar -xJf "$RUNNER_TEMP/$file" -C "$HOME/vulkan-sdk" "$v/x86_64/bin" "$v/x86_64/lib"
+          fi
+          mkdir -p "$HOME/shader-tools"
           for tool in glslangValidator spirv-opt spirv-dis; do
             ln -sf "$HOME/vulkan-sdk/$v/x86_64/bin/$tool" "$HOME/shader-tools/$tool"
           done
           echo "$HOME/shader-tools" >> "$GITHUB_PATH"
+
+      - name: Restore the source drops
+        uses: actions/cache@v4
+        with:
+          path: .deps/src102-cache
+          key: src102-drops-${{ hashFiles('tools/source-1.0.2/assemble.py') }}
+          restore-keys: src102-drops-
 
       # A release leaves no fix out (skip_fixes is a dispatch input only, and assemble.py
       # --release refuses a skip list); its version label is the release's, not BUILD_VERSION's.
@@ -171,10 +268,6 @@ jobs:
           PS5X360_BUILD_VERSION: ${{ inputs.version || '' }}
           PS5X360_RELEASE: ${{ inputs.release == true && '1' || '' }}
         run: python3 -I tools/source-1.0.2/assemble.py --out build/src102 --cache .deps/src102-cache
-
-      # The host checks of the release fixes (tools/check-*.cpp), before the long compile.
-      - name: Host checks of the fixes
-        run: bash tools/source-1.0.2/run-fix-checks.sh build/src102
 
       - name: Build RADV platform and payload SDK
         if: steps.radv.outputs.cache-hit != 'true'
@@ -207,7 +300,8 @@ jobs:
       - name: Compile and link eboot.bin
         run: |
           set -o pipefail
-          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE CCACHE_COMPILERCHECK=content
+          export CCACHE_DIR=$HOME/.cache/ccache CCACHE_MAXSIZE=2G CCACHE_BASEDIR=$GITHUB_WORKSPACE
+          export CCACHE_COMPILERCHECK=content CCACHE_SLOPPINESS=time_macros
           export PS5X360_LTO='${{ inputs.lto }}'
           export PS5X360_TITLE_OPT='${{ inputs.title_opt }}'
           bash tools/source-1.0.2/build.sh build/src102 build/src102-out 2>&1 | tee build/src102-build.log
@@ -232,6 +326,18 @@ jobs:
           sdk=.deps/references/PS5_Vulkan/.deps/native/ps5-payload-sdk
           mkdir -p build/src102-out
           "$sdk/bin/prospero-clang" -O2 -Wall tools/source-1.0.2/kinect-fake-relay/kinect_fake_relay.c -o build/src102-out/kinect-fake-relay.elf
+
+      # Fix 186 (issue #80): the optional, USER-loaded Lapy owned-root elevation helper, built from a
+      # pinned upstream commit with the same SDK. LGPL-2.1-or-later (NOT MIT); a separate helper ELF,
+      # not linked into eboot.bin and not auto-launched. Non-fatal: a build failure (e.g. a missing
+      # SDK symbol for an unvalidated firmware) never blocks eboot.bin or the host checks; the helper
+      # is simply absent from the artifact and the MIT marker probe still works with a user-run Lapy.
+      - name: Build the Lapy elevation helper (optional, LGPL-2.1, user-loaded)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          sdk=.deps/references/PS5_Vulkan/.deps/native/ps5-payload-sdk
+          bash tools/source-1.0.2/lapy-daemon/build-lapy-daemon.sh "$sdk" build/src102-out
 
       - name: Save compiler cache
         if: always()
@@ -328,6 +434,8 @@ jobs:
             build/src102-out/eboot.elf
             build/src102-out/eboot-symbols.txt
             build/src102-out/kinect-fake-relay.elf
+            build/src102-out/lapy.elf
+            build/src102-out/helper/*
             build/src102-out/lang/*.txt
             build/src102/SOURCES.json
             build/src102-build.log

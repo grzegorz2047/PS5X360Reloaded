@@ -164,8 +164,19 @@ int main(int argc, char** argv) {
     m::EmergencyEvent ev;
     e.Apply(Body(5, 1, .5f), at(0), &ev);
     e.Pad(true, at(100));
+#ifdef XBOX360PS5_EMERGENCY_196B
+    // Fix 196b: the body went 0.3 s ago: not yet; 1 s ago (the hold long enough): on.
+    m::Frame out = e.Apply(NoBody(5), at(300), &ev);
+    CHECK(ev == m::EmergencyEvent::kNone && !out.tracked);
+    out = e.Apply(NoBody(5), at(1000), &ev);
+    CHECK(ev == m::EmergencyEvent::kOn && out.tracked);
+    e.Pad(false, at(1050));
+    e.Apply(NoBody(5), at(1060), &ev);
+    CHECK(ev == m::EmergencyEvent::kOffReleased);
+#else
     m::Frame out = e.Apply(NoBody(5), at(1000), &ev);
     CHECK(ev == m::EmergencyEvent::kNone && !out.tracked);  // the body went 1 s ago
+#endif
     e.Reset();
     e.Pad(false, at(1100));
     e.Pad(true, at(1200));
@@ -247,7 +258,9 @@ int main(int argc, char** argv) {
     CHECK(cam.find("xbox360ps5::motion::emergency_pose.Reset();  // fix 107") != std::string::npos);
     CHECK(cam.find("emergency_pose.Overlay(xbox360ps5::motion::NormalizedSnapshot());") != std::string::npos);
     CHECK(depth.find("Render(emergency_pose.Overlay(NormalizedSnapshot()),depth_);") != std::string::npos);
-    const size_t pad_call = pad.find("motion::emergency_pose.Pad(sample.connected && (sample.buttons & motion::kEmergencyButtons) ==");
+    size_t pad_call = pad.find("motion::emergency_pose.Pad(sample.connected && (sample.buttons & motion::kEmergencyButtons) ==");
+    if (pad_call == std::string::npos)  // fix 196: player 1's pad only (check-emergency-pad-source.cpp)
+      pad_call = pad.find("motion::EmergencyPadSample(motion::emergency_pose, user_, sample.connected, sample.buttons,");
     CHECK(pad_call != std::string::npos && pad_call < pad.find("std::lock_guard<std::mutex> lock(mutex_);", pad.find("void DualSenseInput::Submit")));
     CHECK(game.find("DrawEmergencyHint(scale, now);  // fix 107") != std::string::npos);
     CHECK(game.find("const bool recentring = xbox360ps5::motion::RecentrePending(now_ms);  // fix 107") != std::string::npos);
@@ -255,7 +268,9 @@ int main(int argc, char** argv) {
     // at the skeleton's foot (PanelFootTop), no longer at the status line's right end or on a line
     // of its own at the top.
     CHECK(game.find("const auto lines = xbox360ps5::motion::PanelStatusLines();") != std::string::npos);
-    const size_t foot = game.find("DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107");
+    size_t foot = game.find("DrawFootLine(draw, scale, phone, pose, hands.valid);  // fix 107");
+    if (foot == std::string::npos)  // fix 194: the game's place (check-play-space-map.cpp)
+      foot = game.find("DrawFootLine(draw, scale, place, hands.valid);  // fix 107; fix 194: the game's place");
     CHECK(foot != std::string::npos && foot < game.find("if (hands.valid) DrawReachBars(draw, scale, hands);"));
     CHECK(game.find("std::snprintf(distance, sizeof(distance), \"%.1f m\", double(metres));") != std::string::npos);
     CHECK(game.find("const float top = xbox360ps5::motion::PanelFootTop(bars, size.y / scale);") != std::string::npos);

@@ -1,0 +1,216 @@
+diff --git a/include/xbox360ps5/motion_emergency.hpp b/include/xbox360ps5/motion_emergency.hpp
+--- a/include/xbox360ps5/motion_emergency.hpp
++++ b/include/xbox360ps5/motion_emergency.hpp
+@@ -20,10 +20,16 @@
+ #pragma once
+ #include <chrono>
+ #include <cstdint>
++#include <cstdio>  // fix 196b: snprintf
+ #include <mutex>
++#include <optional>
++#include <string>
+ 
+ #include "xbox360ps5/motion_input.hpp"
+ 
++// Fix 196b is in: holds start after kHoldToStart without a body, holds report, the hint logs.
++#define XBOX360PS5_EMERGENCY_196B 1
++
+ namespace xbox360ps5::motion {
+ 
+ constexpr std::chrono::milliseconds kNoBodyFor{3000}, kHoldToStart{500}, kEmergencyLimit{10000};
+@@ -49,6 +55,28 @@ inline Frame StandingBody(uint32_t session) {
+ 
+ enum class EmergencyEvent { kNone, kOn, kOffBody, kOffReleased, kOffLimit };
+ 
++// Fix 196b: a hold of L3 + R3 that did not start the emergency pose, for the log (TakeHoldReport):
++// on 1.0.7_candidate_2 a hold after covering the phone's camera did nothing and left no trace.
++struct HoldReport {
++  bool ready = false;
++  int64_t held_ms = 0;
++  int64_t since_body_ms = -1;  // since the phone's last body (-1: none in this game yet)
++  bool reads = false;          // the game has read skeletons
++  bool expired = false;        // a 10 s emergency pose ran out in this hold
++};
++inline std::string HoldReportText(const HoldReport& report) {
++  char text[200];
++  const char* why = !report.reads ? "the game reads no skeletons from the virtual sensor"
++                  : report.expired ? "the emergency pose ran its 10 s in this hold"
++                  : report.since_body_ms >= 0 && report.since_body_ms < report.held_ms
++                      ? "the phone had a body during the hold"
++                      : "it should have started";
++  std::snprintf(text, sizeof(text),
++                "L3 + R3 held %lld ms; the emergency pose did not start: %s (the phone's last body %lld ms ago)",
++                (long long)report.held_ms, why, (long long)report.since_body_ms);
++  return text;
++}
++
+ class EmergencyPose {
+  public:
+   using Clock = std::chrono::steady_clock;
+@@ -63,6 +91,15 @@ class EmergencyPose {
+       started_in_hold_ = false;
+     } else if (!both_down && held_) {
+       press = now - held_since_ < kHoldToStart && !started_in_hold_ && !active_;
++      // Fix 196b: a long hold that started nothing says why.
++      if (!press && !started_in_hold_ && !active_ && now - held_since_ >= kHoldToStart) {
++        hold_report_.ready = true;
++        hold_report_.held_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - held_since_).count();
++        hold_report_.since_body_ms =
++            have_last_ ? std::chrono::duration_cast<std::chrono::milliseconds>(now - last_body_).count() : -1;
++        hold_report_.reads = seen_reads_;
++        hold_report_.expired = expired_;
++      }
+     }
+     held_ = both_down;
+     return press;
+@@ -94,7 +131,7 @@ class EmergencyPose {
+         active_ = false;
+         what = EmergencyEvent::kOffLimit;
+         expired_ = true;  // not again until the buttons are let go
+-      } else if (!active_ && held_ && !expired_ && now - held_since_ >= kHoldToStart && NoBodyLocked(now)) {
++      } else if (!active_ && held_ && !expired_ && now - held_since_ >= kHoldToStart && NoBodyForHoldLocked(now)) {
+         active_ = true;
+         active_since_ = now;
+         started_in_hold_ = true;
+@@ -132,6 +169,13 @@ class EmergencyPose {
+     std::lock_guard lock(mutex_);
+     return active_;
+   }
++  // Fix 196b: the last hold that started nothing, once (the pad thread logs it).
++  HoldReport TakeHoldReport() {
++    std::lock_guard lock(mutex_);
++    HoldReport report = hold_report_;
++    hold_report_ = {};
++    return report;
++  }
+   // A new game, or the camera setting switched: forget the last body.
+   void Reset() {
+     std::lock_guard lock(mutex_);
+@@ -145,6 +189,13 @@ class EmergencyPose {
+   bool NoBodyLocked(Clock::time_point now) const {
+     return !have_last_ || now - last_body_ > kNoBodyFor;
+   }
++  // Fix 196b: the hold starts the emergency pose once the phone has had no body for as long as
++  // the hold needs (kHoldToStart), not kNoBodyFor: on 1.0.7_candidate_2 a player who covered the
++  // camera and held L3 + R3 straight away got nothing, with no hint yet to say why. The hint still
++  // waits kNoBodyFor, so a short loss does not flash it.
++  bool NoBodyForHoldLocked(Clock::time_point now) const {
++    return !have_last_ || now - last_body_ >= kHoldToStart;
++  }
+ 
+   mutable std::mutex mutex_;
+   Frame last_;
+@@ -152,7 +203,41 @@ class EmergencyPose {
+   bool started_in_hold_ = false;
+   Clock::time_point last_body_{}, active_since_{}, held_since_{};
+   uint32_t alias_from_ = 0, alias_to_ = 0;
++  HoldReport hold_report_;  // fix 196b
++};
++
++// Fix 196b: what the overlay's emergency line shows (DrawEmergencyHint), and its changes for the
++// log (the first kHintLines): on 1.0.7_candidate_2 the player saw no hint and the log could not say
++// whether it was drawn.
++enum class HintShown { kNone, kNoPlayer, kEmergencyOn, kRecentring };
++inline HintShown ChooseHint(bool recentring, bool on, bool visible) {
++  return recentring ? HintShown::kRecentring : on ? HintShown::kEmergencyOn
++                    : visible ? HintShown::kNoPlayer : HintShown::kNone;
++}
++inline const char* HintShownName(HintShown shown) {
++  switch (shown) {
++    case HintShown::kNoPlayer: return "\"No player seen. Hold L3 + R3...\"";
++    case HintShown::kEmergencyOn: return "\"Emergency pose on...\"";
++    case HintShown::kRecentring: return "\"Re-centring the phone camera...\"";
++    default: return "nothing";
++  }
++}
++constexpr unsigned kHintLines = 64;
++struct HintLog {
++  bool known = false;
++  HintShown last = HintShown::kNone;
++  unsigned lines = 0;
++  std::optional<std::string> Note(HintShown shown) {
++    if (known && shown == last) return std::nullopt;
++    const bool first = !known;
++    known = true;
++    last = shown;
++    if ((first && shown == HintShown::kNone) || lines >= kHintLines) return std::nullopt;
++    ++lines;
++    return std::string("Motion panel: the emergency line shows ") + HintShownName(shown) + " (fix 196b)";
++  }
+ };
++inline HintLog hint_log;  // the overlay's thread only
+ 
+ inline EmergencyPose emergency_pose;
+ 
+diff --git a/include/xbox360ps5/emergency_pad_source.hpp b/include/xbox360ps5/emergency_pad_source.hpp
+--- a/include/xbox360ps5/emergency_pad_source.hpp
++++ b/include/xbox360ps5/emergency_pad_source.hpp
+@@ -12,7 +12,10 @@
+ //    started (no "Virtual Kinect: emergency pose" line in any log).
+ // Now only player 1's pad (user 0) reaches the detector; the other slots, connected or not,
+ // neither press nor reset it. The pads' buttons still reach the game as before.
++// Fix 196b (review L1): player 1 is the PS5's first user; when only another user's pad is
++// connected, that pad (the lowest connected slot) feeds the detector, as the TV's hint expects.
+ #pragma once
++#include <atomic>
+ #include <chrono>
+ #include <cstdint>
+ 
+@@ -23,11 +26,25 @@ namespace xbox360ps5::motion {
+ constexpr uint32_t kEmergencyPadUser = 0;  // player 1
+ inline bool FeedsEmergency(uint32_t user) { return user == kEmergencyPadUser; }
+ 
+-// One pad sample of player slot `user`. True when it ends a brief L3 + R3 press of player 1's
+-// pad (a re-centre request); a sample of another slot changes nothing and is never a press.
++// Fix 196b: the slot that feeds the detector given the connected slots (bit n: slot n): the lowest
++// connected one, player 1's when none is.
++inline uint32_t EmergencySlot(uint32_t connected_slots) {
++  for (uint32_t slot = 0; slot < 32; ++slot)
++    if (connected_slots & (1u << slot)) return slot;
++  return kEmergencyPadUser;
++}
++inline std::atomic<uint32_t> emergency_pads_connected{0};  // fix 196b: bit n, slot n's pad
++
++// One pad sample of player slot `user`. True when it ends a brief L3 + R3 press of the pad that
++// feeds the detector (a re-centre request); a sample of another slot changes nothing and is never
++// a press.
+ inline bool EmergencyPadSample(EmergencyPose& pose, uint32_t user, bool connected, uint32_t buttons,
+                                std::chrono::steady_clock::time_point now) {
+-  if (!FeedsEmergency(user)) return false;
++  if (user < 32) {
++    if (connected) emergency_pads_connected.fetch_or(1u << user);
++    else emergency_pads_connected.fetch_and(~(1u << user));
++  }
++  if (user != EmergencySlot(emergency_pads_connected.load())) return false;
+   return pose.Pad(connected && (buttons & kEmergencyButtons) == kEmergencyButtons, now);
+ }
+ 
+diff --git a/platform/ps5/dualsense_input.cpp b/platform/ps5/dualsense_input.cpp
+--- a/platform/ps5/dualsense_input.cpp
++++ b/platform/ps5/dualsense_input.cpp
+@@ -52,6 +52,9 @@ void DualSenseInput::Submit(const PadSample& sample) {
+     XELOGW("Virtual Kinect: re-centre requested from the pad (seq {}) (fix 107)",
+            motion::RequestRecentre(motion::SteadyMs()));
+   }
++  // Fix 196b: a hold that started no emergency pose says why (motion_emergency.hpp).
++  if (const auto report = motion::emergency_pose.TakeHoldReport(); report.ready && motion::enabled.load())
++    XELOGW("Virtual Kinect: {} (fix 196b)", motion::HoldReportText(report));
+   std::lock_guard<std::mutex> lock(mutex_);
+   X_INPUT_GAMEPAD next{};
+   bool keyboard_suppressed = false;
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -564,7 +564,11 @@ class FpsOverlay final : public xe::ui::ImGuiDialog {
+     const bool on = xbox360ps5::motion::emergency_pose.Active();
+     const int64_t now_ms = xbox360ps5::motion::SteadyMs();
+     const bool recentring = xbox360ps5::motion::RecentrePending(now_ms);  // fix 107
+-    if (!recentring && !on && !xbox360ps5::motion::emergency_pose.HintVisible(now)) return;
++    const bool visible = xbox360ps5::motion::emergency_pose.HintVisible(now);
++    // Fix 196b: what the line shows, in the log as it changes.
++    if (const auto change = xbox360ps5::motion::hint_log.Note(xbox360ps5::motion::ChooseHint(recentring, on, visible)))
++      XELOGW("{}", *change);
++    if (!recentring && !on && !visible) return;
+     char countdown[256];
+     const char* text = nullptr;
+     if (recentring) {

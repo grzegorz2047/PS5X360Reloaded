@@ -1,0 +1,207 @@
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.h
+@@ -38,6 +38,10 @@ class VirtualFileSystem {
+   bool UnregisterDevice(const std::string_view path);
+   // Atomic disc replacement; old entries remain alive until Clear.
+   bool ReplaceDeviceRetainingOld(std::unique_ptr<Device> device);
++  // Xbox360PS5 (fix 182): a path resolved on the devices that
++  // ReplaceDeviceRetainingOld replaced (the discs in the drive before a disc
++  // swap), the last one replaced first; null when none has it.
++  Entry* ResolvePathOnReplacedDevices(const std::string_view path);
+ 
+   bool RegisterSymbolicLink(const std::string_view path,
+                             const std::string_view target);
+diff --git a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+--- a/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
++++ b/.deps/xenia-canary/src/xenia/vfs/virtual_file_system.cc
+@@ -44,6 +44,30 @@ bool VirtualFileSystem::ReplaceDeviceRetainingOld(std::unique_ptr<Device> device
+   return true;
+ }
+ 
++// Xbox360PS5 (fix 182): Grand Theft Auto V opens its install packages again
++// after the swap to its play disc, on the drive (device 2) when its first
++// pass found them there: the packages are on the disc that was in the drive
++// then, kept here until Clear.
++Entry* VirtualFileSystem::ResolvePathOnReplacedDevices(
++    const std::string_view path) {
++  auto global_lock = global_critical_region_.Acquire();
++  auto normalized_path(xe::utf8::canonicalize_guest_path(path));
++  std::string resolved_path;
++  if (ResolveSymbolicLink(normalized_path, resolved_path)) {
++    normalized_path = resolved_path;
++  }
++  std::lock_guard lock(retired_mutex);
++  auto found = retired_devices.find(this);
++  if (found == retired_devices.end()) return nullptr;
++  for (auto it = found->second.rbegin(); it != found->second.rend(); ++it) {
++    const auto& device = *it;
++    if (!xe::utf8::starts_with(normalized_path, device->mount_path())) continue;
++    auto relative_path = normalized_path.substr(device->mount_path().size());
++    if (auto entry = device->ResolvePath(relative_path)) return entry;
++  }
++  return nullptr;
++}
++
+ 
+ VirtualFileSystem::VirtualFileSystem() {}
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.h
+@@ -104,6 +104,13 @@ class ContentManager {
+   X_RESULT OpenContentFromGuestFile(const std::string_view root_name,
+                                     const std::string_view guest_path,
+                                     uint32_t& content_license);
++  // Xbox360PS5 (fix 182): the same for an entry already resolved, for example
++  // on a disc that was in the drive before a disc swap; `label` names it in
++  // the log.
++  X_RESULT OpenContentFromGuestEntry(const std::string_view root_name,
++                                     vfs::Entry* entry,
++                                     const std::string_view label,
++                                     uint32_t& content_license);
+   X_RESULT CloseContent(const std::string_view root_name);
+   X_RESULT CloseContentByDeviceName(const std::string_view device_name);
+   X_RESULT GetContentThumbnail(const uint64_t xuid,
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/content_manager.cc
+@@ -614,6 +614,15 @@ X_RESULT ContentManager::OpenContent(const std::string_view root_name,
+ X_RESULT ContentManager::OpenContentFromGuestFile(
+     const std::string_view root_name, const std::string_view guest_path,
+     uint32_t& content_license) {
++  // Xbox360PS5 (fix 182): resolved here, mounted by OpenContentFromGuestEntry.
++  auto entry = kernel_state_->file_system()->ResolvePath(guest_path);
++  return OpenContentFromGuestEntry(root_name, entry, guest_path,
++                                   content_license);
++}
++
++X_RESULT ContentManager::OpenContentFromGuestEntry(
++    const std::string_view root_name, vfs::Entry* entry,
++    const std::string_view label, uint32_t& content_license) {
+   auto global_lock = global_critical_region_.Acquire();
+ 
+   if (IsContentOpen(root_name)) {
+@@ -621,9 +630,8 @@ X_RESULT ContentManager::OpenContentFromGuestFile(
+     return X_ERROR_ALREADY_EXISTS;
+   }
+ 
+-  auto entry = kernel_state_->file_system()->ResolvePath(guest_path);
+   if (!entry || entry->attributes() & vfs::kFileAttributeDirectory) {
+-    XELOGW("{}: {} is not a file", __func__, guest_path);
++    XELOGW("{}: {} is not a file", __func__, label);
+     return X_ERROR_FILE_NOT_FOUND;
+   }
+ 
+@@ -636,7 +644,7 @@ X_RESULT ContentManager::OpenContentFromGuestFile(
+ 
+   auto mounted_package = MountPackage(root_name, std::move(package));
+   if (!mounted_package) {
+-    XELOGE("{}: Cannot mount {} as {}", __func__, guest_path, root_name);
++    XELOGE("{}: Cannot mount {} as {}", __func__, label, root_name);
+     return X_ERROR_FILE_NOT_FOUND;
+   }
+ 
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_content.cc
+@@ -397,6 +397,11 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+     // open failed and the game showed its dirty-disc error. A disc package is
+     // opened read-only from the disc; the host folder still comes first.
+     std::string disc_package;
++    // Xbox360PS5 fix 182: after a disc swap the package may be on the disc
++    // that was in the drive before it (Grand Theft Auto V opens its install
++    // packages again under "extra" on Disc 2); the file system keeps that disc.
++    vfs::Entry* disc_entry = nullptr;
++    auto disc_found = xbox360ps5::disc_content::Found::kNone;
+     if (uint32_t(content_data.device_id) ==
+             xbox360ps5::disc_content::kOpticalDrive &&
+         xbox360ps5::disc_content::OpensExisting(flags) &&
+@@ -405,17 +410,22 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+       if (!title_id || title_id == kCurrentlyRunningTitleId) {
+         title_id = kernel_state()->title_id();
+       }
+-      for (const std::string& path :
+-           xbox360ps5::disc_content::GuestPackagePaths(
+-               uint64_t(content_data.xuid), title_id,
+-               static_cast<uint32_t>(content_data.content_type.get()),
+-               xe::string_util::trim(content_data.file_name()))) {
+-        auto entry = kernel_state()->file_system()->ResolvePath(path);
+-        if (entry && !(entry->attributes() & vfs::kFileAttributeDirectory)) {
+-          disc_package = path;
+-          break;
+-        }
+-      }
++      auto* file_system = kernel_state()->file_system();
++      disc_found = xbox360ps5::disc_content::FindPackage(
++          xbox360ps5::disc_content::GuestPackagePaths(
++              uint64_t(content_data.xuid), title_id,
++              static_cast<uint32_t>(content_data.content_type.get()),
++              xe::string_util::trim(content_data.file_name())),
++          [&](const std::string& path) {
++            return file_system->ResolvePath(path);
++          },
++          [&](const std::string& path) {
++            return file_system->ResolvePathOnReplacedDevices(path);
++          },
++          [](vfs::Entry* entry) {
++            return !(entry->attributes() & vfs::kFileAttributeDirectory);
++          },
++          disc_entry, disc_package);
+     }
+     switch (flags & 0xF) {
+       case XContentFlag::kCreateNew:
+@@ -490,10 +500,14 @@ dword_result_t xeXamContentCreate(dword_t user_index, lpstring_t root_name,
+                                               content_data_internal);
+     } else if (disposition == kDispositionState::Open &&
+                !disc_package.empty()) {
+-      result = content_manager->OpenContentFromGuestFile(
+-          root_name, disc_package, content_license);
+-      XELOGW("Content (fix 148): {} opened from the disc, {}: result {:08X}",
+-             root_name, disc_package, uint32_t(result));
++      result = content_manager->OpenContentFromGuestEntry(
++          root_name, disc_entry, disc_package, content_license);
++      XELOGW("Content (fix 148): {} opened from the disc{}, {}: result {:08X}",
++             root_name,
++             disc_found == xbox360ps5::disc_content::Found::kEarlierDisc
++                 ? " in the drive before the disc swap (fix 182)"
++                 : "",
++             disc_package, uint32_t(result));
+     } else if (disposition == kDispositionState::Open) {
+       result = content_manager->OpenContent(root_name, xuid, content_data,
+                                             content_license);
+diff --git a/include/xbox360ps5/disc_content.hpp b/include/xbox360ps5/disc_content.hpp
+--- a/include/xbox360ps5/disc_content.hpp
++++ b/include/xbox360ps5/disc_content.hpp
+@@ -55,4 +55,31 @@ inline bool OpensExisting(uint32_t flags) {
+   return disposition == 3 || disposition == 4;
+ }
+ 
++// Fix 182: where a disc package was found.
++enum class Found { kNone, kDrive, kEarlierDisc };
++
++// Fix 182: a disc package is looked for at every path on the disc in the drive (game:) first, then
++// on the discs that were in the drive before a disc swap (VirtualFileSystem keeps them,
++// ResolvePathOnReplacedDevices). Grand Theft Auto V opens its four packages again under the root
++// "extra" after the swap from Disc 1 (Install) to Disc 2 (Play), on the device where its first pass
++// found them; after an install made in the session that is the drive, which then holds Disc 2, so
++// all four opens failed with "path not found" and the game waited for them for hours.
++// on_drive(path) and on_earlier(path) return the entry (nullptr when absent); is_file(entry) refuses
++// a folder. `entry` and `path` are set only when a package is found.
++template <class Entry, class OnDrive, class OnEarlier, class IsFile>
++Found FindPackage(const std::vector<std::string>& paths, OnDrive&& on_drive, OnEarlier&& on_earlier,
++                  IsFile&& is_file, Entry*& entry, std::string& path) {
++  for (int pass = 0; pass < 2; ++pass) {
++    for (const std::string& candidate : paths) {
++      Entry* found = pass == 0 ? on_drive(candidate) : on_earlier(candidate);
++      if (found && is_file(found)) {
++        entry = found;
++        path = candidate;
++        return pass == 0 ? Found::kDrive : Found::kEarlierDisc;
++      }
++    }
++  }
++  return Found::kNone;
++}
++
+ }  // namespace xbox360ps5::disc_content

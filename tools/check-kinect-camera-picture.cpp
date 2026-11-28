@@ -316,7 +316,10 @@ int main(int argc, char** argv) {
   CHECK(camera.find("if (picture_store.Copy(SteadyMs(), picture_wanted.load() && enabled.load(), out)) {\n"
                     "      picture_stats.Frame(true);") != std::string::npos);
   CHECK(camera.find("    picture_stats.Frame(false);\n"
-                    "    out.assign(kColorFrameBytes,kNoPictureLevel);return sequence;") != std::string::npos);
+                    "    out.assign(kColorFrameBytes,kNoPictureLevel);return sequence;") != std::string::npos ||
+        (camera.find("    picture_stats.Frame(false);\n") != std::string::npos &&  // fix 185: the figure between
+         camera.find("    picture_stats.Frame(false);\n") <
+             camera.find("    out.assign(kColorFrameBytes,kNoPictureLevel);return sequence;")));
   const std::string pscam = ReadText(".deps/xenia-canary/src/xenia/kernel/xboxkrnl/xboxkrnl_pscam.cc");
   CHECK(pscam.find("++xbox360ps5::motion::guest_color_frames;\n"
                    "      // Fix 119b: what became of the phone's pictures, every 10 s (camera_picture.hpp).\n"

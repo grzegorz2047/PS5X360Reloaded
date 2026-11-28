@@ -1,0 +1,20 @@
+diff --git a/include/xbox360ps5/resolution_scale.hpp b/include/xbox360ps5/resolution_scale.hpp
+--- a/include/xbox360ps5/resolution_scale.hpp
++++ b/include/xbox360ps5/resolution_scale.hpp
+@@ -326,9 +326,15 @@ inline bool TwoXUnfit(const std::string& title_id) {
+ //  - Red Dead Redemption (5454082B), 1.0.5-work-fix133 (4 classes).
+ // Grand Theft Auto IV (545407F2) is not here: five 2x logs, the floor never hit.
+ #define XBOX360PS5_AUTO_ONE_X_FLOOR_TITLES 1  // fix 162h (the host checks look for it)
++// Fix 197: Halo: Reach (4D53085B) on 1.0.7_candidate_1 at 2x (Automatic, no verdict): 1 class kept at
++// 1x after some minutes, then 3 and 4, with 16 render targets (230 MiB) made at 1x next to 33 scaled
++// (1863 MiB); the picture filled with noise "after a while". At 1x (its own setting) it was clean.
++// Fix 163's verdict would give it 1x only from its next start, as for fix 162h's games.
++#define XBOX360PS5_AUTO_ONE_X_HALO_REACH 1  // fix 197 (the host checks look for it)
+ inline bool AutomaticStartsAtOneX(const std::string& title_id) {
+   static constexpr const char* kTitles[] = {"4D5308C9", "4D5309D6", "4D4A07F0",
+-                                            "545408A7", "45410950", "4E4D0859", "5454082B"};
++                                            "545408A7", "45410950", "4E4D0859", "5454082B",
++                                            "4D53085B"};
+   for (const char* id : kTitles) {
+     if (title_id.size() != 8) continue;
+     bool same = true;

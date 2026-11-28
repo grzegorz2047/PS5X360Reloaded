@@ -1,0 +1,22 @@
+title_name = "Harry Potter for Kinect"
+title_id = "57520826"
+hash = "BA2E557F754ED9C1" # default.xex (USA, Europe)
+
+[[patch]]
+    name = "Spoken spells time out without a microphone"
+    desc = "Charms class asks you to say each spell aloud. In most lessons the game moves on by itself after about a minute of silence (two prompts, then it skips the spoken part and goes on to the wand pose); in five lessons it waits for the spoken spell forever, so without a microphone that hears you the lesson never ends. With this patch those lessons time out like the others. Saying the spell still works when a microphone is available."
+    author = "PS5X360"
+    is_enabled = true
+
+    # Charms class, listening for the spoken spell (82390138, mode ListeningForVerbal): a countdown
+    # (+0xD74: 22 s, then 25 s) with two re-prompts (+0xDDC), then +0xB78 = 0 and the next update
+    # switches to SkippingVerbal (mode 4) and on to the pose. The lesson set-up (8238AD28) sets
+    # +0xDB1 for lessons 66F00010..66F00013 and +0xDC1 for 6790000A; while either is set these two
+    # branches go past the countdown (to 82390300), so those lessons wait forever. Both become nops:
+    # every lesson counts down. Lessons with both flags clear never took the branches (unchanged).
+    [[patch.be32]]
+        address = 0x82390224
+        value = 0x60000000 # was 409A00DC: bne cr6, 0x82390300 (+0xDB1 set)
+    [[patch.be32]]
+        address = 0x82390230
+        value = 0x60000000 # was 409A00D0: bne cr6, 0x82390300 (+0xDC1 set)

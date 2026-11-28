@@ -1,0 +1,169 @@
+diff --git a/include/xbox360ps5/exit_cache_timing.hpp b/include/xbox360ps5/exit_cache_timing.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/exit_cache_timing.hpp
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: MIT
++// Fix 173: where the time of the exit checkpoint of the Vulkan pipeline cache goes. GTA IV at 2x on
++// 1.0.7-work-integration1 left with "exit checkpoint timed out after 30000 ms" while its utility
++// cache on the drive took 0.95 s to create and 3.8 s to delete a file: the GPU thread (saturated) or
++// the drive (its write budget spent)? The checkpoint now notes each step from the request on -
++// queued, taken by the GPU thread, the snapshot's data read (its write starts), written - and the
++// checkpoint's line gives them in milliseconds, the steps not reached as such. Diagnostics only: the
++// checkpoint does what it did.
++#pragma once
++#include <atomic>
++#include <chrono>
++#include <cstdint>
++#include <cstdio>
++#include <string>
++
++namespace xbox360ps5::exit_cache_timing {
++
++enum Step : int { kTaken = 0, kRead = 1, kWritten = 2, kSteps = 3 };
++
++struct Timing {
++  std::atomic<bool> armed{false};
++  std::atomic<int64_t> start_ns{0};
++  std::atomic<int64_t> at_ns[kSteps];
++  std::atomic<uint64_t> bytes{0};
++  std::atomic<int> saved{-1};  // -1 not known, 0 failed, 1 saved
++  Timing() {
++    for (auto& at : at_ns) at.store(-1);
++  }
++};
++inline Timing& Global() {
++  static Timing* timing = new Timing();
++  return *timing;
++}
++inline int64_t NowNs() {
++  return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
++      .count();
++}
++
++// The exit checkpoint asks for a snapshot: the steps after it are noted (other snapshots are not).
++inline void Begin(Timing& t, int64_t now_ns) {
++  for (auto& at : t.at_ns) at.store(-1);
++  t.bytes.store(0);
++  t.saved.store(-1);
++  t.start_ns.store(now_ns);
++  t.armed.store(true);
++}
++inline void Mark(Timing& t, Step step, int64_t now_ns, uint64_t bytes = 0) {
++  if (!t.armed.load()) return;
++  t.at_ns[step].store(now_ns - t.start_ns.load());
++  if (bytes) t.bytes.store(bytes);
++}
++inline void Finish(Timing& t, int64_t now_ns, bool saved) {
++  if (!t.armed.load()) return;
++  t.at_ns[kWritten].store(now_ns - t.start_ns.load());
++  t.saved.store(saved ? 1 : 0);
++}
++inline void End(Timing& t) { t.armed.store(false); }
++
++// "queued at 0 ms; taken by the GPU thread after 12.3 ms; snapshot of 31457280 bytes read after
++// 40.1 ms (its write starts); written after 1650.2 ms (saved)", "not reached" for the missing ones.
++inline std::string Line(const Timing& t) {
++  auto ms = [&t](Step step) -> std::string {
++    const int64_t ns = t.at_ns[step].load();
++    if (ns < 0) return "not reached";
++    char text[40];
++    std::snprintf(text, sizeof(text), "after %.1f ms", double(ns) / 1e6);
++    return text;
++  };
++  std::string line = "queued at 0 ms; taken by the GPU thread " + ms(kTaken) + "; snapshot";
++  if (const uint64_t bytes = t.bytes.load()) line += " of " + std::to_string(bytes) + " bytes";
++  line += " read " + ms(kRead) + " (its write starts); written " + ms(kWritten);
++  const int saved = t.saved.load();
++  if (saved >= 0) line += saved ? " (saved)" : " (failed or unavailable)";
++  return line;
++}
++
++}  // namespace xbox360ps5::exit_cache_timing
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_command_processor.cc
+@@ -14,6 +14,7 @@
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ #include "xbox360ps5/readback_keys.hpp"  // fix 91 diagnostic
+ #include "xbox360ps5/resolution_scale.hpp"  // fix 117
++#include "xbox360ps5/exit_cache_timing.hpp"  // fix 173
+ #include <sys/stat.h>
+ #include <algorithm>
+ #include <chrono>
+@@ -284,12 +285,16 @@ std::future<bool> VulkanCommandProcessor::RequestPipelineCacheSnapshot() {
+   // The processor owns the queue and joins its worker before destroying caches.
+   // Capturing the promise by value keeps completion valid after a caller timeout.
+   CallInThread([this, completion]() {
++    namespace timing = xbox360ps5::exit_cache_timing;
++    // Fix 173: the GPU thread took the request (the exit checkpoint's steps).
++    timing::Mark(timing::Global(), timing::kTaken, timing::NowNs());
+     bool saved = false;
+     try {
+       saved = pipeline_cache_ && pipeline_cache_->SavePipelineCacheSnapshot();
+     } catch (...) {
+       // Also contain future changes to the storage checkpoint implementation.
+     }
++    timing::Finish(timing::Global(), timing::NowNs(), saved);  // fix 173
+     try {
+       completion->set_value(saved);
+     } catch (...) {
+diff --git a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+--- a/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
++++ b/.deps/xenia-canary/src/xenia/gpu/vulkan/vulkan_pipeline_cache.cc
+@@ -10,6 +10,7 @@
+ #include "xenia/gpu/vulkan/vulkan_pipeline_cache.h"
+ #include "xbox360ps5/pipeline_cache_header.hpp"
+ #include "xbox360ps5/cache_io.hpp"
++#include "xbox360ps5/exit_cache_timing.hpp"  // fix 173
+ #include "xbox360ps5/frame_cost.hpp"  // fix 49
+ #include "xbox360ps5/app_identity.hpp"  // fix 46: the title's folder
+ 
+@@ -3961,6 +3962,11 @@ bool VulkanPipelineCache::SavePipelineCacheSnapshot() noexcept try {
+         device, vk_pipeline_cache_, &written, data.data());
+     if (result == VK_SUCCESS) {
+       if (written < 32 || written > data.size()) return false;
++      // Fix 173: the snapshot's data read; its write starts.
++      xbox360ps5::exit_cache_timing::Mark(
++          xbox360ps5::exit_cache_timing::Global(),
++          xbox360ps5::exit_cache_timing::kRead,
++          xbox360ps5::exit_cache_timing::NowNs(), written);
+       const bool saved = xbox360ps5::WriteCacheAtomically(
+           vk_pipeline_cache_path_, data.data(), written);
+       XELOGI("Vulkan cache: title {:08X} snapshot {} bytes at {} {}",
+diff --git a/src/canary_game_main.cpp b/src/canary_game_main.cpp
+--- a/src/canary_game_main.cpp
++++ b/src/canary_game_main.cpp
+@@ -27,6 +27,7 @@ bool LauncherShelfFocused();  // launcher.cpp
+ void LauncherSetRunningGame(const std::string& path, const std::string& name);  // launcher.cpp
+ }
+ #include "xbox360ps5/bug_report.hpp"  // fix 93: logs for a bug report
++#include "xbox360ps5/exit_cache_timing.hpp"  // fix 173
+ #include "xbox360ps5/leaving_notice.hpp"  // fix 93b: "Returning to the menu..."
+ namespace xbox360ps5 {
+ void LauncherShowBugReport(bug_report::Report report, std::function<void()> closed);  // launcher.cpp, fix 93
+@@ -399,6 +400,9 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
+   }
+   std::lock_guard<std::mutex> lock(state->mutex);
+   if (!state->processor) return;
++  // Fix 173: each step from here timed, in the checkpoint's line.
++  namespace exit_timing = xbox360ps5::exit_cache_timing;
++  exit_timing::Begin(exit_timing::Global(), exit_timing::NowNs());
+   auto completion = state->processor->RequestPipelineCacheSnapshot();
+   // Binary release patch group 7: 30 s, not 1.5 s. A cache of about 30 MB did
+   // not finish writing in 1.5 s and stayed behind as .vk.bin.pending-0, so the
+@@ -408,10 +412,14 @@ void CheckpointExitCache(const std::shared_ptr<ExitCacheState>& state) noexcept
+       std::future_status::ready) {
+     XELOGW("Vulkan cache: exit checkpoint timed out after {} ms",
+            kExitCheckpointTimeout.count());
++    XELOGW("Vulkan cache (fix 173): exit checkpoint steps: {}", exit_timing::Line(exit_timing::Global()));
++    exit_timing::End(exit_timing::Global());
+     return;
+   }
+   XELOGI("Vulkan cache: exit checkpoint {}",
+          completion.get() ? "saved" : "unavailable or failed");
++  XELOGW("Vulkan cache (fix 173): exit checkpoint steps: {}", exit_timing::Line(exit_timing::Global()));
++  exit_timing::End(exit_timing::Global());
+ } catch (...) {
+   // Includes enqueue allocation and future_error from a stopped GPU worker.
+   // Exit/restart must remain possible even if the checkpoint is unavailable.

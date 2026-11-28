@@ -1,0 +1,207 @@
+diff --git a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+--- a/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
++++ b/.deps/xenia-canary/src/xenia/kernel/xam/xam_nui.cc
+@@ -10,6 +10,7 @@
+ #include <cstring>
+ #include "xenia/base/logging.h"
+ #include "xbox360ps5/motion_input.hpp"
++#include "xbox360ps5/nui_speech.hpp"  // fix 170
+ #include "xbox360ps5/virtual_nui.hpp"
+ #include "xenia/kernel/kinect_title.h"
+ #include "xenia/emulator.h"
+@@ -54,6 +55,17 @@ bool NuiWritable(uint32_t address, size_t size) {
+   }
+   return true;
+ }
++// Fix 170: a guest word, read only where the page table says it can be (a back chain or a
++// return address that leads nowhere ends the look instead of faulting).
++bool NuiReadWord(uint32_t address, uint32_t* value) {
++  if (!address || (address & 3)) return false;
++  auto* heap = kernel_state()->memory()->LookupHeap(address);
++  uint32_t protection = 0;
++  if (!heap || !heap->QueryProtect(address, &protection) ||
++      !(protection & kMemoryProtectRead)) return false;
++  *value = xe::load_and_swap<uint32_t>(kernel_state()->memory()->TranslateVirtual(address));
++  return true;
++}
+ xbox360ps5::motion::NuiBinding BoundNuiPlayer() {
+   return xbox360ps5::motion::LiveNuiBinding(KinectRequiredTitle(kernel_state()),
+                                           NuiSignedInMask());
+@@ -84,7 +96,7 @@ static_assert_size(X_NUI_DEVICE_STATUS, 0x10);
+ 
+ // Get
+ dword_result_t XamNuiGetDeviceStatus_entry(
+-    pointer_t<X_NUI_DEVICE_STATUS> status_ptr) {
++    pointer_t<X_NUI_DEVICE_STATUS> status_ptr, const ppc_context_t& ctx) {
+   if (VirtualNuiMode()) {
+     if (!NuiWritable(status_ptr.guest_address(), sizeof(X_NUI_DEVICE_STATUS)))
+       return X_E_INVALIDARG;
+@@ -97,7 +109,26 @@ dword_result_t XamNuiGetDeviceStatus_entry(
+     status_ptr->camera_status = status.camera_status;
+     status_ptr->tilt_status = status.tilt_status;
+     status_ptr->mic_status = status.mic_status;
+-    status_ptr->status_bits = status.status_bits;
++    // Fix 170 (xbox360ps5/nui_speech.hpp): the Kinect speech library's two microphone
++    // questions get the microphone's answer, since none is emulated. Its start-up keeps a
++    // failed capture only when the device is ready: told ready, it fails now (as Nike+ does)
++    // instead of waiting for a status notification that never comes. Its stream Read waits
++    // again on every timeout while the device is ready: told not ready, it fails instead of
++    // waiting forever (Harry Potter, issue 74). Every other caller gets fix 156's bits.
++    uint32_t speech_at = 0;
++    const auto site = xbox360ps5::nui_speech::ClassifyCaller(uint32_t(ctx->lr), uint32_t(ctx->r[1]),
++                                                             NuiReadWord, &speech_at);
++    const uint32_t bits = xbox360ps5::nui_speech::SpeechStatusBits(site, status.status_bits);
++    status_ptr->status_bits = bits;
++    if (bits != status.status_bits) {
++      static std::atomic<uint32_t> startup_shown{0}, read_shown{0};
++      auto& shown_here = site == xbox360ps5::nui_speech::Site::kStartup ? startup_shown : read_shown;
++      if (shown_here.fetch_add(1) < 8)
++        XELOGW("Virtual Kinect: the speech library's {} check (returns to {:08X}) gets status bits "
++               "{:X} instead of {:X}: no microphone, so it fails instead of waiting for one "
++               "(fix 170)", xbox360ps5::nui_speech::SiteName(site), speech_at, bits,
++               status.status_bits);
++    }
+     // The first 16 answers, and every change after them (16 more): Harry Potter
+     // polls this every frame from before its camera opens.
+     static std::atomic<uint32_t> shown{0}, changes{0}, last{0xFFFFFFFF};
+diff --git a/include/xbox360ps5/nui_speech.hpp b/include/xbox360ps5/nui_speech.hpp
+new file mode 100644
+--- /dev/null
++++ b/include/xbox360ps5/nui_speech.hpp
+@@ -0,0 +1,136 @@
++// SPDX-License-Identifier: MIT
++// Fix 170 (Harry Potter Kinect 57520826, issue 74): the Kinect speech library waits for a
++// microphone that no virtual Kinect has.
++//
++// The titles' statically linked Kinect speech library (NUISP, the XEX lists it among its static
++// libraries) reads Kinect audio through an audio source object (SAPI's ISpAudio). Its device
++// check reads the NUI status bits through the library's XamNuiGetDeviceStatus wrapper; 0x2 is
++// "ready" there, as for the rest of the NUI code (fix 156). Read from Zumba Fitness Core's and
++// Dance Central 3's default.xex (NUISP 2.0.21173.0, the build Harry Potter and Nike+ Kinect
++// Training link) and Kinect Sports Season Two's (2.0.20764.3):
++//  - Start-up (Zumba 825BCD38): the device check (825BCBF8) starts the microphone capture when
++//    the device is ready; else it notes "not connected" (0x8007048F) or "not ready"
++//    (0x80070015). A failed start-up is kept only when the device is ready (the second
++//    status call, 825BCDD4); otherwise start-up succeeds and the capture waits for the system's
++//    NUI hardware status notification (0x00060019, routed by the library's notification thread
++//    825B7A08 -> 825B24C8 -> 825BCD08) to start it later.
++//  - Read (825BC448, the stream's Read): while the audio source runs, it waits 20 ms at a time
++//    on the source's event (+0x24), which only the capture's frame callback (825BC8F8) and a
++//    status change set. On each timeout it asks the device status again (825BC4FC): not ready
++//    -> it fails with 0x80070015 / 0x8007048F; ready -> it keeps waiting unless the capture
++//    reported an error (a global the capture's own error callback sets).
++// There is no microphone array (fix 156f answers XamVoiceGetMicArrayAudioEx 0x8007048F), so
++// the capture never starts. A title that starts its speech after its camera opened (Nike+,
++// Zumba, Season Two) gets the capture's failure at start-up and goes on without voice. Harry
++// Potter starts its speech while its camera is still closed (status bits 0): start-up waits
++// for a notification the emulator never sends, then its recognizer's Read sees "ready" (the
++// camera opened, bits 0x3) and waits forever (thread 16 on its event at +0x24, the main
++// thread on its loading card, frame 796).
++//
++// The answer: the library's two questions about the microphone get the microphone's answer.
++//  - The start-up's "keep the error?" call is told ready (bit 0x2 set): start-up fails now, as
++//    it does in Nike+ (the same error, 0x8007048F), instead of waiting.
++//  - The Read's timeout call is told not ready (bit 0x2 clear): Read fails (0x80070015 with the
++//    device connected) instead of waiting forever. Only a source whose capture never started
++//    reaches this, since the capture's frames would set the event first.
++// Every other caller (the titles' own Kinect code, the library's device check that starts the
++// capture) gets fix 156's answer unchanged.
++//
++// The two calls are found by the shape of the code around the return address (no per-title
++// address): XamNuiGetDeviceStatus's LR is the wrapper's return, and the wrapper's saved LR
++// (one frame up the back chain) is the return into the speech code. Both builds' shapes:
++//  start-up: or. rS,r3,r3 / bge / bl wrapper / RET: rlwinm rA,r3,0,30,30 / subfic rA,rA,0 /
++//            subfe / and   (the error is kept only with 0x2)
++//  Read:     cmpwi crN,r3,0x102 (the wait timed out) shortly before bl wrapper, then
++//            RET: rlwinm. rA,r3,0,30,30 / beq (Season Two), or
++//            RET: b +8 / li r3,2 / rlwinm. rA,r3,0,30,30 / beq (21173: the "use the Kinect"
++//            flag's default)
++// Each image has exactly one of each (Zumba 825BCDD8 / 825BC500, Dance Central 3 8286EA30 /
++// 8286E150, Season Two 82AAD5D8 / 82AACDDC); Harry Potter's Read return is 82AB51A0.
++#pragma once
++#include <cstdint>
++
++namespace xbox360ps5::nui_speech {
++
++constexpr uint32_t kStatusReady = 0x2;  // the NUI status bit the speech code tests
++
++enum class Site { kOther, kStartup, kRead };
++
++inline const char* SiteName(Site site) {
++  switch (site) {
++    case Site::kStartup: return "start-up";
++    case Site::kRead: return "audio read";
++    default: return "other";
++  }
++}
++
++namespace detail {
++inline bool IsBl(uint32_t w) { return (w >> 26) == 18 && (w & 3) == 1; }
++// rlwinm[.] rA,r3,0,30,30 (r3 & 0x2), Rc as given.
++inline bool TestsReadyBit(uint32_t w, bool record) {
++  return (w & 0xFFE0FFFE) == 0x546007BC && (w & 1) == (record ? 1u : 0u);
++}
++inline bool IsBeqCr0(uint32_t w) { return (w & 0xFFFF0000) == 0x41820000; }
++// cmpwi crN,r3,0x102 (STATUS_TIMEOUT from the wait), any field.
++inline bool IsTimeoutTest(uint32_t w) { return (w & 0xFC7FFFFF) == 0x2C030102; }
++}  // namespace detail
++
++// What the speech code at return address `ret` does with the status it asked for.
++// read(address, &word) reads a big-endian guest word and returns false when it cannot.
++template <typename Read>
++inline Site ClassifyReturn(uint32_t ret, Read read) {
++  using namespace detail;
++  if (!ret || (ret & 3) || ret < 0x20) return Site::kOther;
++  uint32_t w[12];  // ret-0x20 .. ret+0x0C
++  for (int i = 0; i < 12; ++i)
++    if (!read(ret - 0x20 + uint32_t(i) * 4, &w[i])) return Site::kOther;
++  const auto at = [&](int offset) { return w[(offset + 0x20) / 4]; };
++  if (!IsBl(at(-4))) return Site::kOther;
++  // Start-up: the error is kept only when bit 0x2 is set.
++  if ((at(-12) & 0xFC0007FF) == 0x7C000379 &&     // or. rA,rS,rS (the device check's result)
++      (at(-8) & 0xFFFF0000) == 0x40800000 &&       // bge (cr0): no error, no question
++      TestsReadyBit(at(0), false) &&
++      (at(4) & 0xFC00FFFF) == 0x20000000 &&         // subfic rD,rA,0
++      (at(8) & 0xFC0007FE) == 0x7C000110 &&         // subfe rD,rA,rB
++      (at(12) & 0xFC0007FE) == 0x7C000038)          // and
++    return Site::kStartup;
++  // Read: asked after the wait timed out, and "ready" means "wait again".
++  bool after_timeout = false;
++  for (int offset = -0x20; offset < -4; offset += 4)
++    if (IsTimeoutTest(at(offset))) after_timeout = true;
++  if (!after_timeout) return Site::kOther;
++  if (TestsReadyBit(at(0), true) && IsBeqCr0(at(4))) return Site::kRead;
++  if (at(0) == 0x48000008 && at(4) == 0x38600002 && TestsReadyBit(at(8), true) &&
++      IsBeqCr0(at(12)))
++    return Site::kRead;
++  return Site::kOther;
++}
++
++// The caller of XamNuiGetDeviceStatus: `lr` returns into the title's status wrapper, whose
++// own saved LR (8 bytes below its caller's stack pointer, the word at `sp`) returns into the
++// speech code. A call straight from the speech code (lr itself) is recognised too.
++template <typename Read>
++inline Site ClassifyCaller(uint32_t lr, uint32_t sp, Read read, uint32_t* where = nullptr) {
++  Site site = ClassifyReturn(lr, read);
++  uint32_t ret = lr;
++  if (site == Site::kOther) {
++    uint32_t back = 0, saved = 0;
++    if (!sp || !read(sp, &back) || back <= sp || back - sp > 0x100000) return Site::kOther;
++    if (!read(back - 8, &saved)) return Site::kOther;
++    site = ClassifyReturn(saved, read);
++    ret = saved;
++  }
++  if (where) *where = site == Site::kOther ? 0 : ret;
++  return site;
++}
++
++// The status bits the speech code at `site` is given (fix 156's bits otherwise).
++inline uint32_t SpeechStatusBits(Site site, uint32_t bits) {
++  switch (site) {
++    case Site::kStartup: return bits | kStatusReady;   // fail start-up now: no microphone
++    case Site::kRead: return bits & ~kStatusReady;     // fail the read: no microphone
++    default: return bits;
++  }
++}
++
++}  // namespace xbox360ps5::nui_speech

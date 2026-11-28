@@ -1,0 +1,64 @@
+diff --git a/include/xbox360ps5/nui_identity.hpp b/include/xbox360ps5/nui_identity.hpp
+--- a/include/xbox360ps5/nui_identity.hpp
++++ b/include/xbox360ps5/nui_identity.hpp
+@@ -215,9 +215,11 @@ inline std::vector<Request> TakeDue() {
+ inline std::atomic<bool> identify_bound{false};  // this title's identify is answered here
+ inline std::vector<uint32_t> identified;          // bodies answered (under mutex)
+ constexpr size_t kMaxIdentified = 16;
++inline bool has_player = false;  // fix 156w: a body was identified since the binding (under mutex)
+ inline void MarkIdentified(uint32_t tracking_id) {
+   if (!tracking_id) return;
+   std::lock_guard lock(mutex);
++  has_player = true;  // fix 156w
+   for (uint32_t id : identified)
+     if (id == tracking_id) return;
+   if (identified.size() >= kMaxIdentified) identified.erase(identified.begin());
+@@ -228,7 +230,21 @@ inline void MarkIdentified(uint32_t tracking_id) {
+ // taken as identified, and the frames say what they said before 156t. A title that asked once
+ // never falls back (Zumba may first see the body during its intro and ask only on its search
+ // screen).
++//
++// Fix 156w (1.0.7_integration1 on the console, #75): a body tracked again after the title has its
++// player. A gap in the phone's frames drops the body and it comes back under a new tracking id
++// (fix 169 keeps the id through gaps of up to 2 s; a longer one still makes a new body). With
++// 156t that body stayed "call identify" for good once the title had asked once: Kinect Sports
++// (Football) and Fighters Uncaged (TrainingHall) identify their player at the start and never
++// ask again, so body 2 kept enrollment -1 and no user until the game ended (73 s and 20 s).
++// Before 156t a returning body had the profile's enrollment. The phone has one player, so once a
++// body was identified (or taken as identified) since the binding, a new body is "call identify"
++// only for kReaskWithinMs, and as long as the title has a request for it on its way: Zumba asks
++// for an unidentified player every frame, so it still identifies body 2 itself; a title that does
++// not ask gets the profile's enrollment and user after kReaskWithinMs. A title's first body is
++// as in 156t.
+ constexpr int64_t kAskWithinMs = 20000;
++constexpr int64_t kReaskWithinMs = 1500;  // fix 156w
+ inline uint32_t watched_body = 0;  // under mutex
+ inline int64_t watched_since_ms = 0;
+ inline bool Unidentified(uint32_t tracking_id, int64_t now_ms) {
+@@ -240,9 +256,18 @@ inline bool Unidentified(uint32_t tracking_id, int64_t now_ms) {
+     watched_body = tracking_id;
+     watched_since_ms = now_ms;
+   }
++  if (has_player) {  // fix 156w: the player again, unless the title asks about it
++    bool asked = false;
++    for (const Request& r : pending) asked |= r.tracking_id == tracking_id;
++    if (asked || now_ms - watched_since_ms < kReaskWithinMs) return true;
++    if (identified.size() >= kMaxIdentified) identified.erase(identified.begin());
++    identified.push_back(tracking_id);
++    return false;
++  }
+   if (!ever_asked && now_ms - watched_since_ms >= kAskWithinMs) {
+     if (identified.size() >= kMaxIdentified) identified.erase(identified.begin());
+     identified.push_back(tracking_id);
++    has_player = true;  // fix 156w
+     return false;
+   }
+   return true;
+@@ -262,6 +287,7 @@ inline void Reset() {
+   pending.clear();
+   identified.clear();  // fix 156t
+   ever_asked = false;
++  has_player = false;  // fix 156w
+   watched_body = 0;
+   watched_since_ms = 0;
+ }
