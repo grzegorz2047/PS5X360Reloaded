@@ -1,0 +1,52 @@
+diff --git a/include/xbox360ps5/play_space_map.hpp b/include/xbox360ps5/play_space_map.hpp
+--- a/include/xbox360ps5/play_space_map.hpp
++++ b/include/xbox360ps5/play_space_map.hpp
+@@ -26,6 +26,9 @@
+ #include "xbox360ps5/motion_input.hpp"
+ #include "xbox360ps5/virtual_skeleton.hpp"  // SkeletonSpace, kSensorHeight
+ 
++// Fix 194b is in (the sideways hint only for a torso lying across the picture).
++#define XBOX360PS5_PLAY_SPACE_194B 1
++
+ namespace xbox360ps5::motion::play_space {
+ 
+ // The field of view: Kinect's 57 degrees across, and the depth SkeletonSpace keeps (0.8-4 m).
+@@ -40,6 +43,11 @@ constexpr float kDepthSlack = 0.1f;
+ constexpr float kSideMetres = 0.5f, kEdgeMargin = 0.3f;
+ // The torso (hip centre to shoulder centre) further than this from upright: lying sideways.
+ constexpr float kSidewaysDegrees = 50.0f;
++// Fix 194b (review L2): and only when the torso lies across the picture at full length, the
++// shoulders not below the hips: a toe touch, a plank, a push-up or a burpee seen from the front
++// (shoulders down, or the torso foreshortened towards the camera) is a player bending, not a
++// phone turned on its side.
++constexpr float kSidewaysSpan = 0.3f, kSidewaysDrop = 0.1f;
+ // The map shows x within +-kMapHalfWidth (the wedge is wider further back, and is cut there).
+ constexpr float kMapHalfWidth = 1.5f, kMapDepth = 4.25f;
+ constexpr int kHipCentre = 0, kSpine = 1, kShoulderCentre = 2;
+@@ -55,6 +63,7 @@ struct Place {
+   bool whole_body = false;  // head, hands and feet seen (PositionHint)
+   float tilt_degrees = 0;   // the torso from upright (0 upright, 90 lying, 180 upside down)
+   bool tilt_known = false;
++  float torso_dx = 0, torso_dy = 0;  // fix 194b: hip centre to shoulder centre, sensor metres
+ };
+ 
+ inline Place PlaceOf(const Frame& guest) {
+@@ -80,6 +89,8 @@ inline Place PlaceOf(const Frame& guest) {
+     if (std::hypot(dx, dy) > 0.05f) {
+       place.tilt_degrees = std::atan2(std::fabs(dx), dy) * 180.0f / 3.14159265f;
+       place.tilt_known = true;
++      place.torso_dx = dx;
++      place.torso_dy = dy;
+     }
+   }
+   return place;
+@@ -109,7 +120,8 @@ inline Guidance Guide(const Place& place) {
+   Guidance guide;
+   if (!place.body) return guide;
+   guide.in_sweet_spot = InSweetSpot(place.x, place.z);
+-  if (place.tilt_known && place.tilt_degrees > kSidewaysDegrees) {
++  if (place.tilt_known && place.tilt_degrees > kSidewaysDegrees && std::fabs(place.torso_dx) >= kSidewaysSpan &&
++      place.torso_dy >= -kSidewaysDrop) {
+     guide.hints = kSideways;
+     return guide;
+   }

@@ -15,6 +15,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "xbox360ps5/body_scale.hpp"
@@ -153,8 +154,26 @@ static void CheckGuidance() {
   // that is said; 45 degrees (a lean) is not; upside down is.
   CHECK(ps::Guide(ps::PlaceOf(Turned(90))).hints == ps::kSideways);
   CHECK(ps::Guide(ps::PlaceOf(Turned(-90))).hints == ps::kSideways);
-  CHECK(ps::Guide(ps::PlaceOf(Turned(180))).hints == ps::kSideways);
   CHECK(ps::Guide(ps::PlaceOf(Turned(45))).hints == ps::kNone);
+#ifdef XBOX360PS5_PLAY_SPACE_194B
+  // Fix 194b (review L2): a player bending is not a turned phone: upside down, a toe touch
+  // (shoulders 0.2 m under the hips), a push-up or plank seen from the front (the torso
+  // foreshortened to 0.1 m across) keep the place's hints.
+  CHECK(ps::Guide(ps::PlaceOf(Turned(180))).hints == ps::kNone);
+  for (const auto& [sx, sy] : {std::pair<float, float>{0.05f, -0.2f}, {0.25f, -0.15f}, {0.1f, 0.02f}, {-0.08f, -0.05f}}) {
+    m::Frame bent = Standing(0, 1.0f);  // 1.5 m: step back
+    bent.joints[2].x = sx;
+    bent.joints[2].y = sy;
+    const ps::Place place = ps::PlaceOf(bent);
+    CHECK(place.tilt_known && place.tilt_degrees > ps::kSidewaysDegrees);
+    CHECK(!(ps::Guide(place).hints & ps::kSideways) && (ps::Guide(place).hints & ps::kStepBack));
+  }
+  // Lying across the picture with the shoulders a little lower still counts.
+  m::Frame lying = Turned(80);
+  CHECK(ps::Guide(ps::PlaceOf(lying)).hints == ps::kSideways);
+#else
+  CHECK(ps::Guide(ps::PlaceOf(Turned(180))).hints == ps::kSideways);
+#endif
   CHECK(Near(ps::PlaceOf(Turned(90)).tilt_degrees, 90, 0.5f) && Near(ps::PlaceOf(Turned(30)).tilt_degrees, 30, 0.5f));
   // The keys, in order.
   const auto keys = ps::HintKeys(0x3F);
@@ -303,6 +322,14 @@ static void CheckTree() {
   CHECK(game.find("kBridgeBodyDistance - phone.joints[0].z") == std::string::npos);
   // Every hint through Tr with its literal key (check-english-source.py reads them), and Good spot.
   for (const char* key : ps::HintKeys(0x3F)) CHECK(game.find(std::string("Tr(\"") + key + "\")") != std::string::npos);
+  // Each hint bit with its own text (review L3: Move left and Move right swapped went unseen).
+  const char* names[] = {"kSideways", "kWholeBody", "kStepBack", "kStepCloser", "kMoveLeft", "kMoveRight"};
+  const auto keys = ps::HintKeys(0x3F);
+  for (size_t n = 0; n < keys.size(); ++n)
+    CHECK(game.find(std::string("case ps::") + names[n] + ": return Tr(\"" + keys[n] + "\");") != std::string::npos);
+  // The map's place is the game's frame's (the emergency pose included), the dot at that place.
+  CHECK(game.find("const ps::Place place = ps::PlaceOf(guest);") != std::string::npos);
+  CHECK(game.find("const ImVec2 dot = at(ps::DotPoint(map, place, &outside));") != std::string::npos);
   CHECK(game.find("Tr(\"Good spot\")") != std::string::npos);
   // The option: on by default, per game, live; the overlay reads it.
   CHECK(game.find("settings.touchpad_menu,settings.motion_panel,settings.motion_map);") != std::string::npos);

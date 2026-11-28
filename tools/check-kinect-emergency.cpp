@@ -164,8 +164,19 @@ int main(int argc, char** argv) {
     m::EmergencyEvent ev;
     e.Apply(Body(5, 1, .5f), at(0), &ev);
     e.Pad(true, at(100));
+#ifdef XBOX360PS5_EMERGENCY_196B
+    // Fix 196b: the body went 0.3 s ago: not yet; 1 s ago (the hold long enough): on.
+    m::Frame out = e.Apply(NoBody(5), at(300), &ev);
+    CHECK(ev == m::EmergencyEvent::kNone && !out.tracked);
+    out = e.Apply(NoBody(5), at(1000), &ev);
+    CHECK(ev == m::EmergencyEvent::kOn && out.tracked);
+    e.Pad(false, at(1050));
+    e.Apply(NoBody(5), at(1060), &ev);
+    CHECK(ev == m::EmergencyEvent::kOffReleased);
+#else
     m::Frame out = e.Apply(NoBody(5), at(1000), &ev);
     CHECK(ev == m::EmergencyEvent::kNone && !out.tracked);  // the body went 1 s ago
+#endif
     e.Reset();
     e.Pad(false, at(1100));
     e.Pad(true, at(1200));

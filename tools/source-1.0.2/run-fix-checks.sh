@@ -242,6 +242,7 @@ checks=(
   check-nike-core-config.cpp       # fix 193 (assets/config/4D53090F.config.toml)
   check-play-space-map.cpp         # fix 194
   check-emergency-pad-source.cpp   # fix 196
+  check-emergency-hold-hint.cpp    # fix 196b
 )
 declare -A arguments=(
   [check-english-fallback.cpp]="$repo/tools/source-1.0.2/english/lang"
@@ -459,6 +460,7 @@ declare -A fix_of=(
   [check-reserved-store.cpp]=192
   [check-play-space-map.cpp]=194
   [check-emergency-pad-source.cpp]=196
+  [check-emergency-hold-hint.cpp]=196b
 )
 skipped_fixes=$("$python" -I -c 'import json, sys, os
 report = json.load(open(sys.argv[1], encoding="utf-8"))
